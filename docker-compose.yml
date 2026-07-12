@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: simats_recruitment_postgres
+    restart: unless-stopped
+    ports:
+      # Host port 5434 (not the default 5432) -- this machine already runs
+      # other unrelated Postgres containers bound to 5432/5433.
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Phase 3 will add: minio: (resume/certificate/offer-letter object storage) ---
+  # --- Phase 6 will add: chromadb: (resume embeddings / semantic JD matching) ---
+
+volumes:
+  postgres_data:

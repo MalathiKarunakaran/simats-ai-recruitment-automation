@@ -1,0 +1,48 @@
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.models.enums import UserRoleEnum
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8)
+    full_name: str
+    role: UserRoleEnum
+    campus_id: uuid.UUID | None = None
+    department_id: uuid.UUID | None = None
+    phone_number: str | None = None
+
+
+class UserUpdate(BaseModel):
+    full_name: str | None = None
+    role: UserRoleEnum | None = None
+    campus_id: uuid.UUID | None = None
+    department_id: uuid.UUID | None = None
+    phone_number: str | None = None
+    is_active: bool | None = None
+
+
+class UserSelfUpdate(BaseModel):
+    full_name: str | None = None
+    phone_number: str | None = None
+    password: str | None = Field(default=None, min_length=8)
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: EmailStr
+    full_name: str
+    role: UserRoleEnum
+    campus_id: uuid.UUID | None
+    department_id: uuid.UUID | None
+    is_active: bool
+    is_email_verified: bool
+    phone_number: str | None
+    last_login_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
