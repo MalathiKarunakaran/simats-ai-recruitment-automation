@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.routers import (
     applications,
     approved_vacancies,
+    assistant,
     audit_logs,
     auth,
     campuses,
@@ -39,3 +40,4 @@ api_router.include_router(employees.router)
 api_router.include_router(resume_screening.router)
 api_router.include_router(interviews.router)
 api_router.include_router(notifications.router)
+api_router.include_router(assistant.router)

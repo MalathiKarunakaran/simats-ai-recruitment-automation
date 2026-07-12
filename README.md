@@ -14,6 +14,9 @@ phase, each phase reviewed before the next begins.
   directly (no central orchestrator yet — that's Phase 4's Hermes
   Orchestrator). First phase touching real external services: Anthropic,
   MinIO, ChromaDB.
+- **Phase 4 (done): Hermes Orchestrator** — a read-only natural-language
+  assistant (Module 14) over a manual Claude tool-use loop, plus a daily HR
+  briefing endpoint. Reporting/dashboards (Module 12) remain Phase 5.
 
 ## Stack
 
@@ -97,7 +100,7 @@ docker exec simats_recruitment_postgres psql -U simats_app -d simats_recruitment
 venv/Scripts/python.exe -m pytest -v
 ```
 
-108 tests, zero live calls to Anthropic/MinIO/ChromaDB (all three are
+122 tests, zero live calls to Anthropic/MinIO/ChromaDB (all three are
 FastAPI-injectable dependencies, overridden with in-memory fakes in
 `tests/conftest.py` — see `fake_ai_client`/`fake_minio_client`/
 `fake_chroma_collection` — so the suite is fast, free, and deterministic).
@@ -121,6 +124,17 @@ duplicate-feedback 409, `teaching_demo_score` only kept for `TEACHING`
 role_category), and notification creation at every wired call site
 (`notify`/`notify_role` fan-out, campus filtering for single-campus roles).
 
+Phase 4 (14): campus-scoping correctness for both single-campus and
+global-scope callers (the safety-critical property — a single-campus
+caller's `campus_code` tool argument is always ignored), an invalid
+`campus_code` from a global caller returning an empty result with an
+explanatory `scope_note` rather than an error, parallel tool-use blocks in
+one turn all executing, the 4-call iteration cap raising a clean `502`, a
+reporting-flavored question passing through without forcing a tool call, an
+unknown/bad tool name producing an `is_error` tool result instead of
+crashing the loop, AI-error → 503/502 mapping, role gating, daily-briefing
+stats scoping, and audit log correctness.
+
 Manual/live smoke test (needs a real `ANTHROPIC_API_KEY` and the Docker
 services running): `POST /vacancy-requests/{id}/generate-jd` and inspect
 `jd_draft`; `POST /candidates/{id}/resume` (verified against real MinIO via
@@ -128,6 +142,13 @@ services running): `POST /vacancy-requests/{id}/generate-jd` and inspect
 `POST /applications/{id}/screen` end-to-end against live MinIO + ChromaDB +
 Anthropic. Without a key, `generate-jd`/`screen` return a clean `503 AI
 features are not configured` rather than a raw 500 — verified live.
+
+Live-verified without a key (Phase 4): `POST /assistant/query` and
+`GET /assistant/daily-briefing` both return a clean `503` (the
+`get_ai_client` dependency fails before the route body runs, so no audit
+log is written for these — consistent with the Phase 3 AI-endpoint
+convention); `CANDIDATE` role gets `403` on both; unauthenticated gets
+`401`; both routes appear in `/openapi.json`.
 
 ## Known stubs / deferred to later phases
 
@@ -152,10 +173,13 @@ features are not configured` rather than a raw 500 — verified live.
 - **Candidate self-service portal (Module 5)** — not assigned to any of the
   7 phases in the master spec; applications/resumes are recorded internally
   by Recruitment Officer/HR Admin via API. Deferred alongside the frontend.
-- **Hermes Orchestrator / natural-language query routing** — Phase 4. Phase
-  3's agents are individually callable REST endpoints, not yet centrally
-  routed.
-- **Dashboards / PPT reporting** — Phase 5.
+- **Hermes is read-only and narrow in scope** — it answers questions and
+  suggests the correct existing endpoint, but never itself calls a mutating
+  endpoint. It does not centrally route Phase 3's *mutating* agent actions
+  (JD generation, resume screening, interview scheduling) — those remain
+  individually callable REST endpoints. A reporting-flavored question gets a
+  clear "not available yet" answer rather than a best-effort guess.
+- **Dashboards / PPT reporting (Module 12)** — Phase 5.
 - **n8n / Airtable / Gmail / Telegram interoperability & migration, external
   job-portal posting (Module 4)** — Phase 6.
 - **Deployment hardening, load testing, VPS Docker deploy** — Phase 7.
@@ -231,3 +255,39 @@ features are not configured` rather than a raw 500 — verified live.
   and must invoke `bash` explicitly (`CMD`, not `CMD-SHELL`), since
   `CMD-SHELL` runs `/bin/sh` (`dash` on this image), which doesn't support
   `/dev/tcp`. Found and fixed by testing the healthcheck live, not assumed.
+
+**Phase 4:**
+- Hermes uses a **manual Claude tool-use loop** (`app/services/hermes.py::
+  run_assistant_query`), not the Anthropic SDK's beta Tool Runner —
+  `ai_client.py` doesn't use the beta namespace anywhere else, so a Tool
+  Runner here would be an inconsistent one-off. Capped at 4 API calls per
+  query; on the 4th call, if Claude still wants a tool, the endpoint returns
+  a clean `502` rather than looping forever.
+- **The single safety-critical function in this phase** is
+  `hermes._resolve_campus_filter`: for a single-campus caller, any
+  `campus_code` tool argument Claude passes is *always* ignored — the
+  filter is always the caller's own `scope.campus_id`, regardless of what
+  the model asked for. A global-scope caller's `campus_code` narrows the
+  query; omitting it spans every campus. Every tool result carries a
+  `scope_note` string stating exactly what filter was applied, and the
+  system prompt instructs Claude to never claim broader coverage than that
+  note states.
+- An invalid `campus_code` from a global-scope caller is handled by
+  filtering on a nil UUID (`uuid.UUID(int=0)`, never produced by
+  `gen_random_uuid()`) rather than branching — it deterministically matches
+  zero rows without a raised exception, keeping every executor's query-building
+  code uniform.
+- Tool executors are read-only queries over existing tables — no new DB
+  tables, no query-history table. `AuditLog` (`action=ASSISTANT_QUERY` /
+  `ASSISTANT_DAILY_BRIEFING`) is the system of record for "who asked what,"
+  logged inline in the router the same way `LOGIN_SUCCESS`/`LOGIN_FAILED`
+  are (no entity is mutated, so there's nothing for a service-layer
+  `log_create`/`log_update` to attach to).
+- A bad/unknown tool call (wrong tool name, invalid enum value, malformed
+  UUID) is caught per-tool-use-block inside the loop and turned into an
+  `is_error: true` tool result fed back to Claude, rather than crashing the
+  whole query — Claude gets a chance to recover or explain the limitation.
+- The daily briefing's narrative text is a **separate, single, non-tool
+  call** (`ai_client.generate_narrative`) over already-computed stats, not
+  routed through the tool-use loop — the numbers are deterministic DB
+  aggregates, so there's nothing for Claude to look up.

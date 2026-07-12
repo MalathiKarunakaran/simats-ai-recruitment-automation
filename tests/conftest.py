@@ -78,18 +78,32 @@ def db_session():
     connection.close()
 
 
-class _FakeTextBlock:
+class FakeTextBlock:
     def __init__(self, text: str):
         self.type = "text"
         self.text = text
 
 
-class _FakeMessage:
-    def __init__(self, content):
+class FakeToolUseBlock:
+    def __init__(self, name: str, tool_input: dict, id: str | None = None):
+        self.type = "tool_use"
+        self.name = name
+        self.input = tool_input
+        self.id = id or f"toolu_{uuid.uuid4().hex[:16]}"
+
+
+class FakeMessage:
+    def __init__(self, content, stop_reason: str = "end_turn"):
         self.content = content
+        self.stop_reason = stop_reason
 
 
-def _default_ai_response(kwargs: dict) -> _FakeMessage:
+# Old underscored names kept as aliases -- Phase 3 tests reference them directly.
+_FakeTextBlock = FakeTextBlock
+_FakeMessage = FakeMessage
+
+
+def _default_ai_response(kwargs: dict) -> FakeMessage:
     """Canned structured-JSON responses, dispatched by which JSON schema was
     requested -- mirrors app.services.ai_client's three schemas without
     importing them directly (keeps this fixture decoupled from ai_client's
@@ -128,7 +142,7 @@ def _default_ai_response(kwargs: dict) -> _FakeMessage:
         }
     else:
         payload = {}
-    return _FakeMessage(content=[_FakeTextBlock(json.dumps(payload))])
+    return FakeMessage(content=[FakeTextBlock(json.dumps(payload))])
 
 
 class FakeAnthropicClient:

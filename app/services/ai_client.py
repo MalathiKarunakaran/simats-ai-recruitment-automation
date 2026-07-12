@@ -277,3 +277,38 @@ def generate_interview_questions(
         output_config={"format": {"type": "json_schema", "schema": INTERVIEW_QUESTIONS_JSON_SCHEMA}},
     )
     return _parse_structured_json(response)
+
+
+def call_with_tools(
+    client: anthropic.Anthropic, *, system: str, tools: list[dict], messages: list[dict], max_tokens: int = 1500
+):
+    """Raw tool-use call for Module 14 (Hermes) -- returns the SDK response
+    object as-is; the caller (app/services/hermes.py) branches on
+    response.stop_reason and builds the next turn. tool_choice is left at
+    the SDK default ("auto") so Claude can also answer with no tool call."""
+    return _call(
+        client.messages.create,
+        model=settings.ANTHROPIC_MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        tools=tools,
+        messages=messages,
+    )
+
+
+def generate_narrative(client: anthropic.Anthropic, *, system: str, user_content: str, max_tokens: int = 800) -> str:
+    """Single-call plain-text generation (no output_config, no tools) --
+    used for Module 14's daily-briefing narrative summary."""
+    response = _call(
+        client.messages.create,
+        model=settings.ANTHROPIC_MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": user_content}],
+    )
+    text_block = next((block for block in response.content if block.type == "text"), None)
+    if text_block is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"
+        )
+    return text_block.text
