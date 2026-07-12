@@ -12,6 +12,7 @@ transaction" recipe), so router code calling `db.commit()` behaves normally
 within a test while nothing is ever persisted between tests.
 """
 
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -36,6 +37,9 @@ from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, UserRole
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.services import vacancy_workflow
+from app.services.ai_client import get_ai_client
+from app.services.storage import get_minio_client
+from app.services.vector_store import get_chroma_collection
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
@@ -74,12 +78,202 @@ def db_session():
     connection.close()
 
 
+class _FakeTextBlock:
+    def __init__(self, text: str):
+        self.type = "text"
+        self.text = text
+
+
+class _FakeMessage:
+    def __init__(self, content):
+        self.content = content
+
+
+def _default_ai_response(kwargs: dict) -> _FakeMessage:
+    """Canned structured-JSON responses, dispatched by which JSON schema was
+    requested -- mirrors app.services.ai_client's three schemas without
+    importing them directly (keeps this fixture decoupled from ai_client's
+    internals)."""
+    schema = kwargs.get("output_config", {}).get("format", {}).get("schema", {})
+    properties = schema.get("properties", {})
+
+    if "role_overview" in properties:
+        payload = {
+            "role_overview": "Test role overview for a faculty position.",
+            "responsibilities": ["Teach undergraduate courses.", "Mentor students."],
+            "required_qualifications": ["PhD in a relevant field."],
+            "preferred_skills": ["Research publications.", "Industry experience."],
+            "application_process": "Apply online via the SIMATS careers portal.",
+        }
+    elif "eligibility_score" in properties:
+        payload = {
+            "eligibility_score": 82.5,
+            "skill_match_pct": 75.0,
+            "qualification_match_pct": 90.0,
+            "experience_match_pct": 80.0,
+            "publication_count": 3,
+            "overall_recruitment_score": 81.0,
+            "rationale": "Strong candidate with relevant qualifications and experience.",
+            "extracted_skills": ["Python", "Teaching", "Research"],
+            "extracted_qualification": "PhD in Computer Science",
+            "extracted_experience_years": 5.0,
+            "missing_required_fields": [],
+        }
+    elif "questions" in properties:
+        payload = {
+            "questions": [
+                {"category": "Technical", "question": "Describe a project you led."},
+                {"category": "Behavioral", "question": "How do you handle disagreement in a team?"},
+            ]
+        }
+    else:
+        payload = {}
+    return _FakeMessage(content=[_FakeTextBlock(json.dumps(payload))])
+
+
+class FakeAnthropicClient:
+    """Fake for app.services.ai_client.get_ai_client. `response_provider`
+    defaults to _default_ai_response; tests that need to exercise the
+    exception->HTTP mapping in ai_client._call swap in a provider (or a
+    `.messages.create` override) that raises a real `anthropic.*Error`."""
+
+    def __init__(self, response_provider=_default_ai_response):
+        self.response_provider = response_provider
+        self.messages = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs):
+        return self.response_provider(kwargs)
+
+
+class _FakeMinioResponse:
+    def __init__(self, data: bytes):
+        self._data = data
+
+    def read(self) -> bytes:
+        return self._data
+
+    def close(self) -> None:
+        pass
+
+    def release_conn(self) -> None:
+        pass
+
+
+class FakeMinioClient:
+    """In-memory fake for app.services.storage.get_minio_client."""
+
+    def __init__(self):
+        self._buckets: set[str] = set()
+        self._objects: dict[tuple[str, str], bytes] = {}
+
+    def bucket_exists(self, bucket: str) -> bool:
+        return bucket in self._buckets
+
+    def make_bucket(self, bucket: str) -> None:
+        self._buckets.add(bucket)
+
+    def put_object(self, bucket: str, object_name: str, data, length: int, content_type: str | None = None):
+        self._objects[(bucket, object_name)] = data.read()
+
+    def get_object(self, bucket: str, object_name: str) -> _FakeMinioResponse:
+        return _FakeMinioResponse(self._objects[(bucket, object_name)])
+
+
+class FakeChromaCollection:
+    """In-memory fake for app.services.vector_store.get_chroma_collection.
+    Deterministic "distance": 0.0 for an exact document match, 0.5 otherwise
+    -- enough to exercise duplicate-detection and similarity-scoring code
+    paths without a real embedding model."""
+
+    def __init__(self):
+        self._docs: dict[str, tuple[str, dict]] = {}
+
+    def upsert(self, ids, documents, metadatas):
+        for doc_id, document, metadata in zip(ids, documents, metadatas):
+            self._docs[doc_id] = (document, metadata)
+
+    def query(self, query_texts, n_results: int = 5, where: dict | None = None):
+        query_text = query_texts[0]
+        candidates = list(self._docs.items())
+        if where:
+            candidates = [
+                (doc_id, value)
+                for doc_id, value in candidates
+                if value[1].get("candidate_id") == where.get("candidate_id")
+            ]
+
+        def _distance(item):
+            document = item[1][0]
+            return 0.0 if document == query_text else 0.5
+
+        candidates.sort(key=_distance)
+        candidates = candidates[:n_results]
+        return {
+            "ids": [[doc_id for doc_id, _ in candidates]],
+            "distances": [[_distance((doc_id, value)) for doc_id, value in candidates]],
+        }
+
+
+def build_test_pdf(text: str = "") -> bytes:
+    """Builds a minimal, real, pypdf-parseable PDF containing `text` (or a
+    blank page if text is empty -- used to exercise the
+    resume-text-too-short incomplete-profile path)."""
+    import io
+
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    page = writer.add_blank_page(width=612, height=792)
+
+    if text:
+        font = DictionaryObject()
+        font[NameObject("/Type")] = NameObject("/Font")
+        font[NameObject("/Subtype")] = NameObject("/Type1")
+        font[NameObject("/BaseFont")] = NameObject("/Helvetica")
+        font_ref = writer._add_object(font)
+
+        if "/Resources" not in page:
+            page[NameObject("/Resources")] = DictionaryObject()
+        font_dict = DictionaryObject()
+        font_dict[NameObject("/F1")] = font_ref
+        page["/Resources"][NameObject("/Font")] = font_dict
+
+        escaped = text.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
+        content = f"BT /F1 24 Tf 72 700 Td ({escaped}) Tj ET".encode()
+        stream = DecodedStreamObject()
+        stream.set_data(content)
+        page[NameObject("/Contents")] = writer._add_object(stream)
+
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
 @pytest.fixture()
-def client(db_session):
+def fake_ai_client():
+    return FakeAnthropicClient()
+
+
+@pytest.fixture()
+def fake_minio_client():
+    return FakeMinioClient()
+
+
+@pytest.fixture()
+def fake_chroma_collection():
+    return FakeChromaCollection()
+
+
+@pytest.fixture()
+def client(db_session, fake_ai_client, fake_minio_client, fake_chroma_collection):
     def _override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_ai_client] = lambda: fake_ai_client
+    app.dependency_overrides[get_minio_client] = lambda: fake_minio_client
+    app.dependency_overrides[get_chroma_collection] = lambda: fake_chroma_collection
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -171,11 +365,12 @@ def department_factory(db_session, campus_factory):
 def candidate_factory(db_session):
     counter = {"n": 0}
 
-    def _make(email: str | None = None, full_name: str | None = None) -> Candidate:
+    def _make(email: str | None = None, full_name: str | None = None, phone_number: str | None = None) -> Candidate:
         counter["n"] += 1
         candidate = Candidate(
             full_name=full_name or f"Candidate {counter['n']}",
             email=email or f"candidate{counter['n']}.{uuid.uuid4().hex[:8]}@example.com",
+            phone_number=phone_number,
         )
         db_session.add(candidate)
         db_session.flush()

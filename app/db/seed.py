@@ -10,6 +10,13 @@ exercising the full requisition -> approval -> pipeline -> offer -> joining
 -> auto-close lifecycle end-to-end, using the same service functions the API
 uses (not hand-rolled shortcuts), so the seed run is itself a smoke test of
 the Module 2/7/9/10/11 business logic.
+
+Phase 3 (see _seed_phase3_demo) adds: a DRAFT vacancy with a hardcoded
+example JD (not a live Anthropic call -- seeding must never depend on or
+cost a live API key), a directly-constructed ResumeScore for Alice's
+existing application (the one deliberate exception to "seed exercises the
+real service layer", for the same reason), and a real interview
+scheduling/feedback/completion flow via the actual interviews service.
 """
 
 import secrets
@@ -26,16 +33,22 @@ from app.models.enums import (
     CAMPUS_CODES,
     ApplicationStatusEnum,
     EmploymentTypeEnum,
+    InterviewRecommendationEnum,
+    InterviewTypeEnum,
     JoiningDocumentStatusEnum,
     OfferStatusEnum,
     StaffRoleCategoryEnum,
     UserRoleEnum,
     VacancyPriorityEnum,
 )
+from app.models.interview import InterviewSchedule
 from app.models.joining import JoiningDocument
 from app.models.offer import Offer
+from app.models.resume_score import ResumeScore
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
+from app.schemas.interview import InterviewFeedbackCreate
+from app.services import interviews as interviews_service
 from app.services import joining as joining_service
 from app.services import pipeline, vacancy_workflow
 
@@ -310,6 +323,139 @@ def _seed_phase2_demo(
     )
 
 
+_HOUSEKEEPING_SUPERVISOR_JD = """\
+## Role Overview
+SIMATS SSPE campus is seeking a Housekeeping Supervisor to oversee daily \
+housekeeping operations, staff scheduling, and facility cleanliness standards.
+
+## Responsibilities
+- Supervise and schedule the housekeeping team across campus facilities.
+- Maintain cleanliness and hygiene standards in line with institutional policy.
+- Manage inventory of cleaning supplies and equipment.
+
+## Required Qualifications
+- Higher secondary education or equivalent.
+- Prior supervisory experience in housekeeping or facilities management.
+
+## Preferred Skills
+- Team leadership and scheduling.
+- Familiarity with institutional hygiene/safety standards.
+
+## Application Process
+Apply online via the SIMATS careers portal.
+
+(Example JD text seeded directly -- not a live Anthropic API call. See
+README "Known stubs" for why: seeding must never depend on or cost a live
+API key. The real /vacancy-requests/{id}/generate-jd endpoint does call
+Claude live.)"""
+
+
+def _seed_phase3_demo(db, *, campuses, departments, hod_sse, hr_admin) -> None:
+    # 1. A DRAFT vacancy with a hardcoded example JD -- demonstrates the
+    # human-in-the-loop DRAFT-editable jd_draft state without a live API call.
+    draft_position_title = "Housekeeping Supervisor"
+    if _get_existing_vacancy_request(db, campuses["SSPE"], draft_position_title) is None:
+        draft_vr = VacancyRequest(
+            campus_id=campuses["SSPE"].id,
+            department_id=departments["SSPE"][0].id,
+            role_category=StaffRoleCategoryEnum.HOUSEKEEPING,
+            position_title=draft_position_title,
+            employment_type=EmploymentTypeEnum.FULL_TIME,
+            requested_count=1,
+            qualification="Higher secondary education or equivalent",
+            experience_required="2+ years supervisory experience",
+            priority=VacancyPriorityEnum.NORMAL,
+            jd_draft=_HOUSEKEEPING_SUPERVISOR_JD,
+            requested_by_id=hod_sse.id,
+        )
+        db.add(draft_vr)
+        db.flush()
+
+    # 2. A directly-constructed ResumeScore for Alice's existing application
+    # (deliberately bypassing the real screening service -- no live
+    # MinIO/ChromaDB/Anthropic calls from seed data; see module docstring).
+    alice = db.query(Candidate).filter(Candidate.email == "alice.faculty@example.com").one_or_none()
+    alice_application = None
+    if alice is not None:
+        alice_application = db.query(Application).filter(Application.candidate_id == alice.id).one_or_none()
+        if alice_application is not None:
+            existing_score = (
+                db.query(ResumeScore).filter(ResumeScore.application_id == alice_application.id).one_or_none()
+            )
+            if existing_score is None:
+                db.add(
+                    ResumeScore(
+                        application_id=alice_application.id,
+                        eligibility_score=88.0,
+                        skill_match_pct=82.0,
+                        qualification_match_pct=95.0,
+                        experience_match_pct=85.0,
+                        publication_count=4,
+                        overall_recruitment_score=87.5,
+                        semantic_similarity_score=79.0,
+                        rationale=(
+                            "Example rationale (seeded directly, not a live Anthropic call): "
+                            "strong PhD-level qualification match with relevant teaching experience."
+                        ),
+                        extracted_skills=["Python", "Machine Learning", "Curriculum Design"],
+                        extracted_qualification="PhD in Computer Science",
+                        extracted_experience_years=5.0,
+                        is_duplicate=False,
+                        is_incomplete_profile=False,
+                        screened_at=datetime.now(timezone.utc),
+                        screened_by_id=hr_admin.id,
+                        model_version="claude-opus-4-8 (seeded example, not a live call)",
+                    )
+                )
+                db.flush()
+
+    # 3. A real interview scheduling/feedback/completion flow, via the
+    # actual interviews service (continuing "seeding doubles as a smoke
+    # test" for everything except the three live-external-service calls
+    # documented above).
+    panel_member_sse = _get_or_create_user(
+        db,
+        email="panel.member.sse@example.com",
+        password=settings.SEED_SAMPLE_USER_PASSWORD,
+        full_name="Interview Panel Member - SSE",
+        role=UserRoleEnum.INTERVIEW_PANEL_MEMBER,
+        campus=campuses["SSE"],
+    )
+    if alice is not None and alice_application is not None:
+        existing_schedule = (
+            db.query(InterviewSchedule)
+            .filter(InterviewSchedule.application_id == alice_application.id)
+            .one_or_none()
+        )
+        if existing_schedule is None:
+            schedule = interviews_service.schedule_interview(
+                db,
+                application=alice_application,
+                interview_type=InterviewTypeEnum.TECHNICAL,
+                scheduled_at=datetime.now(timezone.utc) + timedelta(days=1),
+                duration_minutes=45,
+                meeting_link="https://meet.example.com/seed-demo-interview",
+                location=None,
+                notes="Seed demo interview.",
+                panel_member_ids=[panel_member_sse.id],
+                actor=hr_admin,
+            )
+            interviews_service.submit_feedback(
+                db,
+                schedule=schedule,
+                panel_member=panel_member_sse,
+                payload=InterviewFeedbackCreate(
+                    technical_score=9,
+                    communication_score=8,
+                    research_score=8,
+                    overall_recommendation=InterviewRecommendationEnum.STRONG_HIRE,
+                    comments="Seed demo feedback -- excellent technical depth.",
+                ),
+                actor=hr_admin,
+            )
+            interviews_service.mark_completed(db, schedule=schedule, actor=hr_admin)
+
+
 def seed() -> None:
     db = SessionLocal()
     try:
@@ -417,9 +563,13 @@ def seed() -> None:
             hr_admin=hr_admin,
             recruitment_officer_sse=recruitment_officer_sse,
         )
+        _seed_phase3_demo(db, campuses=campuses, departments=departments, hod_sse=hod_sse, hr_admin=hr_admin)
 
         db.commit()
-        print(f"Seed complete: {len(campuses)} campuses, sample users across all 8 roles, Phase 2 demo scenarios.")
+        print(
+            f"Seed complete: {len(campuses)} campuses, sample users across all 8 roles, "
+            "Phase 2 + Phase 3 demo scenarios."
+        )
     finally:
         db.close()
 

@@ -39,6 +39,10 @@ class VacancyRequestRejectRequest(BaseModel):
     reason: str = Field(min_length=1)
 
 
+class VacancyRequestGenerateJDRequest(BaseModel):
+    additional_instructions: str | None = None
+
+
 class VacancyRequestRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

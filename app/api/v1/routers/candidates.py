@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from minio import Minio
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_active_user, get_db, require_roles
@@ -9,9 +10,13 @@ from app.models.enums import UserRoleEnum
 from app.models.user import User
 from app.schemas.candidate import CandidateCreate, CandidateRead
 from app.schemas.common import PaginatedResponse
-from app.services.audit import log_create
+from app.services import storage
+from app.services.audit import log_create, log_update
+from app.services.storage import get_minio_client
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
+
+_MAX_RESUME_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Candidates aren't campus-owned (a person isn't tied to one campus), so
 # there's no campus scoping here -- just a staff-role gate, mirroring how
@@ -82,4 +87,49 @@ def get_candidate(
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return candidate
+
+
+@router.post("/{candidate_id}/resume", response_model=CandidateRead)
+def upload_resume(
+    candidate_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    minio_client: Minio = Depends(get_minio_client),
+) -> Candidate:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    if file.content_type != "application/pdf":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF resumes are accepted")
+
+    data = file.file.read()
+    if len(data) > _MAX_RESUME_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Resume file exceeds the 10 MB limit")
+
+    before = {"resume_storage_key": candidate.resume_storage_key}
+    storage_key = storage.upload_resume(
+        minio_client,
+        candidate_id=candidate.id,
+        filename=file.filename or "resume.pdf",
+        data=data,
+        content_type=file.content_type,
+    )
+    candidate.resume_storage_key = storage_key
+
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="Candidate",
+        entity=candidate,
+        campus_context_id=None,
+        before_state=before,
+        after_state={"resume_storage_key": candidate.resume_storage_key},
+        request=request,
+    )
+    db.commit()
+    db.refresh(candidate)
     return candidate

@@ -15,6 +15,7 @@ from app.models.hiring_slot import HiringSlot
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
+from app.services import notifications
 from app.services.audit import log_event
 
 
@@ -44,6 +45,16 @@ def submit(db: Session, vacancy_request: VacancyRequest, actor: User, request: R
         after_state=_snapshot(vacancy_request),
         request=request,
     )
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT, UserRoleEnum.SUPER_ADMIN},
+        notification_type="VACANCY_REQUEST_SUBMITTED",
+        subject=f"Vacancy request submitted: {vacancy_request.position_title}",
+        body=f"A vacancy request for {vacancy_request.position_title} at {vacancy_request.campus.code} awaits Dean approval.",
+        related_entity_type="VacancyRequest",
+        related_entity_id=vacancy_request.id,
+        request=request,
+    )
     return vacancy_request
 
 
@@ -70,6 +81,27 @@ def dean_approve(
         entity_id=vacancy_request.id,
         before_state=before,
         after_state=_snapshot(vacancy_request),
+        request=request,
+    )
+    notifications.notify(
+        db,
+        recipient_user=vacancy_request.requested_by,
+        notification_type="VACANCY_REQUEST_DEAN_APPROVED",
+        subject=f"Dean-approved: {vacancy_request.position_title}",
+        body=f"Your vacancy request for {vacancy_request.position_title} was approved by the Associate Dean and now awaits HR approval.",
+        campus_context_id=vacancy_request.campus_id,
+        related_entity_type="VacancyRequest",
+        related_entity_id=vacancy_request.id,
+        request=request,
+    )
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN},
+        notification_type="VACANCY_REQUEST_DEAN_APPROVED",
+        subject=f"Vacancy request awaiting HR approval: {vacancy_request.position_title}",
+        body=f"A vacancy request for {vacancy_request.position_title} at {vacancy_request.campus.code} has been Dean-approved and awaits HR approval.",
+        related_entity_type="VacancyRequest",
+        related_entity_id=vacancy_request.id,
         request=request,
     )
     return vacancy_request
@@ -102,6 +134,17 @@ def reject(
         entity_id=vacancy_request.id,
         before_state=before,
         after_state=_snapshot(vacancy_request),
+        request=request,
+    )
+    notifications.notify(
+        db,
+        recipient_user=vacancy_request.requested_by,
+        notification_type="VACANCY_REQUEST_REJECTED",
+        subject=f"Vacancy request rejected: {vacancy_request.position_title}",
+        body=f"Your vacancy request for {vacancy_request.position_title} was rejected. Reason: {reason}",
+        campus_context_id=vacancy_request.campus_id,
+        related_entity_type="VacancyRequest",
+        related_entity_id=vacancy_request.id,
         request=request,
     )
     return vacancy_request
@@ -167,6 +210,28 @@ def hr_approve(
         after_state={"total_positions": approved_vacancy.total_positions},
         request=request,
     )
+    notifications.notify(
+        db,
+        recipient_user=vacancy_request.requested_by,
+        notification_type="VACANCY_REQUEST_HR_APPROVED",
+        subject=f"HR-approved: {vacancy_request.position_title}",
+        body=f"Your vacancy request for {vacancy_request.position_title} received final HR approval ({approved_vacancy.total_positions} position(s)).",
+        campus_context_id=vacancy_request.campus_id,
+        related_entity_type="VacancyRequest",
+        related_entity_id=vacancy_request.id,
+        request=request,
+    )
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.RECRUITMENT_OFFICER},
+        campus_id=vacancy_request.campus_id,
+        notification_type="VACANCY_REQUEST_HR_APPROVED",
+        subject=f"Vacancy approved, ready to publish: {vacancy_request.position_title}",
+        body=f"{vacancy_request.position_title} at {vacancy_request.campus.code} has been HR-approved with {approved_vacancy.total_positions} position(s).",
+        related_entity_type="VacancyRequest",
+        related_entity_id=vacancy_request.id,
+        request=request,
+    )
     return approved_vacancy
 
 
@@ -218,6 +283,17 @@ def publish(
         entity_type="JobPosting",
         entity_id=job_posting.id,
         after_state={"public_apply_slug": job_posting.public_apply_slug},
+        request=request,
+    )
+    notifications.notify(
+        db,
+        recipient_user=vacancy_request.requested_by,
+        notification_type="VACANCY_REQUEST_PUBLISHED",
+        subject=f"Published: {vacancy_request.position_title}",
+        body=f"Your vacancy request for {vacancy_request.position_title} is now published (posting {job_posting.public_apply_slug}).",
+        campus_context_id=vacancy_request.campus_id,
+        related_entity_type="JobPosting",
+        related_entity_id=job_posting.id,
         request=request,
     )
     return job_posting

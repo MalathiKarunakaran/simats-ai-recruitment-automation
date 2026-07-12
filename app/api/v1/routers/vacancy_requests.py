@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
+import anthropic
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
@@ -24,11 +25,13 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.job_posting import JobPostingRead
 from app.schemas.vacancy_request import (
     VacancyRequestCreate,
+    VacancyRequestGenerateJDRequest,
     VacancyRequestRead,
     VacancyRequestRejectRequest,
     VacancyRequestUpdate,
 )
-from app.services import vacancy_workflow
+from app.services import jd_generation, vacancy_workflow
+from app.services.ai_client import get_ai_client
 from app.services.audit import log_create, log_delete, log_update
 
 router = APIRouter(prefix="/vacancy-requests", tags=["vacancy-requests"])
@@ -191,6 +194,35 @@ def update_vacancy_request(
         campus_context_id=vr.campus_id,
         before_state=before,
         after_state=_snapshot(vr),
+        request=request,
+    )
+    db.commit()
+    db.refresh(vr)
+    return vr
+
+
+@router.post("/{vacancy_request_id}/generate-jd", response_model=VacancyRequestRead)
+def generate_jd_for_vacancy_request(
+    vacancy_request_id: uuid.UUID,
+    payload: VacancyRequestGenerateJDRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_can_write),
+    scope: CampusScope = Depends(get_campus_scope),
+    ai: anthropic.Anthropic = Depends(get_ai_client),
+) -> VacancyRequest:
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    if vr.status != VacancyRequestStatusEnum.DRAFT:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Only DRAFT vacancy requests can have a JD generated"
+        )
+
+    jd_generation.generate_and_apply_jd(
+        db,
+        vacancy_request=vr,
+        client=ai,
+        additional_instructions=payload.additional_instructions,
+        actor=current_user,
         request=request,
     )
     db.commit()

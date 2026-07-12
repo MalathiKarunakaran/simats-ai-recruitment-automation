@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 from app.models.application import Application
 from app.models.campus import Campus
 from app.models.employee import Employee
-from app.models.enums import DEFAULT_JOINING_DOCUMENT_TYPES, JoiningDocumentStatusEnum
+from app.models.enums import DEFAULT_JOINING_DOCUMENT_TYPES, JoiningDocumentStatusEnum, UserRoleEnum
 from app.models.joining import JoiningDocument, JoiningRecord
 from app.models.user import User
+from app.services import notifications
 from app.services.audit import log_create
 
 
@@ -38,6 +39,28 @@ def initialize_joining_checklist(
         entity=record,
         campus_context_id=application.campus_id,
         after_state={"joining_date": joining_date.isoformat()},
+        request=request,
+    )
+    notifications.notify(
+        db,
+        recipient_email=application.candidate.email,
+        notification_type="JOINING_CHECKLIST_INITIALIZED",
+        subject="Joining checklist ready",
+        body=f"Your joining checklist has been created. Expected joining date: {joining_date.isoformat()}.",
+        campus_context_id=application.campus_id,
+        related_entity_type="JoiningRecord",
+        related_entity_id=record.id,
+        request=request,
+    )
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.RECRUITMENT_OFFICER},
+        campus_id=application.campus_id,
+        notification_type="JOINING_CHECKLIST_INITIALIZED",
+        subject=f"Joining checklist created: {application.candidate.full_name}",
+        body=f"A joining checklist has been created for {application.candidate.full_name}.",
+        related_entity_type="JoiningRecord",
+        related_entity_id=record.id,
         request=request,
     )
     return record
@@ -70,6 +93,18 @@ def complete_onboarding(
 
     joining_record.onboarding_completed_at = datetime.now(timezone.utc)
     joining_record.onboarding_completed_by_id = actor.id
+
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.HR_ADMIN},
+        campus_id=application.campus_id,
+        notification_type="ONBOARDING_COMPLETE",
+        subject=f"Onboarding complete: {application.candidate.full_name}",
+        body=f"Onboarding is complete for {application.candidate.full_name}; ready for employee record creation.",
+        related_entity_type="JoiningRecord",
+        related_entity_id=joining_record.id,
+        request=request,
+    )
     return joining_record
 
 
@@ -118,6 +153,28 @@ def create_employee(
         entity=employee,
         campus_context_id=campus.id,
         after_state={"employee_code": employee.employee_code, "designation": employee.designation},
+        request=request,
+    )
+    notifications.notify(
+        db,
+        recipient_email=candidate.email,
+        notification_type="EMPLOYEE_CREATED",
+        subject="Welcome to SIMATS",
+        body=f"Your employee record has been created. Employee code: {employee.employee_code}.",
+        campus_context_id=campus.id,
+        related_entity_type="Employee",
+        related_entity_id=employee.id,
+        request=request,
+    )
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.HR_ADMIN},
+        campus_id=campus.id,
+        notification_type="EMPLOYEE_CREATED",
+        subject=f"Employee record created: {employee.employee_code}",
+        body=f"{candidate.full_name} is now employee {employee.employee_code}.",
+        related_entity_type="Employee",
+        related_entity_id=employee.id,
         request=request,
     )
     return employee

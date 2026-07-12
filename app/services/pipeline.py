@@ -27,6 +27,7 @@ from app.models.hiring_slot import HiringSlot
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
+from app.services import notifications
 from app.services.audit import log_event
 
 
@@ -173,11 +174,16 @@ def _fill_slot_and_maybe_autoclose(
         after_state={"closed_at": now.isoformat()},
         request=request,
     )
-    # Module 13 (Notification Agent) is Phase 3 -- log-only stub for now,
-    # same pattern as Phase 1's password-reset-email stub.
-    print(
-        f"[notification-stub] Vacancy request {vacancy_request.id} auto-closed -- "
-        f"all {approved_vacancy.total_positions} hiring slot(s) filled."
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT},
+        campus_id=approved_vacancy.campus_id,
+        notification_type="VACANCY_AUTO_CLOSE",
+        subject=f"Vacancy auto-closed: {vacancy_request.position_title}",
+        body=f"All {approved_vacancy.total_positions} hiring slot(s) are now filled -- the vacancy has auto-closed.",
+        related_entity_type="ApprovedVacancy",
+        related_entity_id=approved_vacancy.id,
+        request=request,
     )
 
 
@@ -228,10 +234,54 @@ def transition_application_status(
         application.rejection_reason = reason
         application.rejected_at = datetime.now(timezone.utc)
         _release_slot_if_reserved(db, application, actor, request)
+        notifications.notify(
+            db,
+            recipient_email=application.candidate.email,
+            notification_type="APPLICATION_REJECTED",
+            subject="Application status update",
+            body=f"Your application status has been updated to Rejected. Reason: {reason}",
+            campus_context_id=application.campus_id,
+            related_entity_type="Application",
+            related_entity_id=application.id,
+            request=request,
+        )
     elif new_status == ApplicationStatusEnum.SELECTED:
         _reserve_slot(db, application, actor, request)
+        notifications.notify(
+            db,
+            recipient_email=application.candidate.email,
+            notification_type="APPLICATION_SELECTED",
+            subject="You've been selected",
+            body="Congratulations -- you have been selected to move forward in the recruitment process.",
+            campus_context_id=application.campus_id,
+            related_entity_type="Application",
+            related_entity_id=application.id,
+            request=request,
+        )
     elif new_status == ApplicationStatusEnum.JOINED:
         _fill_slot_and_maybe_autoclose(db, application, actor, request)
+        notifications.notify(
+            db,
+            recipient_email=application.candidate.email,
+            notification_type="APPLICATION_JOINED",
+            subject="Welcome aboard",
+            body="Your joining has been recorded. Welcome to SIMATS!",
+            campus_context_id=application.campus_id,
+            related_entity_type="Application",
+            related_entity_id=application.id,
+            request=request,
+        )
+        notifications.notify_role(
+            db,
+            roles={UserRoleEnum.HR_ADMIN},
+            campus_id=application.campus_id,
+            notification_type="APPLICATION_JOINED",
+            subject=f"Candidate joined: {application.candidate.full_name}",
+            body=f"{application.candidate.full_name} has joined.",
+            related_entity_type="Application",
+            related_entity_id=application.id,
+            request=request,
+        )
 
     log_event(
         db,

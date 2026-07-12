@@ -9,9 +9,12 @@ from app.api.v1.routers import (
     candidates,
     departments,
     employees,
+    interviews,
     job_postings,
     joining,
+    notifications,
     offers,
+    resume_screening,
     users,
     vacancy_requests,
 )
@@ -32,3 +35,7 @@ api_router.include_router(applications.router)
 api_router.include_router(offers.router)
 api_router.include_router(joining.router)
 api_router.include_router(employees.router)
+
+api_router.include_router(resume_screening.router)
+api_router.include_router(interviews.router)
+api_router.include_router(notifications.router)

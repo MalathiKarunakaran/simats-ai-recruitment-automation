@@ -186,3 +186,50 @@ RECRUITMENT_WRITE_ROLES = {
     UserRoleEnum.SUPER_ADMIN,
 }
 HR_WRITE_ROLES = {UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN}
+
+
+class InterviewTypeEnum(str, enum.Enum):
+    TECHNICAL = "TECHNICAL"
+    HR = "HR"
+    TEACHING_DEMO = "TEACHING_DEMO"
+    GENERAL = "GENERAL"
+
+
+class InterviewScheduleStatusEnum(str, enum.Enum):
+    SCHEDULED = "SCHEDULED"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+    RESCHEDULED = "RESCHEDULED"
+
+
+class InterviewRecommendationEnum(str, enum.Enum):
+    STRONG_HIRE = "STRONG_HIRE"
+    HIRE = "HIRE"
+    NO_HIRE = "NO_HIRE"
+    STRONG_NO_HIRE = "STRONG_NO_HIRE"
+
+
+# Which Application status an interview_type advances the pipeline to, via
+# pipeline.advance_if_behind, when the interview is scheduled.
+INTERVIEW_TYPE_TO_APPLICATION_STATUS = {
+    InterviewTypeEnum.TECHNICAL: ApplicationStatusEnum.TECHNICAL_INTERVIEW,
+    InterviewTypeEnum.HR: ApplicationStatusEnum.HR_INTERVIEW,
+    InterviewTypeEnum.TEACHING_DEMO: ApplicationStatusEnum.INTERVIEW_SCHEDULED,
+    InterviewTypeEnum.GENERAL: ApplicationStatusEnum.INTERVIEW_SCHEDULED,
+}
+
+
+class NotificationChannelEnum(str, enum.Enum):
+    """Small, stable set of transport mechanisms -- unlike notification_type
+    (see Notification model), this rarely changes, so it's a real enum."""
+
+    EMAIL = "EMAIL"
+    TELEGRAM = "TELEGRAM"
+    SMS = "SMS"
+    WHATSAPP = "WHATSAPP"
+
+
+class NotificationStatusEnum(str, enum.Enum):
+    PENDING = "PENDING"
+    SENT = "SENT"
+    FAILED = "FAILED"

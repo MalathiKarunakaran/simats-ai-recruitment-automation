@@ -12,7 +12,7 @@ from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.offer import OfferCreate, OfferDeclineRequest, OfferRead
 from app.services import joining as joining_service
-from app.services import pipeline
+from app.services import notifications, pipeline
 from app.services.audit import log_create, log_update
 
 router = APIRouter(prefix="/offers", tags=["offers"])
@@ -139,6 +139,17 @@ def send_offer(
         after_state=_offer_snapshot(offer),
         request=request,
     )
+    notifications.notify(
+        db,
+        recipient_email=offer.application.candidate.email,
+        notification_type="OFFER_SENT",
+        subject="Your offer from SIMATS",
+        body=f"An offer has been sent for {offer.salary_currency} {offer.salary_amount}, joining date {offer.joining_date.isoformat()}.",
+        campus_context_id=offer.application.campus_id,
+        related_entity_type="Offer",
+        related_entity_id=offer.id,
+        request=request,
+    )
     db.commit()
     db.refresh(offer)
     return offer
@@ -181,6 +192,17 @@ def accept_offer(
         after_state=_offer_snapshot(offer),
         request=request,
     )
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.HR_ADMIN},
+        campus_id=application.campus_id,
+        notification_type="OFFER_ACCEPTED",
+        subject=f"Offer accepted: {application.candidate.full_name}",
+        body=f"{application.candidate.full_name} has accepted their offer.",
+        related_entity_type="Offer",
+        related_entity_id=offer.id,
+        request=request,
+    )
     db.commit()
     db.refresh(offer)
     return offer
@@ -221,6 +243,17 @@ def decline_offer(
         campus_context_id=offer.application.campus_id,
         before_state=before,
         after_state=_offer_snapshot(offer),
+        request=request,
+    )
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.HR_ADMIN},
+        campus_id=offer.application.campus_id,
+        notification_type="OFFER_DECLINED",
+        subject=f"Offer declined: {offer.application.candidate.full_name}",
+        body=f"{offer.application.candidate.full_name} declined their offer. Reason: {payload.reason}",
+        related_entity_type="Offer",
+        related_entity_id=offer.id,
         request=request,
     )
     db.commit()

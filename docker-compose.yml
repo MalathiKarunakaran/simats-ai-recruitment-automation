@@ -20,8 +20,59 @@ services:
       retries: 5
       start_period: 10s
 
-  # --- Phase 3 will add: minio: (resume/certificate/offer-letter object storage) ---
-  # --- Phase 6 will add: chromadb: (resume embeddings / semantic JD matching) ---
+  minio:
+    image: minio/minio:latest
+    container_name: simats_recruitment_minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000" # S3-compatible API
+      - "9001:9001" # Web console
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: simats_recruitment_chromadb
+    restart: unless-stopped
+    ports:
+      # Host 8012, not the ChromaDB-default 8000 -- host 8000 is already
+      # taken by an unrelated container on this machine, and the SIMATS API
+      # itself also runs locally on port 8010 via uvicorn.
+      - "8012:8000"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    healthcheck:
+      # The chromadb/chroma image ships neither curl nor wget, so the
+      # healthcheck uses bash's /dev/tcp to make a raw HTTP request instead
+      # (verified manually: /api/v2/heartbeat returns 200; /api/v1/heartbeat
+      # is deprecated and returns 410 on this image version). CMD-SHELL runs
+      # /bin/sh (dash on this image) which does NOT support /dev/tcp -- bash
+      # must be invoked explicitly.
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          "exec 3<>/dev/tcp/localhost/8000 && printf 'GET /api/v2/heartbeat HTTP/1.0\r\n\r\n' >&3 && head -1 <&3 | grep -q 200",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Phase 6 will add: n8n (Gmail/Telegram notification delivery) ---
 
 volumes:
   postgres_data:
+  minio_data:
+  chromadb_data:
