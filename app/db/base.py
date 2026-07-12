@@ -7,4 +7,14 @@ from app.models.campus import Campus  # noqa: F401
 from app.models.department import Department  # noqa: F401
 from app.models.user import User  # noqa: F401
 
+from app.models.vacancy_request import VacancyRequest  # noqa: F401
+from app.models.approved_vacancy import ApprovedVacancy  # noqa: F401
+from app.models.job_posting import JobPosting  # noqa: F401
+from app.models.candidate import Candidate  # noqa: F401
+from app.models.application import Application  # noqa: F401
+from app.models.hiring_slot import HiringSlot  # noqa: F401
+from app.models.offer import Offer  # noqa: F401
+from app.models.joining import JoiningDocument, JoiningRecord  # noqa: F401
+from app.models.employee import Employee  # noqa: F401
+
 __all__ = ["Base"]

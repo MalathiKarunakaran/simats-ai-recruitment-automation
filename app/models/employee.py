@@ -1,0 +1,52 @@
+import uuid
+from datetime import date, datetime
+
+from sqlalchemy import Date, DateTime, ForeignKey, String, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base_class import Base
+
+
+class Employee(Base):
+    __tablename__ = "employees"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("applications.id", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
+    )
+    # Scheme: {campus_code}-{4-digit sequence}, e.g. SSE-0001. Sequence is
+    # per-campus, generated with a row lock for concurrency safety.
+    employee_code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    campus_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("campuses.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    department_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
+    )
+    full_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    designation: Mapped[str] = mapped_column(String(150), nullable=False)
+    date_of_joining: Mapped[date] = mapped_column(Date, nullable=False)
+    # Future login-linkage hook (Module 5+) -- unused/nullable in Phase 2.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    application: Mapped["Application"] = relationship()
+    campus: Mapped["Campus"] = relationship()
+    department: Mapped["Department"] = relationship()
+
+    def __repr__(self) -> str:
+        return f"<Employee {self.employee_code}>"
