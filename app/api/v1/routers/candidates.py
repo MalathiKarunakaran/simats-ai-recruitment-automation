@@ -1,7 +1,9 @@
+import io
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from minio import Minio
+from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_active_user, get_db, require_roles
@@ -109,6 +111,14 @@ def upload_resume(
     data = file.file.read()
     if len(data) > _MAX_RESUME_BYTES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Resume file exceeds the 10 MB limit")
+
+    # Defense in depth on top of the content-type check above -- a client's
+    # Content-Type header is trivially spoofable, so confirm the bytes
+    # actually parse as a PDF before accepting the upload.
+    try:
+        PdfReader(io.BytesIO(data))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is not a valid PDF") from exc
 
     before = {"resume_storage_key": candidate.resume_storage_key}
     storage_key = storage.upload_resume(

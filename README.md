@@ -17,6 +17,19 @@ phase, each phase reviewed before the next begins.
 - **Phase 4 (done): Hermes Orchestrator** — a read-only natural-language
   assistant (Module 14) over a manual Claude tool-use loop, plus a daily HR
   briefing endpoint. Reporting/dashboards (Module 12) remain Phase 5.
+- **Phase 5 (done): Dashboards & Reporting** — Executive Dashboard KPIs and
+  7 recruitment/hiring reports (Module 12, 15), plus Excel and single-slide
+  navy/gold AD-briefing PPT exports.
+- **Phase 6 (done): Integrations & Migration** — real n8n-mediated
+  notification delivery (Module 13), job-ad generation/QR codes/portal
+  distribution (Module 4), and a legacy-vacancy CSV importer.
+- **Phase 7 (done): Hardening & Deployment** — security review (rate
+  limiting, resume-upload validation, security headers), audit-log
+  completeness sweep, a real Docker deployment artifact (verified by
+  building and running the full stack), and load testing.
+
+All 7 phases are complete. See `DEPLOYMENT.md` for the deployment runbook
+and `LOAD_TEST_RESULTS.md` for load-testing findings.
 
 ## Stack
 
@@ -100,7 +113,7 @@ docker exec simats_recruitment_postgres psql -U simats_app -d simats_recruitment
 venv/Scripts/python.exe -m pytest -v
 ```
 
-143 tests, zero live calls to Anthropic/MinIO/ChromaDB (all three are
+167 tests, zero live calls to Anthropic/MinIO/ChromaDB (all three are
 FastAPI-injectable dependencies, overridden with in-memory fakes in
 `tests/conftest.py` — see `fake_ai_client`/`fake_minio_client`/
 `fake_chroma_collection` — so the suite is fast, free, and deterministic).
@@ -199,6 +212,32 @@ CSV to `POST /migration/import-legacy-vacancies` (2 valid campuses, 1
 unknown) and confirmed `created_count=2`, `error_count=1`, and that the
 created rows are queryable via `GET /vacancy-requests` in `DRAFT` status.
 
+Phase 7 (8): rate limiter blocks past threshold and is keyed per-client
+(unit-level), `POST /auth/login` and `POST /auth/password-reset-request`
+return `429` past their configured thresholds over real HTTP, security
+headers present on a plain response, resume upload rejects a file whose
+bytes aren't a real PDF even when the `Content-Type` header is spoofed as
+`application/pdf`, `POST /auth/refresh` writes a `TOKEN_REFRESHED` audit
+row, and `mark_joined`/`complete_onboarding` each write a `JoiningRecord`
+audit row with the actual field diff (closing the two partial-coverage
+gaps found by a full sweep of all 43 mutating endpoints).
+
+Manual/live verification: built and ran the full stack via
+`docker compose build backend && docker compose up -d` (not just the dev
+`venv`-run server) — confirmed `/health`/`/docs` respond from the
+*containerized* app, confirmed security headers are present, and confirmed
+a resume upload round-trips through the containerized app to the real
+MinIO container (proving internal Docker networking works, not just
+localhost). Ran `scripts/load_test.py` for real against the seeded dev
+server at both 20 and 50 concurrent workers; found and fixed two real
+issues along the way (see `LOAD_TEST_RESULTS.md` for the full narrative):
+a single-worker thread-pool concurrency ceiling (fixed by defaulting the
+Docker entrypoint to `--workers 4`), and a connection-pool-vs-
+`max_connections` sizing bug introduced while fixing the first issue (a
+naive pool-size increase multiplied across 4 worker processes exceeded
+Postgres's connection limit — caught by re-testing after the first fix,
+not assumed correct).
+
 ## Known stubs / deferred to later phases
 
 - **Offer letters** — structured DB data only (salary, joining date, terms,
@@ -263,7 +302,27 @@ created rows are queryable via `GET /vacancy-requests` in `DRAFT` status.
   Naukri/FacultyPlus posting** — only against the n8n webhook boundary; the
   actual portal-posting logic is assumed to live in n8n's existing
   (unreachable-from-here) workflow.
-- **Deployment hardening, load testing, VPS Docker deploy** — Phase 7.
+- **Virus scanning of MinIO uploads** — the spec asks for "virus/type
+  checks"; type-checking is real (content-type header + an actual PDF parse
+  via `pypdf`, see Phase 7 below), but no antivirus engine (e.g. ClamAV) is
+  installable/reachable in this sandboxed build environment. Documented as
+  an accepted, deferred gap — same class as Phase 6's "no live n8n
+  instance" — rather than faked. Wiring a real `clamd` sidecar/socket scan
+  into `app/services/storage.py::upload_resume` before the MinIO `put_object`
+  call is the concrete next step once such an engine is available.
+- **Rate limiting is in-memory, single-process** — `app/core/rate_limit.py`
+  intentionally avoids a new dependency (no slowapi/Redis) for a two-endpoint
+  need, but that means it only throttles within one worker process. Fine for
+  the single-VPS deployment this phase targets; a genuinely multi-instance
+  deployment would need a shared store.
+- **No real VPS deployment** — `DEPLOYMENT.md`'s runbook was verified by
+  building and running the full stack locally via Docker; no live remote
+  server was available/authorized in this environment. See that file's own
+  "Known limitation" section.
+- **`LOAD_TEST_RESULTS.md`'s numbers describe this specific dev machine**
+  (Docker Desktop on Windows), not production VPS capacity — see that
+  file for the honest caveat and the two real issues found/fixed along the
+  way.
 
 ## Notable design decisions
 
@@ -440,3 +499,47 @@ created rows are queryable via `GET /vacancy-requests` in `DRAFT` status.
   is the system of record for distribution/migration history — no new
   table, continuing the Phase 4/5 precedent of not persisting derived
   state that's cheap to recompute or already logged elsewhere.
+
+**Phase 7:**
+- **Hand-rolled rate limiter, not a new dependency** (`app/core/rate_limit.py`)
+  — a plain in-memory sliding window keyed by `(endpoint name, client IP)`,
+  applied only to `/auth/login` and `/auth/password-reset-request` (the two
+  enumeration/brute-force-relevant endpoints), not globally. Documented
+  as single-process-only; a real multi-instance deployment would need a
+  shared store (Redis), not built since this phase targets one VPS.
+  Login's threshold (30/min) was found too tight during testing — a busy
+  HR admin driving a multi-step workflow issues many short-lived logins in
+  quick succession, which isn't the enumeration/brute-force pattern the
+  limit exists to catch, so it was widened rather than the legitimate
+  usage pattern being treated as the problem.
+- **Resume-upload PDF validation is defense in depth, not a replacement**
+  — the existing `Content-Type` header check stays (cheap, catches honest
+  mistakes), with a real `pypdf.PdfReader` parse attempt added on top
+  (catches a spoofed header, which the header check alone cannot).
+- **Audit-log completeness was verified by an exhaustive sweep**, not
+  spot-checks — all 43 mutating endpoints across 14 router files were
+  traced to confirm an audit-helper call exists in their path; found
+  exactly one real gap (`POST /auth/refresh`) and two partial-coverage
+  spots (`JoiningRecord` field writes in `mark_joined`/`complete_onboarding`
+  whose accompanying `Application` status transition *was* logged, but the
+  `JoiningRecord` field diff itself wasn't) — both fixed.
+- **The load-testing exercise found and fixed two real issues, not just
+  reported numbers** (see `LOAD_TEST_RESULTS.md`): a single-uvicorn-worker
+  thread-pool ceiling (fixed via `--workers 4` default in
+  `scripts/docker-entrypoint.sh`), and — caught by re-testing after that
+  first fix rather than assuming it was correct — a connection-pool size
+  that was safe per-worker but multiplied across 4 worker processes to
+  exceed Postgres's own `max_connections`. `app/db/session.py`'s
+  `pool_size`/`max_overflow` are now documented as a per-worker ratio
+  (20 connections/worker) rather than a single global number, specifically
+  so the next person changing the worker count knows what else to check.
+- **Single `Dockerfile`, no multi-stage build** — every dependency in
+  `requirements.txt` had a prebuilt wheel for `python:3.14-slim` (verified
+  by actually building the image), so there was nothing for a builder
+  stage to compile that a final stage would need to discard. Multi-stage
+  would be pure ceremony here; revisit only if a future dependency forces
+  a compiler toolchain into the image.
+- **Virus scanning was not built**, only documented as a gap (see Known
+  Stubs) — no antivirus engine is installable/reachable in this sandboxed
+  environment, and faking a scan (e.g. a hardcoded "clean" result) would
+  be actively misleading rather than honestly absent.

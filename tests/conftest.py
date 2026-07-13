@@ -67,6 +67,19 @@ def _schema():
     Base.metadata.drop_all(bind=engine)
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """app.core.rate_limit's buckets are plain module-level state, and every
+    TestClient request shares the same synthetic client IP -- without this,
+    unrelated tests exhaust the /auth/login rate limit via the auth_headers()
+    helper alone."""
+    from app.core.rate_limit import reset_all
+
+    reset_all()
+    yield
+    reset_all()
+
+
 @pytest.fixture()
 def db_session():
     connection = engine.connect()

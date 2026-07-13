@@ -14,7 +14,7 @@ from app.models.enums import DEFAULT_JOINING_DOCUMENT_TYPES, JoiningDocumentStat
 from app.models.joining import JoiningDocument, JoiningRecord
 from app.models.user import User
 from app.services import notifications
-from app.services.audit import log_create
+from app.services.audit import log_create, log_update
 
 
 def initialize_joining_checklist(
@@ -91,8 +91,22 @@ def complete_onboarding(
             detail=f"Cannot complete onboarding -- documents still pending: {pending_types}",
         )
 
+    before = {"onboarding_completed_at": None, "onboarding_completed_by_id": None}
     joining_record.onboarding_completed_at = datetime.now(timezone.utc)
     joining_record.onboarding_completed_by_id = actor.id
+    log_update(
+        db,
+        actor=actor,
+        entity_type="JoiningRecord",
+        entity=joining_record,
+        campus_context_id=application.campus_id,
+        before_state=before,
+        after_state={
+            "onboarding_completed_at": joining_record.onboarding_completed_at.isoformat(),
+            "onboarding_completed_by_id": str(joining_record.onboarding_completed_by_id),
+        },
+        request=request,
+    )
 
     notifications.notify_role(
         db,

@@ -50,6 +50,19 @@ class Settings(BaseSettings):
     # frontend exists.
     PUBLIC_APPLY_BASE_URL: str = "https://careers.simats.edu"
 
+    # --- CORS (Phase 7) ---
+    # Comma-separated origins, e.g. "https://app.simats.edu,https://staging.simats.edu".
+    # Empty by default -- no frontend exists in this repo yet, so no CORS
+    # middleware is added at all (today's implicit same-origin-only behavior
+    # is unchanged). Set this once a frontend origin needs cross-origin API
+    # access; plain str (not list[str]) to avoid pydantic-settings' JSON-only
+    # parsing for list-typed env vars.
+    CORS_ALLOWED_ORIGINS: str = ""
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
+
 
 @lru_cache
 def get_settings() -> Settings:

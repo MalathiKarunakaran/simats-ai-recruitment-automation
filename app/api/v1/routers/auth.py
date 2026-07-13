@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core import security
 from app.core.deps import get_current_active_user, get_db
+from app.core.rate_limit import RateLimiter
 from app.models.auth_token import PasswordResetToken, RefreshToken
 from app.models.user import User
 from app.schemas.token import (
@@ -20,6 +21,16 @@ from app.schemas.user import UserRead
 from app.services.audit import log_auth_event
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Brute-force/enumeration-timing-relevant endpoints only -- not applied
+# globally, so legitimate bulk API usage elsewhere is unaffected. 30/min on
+# login is generous enough for a busy HR admin driving many short-lived
+# tokens through a multi-step workflow in one sitting, while still cutting
+# an unrestricted brute-force attempt down by >95%; password-reset-request
+# has no legitimate reason for a user to submit many requests rapidly, so
+# it stays tighter.
+_login_rate_limit = RateLimiter(max_requests=30, window_seconds=60, name="login")
+_password_reset_rate_limit = RateLimiter(max_requests=5, window_seconds=60, name="password-reset-request")
 
 
 def _issue_token_pair(db: Session, user: User, request: Request) -> TokenPair:
@@ -39,7 +50,7 @@ def _issue_token_pair(db: Session, user: User, request: Request) -> TokenPair:
     return TokenPair(access_token=access_token, refresh_token=raw_refresh)
 
 
-@router.post("/login", response_model=TokenPair)
+@router.post("/login", response_model=TokenPair, dependencies=[Depends(_login_rate_limit)])
 def login(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -94,6 +105,7 @@ def refresh(
     # Rotate: revoke the presented refresh token and issue a brand-new pair.
     row.revoked_at = datetime.now(timezone.utc)
     tokens = _issue_token_pair(db, user, request)
+    log_auth_event(db, actor=user, action="TOKEN_REFRESHED", request=request, status_code=200)
     db.commit()
     return tokens
 
@@ -117,7 +129,11 @@ def logout(
     db.commit()
 
 
-@router.post("/password-reset-request", response_model=PasswordResetRequestResponse)
+@router.post(
+    "/password-reset-request",
+    response_model=PasswordResetRequestResponse,
+    dependencies=[Depends(_password_reset_rate_limit)],
+)
 def password_reset_request(
     request: Request,
     payload: PasswordResetRequest,

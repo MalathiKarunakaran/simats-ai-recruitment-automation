@@ -70,7 +70,34 @@ services:
       retries: 5
       start_period: 10s
 
-  # --- Phase 6 will add: n8n (Gmail/Telegram notification delivery) ---
+  backend:
+    build: .
+    container_name: simats_recruitment_backend
+    restart: unless-stopped
+    ports:
+      - "8010:8000"
+    environment:
+      # Internal service-name networking, not the host-mapped ports/localhost
+      # used by .env for local (non-Docker) dev -- these override whatever
+      # DATABASE_URL/MINIO_ENDPOINT/CHROMA_HOST are set to in .env so the
+      # container reaches its sibling containers correctly regardless.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      MINIO_ENDPOINT: minio:9000
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: 8000
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+
+  # Note: n8n itself is NOT self-hosted here -- Phase 6's integration is a
+  # webhook client (N8N_BASE_URL) pointing at an existing, externally
+  # operated n8n pipeline, not a container this compose file manages.
 
 volumes:
   postgres_data:

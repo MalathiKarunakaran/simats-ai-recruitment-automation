@@ -115,7 +115,18 @@ def mark_joined(
     pipeline.transition_application_status(
         db, application=application, new_status=ApplicationStatusEnum.JOINED, actor=current_user, request=request
     )
+    before = {"actual_joining_date": None}
     joining_record.actual_joining_date = datetime.now(timezone.utc).date()
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="JoiningRecord",
+        entity=joining_record,
+        campus_context_id=application.campus_id,
+        before_state=before,
+        after_state={"actual_joining_date": joining_record.actual_joining_date.isoformat()},
+        request=request,
+    )
 
     db.commit()
     db.refresh(joining_record)
