@@ -31,11 +31,13 @@ phase, each phase reviewed before the next begins.
 All 7 phases are complete. See `DEPLOYMENT.md` for the deployment runbook
 and `LOAD_TEST_RESULTS.md` for load-testing findings.
 
-**Frontend (post-Phase-7, Foundation done):** the master spec's React + Vite
-+ TypeScript frontend has begun in `frontend/` — auth, a role-based shell,
-dark/light mode, a working campus switcher, and one real vertical-slice
-screen (the Executive Dashboard), verified live against this backend. Every
-other module screen is still a "soon" placeholder. See `frontend/README.md`.
+**Frontend (post-Phase-7):** the master spec's React + Vite + TypeScript
+frontend has begun in `frontend/` — Foundation (auth, role-based shell,
+dark/light mode, campus switcher, the Executive Dashboard) and Vacancy
+Requests (Module 2 — list/detail/create/edit plus the full submit →
+dean-approve → HR-approve → publish → close approval chain and reject) are
+both done, verified live against this backend. Every other module screen
+is still a "soon" placeholder. See `frontend/README.md`.
 
 ## Stack
 

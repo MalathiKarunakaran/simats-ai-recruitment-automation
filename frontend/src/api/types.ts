@@ -81,3 +81,100 @@ export interface DashboardKpis {
   average_time_to_hire_days: number | null;
   vacancy_closure_rate_pct: number;
 }
+
+// Mirrors app/schemas/department.py::DepartmentRead.
+export interface DepartmentRead {
+  id: string;
+  campus_id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/models/enums.py::VacancyRequestStatusEnum.
+export type VacancyRequestStatus = "DRAFT" | "SUBMITTED" | "DEAN_APPROVED" | "APPROVED" | "PUBLISHED" | "CLOSED" | "REJECTED";
+
+// Mirrors app/models/enums.py::EmploymentTypeEnum.
+export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACT" | "VISITING";
+
+// Mirrors app/models/enums.py::VacancyPriorityEnum.
+export type VacancyPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
+
+// Mirrors app/models/enums.py::StaffRoleCategoryEnum.
+export type StaffRoleCategory = "TEACHING" | "NON_TEACHING" | "HOUSEKEEPING";
+
+// Mirrors app/schemas/vacancy_request.py::VacancyRequestRead.
+export interface VacancyRequestRead {
+  id: string;
+  campus_id: string;
+  department_id: string;
+  role_category: StaffRoleCategory;
+  position_title: string;
+  employment_type: EmploymentType;
+  requested_count: number;
+  qualification: string;
+  experience_required: string;
+  salary_band_min: number | null;
+  salary_band_max: number | null;
+  jd_draft: string | null;
+  skills: string[] | null;
+  priority: VacancyPriority;
+  status: VacancyRequestStatus;
+  requested_by_id: string;
+  submitted_at: string | null;
+  dean_reviewed_by_id: string | null;
+  dean_reviewed_at: string | null;
+  hr_reviewed_by_id: string | null;
+  hr_reviewed_at: string | null;
+  rejected_by_id: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/vacancy_request.py::VacancyRequestCreate. Also reused
+// (all fields optional) as the PATCH payload shape for edits.
+export interface VacancyRequestCreatePayload {
+  campus_id: string;
+  department_id: string;
+  role_category: StaffRoleCategory;
+  position_title: string;
+  employment_type: EmploymentType;
+  requested_count: number;
+  qualification: string;
+  experience_required: string;
+  salary_band_min?: number | null;
+  salary_band_max?: number | null;
+  skills?: string[] | null;
+  priority?: VacancyPriority;
+}
+
+export type VacancyRequestUpdatePayload = Partial<Omit<VacancyRequestCreatePayload, "campus_id" | "department_id">>;
+
+// Mirrors app/schemas/approved_vacancy.py::ApprovedVacancyRead.
+export interface ApprovedVacancyRead {
+  id: string;
+  vacancy_request_id: string;
+  campus_id: string;
+  total_positions: number;
+  approved_by_id: string;
+  approved_at: string;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/job_posting.py::JobPostingRead.
+export interface JobPostingRead {
+  id: string;
+  approved_vacancy_id: string;
+  campus_id: string;
+  public_apply_slug: string;
+  published_at: string;
+  closed_at: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
