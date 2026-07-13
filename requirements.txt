@@ -16,3 +16,4 @@ minio>=7.2
 chromadb>=0.5
 openpyxl>=3.1
 python-pptx>=1.0
+qrcode[pil]>=7.4

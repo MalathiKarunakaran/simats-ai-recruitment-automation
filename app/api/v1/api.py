@@ -12,8 +12,10 @@ from app.api.v1.routers import (
     departments,
     employees,
     interviews,
+    job_distribution,
     job_postings,
     joining,
+    migration,
     notifications,
     offers,
     reports,
@@ -33,6 +35,7 @@ api_router.include_router(vacancy_requests.router)
 api_router.include_router(approved_vacancies.router)
 api_router.include_router(approved_vacancies.hiring_slots_router)
 api_router.include_router(job_postings.router)
+api_router.include_router(job_distribution.router)
 api_router.include_router(candidates.router)
 api_router.include_router(applications.router)
 api_router.include_router(offers.router)
@@ -46,3 +49,4 @@ api_router.include_router(assistant.router)
 
 api_router.include_router(dashboard.router)
 api_router.include_router(reports.router)
+api_router.include_router(migration.router)

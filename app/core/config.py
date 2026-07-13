@@ -36,6 +36,20 @@ class Settings(BaseSettings):
     CHROMA_PORT: int = 8012
     CHROMA_COLLECTION_RESUMES: str = "resume_embeddings"
 
+    # --- n8n (Phase 6: notification delivery + job-portal distribution) ---
+    # Defaults to "" (unconfigured) -- same precedent as ANTHROPIC_API_KEY.
+    # app/services/notifications.py and app/services/job_distribution.py both
+    # degrade cleanly (never crash) when this is unset.
+    N8N_BASE_URL: str = ""
+    N8N_TIMEOUT_SECONDS: float = 5.0
+
+    # --- Public apply link base (Phase 6: Module 4 job ads / QR codes) ---
+    # No candidate portal exists yet (Module 5 deferred) -- this is a
+    # documented placeholder base URL used to build the QR-code/apply-link
+    # target. Swap for the real careers-page domain once Module 5/the
+    # frontend exists.
+    PUBLIC_APPLY_BASE_URL: str = "https://careers.simats.edu"
+
 
 @lru_cache
 def get_settings() -> Settings:

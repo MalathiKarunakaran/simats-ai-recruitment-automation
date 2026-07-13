@@ -170,16 +170,49 @@ Manual/live smoke test against the running dev server with seeded data (no
 to confirm they're valid, correctly-structured files matching the seeded
 data (not just a `200` status).
 
+Phase 6 (16): notification delivery marking `FAILED` with
+`error_message="n8n not configured"` when `N8N_BASE_URL` is unset (the
+default), delivery succeeding and recording the webhook payload when
+configured (via a monkeypatched fake), a webhook exception marking the row
+`FAILED` **without** rolling back the triggering workflow transaction
+(driven end-to-end through `vacancy_workflow.submit()`), job-ad field
+correctness, a real decodable PNG from the QR-code endpoint, `503` on
+`POST /job-postings/{id}/distribute` when n8n is unconfigured vs. `200` +
+an `AuditLog` row when configured, unsupported-portal `400`, RBAC/campus
+scoping on the ad/QR/distribute endpoints, CSV migration happy path
+(created rows land in `DRAFT`), partial-success row-level error reporting,
+auto-created `Department` rows, unknown `campus_code` as a row error
+(not a whole-request failure), non-`.csv` upload `400`, and RBAC restricting
+import to `HR_ADMIN`/`SUPER_ADMIN`.
+
+Manual/live smoke test against the running dev server with seeded data, n8n
+left unconfigured (no live n8n instance is reachable from this
+environment): `GET /job-postings/{id}/ad` and `GET /job-postings/{id}/qr-code`
+(downloaded and opened with Pillow to confirm a real 450×450 PNG encoding
+the apply URL); `POST /job-postings/{id}/distribute` confirmed a clean
+`503`; submitted a real vacancy request as a seeded HOD and confirmed via
+`GET /notifications` that the resulting `VACANCY_REQUEST_SUBMITTED`
+notification landed as `status=FAILED`, `error_message="n8n not configured"`
+while the vacancy request itself still transitioned to `SUBMITTED` —
+proving delivery failure never blocks the real workflow; uploaded a 3-row
+CSV to `POST /migration/import-legacy-vacancies` (2 valid campuses, 1
+unknown) and confirmed `created_count=2`, `error_count=1`, and that the
+created rows are queryable via `GET /vacancy-requests` in `DRAFT` status.
+
 ## Known stubs / deferred to later phases
 
 - **Offer letters** — structured DB data only (salary, joining date, terms,
   status). No PDF/document rendering yet.
 - **Password reset email delivery** — the reset token is generated and
   audit-logged but not emailed (printed to stdout for local dev).
-- **Notification delivery (Module 13)** — the full agent interface is real
-  (DB rows, trigger points wired into every workflow transition, campus/role
-  fan-out), but delivery is a log-only stub (`status=SENT` immediately,
-  printed to stdout). Real Gmail/Telegram sending via n8n is Phase 6.
+- **Notification delivery (Module 13)** — as of Phase 6, `notify()` attempts
+  a real n8n webhook POST (`app/services/n8n_client.py`) carrying `channel`
+  in the payload; n8n's own existing flow (unreachable from this
+  environment) is what actually decides Gmail vs. Telegram delivery. With
+  `N8N_BASE_URL` unset (the default in dev/test), every notification row is
+  honestly marked `FAILED` with `error_message="n8n not configured"` rather
+  than faking `SENT` — set `N8N_BASE_URL` to a real n8n instance to get real
+  delivery.
 - **JD generation prompt** — a best-effort RTCFR-structured system prompt
   reconstructed for this build. The actual n8n JD-generation prompt template
   referenced in the master spec was not available; `RTCFR Prompt.docx` in
@@ -213,8 +246,23 @@ data (not just a `200` status).
   report narration, but Phase 4's `GET /assistant/daily-briefing` already
   covers narrative-over-stats; Module 12 stays pure structured data +
   exports.
-- **n8n / Airtable / Gmail / Telegram interoperability & migration, external
-  job-portal posting (Module 4)** — Phase 6.
+- **n8n / Airtable / Gmail / Telegram interoperability** is built as a
+  webhook-shaped integration point (`app/services/n8n_client.py`), not a
+  tested live connection to the spec's `n8n.malugenai.sbs` pipeline, which
+  isn't reachable from this environment. No posting/delivery logic of any
+  kind lives in this codebase — every call is a single webhook POST, and
+  n8n's existing workflow owns the rest.
+- **CSV migration column mapping is a documented best-effort placeholder**
+  (`app/services/migration.py::REQUIRED_COLUMNS`) — the real Airtable
+  export schema wasn't available to us, same caveat class as the Phase 5 PPT
+  branding placeholder. Imported rows always land in `DRAFT`; nothing
+  bypasses the normal submit → dean-approve → HR-approve → publish chain.
+- **Job ads and QR codes are generated on demand, never persisted** — same
+  precedent as Phase 5's report exports not being written to MinIO.
+- **Job-portal distribution isn't tested against a live LinkedIn/Indeed/
+  Naukri/FacultyPlus posting** — only against the n8n webhook boundary; the
+  actual portal-posting logic is assumed to live in n8n's existing
+  (unreachable-from-here) workflow.
 - **Deployment hardening, load testing, VPS Docker deploy** — Phase 7.
 
 ## Notable design decisions
@@ -359,3 +407,36 @@ data (not just a `200` status).
 - No new DB tables, no persisted report/KPI history — every number here is
   a read-only aggregate query computed on demand, matching the spec's own
   "generated on demand from live data" framing.
+
+**Phase 6:**
+- **Two different DI shapes for the same n8n client.**
+  `notifications.py::notify()`/`notify_role()` are called from 16 sites
+  across 4 service files (`vacancy_workflow.py`, `pipeline.py`,
+  `joining.py`, `interviews.py`), never from a router — unlike every other
+  Phase 3 external integration (AI, MinIO), which is used from exactly one
+  router→one service call. Threading an `n8n_client` parameter through all
+  16 call sites would have touched nearly every previous phase's files, so
+  `app/services/n8n_client.py::get_n8n_client()` is a **plain function**
+  called directly by `notifications.py`, while
+  `get_n8n_client_or_503()` is the `Depends()`-shaped variant used by
+  Module 4's single explicit `POST /job-postings/{id}/distribute` endpoint.
+- **Notification delivery failure never blocks the workflow.** A broken or
+  unconfigured n8n webhook marks the `Notification` row `FAILED` with
+  `error_message` set and *never raises* — notifications are a best-effort
+  side effect, and a delivery failure must not roll back the vacancy/
+  application/offer/joining transaction that triggered it (verified live —
+  see Verification above). Module 4 distribution, by contrast, fails loud
+  (`503`/`502`) because it's a single human-triggered action a user is
+  directly waiting on, not a background side effect.
+- `Notification.status`/`error_message` were already provisioned in Phase 3
+  specifically for this phase (the model docstring said so) — no new
+  Alembic migration was needed.
+- CSV-imported `VacancyRequest` rows always land in `DRAFT`, never
+  auto-submitted or published — migration seeds the normal approval chain,
+  it doesn't bypass it. Per-row validation collects *all* field errors
+  before deciding a row failed (not fail-fast on the first bad field), so
+  one CSV upload produces a complete error report in a single pass.
+- `AuditLog` (`action=JOB_POSTING_DISTRIBUTED`/`LEGACY_VACANCIES_IMPORTED`)
+  is the system of record for distribution/migration history — no new
+  table, continuing the Phase 4/5 precedent of not persisting derived
+  state that's cheap to recompute or already logged elsewhere.

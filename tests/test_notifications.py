@@ -2,10 +2,30 @@ from app.models.enums import UserRoleEnum
 from app.models.notification import Notification
 from app.services import notifications
 
-from tests.conftest import auth_headers
+from tests.conftest import FakeN8nClient, auth_headers
 
 
-def test_notify_creates_row_and_marks_sent(db_session, user_factory):
+def test_notify_marks_failed_when_n8n_unconfigured(db_session, user_factory):
+    """N8N_BASE_URL is unset by default in dev/test -- notify() must degrade
+    to a FAILED row (not fake success like the old Phase 3 stub)."""
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    notification = notifications.notify(
+        db_session,
+        recipient_user=hr_admin,
+        notification_type="TEST_EVENT",
+        subject="Test subject",
+        body="Test body",
+    )
+    assert notification.status.value == "FAILED"
+    assert notification.error_message == "n8n not configured"
+    assert notification.sent_at is None
+    assert notification.recipient_user_id == hr_admin.id
+
+
+def test_notify_marks_sent_when_n8n_configured(db_session, user_factory, monkeypatch):
+    fake_client = FakeN8nClient()
+    monkeypatch.setattr("app.services.notifications.get_n8n_client", lambda: fake_client)
+
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     notification = notifications.notify(
         db_session,
@@ -15,8 +35,52 @@ def test_notify_creates_row_and_marks_sent(db_session, user_factory):
         body="Test body",
     )
     assert notification.status.value == "SENT"
+    assert notification.error_message is None
     assert notification.sent_at is not None
-    assert notification.recipient_user_id == hr_admin.id
+    assert len(fake_client.calls) == 1
+    path, payload = fake_client.calls[0]
+    assert path == "notify"
+    assert payload["channel"] == "EMAIL"
+    assert payload["subject"] == "Test subject"
+
+
+def test_notify_marks_failed_and_does_not_crash_caller_when_webhook_raises(
+    db_session, user_factory, department_factory, monkeypatch
+):
+    import httpx
+
+    from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, VacancyPriorityEnum, VacancyRequestStatusEnum
+    from app.models.vacancy_request import VacancyRequest
+    from app.services import vacancy_workflow
+
+    fake_client = FakeN8nClient(raises=httpx.ConnectError("boom"))
+    monkeypatch.setattr("app.services.notifications.get_n8n_client", lambda: fake_client)
+
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
+
+    vr = VacancyRequest(
+        campus_id=department.campus_id,
+        department_id=department.id,
+        role_category=StaffRoleCategoryEnum.TEACHING,
+        position_title="Test Position",
+        employment_type=EmploymentTypeEnum.FULL_TIME,
+        requested_count=1,
+        qualification="Test",
+        experience_required="Test",
+        priority=VacancyPriorityEnum.NORMAL,
+        requested_by_id=hod.id,
+    )
+    db_session.add(vr)
+    db_session.flush()
+
+    vacancy_workflow.submit(db_session, vr, hod, None)
+
+    assert vr.status == VacancyRequestStatusEnum.SUBMITTED
+    row = db_session.query(Notification).filter(Notification.notification_type == "VACANCY_REQUEST_SUBMITTED").one()
+    assert row.status.value == "FAILED"
+    assert "boom" in row.error_message
 
 
 def test_notify_requires_a_recipient(db_session):
@@ -43,6 +107,25 @@ def test_notify_role_fans_out_only_to_matching_active_users(db_session, user_fac
     assert recipient_ids == {hr_admin_1.id, hr_admin_2.id}
     assert inactive_hr_admin.id not in recipient_ids
     assert other_role.id not in recipient_ids
+
+
+def test_notify_role_all_sent_when_n8n_configured(db_session, user_factory, monkeypatch):
+    fake_client = FakeN8nClient()
+    monkeypatch.setattr("app.services.notifications.get_n8n_client", lambda: fake_client)
+
+    hr_admin_1 = user_factory(UserRoleEnum.HR_ADMIN)
+    hr_admin_2 = user_factory(UserRoleEnum.HR_ADMIN)
+
+    sent = notifications.notify_role(
+        db_session,
+        roles={UserRoleEnum.HR_ADMIN},
+        notification_type="TEST_FANOUT",
+        subject="Fanout test",
+        body="Body",
+    )
+    assert {n.recipient_user_id for n in sent} == {hr_admin_1.id, hr_admin_2.id}
+    assert all(n.status.value == "SENT" for n in sent)
+    assert len(fake_client.calls) == 2
 
 
 def test_notify_role_campus_filters_single_campus_roles(db_session, user_factory, campus_factory):

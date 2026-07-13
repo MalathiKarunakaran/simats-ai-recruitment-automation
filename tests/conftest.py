@@ -203,6 +203,22 @@ class FakeMinioClient:
         return _FakeMinioResponse(self._objects[(bucket, object_name)])
 
 
+class FakeN8nClient:
+    """In-memory fake for app.services.n8n_client.N8nClient. `raises`, if
+    given, is raised by post_webhook on every call (to simulate a webhook
+    failure) instead of recording it."""
+
+    def __init__(self, raises: Exception | None = None):
+        self.raises = raises
+        self.calls: list[tuple[str, dict]] = []
+
+    def post_webhook(self, path: str, payload: dict) -> dict | None:
+        if self.raises is not None:
+            raise self.raises
+        self.calls.append((path, payload))
+        return {"status": "ok"}
+
+
 class FakeChromaCollection:
     """In-memory fake for app.services.vector_store.get_chroma_collection.
     Deterministic "distance": 0.0 for an exact document match, 0.5 otherwise
