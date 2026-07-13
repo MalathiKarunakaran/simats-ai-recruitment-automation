@@ -31,6 +31,12 @@ phase, each phase reviewed before the next begins.
 All 7 phases are complete. See `DEPLOYMENT.md` for the deployment runbook
 and `LOAD_TEST_RESULTS.md` for load-testing findings.
 
+**Frontend (post-Phase-7, Foundation done):** the master spec's React + Vite
++ TypeScript frontend has begun in `frontend/` — auth, a role-based shell,
+dark/light mode, a working campus switcher, and one real vertical-slice
+screen (the Executive Dashboard), verified live against this backend. Every
+other module screen is still a "soon" placeholder. See `frontend/README.md`.
+
 ## Stack
 
 FastAPI + SQLAlchemy 2.0 + PostgreSQL 16 + Alembic + JWT (PyJWT) + Argon2id
