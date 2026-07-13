@@ -15,7 +15,7 @@ within a test while nothing is ever persisted between tests.
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -33,10 +33,20 @@ from app.models.auth_token import PasswordResetToken
 from app.models.campus import Campus
 from app.models.candidate import Candidate
 from app.models.department import Department
-from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, UserRoleEnum
+from app.models.enums import (
+    ApplicationStatusEnum,
+    EmploymentTypeEnum,
+    JoiningDocumentStatusEnum,
+    OfferStatusEnum,
+    StaffRoleCategoryEnum,
+    UserRoleEnum,
+)
+from app.models.joining import JoiningDocument
+from app.models.offer import Offer
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
-from app.services import vacancy_workflow
+from app.services import joining as joining_service
+from app.services import pipeline, vacancy_workflow
 from app.services.ai_client import get_ai_client
 from app.services.storage import get_minio_client
 from app.services.vector_store import get_chroma_collection
@@ -419,7 +429,7 @@ def published_vacancy_factory(db_session, campus_factory, department_factory, us
     exactly what the API does -- so tests exercise the same code path.
     Returns a SimpleNamespace with all the created entities/actors."""
 
-    def _make(campus_code: str = "SSE", slot_count: int = 2):
+    def _make(campus_code: str = "SSE", slot_count: int = 2, role_category: StaffRoleCategoryEnum = StaffRoleCategoryEnum.TEACHING):
         campus = campus_factory(campus_code)
         department = department_factory(campus_code)
         hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code=campus_code)
@@ -430,7 +440,7 @@ def published_vacancy_factory(db_session, campus_factory, department_factory, us
         vacancy_request = VacancyRequest(
             campus_id=campus.id,
             department_id=department.id,
-            role_category=StaffRoleCategoryEnum.TEACHING,
+            role_category=role_category,
             position_title=f"Position-{uuid.uuid4().hex[:8]}",
             employment_type=EmploymentTypeEnum.FULL_TIME,
             requested_count=slot_count,
@@ -458,5 +468,90 @@ def published_vacancy_factory(db_session, campus_factory, department_factory, us
             hr_admin=hr_admin,
             recruitment_officer=recruitment_officer,
         )
+
+    return _make
+
+
+@pytest.fixture()
+def hired_employee_factory(db_session, candidate_factory):
+    """Drives one Application against an already-published vacancy all the
+    way to EMPLOYEE_CREATED, mirroring app/db/seed.py's
+    _seed_scenario_full_happy_path candidate-A sequence exactly (same
+    service calls, same status order) but with `applied_at`/`joining_date`
+    exposed as parameters -- needed for exact time-to-hire assertions in
+    the Phase 5 dashboard/report tests."""
+
+    def _make(vacancy, *, applied_at: datetime | None = None, joining_date: date | None = None):
+        applied_at = applied_at or datetime.now(timezone.utc)
+        joining_date = joining_date or date.today()
+        actor = vacancy.hr_admin
+
+        candidate = candidate_factory()
+        application = Application(
+            candidate_id=candidate.id,
+            job_posting_id=vacancy.job_posting.id,
+            campus_id=vacancy.job_posting.campus_id,
+            applied_at=applied_at,
+            recorded_by_id=vacancy.recruitment_officer.id,
+        )
+        db_session.add(application)
+        db_session.flush()
+
+        for target in (
+            ApplicationStatusEnum.SCREENING,
+            ApplicationStatusEnum.ELIGIBLE,
+            ApplicationStatusEnum.SHORTLISTED,
+        ):
+            pipeline.transition_application_status(db_session, application=application, new_status=target, actor=actor)
+        pipeline.transition_application_status(
+            db_session, application=application, new_status=ApplicationStatusEnum.SELECTED, actor=actor
+        )
+
+        offer = Offer(
+            application_id=application.id, offered_by_id=actor.id, salary_amount=75000, joining_date=joining_date
+        )
+        db_session.add(offer)
+        db_session.flush()
+        offer.status = OfferStatusEnum.SENT
+        offer.sent_at = datetime.now(timezone.utc)
+        pipeline.advance_if_behind(
+            db_session, application=application, target_status=ApplicationStatusEnum.OFFER_SENT, actor=actor
+        )
+        offer.status = OfferStatusEnum.ACCEPTED
+        offer.responded_at = datetime.now(timezone.utc)
+        pipeline.advance_if_behind(
+            db_session, application=application, target_status=ApplicationStatusEnum.OFFER_ACCEPTED, actor=actor
+        )
+        pipeline.advance_if_behind(
+            db_session, application=application, target_status=ApplicationStatusEnum.JOINING_PENDING, actor=actor
+        )
+
+        joining_record = joining_service.initialize_joining_checklist(
+            db_session, application=application, joining_date=joining_date, actor=actor
+        )
+        db_session.flush()
+        for doc in db_session.query(JoiningDocument).filter(JoiningDocument.application_id == application.id).all():
+            doc.status = JoiningDocumentStatusEnum.RECEIVED
+            doc.received_at = datetime.now(timezone.utc)
+        db_session.flush()
+
+        pipeline.transition_application_status(
+            db_session, application=application, new_status=ApplicationStatusEnum.JOINED, actor=actor
+        )
+        joining_record.actual_joining_date = joining_date
+        joining_service.complete_onboarding(
+            db_session, application=application, joining_record=joining_record, actor=actor
+        )
+        pipeline.transition_application_status(
+            db_session, application=application, new_status=ApplicationStatusEnum.ONBOARDING_COMPLETE, actor=actor
+        )
+        employee = joining_service.create_employee(
+            db_session, application=application, joining_record=joining_record, designation=None, actor=actor
+        )
+        pipeline.transition_application_status(
+            db_session, application=application, new_status=ApplicationStatusEnum.EMPLOYEE_CREATED, actor=actor
+        )
+
+        return SimpleNamespace(application=application, offer=offer, joining_record=joining_record, employee=employee)
 
     return _make

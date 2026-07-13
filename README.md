@@ -100,7 +100,7 @@ docker exec simats_recruitment_postgres psql -U simats_app -d simats_recruitment
 venv/Scripts/python.exe -m pytest -v
 ```
 
-122 tests, zero live calls to Anthropic/MinIO/ChromaDB (all three are
+143 tests, zero live calls to Anthropic/MinIO/ChromaDB (all three are
 FastAPI-injectable dependencies, overridden with in-memory fakes in
 `tests/conftest.py` — see `fake_ai_client`/`fake_minio_client`/
 `fake_chroma_collection` — so the suite is fast, free, and deterministic).
@@ -150,6 +150,26 @@ log is written for these — consistent with the Phase 3 AI-endpoint
 convention); `CANDIDATE` role gets `403` on both; unauthenticated gets
 `401`; both routes appear in `/openapi.json`.
 
+Phase 5 (21): `average_time_to_hire_days`/`vacancy_closure_rate_pct` exact
+correctness against a constructed scenario (not just "not None"), campus
+scoping for both single-campus and global callers (narrowing via
+`campus_code`), `role_category` filtering, all 7 report types' row
+shapes/counts, unknown `report_type` → `404`, invalid `campus_code`/
+`role_category` → `422`, `CANDIDATE` role → `403`, and both exports
+(`.xlsx` loads back via `openpyxl` with the expected header row;
+`.pptx` loads back via `python-pptx` with exactly 1 slide and the
+expected title text).
+
+Manual/live smoke test against the running dev server with seeded data (no
+`ANTHROPIC_API_KEY` needed — Phase 5 makes no AI calls): `GET
+/dashboard/kpis` as `hr.admin@example.com` (global) vs. `hod.sse@example.com`
+(home-campus-only, confirmed the `scope_note` and narrower
+`campus_wise_hiring`); `GET /reports/recruitment-funnel` and `GET
+/reports/ad-briefing`; downloaded `GET /reports/vacancies/export` and `GET
+/reports/ad-briefing/export` and opened both with `openpyxl`/`python-pptx`
+to confirm they're valid, correctly-structured files matching the seeded
+data (not just a `200` status).
+
 ## Known stubs / deferred to later phases
 
 - **Offer letters** — structured DB data only (salary, joining date, terms,
@@ -179,7 +199,20 @@ convention); `CANDIDATE` role gets `403` on both; unauthenticated gets
   (JD generation, resume screening, interview scheduling) — those remain
   individually callable REST endpoints. A reporting-flavored question gets a
   clear "not available yet" answer rather than a best-effort guess.
-- **Dashboards / PPT reporting (Module 12)** — Phase 5.
+- **AD-briefing PPT branding** — the actual current SIMATS AD-meeting PPT
+  template, logo file, and exact brand hex codes weren't available; the
+  export reproduces the described *structure* (navy/gold, single slide,
+  campus × role-category table) with documented placeholder colors
+  (`app/services/exports.py::_NAVY`/`_GOLD`) — swap in the real brand
+  assets when available.
+- **Report exports are `.xlsx` only** — no PDF export this phase.
+- **No report history/persistence** — every report/KPI/export is generated
+  on demand from live data and streamed directly in the response; nothing
+  is written to MinIO.
+- **No AI-narrated report endpoint** — Module 12's spec mentions Claude for
+  report narration, but Phase 4's `GET /assistant/daily-briefing` already
+  covers narrative-over-stats; Module 12 stays pure structured data +
+  exports.
 - **n8n / Airtable / Gmail / Telegram interoperability & migration, external
   job-portal posting (Module 4)** — Phase 6.
 - **Deployment hardening, load testing, VPS Docker deploy** — Phase 7.
@@ -291,3 +324,38 @@ convention); `CANDIDATE` role gets `403` on both; unauthenticated gets
   call** (`ai_client.generate_narrative`) over already-computed stats, not
   routed through the tool-use loop — the numbers are deterministic DB
   aggregates, so there's nothing for Claude to look up.
+
+**Phase 5:**
+- Phase 4's `hermes._resolve_campus_filter` was extracted verbatim into a
+  new `app/services/scoping.py::resolve_campus_filter` (+ `NO_CAMPUS_MATCH`
+  sentinel) so this phase's `reporting.py` doesn't duplicate that
+  safety-critical logic. `hermes.py` now imports from it; behavior is
+  unchanged (all 14 Phase 4 tests still pass after the refactor).
+- **REST-level validation, not Hermes's tolerate-and-degrade pattern.**
+  Hermes's tools treat a bad `campus_code` as an empty result, because
+  failing an LLM tool call mid-loop is worse than a graceful non-answer.
+  Module 12/15's endpoints are direct human-facing REST calls, so an
+  invalid `campus_code`/`role_category` gets a normal `422` instead —
+  `reporting.validate_campus_code`/`validate_role_category` run at the
+  router layer *before* `resolve_campus_filter`, so that helper's own
+  `NO_CAMPUS_MATCH` empty-result branch is never exercised from these
+  routers.
+- **Module 12's report list folds to 7 shapes, not 8.** The spec names
+  "recruitment" and "candidate status" reports separately, but both mean
+  the same application-status funnel breakdown — merged into one
+  `recruitment-funnel` report.
+- **Metric definitions** (none are literal DB fields): `open_positions` =
+  `HiringSlot` rows with `status == OPEN`; `time_to_hire_days` for one hire
+  = `Application.applied_at.date()` → `JoiningRecord.actual_joining_date`,
+  only for applications that reached `EMPLOYEE_CREATED`;
+  `vacancy_closure_rate_pct` = `CLOSED / (APPROVED or PUBLISHED or CLOSED)
+  * 100` — a vacancy still in `DRAFT`/`SUBMITTED`/`REJECTED` was never
+  "closable" in the first place; `campus_wise_hiring` = `Employee` rows
+  grouped by `campus_id`.
+- `ReportResponse` uses **one generic `rows: list[dict]` shape** for all 7
+  report types rather than 7 near-identical Pydantic row models — a
+  pragmatic first cut; each builder documents its own row shape next to its
+  function in `app/services/reporting.py`.
+- No new DB tables, no persisted report/KPI history — every number here is
+  a read-only aggregate query computed on demand, matching the spec's own
+  "generated on demand from live data" framing.

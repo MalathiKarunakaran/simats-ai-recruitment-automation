@@ -8,6 +8,7 @@ from app.api.v1.routers import (
     auth,
     campuses,
     candidates,
+    dashboard,
     departments,
     employees,
     interviews,
@@ -15,6 +16,7 @@ from app.api.v1.routers import (
     joining,
     notifications,
     offers,
+    reports,
     resume_screening,
     users,
     vacancy_requests,
@@ -41,3 +43,6 @@ api_router.include_router(resume_screening.router)
 api_router.include_router(interviews.router)
 api_router.include_router(notifications.router)
 api_router.include_router(assistant.router)
+
+api_router.include_router(dashboard.router)
+api_router.include_router(reports.router)

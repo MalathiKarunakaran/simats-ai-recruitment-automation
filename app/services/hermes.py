@@ -4,7 +4,7 @@ Hermes never mutates data. Every tool executor below performs the same kind
 of query an existing router would, filtered by the caller's CampusScope
 exactly like every router in app/api/v1/routers already does. A
 single-campus caller's `campus_code` tool argument is always ignored --
-_resolve_campus_filter substitutes scope.campus_id regardless of what Claude
+resolve_campus_filter substitutes scope.campus_id regardless of what Claude
 passed. This is the single safety-critical function in this file.
 
 Uses a manual Claude tool-use loop (not the SDK's beta Tool Runner -- see
@@ -27,7 +27,6 @@ from app.models.campus import Campus
 from app.models.candidate import Candidate
 from app.models.department import Department
 from app.models.enums import (
-    CAMPUS_CODES,
     ApplicationStatusEnum,
     HiringSlotStatusEnum,
     InterviewScheduleStatusEnum,
@@ -42,11 +41,7 @@ from app.models.offer import Offer
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.services import ai_client
-
-# Nil UUID, never produced by gen_random_uuid() -- used as a filter value
-# that deliberately matches zero rows, so an invalid campus_code from a
-# global-scope caller returns an empty result set rather than an exception.
-_NO_CAMPUS_MATCH = uuid.UUID(int=0)
+from app.services.scoping import resolve_campus_filter
 
 _MAX_TOOL_CALLS = 4
 
@@ -80,30 +75,6 @@ don't have the information.
 list), not JSON."""
 
 
-def _resolve_campus_filter(db: Session, scope: CampusScope, campus_code: str | None) -> tuple[uuid.UUID | None, str]:
-    """Returns (campus_id_filter, scope_note).
-
-    campus_id_filter is a UUID to filter results to, or None for "no
-    narrowing" (every campus the caller can see). For a single-campus
-    caller, campus_code is always ignored -- the filter is always
-    scope.campus_id -- regardless of what Claude passed as a tool argument.
-    """
-    if not scope.is_global:
-        campus = db.get(Campus, scope.campus_id)
-        label = campus.code if campus else "your campus"
-        return scope.campus_id, f"Limited to your home campus ({label}). Any campus_code argument was ignored."
-
-    if not campus_code:
-        return None, "Global access: results span all campuses."
-
-    campus = db.query(Campus).filter(Campus.code == campus_code.strip().upper()).one_or_none()
-    if campus is None:
-        return _NO_CAMPUS_MATCH, (
-            f"No campus found with code '{campus_code}'. Valid campus codes: {', '.join(CAMPUS_CODES)}."
-        )
-    return campus.id, f"Limited to campus {campus.code}."
-
-
 _STAGE_TO_STATUSES = {
     "AWAITING_DEAN": (VacancyRequestStatusEnum.SUBMITTED,),
     "AWAITING_HR": (VacancyRequestStatusEnum.DEAN_APPROVED,),
@@ -112,7 +83,7 @@ _STAGE_TO_STATUSES = {
 
 
 def _tool_list_pending_vacancy_approvals(db: Session, scope: CampusScope, args: dict) -> dict:
-    campus_id_filter, scope_note = _resolve_campus_filter(db, scope, args.get("campus_code"))
+    campus_id_filter, scope_note = resolve_campus_filter(db, scope, args.get("campus_code"))
     stage = args.get("stage") or "ANY_PENDING"
     if stage not in _STAGE_TO_STATUSES:
         raise ValueError(f"Unknown stage '{stage}'. Valid values: {', '.join(_STAGE_TO_STATUSES)}.")
@@ -147,7 +118,7 @@ def _tool_list_pending_vacancy_approvals(db: Session, scope: CampusScope, args: 
 
 
 def _tool_list_open_vacancies(db: Session, scope: CampusScope, args: dict) -> dict:
-    campus_id_filter, scope_note = _resolve_campus_filter(db, scope, args.get("campus_code"))
+    campus_id_filter, scope_note = resolve_campus_filter(db, scope, args.get("campus_code"))
     role_category = args.get("role_category")
     if role_category is not None and role_category not in StaffRoleCategoryEnum.__members__:
         raise ValueError(
@@ -192,7 +163,7 @@ def _tool_list_open_vacancies(db: Session, scope: CampusScope, args: dict) -> di
 
 
 def _tool_list_interviews(db: Session, scope: CampusScope, args: dict) -> dict:
-    campus_id_filter, scope_note = _resolve_campus_filter(db, scope, args.get("campus_code"))
+    campus_id_filter, scope_note = resolve_campus_filter(db, scope, args.get("campus_code"))
     status_arg = args.get("status") or "SCHEDULED"
     if status_arg not in InterviewScheduleStatusEnum.__members__:
         raise ValueError(
@@ -243,7 +214,7 @@ def _tool_list_interviews(db: Session, scope: CampusScope, args: dict) -> dict:
 
 
 def _tool_list_pending_offers(db: Session, scope: CampusScope, args: dict) -> dict:
-    campus_id_filter, scope_note = _resolve_campus_filter(db, scope, args.get("campus_code"))
+    campus_id_filter, scope_note = resolve_campus_filter(db, scope, args.get("campus_code"))
     status_arg = args.get("status")
     if status_arg is not None and status_arg not in OfferStatusEnum.__members__:
         raise ValueError(f"Unknown status '{status_arg}'. Valid values: {', '.join(OfferStatusEnum.__members__)}.")
@@ -284,7 +255,7 @@ def _tool_list_pending_offers(db: Session, scope: CampusScope, args: dict) -> di
 
 
 def _tool_pipeline_status_counts(db: Session, scope: CampusScope, args: dict) -> dict:
-    campus_id_filter, scope_note = _resolve_campus_filter(db, scope, args.get("campus_code"))
+    campus_id_filter, scope_note = resolve_campus_filter(db, scope, args.get("campus_code"))
     job_posting_id_arg = args.get("job_posting_id")
     job_posting_id = None
     if job_posting_id_arg:
@@ -474,7 +445,7 @@ def run_assistant_query(
 
 
 def build_daily_briefing_stats(db: Session, scope: CampusScope) -> dict:
-    campus_id_filter, scope_note = _resolve_campus_filter(db, scope, None)
+    campus_id_filter, scope_note = resolve_campus_filter(db, scope, None)
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
