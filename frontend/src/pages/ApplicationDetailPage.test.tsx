@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as applicationsApi from "@/api/applications";
 import * as candidatesApi from "@/api/candidates";
 import * as interviewsApi from "@/api/interviews";
+import * as joiningApi from "@/api/joining";
 import * as offersApi from "@/api/offers";
 import type { ApplicationRead, CandidateRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
@@ -17,6 +18,8 @@ vi.mock("@/api/applications");
 vi.mock("@/api/candidates");
 vi.mock("@/api/interviews");
 vi.mock("@/api/offers");
+vi.mock("@/api/joining");
+vi.mock("@/api/employees");
 vi.mock("@/hooks/useJobPostingLookup");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
@@ -28,6 +31,8 @@ const mockedGetApplication = vi.mocked(applicationsApi.getApplication);
 const mockedGetCandidate = vi.mocked(candidatesApi.getCandidate);
 const mockedListInterviews = vi.mocked(interviewsApi.listInterviews);
 const mockedListOffers = vi.mocked(offersApi.listOffers);
+const mockedGetJoiningRecord = vi.mocked(joiningApi.getJoiningRecord);
+const mockedListJoiningDocuments = vi.mocked(joiningApi.listJoiningDocuments);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
 
 const CANDIDATE: CandidateRead = {
@@ -80,6 +85,17 @@ beforeEach(() => {
   });
   mockedListInterviews.mockResolvedValue([]);
   mockedListOffers.mockResolvedValue([]);
+  mockedGetJoiningRecord.mockResolvedValue({
+    id: "jr-1",
+    application_id: "app-1",
+    joining_date: "2026-03-01",
+    actual_joining_date: null,
+    onboarding_completed_at: null,
+    onboarding_completed_by_id: null,
+    created_at: "2026-01-02T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z",
+  });
+  mockedListJoiningDocuments.mockResolvedValue([]);
 });
 
 describe("ApplicationDetailPage", () => {
@@ -167,5 +183,44 @@ describe("ApplicationDetailPage", () => {
     await waitFor(() =>
       expect(mockedTransition).toHaveBeenCalledWith("app-1", { status: "REJECTED", reason: "Not qualified" }),
     );
+  });
+
+  it("shows the Joining card once JOINING_PENDING for HR Admin, but hides it for Campus HOD", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetApplication.mockResolvedValue(makeApplication({ status: "JOINING_PENDING" }));
+
+    const { unmount } = renderPage();
+    await waitFor(() => expect(screen.getByText("Joining")).toBeInTheDocument());
+    expect(screen.getByText("Mark joined")).toBeInTheDocument();
+    unmount();
+
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.queryByText("Joining")).not.toBeInTheDocument();
+  });
+
+  it("hides the Joining card before an offer has been accepted", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetApplication.mockResolvedValue(makeApplication({ status: "SELECTED" }));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.queryByText("Joining")).not.toBeInTheDocument();
   });
 });

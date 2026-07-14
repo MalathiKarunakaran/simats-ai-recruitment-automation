@@ -15,6 +15,7 @@ import {
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/applications/StatusBadge";
 import { StatusBadge as InterviewStatusBadge } from "@/components/interviews/StatusBadge";
+import { JoiningCard } from "@/components/joining/JoiningCard";
 import { StatusBadge as OfferStatusBadge } from "@/components/offers/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,7 @@ import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 const WRITE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
 const CAN_VIEW_OFFERS_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT"];
 const CAN_CREATE_OFFER_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
+const CAN_VIEW_JOINING_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN"];
 const ALL_STATUSES: ApplicationStatus[] = [...APPLICATION_STATUS_ORDER, "REJECTED"];
 
 export function ApplicationDetailPage() {
@@ -133,6 +135,10 @@ export function ApplicationDetailPage() {
   const canAdvance = canWrite && !isTerminal && forwardStatuses.length > 0;
   const canReject = canWrite && !isTerminal;
   const canForce = user.role === "SUPER_ADMIN";
+
+  const joiningPendingIndex = APPLICATION_STATUS_ORDER.indexOf("JOINING_PENDING");
+  const canViewJoining =
+    CAN_VIEW_JOINING_ROLES.includes(user.role) && currentIndex >= joiningPendingIndex;
 
   const label = getLabel(application.job_posting_id);
   const isBusy = advanceMutation.isPending || rejectMutation.isPending || forceMutation.isPending;
@@ -240,6 +246,8 @@ export function ApplicationDetailPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      {canViewJoining ? <JoiningCard application={application} /> : null}
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 

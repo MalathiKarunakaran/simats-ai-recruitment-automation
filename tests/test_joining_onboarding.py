@@ -39,6 +39,31 @@ def test_mark_joined_requires_joining_pending(client, published_vacancy_factory,
     assert response.status_code == 409
 
 
+def test_get_joining_record_returns_404_before_offer_accepted(
+    client, published_vacancy_factory, application_factory
+):
+    vacancy = published_vacancy_factory(slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+
+    response = client.get(
+        f"/api/v1/applications/{application.id}/joining-record", headers=auth_headers(client, vacancy.hr_admin)
+    )
+    assert response.status_code == 409
+
+
+def test_get_joining_record_happy_path(client, published_vacancy_factory, application_factory):
+    vacancy = published_vacancy_factory(slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    _drive_to_joining_pending(client, vacancy, application)
+
+    response = client.get(
+        f"/api/v1/applications/{application.id}/joining-record", headers=auth_headers(client, vacancy.hr_admin)
+    )
+    assert response.status_code == 200
+    assert response.json()["joining_date"] == "2026-09-01"
+    assert response.json()["actual_joining_date"] is None
+
+
 def test_complete_onboarding_requires_all_documents_received(
     client, published_vacancy_factory, application_factory
 ):

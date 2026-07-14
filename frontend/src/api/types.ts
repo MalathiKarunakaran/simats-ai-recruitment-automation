@@ -375,3 +375,60 @@ export interface OfferCreatePayload {
   terms?: string | null;
   expires_at?: string | null;
 }
+
+// Mirrors app/models/enums.py::JoiningDocumentStatusEnum.
+export type JoiningDocumentStatus = "PENDING" | "RECEIVED";
+
+// Mirrors app/schemas/joining.py::JoiningRecordRead.
+export interface JoiningRecordRead {
+  id: string;
+  application_id: string;
+  joining_date: string;
+  actual_joining_date: string | null;
+  onboarding_completed_at: string | null;
+  onboarding_completed_by_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/joining.py::JoiningDocumentRead.
+export interface JoiningDocumentRead {
+  id: string;
+  application_id: string;
+  document_type: string;
+  status: JoiningDocumentStatus;
+  storage_key: string | null;
+  received_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/joining.py::JoiningDocumentUpdate.
+export interface JoiningDocumentUpdatePayload {
+  status: JoiningDocumentStatus;
+  storage_key?: string | null;
+  notes?: string | null;
+}
+
+// Mirrors app/schemas/employee.py::EmployeeRead.
+export interface EmployeeRead {
+  id: string;
+  application_id: string;
+  employee_code: string;
+  campus_id: string;
+  department_id: string | null;
+  full_name: string;
+  email: string;
+  phone_number: string | null;
+  designation: string;
+  date_of_joining: string;
+  user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/employee.py::EmployeeCreateRequest.
+export interface EmployeeCreatePayload {
+  designation?: string | null;
+}

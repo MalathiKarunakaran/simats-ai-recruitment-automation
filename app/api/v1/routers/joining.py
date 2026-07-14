@@ -40,6 +40,17 @@ def _get_joining_record_or_404(db: Session, application: Application) -> Joining
     return record
 
 
+@router.get("/applications/{application_id}/joining-record", response_model=JoiningRecordRead)
+def get_joining_record(
+    application_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_READ_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> JoiningRecord:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    return _get_joining_record_or_404(db, application)
+
+
 @router.get(
     "/applications/{application_id}/joining-documents", response_model=PaginatedResponse[JoiningDocumentRead]
 )
