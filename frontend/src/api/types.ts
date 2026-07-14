@@ -344,3 +344,34 @@ export interface InterviewFeedbackRead {
   comments: string | null;
   submitted_at: string;
 }
+
+// Mirrors app/models/enums.py::OfferStatusEnum.
+export type OfferStatus = "DRAFT" | "SENT" | "ACCEPTED" | "DECLINED" | "EXPIRED" | "WITHDRAWN";
+
+// Mirrors app/schemas/offer.py::OfferRead.
+export interface OfferRead {
+  id: string;
+  application_id: string;
+  offered_by_id: string;
+  salary_amount: number;
+  salary_currency: string;
+  joining_date: string;
+  terms: string | null;
+  status: OfferStatus;
+  sent_at: string | null;
+  responded_at: string | null;
+  decline_reason: string | null;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/offer.py::OfferCreate.
+export interface OfferCreatePayload {
+  application_id: string;
+  salary_amount: number;
+  salary_currency?: string;
+  joining_date: string;
+  terms?: string | null;
+  expires_at?: string | null;
+}

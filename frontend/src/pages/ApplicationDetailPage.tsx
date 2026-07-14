@@ -6,6 +6,7 @@ import { getApplication, transitionApplicationStatus } from "@/api/applications"
 import { getCandidate } from "@/api/candidates";
 import { ApiError } from "@/api/client";
 import { listInterviews } from "@/api/interviews";
+import { listOffers } from "@/api/offers";
 import {
   APPLICATION_STATUS_ORDER,
   APPLICATION_TERMINAL_STATUSES,
@@ -14,6 +15,7 @@ import {
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/applications/StatusBadge";
 import { StatusBadge as InterviewStatusBadge } from "@/components/interviews/StatusBadge";
+import { StatusBadge as OfferStatusBadge } from "@/components/offers/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -30,6 +32,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
 const WRITE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+const CAN_VIEW_OFFERS_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT"];
+const CAN_CREATE_OFFER_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
 const ALL_STATUSES: ApplicationStatus[] = [...APPLICATION_STATUS_ORDER, "REJECTED"];
 
 export function ApplicationDetailPage() {
@@ -62,6 +66,13 @@ export function ApplicationDetailPage() {
     queryKey: ["interviews", { applicationId: id }],
     queryFn: () => listInterviews({ applicationId: id }),
     enabled: Boolean(id),
+  });
+
+  const canViewOffers = Boolean(user && CAN_VIEW_OFFERS_ROLES.includes(user.role));
+  const { data: applicationOffers } = useQuery({
+    queryKey: ["offers", { applicationId: id }],
+    queryFn: () => listOffers({ applicationId: id }),
+    enabled: Boolean(id) && canViewOffers,
   });
 
   function afterAction() {
@@ -200,6 +211,35 @@ export function ApplicationDetailPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {canViewOffers ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Offer</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {!applicationOffers || applicationOffers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No offer made for this application yet.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {applicationOffers.map((offer) => (
+                  <li key={offer.id} className="flex items-center justify-between text-sm">
+                    <Link to={`/offers/${offer.id}`} className="hover:underline">
+                      {offer.salary_currency} {offer.salary_amount}
+                    </Link>
+                    <OfferStatusBadge status={offer.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+            {user && CAN_CREATE_OFFER_ROLES.includes(user.role) ? (
+              <Button variant="outline" size="sm" className="w-fit" asChild>
+                <Link to={`/offers/new?application_id=${application.id}`}>Make an offer</Link>
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 

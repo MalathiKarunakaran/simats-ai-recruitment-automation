@@ -1,4 +1,4 @@
-import { Briefcase, CalendarClock, LayoutDashboard, Users } from "lucide-react";
+import { Briefcase, CalendarClock, FileCheck, LayoutDashboard, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
@@ -8,25 +8,47 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
+interface NavItem {
+  to: string;
+  label: string;
+  icon?: typeof LayoutDashboard;
+  enabled: boolean;
+  /** Roles that may see this link at all; undefined means every staff role. */
+  visibleForRoles?: string[];
+}
+
+const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
   { to: "/vacancy-requests", label: "Vacancy Requests", icon: Briefcase, enabled: true },
   { to: "/candidates", label: "Candidates", icon: Users, enabled: true },
   { to: "/applications", label: "Applications", icon: Briefcase, enabled: true },
   { to: "/interviews", label: "Interviews", icon: CalendarClock, enabled: true },
-  { to: "/offers", label: "Offers", enabled: false },
+  {
+    to: "/offers",
+    label: "Offers",
+    icon: FileCheck,
+    enabled: true,
+    // Offers visibility mirrors the backend's own gate on GET /offers
+    // (offers.py: HR_ADMIN/SUPER_ADMIN/MANAGEMENT only) -- other staff
+    // roles would just hit a 403, so the nav link is hidden for them.
+    visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT"],
+  },
   { to: "/reports", label: "Reports", enabled: false },
 ];
 
 export function AppShell({ children }: { children?: ReactNode }) {
   const { user, logout } = useAuth();
 
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) => !item.visibleForRoles || (user && item.visibleForRoles.includes(user.role)),
+  );
+
   return (
     <div className="flex min-h-screen">
       <aside className="w-56 shrink-0 border-r border-border p-4">
         <div className="mb-6 px-2 text-sm font-semibold">SIMATS Recruitment</div>
         <nav className="flex flex-col gap-1">
-          {NAV_ITEMS.map((item) =>
+          {visibleNavItems.map((item) =>
             item.enabled ? (
               <NavLink
                 key={item.to}

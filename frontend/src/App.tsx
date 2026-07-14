@@ -13,6 +13,9 @@ import { InterviewCreatePage } from "@/pages/InterviewCreatePage";
 import { InterviewDetailPage } from "@/pages/InterviewDetailPage";
 import { InterviewsListPage } from "@/pages/InterviewsListPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { OfferCreatePage } from "@/pages/OfferCreatePage";
+import { OfferDetailPage } from "@/pages/OfferDetailPage";
+import { OffersListPage } from "@/pages/OffersListPage";
 import { VacancyRequestCreatePage } from "@/pages/VacancyRequestCreatePage";
 import { VacancyRequestDetailPage } from "@/pages/VacancyRequestDetailPage";
 import { VacancyRequestEditPage } from "@/pages/VacancyRequestEditPage";
@@ -38,6 +41,9 @@ export function App() {
           <Route path="/interviews" element={<InterviewsListPage />} />
           <Route path="/interviews/new" element={<InterviewCreatePage />} />
           <Route path="/interviews/:id" element={<InterviewDetailPage />} />
+          <Route path="/offers" element={<OffersListPage />} />
+          <Route path="/offers/new" element={<OfferCreatePage />} />
+          <Route path="/offers/:id" element={<OfferDetailPage />} />
         </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

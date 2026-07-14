@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as applicationsApi from "@/api/applications";
 import * as candidatesApi from "@/api/candidates";
 import * as interviewsApi from "@/api/interviews";
+import * as offersApi from "@/api/offers";
 import type { ApplicationRead, CandidateRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import * as jobPostingLookup from "@/hooks/useJobPostingLookup";
@@ -15,6 +16,7 @@ import { ApplicationDetailPage } from "@/pages/ApplicationDetailPage";
 vi.mock("@/api/applications");
 vi.mock("@/api/candidates");
 vi.mock("@/api/interviews");
+vi.mock("@/api/offers");
 vi.mock("@/hooks/useJobPostingLookup");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
@@ -25,6 +27,7 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedGetApplication = vi.mocked(applicationsApi.getApplication);
 const mockedGetCandidate = vi.mocked(candidatesApi.getCandidate);
 const mockedListInterviews = vi.mocked(interviewsApi.listInterviews);
+const mockedListOffers = vi.mocked(offersApi.listOffers);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
 
 const CANDIDATE: CandidateRead = {
@@ -76,6 +79,7 @@ beforeEach(() => {
     isLoading: false,
   });
   mockedListInterviews.mockResolvedValue([]);
+  mockedListOffers.mockResolvedValue([]);
 });
 
 describe("ApplicationDetailPage", () => {
