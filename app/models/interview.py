@@ -56,6 +56,10 @@ class InterviewSchedule(Base):
     )
     feedback_entries: Mapped[list["InterviewFeedback"]] = relationship(back_populates="interview_schedule")
 
+    @property
+    def panel_member_ids(self) -> list[uuid.UUID]:
+        return [assignment.panel_member_id for assignment in self.panel_assignments]
+
     def __repr__(self) -> str:
         return f"<InterviewSchedule {self.interview_type} @ {self.scheduled_at}>"
 

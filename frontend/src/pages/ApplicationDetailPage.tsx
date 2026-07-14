@@ -5,6 +5,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { getApplication, transitionApplicationStatus } from "@/api/applications";
 import { getCandidate } from "@/api/candidates";
 import { ApiError } from "@/api/client";
+import { listInterviews } from "@/api/interviews";
 import {
   APPLICATION_STATUS_ORDER,
   APPLICATION_TERMINAL_STATUSES,
@@ -12,6 +13,7 @@ import {
 } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/applications/StatusBadge";
+import { StatusBadge as InterviewStatusBadge } from "@/components/interviews/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -54,6 +56,12 @@ export function ApplicationDetailPage() {
     queryKey: ["candidate", application?.candidate_id],
     queryFn: () => getCandidate(application!.candidate_id),
     enabled: Boolean(application),
+  });
+
+  const { data: applicationInterviews } = useQuery({
+    queryKey: ["interviews", { applicationId: id }],
+    queryFn: () => listInterviews({ applicationId: id }),
+    enabled: Boolean(id),
   });
 
   function afterAction() {
@@ -162,6 +170,33 @@ export function ApplicationDetailPage() {
               <div className="text-muted-foreground">Rejection reason</div>
               <div>{application.rejection_reason}</div>
             </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Interviews</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          {!applicationInterviews || applicationInterviews.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No interviews scheduled for this application yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {applicationInterviews.map((interview) => (
+                <li key={interview.id} className="flex items-center justify-between text-sm">
+                  <Link to={`/interviews/${interview.id}`} className="hover:underline">
+                    {interview.interview_type.replace(/_/g, " ")} · {new Date(interview.scheduled_at).toLocaleString()}
+                  </Link>
+                  <InterviewStatusBadge status={interview.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {canWrite ? (
+            <Button variant="outline" size="sm" className="w-fit" asChild>
+              <Link to={`/interviews/new?application_id=${application.id}`}>Schedule interview</Link>
+            </Button>
           ) : null}
         </CardContent>
       </Card>

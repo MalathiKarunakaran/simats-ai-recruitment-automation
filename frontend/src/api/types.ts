@@ -271,3 +271,76 @@ export interface CandidateCreatePayload {
   phone_number?: string | null;
   source?: string | null;
 }
+
+// Mirrors app/models/enums.py::InterviewTypeEnum.
+export type InterviewType = "TECHNICAL" | "HR" | "TEACHING_DEMO" | "GENERAL";
+
+// Mirrors app/models/enums.py::InterviewScheduleStatusEnum.
+export type InterviewScheduleStatus = "SCHEDULED" | "COMPLETED" | "CANCELLED" | "RESCHEDULED";
+
+// Mirrors app/models/enums.py::InterviewRecommendationEnum.
+export type InterviewRecommendation = "STRONG_HIRE" | "HIRE" | "NO_HIRE" | "STRONG_NO_HIRE";
+
+// Mirrors app/schemas/interview.py::InterviewScheduleRead.
+export interface InterviewScheduleRead {
+  id: string;
+  application_id: string;
+  campus_id: string;
+  interview_type: InterviewType;
+  scheduled_at: string;
+  duration_minutes: number;
+  meeting_link: string | null;
+  location: string | null;
+  status: InterviewScheduleStatus;
+  scheduled_by_id: string;
+  notes: string | null;
+  panel_member_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/interview.py::InterviewScheduleCreate.
+export interface InterviewScheduleCreatePayload {
+  application_id: string;
+  interview_type: InterviewType;
+  scheduled_at: string;
+  duration_minutes?: number;
+  meeting_link?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  panel_member_ids: string[];
+}
+
+// Mirrors app/schemas/interview.py::InterviewScheduleUpdate.
+export interface InterviewScheduleUpdatePayload {
+  scheduled_at?: string | null;
+  duration_minutes?: number | null;
+  meeting_link?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  status?: InterviewScheduleStatus | null;
+}
+
+// Mirrors app/schemas/interview.py::InterviewFeedbackCreate.
+export interface InterviewFeedbackCreatePayload {
+  technical_score?: number | null;
+  communication_score?: number | null;
+  research_score?: number | null;
+  teaching_demo_score?: number | null;
+  overall_recommendation: InterviewRecommendation;
+  comments?: string | null;
+}
+
+// Mirrors app/schemas/interview.py::InterviewFeedbackRead.
+export interface InterviewFeedbackRead {
+  id: string;
+  interview_schedule_id: string;
+  panel_member_id: string;
+  technical_score: number | null;
+  communication_score: number | null;
+  research_score: number | null;
+  teaching_demo_score: number | null;
+  overall_recommendation: InterviewRecommendation;
+  comments: string | null;
+  submitted_at: string;
+}

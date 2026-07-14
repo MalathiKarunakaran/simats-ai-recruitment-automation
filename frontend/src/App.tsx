@@ -9,6 +9,9 @@ import { CandidateCreatePage } from "@/pages/CandidateCreatePage";
 import { CandidateDetailPage } from "@/pages/CandidateDetailPage";
 import { CandidatesListPage } from "@/pages/CandidatesListPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { InterviewCreatePage } from "@/pages/InterviewCreatePage";
+import { InterviewDetailPage } from "@/pages/InterviewDetailPage";
+import { InterviewsListPage } from "@/pages/InterviewsListPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { VacancyRequestCreatePage } from "@/pages/VacancyRequestCreatePage";
 import { VacancyRequestDetailPage } from "@/pages/VacancyRequestDetailPage";
@@ -32,6 +35,9 @@ export function App() {
           <Route path="/applications" element={<ApplicationsListPage />} />
           <Route path="/applications/new" element={<ApplicationCreatePage />} />
           <Route path="/applications/:id" element={<ApplicationDetailPage />} />
+          <Route path="/interviews" element={<InterviewsListPage />} />
+          <Route path="/interviews/new" element={<InterviewCreatePage />} />
+          <Route path="/interviews/:id" element={<InterviewDetailPage />} />
         </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

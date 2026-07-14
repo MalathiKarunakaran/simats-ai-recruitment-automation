@@ -37,6 +37,7 @@ def test_schedule_interview_advances_application_status(
     )
     assert response.status_code == 201
     assert response.json()["status"] == "SCHEDULED"
+    assert response.json()["panel_member_ids"] == [str(panel_member.id)]
 
     app_detail = client.get(
         f"/api/v1/applications/{application.id}", headers=auth_headers(client, vacancy.hr_admin)

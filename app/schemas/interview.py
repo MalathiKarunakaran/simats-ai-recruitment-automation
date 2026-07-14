@@ -40,6 +40,7 @@ class InterviewScheduleRead(BaseModel):
     status: InterviewScheduleStatusEnum
     scheduled_by_id: uuid.UUID
     notes: str | None
+    panel_member_ids: list[uuid.UUID]
     created_at: datetime
     updated_at: datetime
 
