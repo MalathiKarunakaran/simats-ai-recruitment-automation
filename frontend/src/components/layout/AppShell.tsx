@@ -1,4 +1,4 @@
-import { Briefcase, LayoutDashboard } from "lucide-react";
+import { Briefcase, LayoutDashboard, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
@@ -11,7 +11,8 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
   { to: "/vacancy-requests", label: "Vacancy Requests", icon: Briefcase, enabled: true },
-  { to: "/applications", label: "Applications", enabled: false },
+  { to: "/candidates", label: "Candidates", icon: Users, enabled: true },
+  { to: "/applications", label: "Applications", icon: Briefcase, enabled: true },
   { to: "/interviews", label: "Interviews", enabled: false },
   { to: "/offers", label: "Offers", enabled: false },
   { to: "/reports", label: "Reports", enabled: false },

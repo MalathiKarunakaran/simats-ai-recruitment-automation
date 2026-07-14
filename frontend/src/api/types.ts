@@ -178,3 +178,96 @@ export interface JobPostingRead {
   created_at: string;
   updated_at: string;
 }
+
+// Mirrors app/models/enums.py::ApplicationStatusEnum.
+export type ApplicationStatus =
+  | "APPLIED"
+  | "SCREENING"
+  | "ELIGIBLE"
+  | "SHORTLISTED"
+  | "INTERVIEW_SCHEDULED"
+  | "TECHNICAL_INTERVIEW"
+  | "HR_INTERVIEW"
+  | "SELECTED"
+  | "OFFER_SENT"
+  | "OFFER_ACCEPTED"
+  | "JOINING_PENDING"
+  | "JOINED"
+  | "ONBOARDING_COMPLETE"
+  | "EMPLOYEE_CREATED"
+  | "REJECTED";
+
+// Mirrors app/models/enums.py::APPLICATION_STATUS_ORDER -- forward-progression
+// order for the happy-path pipeline. REJECTED is deliberately excluded, same
+// as the backend: it's reachable from any non-terminal status, not just a
+// linear predecessor.
+export const APPLICATION_STATUS_ORDER: readonly ApplicationStatus[] = [
+  "APPLIED",
+  "SCREENING",
+  "ELIGIBLE",
+  "SHORTLISTED",
+  "INTERVIEW_SCHEDULED",
+  "TECHNICAL_INTERVIEW",
+  "HR_INTERVIEW",
+  "SELECTED",
+  "OFFER_SENT",
+  "OFFER_ACCEPTED",
+  "JOINING_PENDING",
+  "JOINED",
+  "ONBOARDING_COMPLETE",
+  "EMPLOYEE_CREATED",
+];
+
+// Mirrors app/models/enums.py::APPLICATION_TERMINAL_STATUSES.
+export const APPLICATION_TERMINAL_STATUSES: ReadonlySet<ApplicationStatus> = new Set([
+  "EMPLOYEE_CREATED",
+  "REJECTED",
+]);
+
+// Mirrors app/schemas/application.py::ApplicationRead.
+export interface ApplicationRead {
+  id: string;
+  candidate_id: string;
+  job_posting_id: string;
+  campus_id: string;
+  status: ApplicationStatus;
+  applied_at: string;
+  recorded_by_id: string;
+  rejection_reason: string | null;
+  rejected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/application.py::ApplicationCreate.
+export interface ApplicationCreatePayload {
+  candidate_id: string;
+  job_posting_id: string;
+}
+
+// Mirrors app/schemas/application.py::ApplicationStatusTransitionRequest.
+export interface ApplicationStatusTransitionPayload {
+  status: ApplicationStatus;
+  reason?: string | null;
+  force?: boolean;
+}
+
+// Mirrors app/schemas/candidate.py::CandidateRead.
+export interface CandidateRead {
+  id: string;
+  full_name: string;
+  email: string;
+  phone_number: string | null;
+  resume_storage_key: string | null;
+  source: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/candidate.py::CandidateCreate.
+export interface CandidateCreatePayload {
+  full_name: string;
+  email: string;
+  phone_number?: string | null;
+  source?: string | null;
+}

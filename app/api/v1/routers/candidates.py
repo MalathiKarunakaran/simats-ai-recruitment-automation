@@ -2,6 +2,7 @@ import io
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from minio import Minio
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
@@ -143,3 +144,23 @@ def upload_resume(
     db.commit()
     db.refresh(candidate)
     return candidate
+
+
+@router.get("/{candidate_id}/resume")
+def download_resume(
+    candidate_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    minio_client: Minio = Depends(get_minio_client),
+) -> StreamingResponse:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None or candidate.resume_storage_key is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    data = storage.download_resume_bytes(minio_client, candidate.resume_storage_key)
+    filename = candidate.resume_storage_key.rsplit("/", 1)[-1]
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )

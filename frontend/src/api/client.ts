@@ -42,10 +42,13 @@ function extractErrorMessage(body: unknown): string {
 }
 
 async function rawRequest(path: string, options: RequestInit): Promise<Response> {
+  // Skip the default JSON content-type for FormData bodies -- the browser
+  // must set its own multipart boundary, which a fixed header would clobber.
+  const isFormData = options.body instanceof FormData;
   return fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...options.headers,
     },
   });
@@ -81,6 +84,35 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, _isRe
     return undefined as T;
   }
   return response.json() as Promise<T>;
+}
+
+/** Like apiFetch, but returns the raw response body as a Blob (e.g. resume
+ * PDF downloads) instead of parsing JSON. */
+export async function apiFetchBlob(path: string, options: RequestInit = {}, _isRetry = false): Promise<Blob> {
+  const token = authHooks?.getAccessToken();
+  const response = await rawRequest(path, {
+    ...options,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
+  });
+
+  if (response.status === 401 && !_isRetry && authHooks) {
+    const newToken = await authHooks.refreshAccessToken();
+    if (newToken) {
+      return apiFetchBlob(path, options, true);
+    }
+    authHooks.onAuthFailure();
+    throw new ApiError(401, "Session expired");
+  }
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new ApiError(response.status, extractErrorMessage(body));
+  }
+
+  return response.blob();
 }
 
 /** Unauthenticated / self-contained requests -- login, and the raw refresh
