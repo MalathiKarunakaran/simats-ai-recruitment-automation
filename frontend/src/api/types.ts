@@ -432,3 +432,42 @@ export interface EmployeeRead {
 export interface EmployeeCreatePayload {
   designation?: string | null;
 }
+
+// Mirrors app/services/reporting.py::REPORT_BUILDERS keys.
+export type ReportType =
+  | "recruitment-funnel"
+  | "campus-role-hiring"
+  | "interviews"
+  | "offers"
+  | "joining"
+  | "vacancies"
+  | "time-to-hire";
+
+// Mirrors app/schemas/reporting.py::ReportResponse. The backend intentionally
+// uses one generic row shape for all 7 report types (see the docstring next
+// to ReportResponse) -- each report's actual columns are documented next to
+// its builder in app/services/reporting.py.
+export interface ReportResponse {
+  scope_note: string;
+  generated_at: string;
+  rows: Record<string, string | number>[];
+}
+
+// Mirrors app/schemas/reporting.py::ADBriefingResponse. The index signature
+// lets this feed directly into GenericReportTable, which is shaped for the
+// backend's generic report-row dicts.
+export interface CampusRoleBreakdownRow {
+  [key: string]: string | number;
+  campus_code: string;
+  role_category: string;
+  open_positions: number;
+  in_pipeline: number;
+  hired: number;
+}
+
+export interface ADBriefingResponse {
+  scope_note: string;
+  generated_at: string;
+  kpi_headline: Record<string, number>;
+  campus_role_breakdown: CampusRoleBreakdownRow[];
+}

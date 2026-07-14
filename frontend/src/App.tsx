@@ -16,6 +16,7 @@ import { LoginPage } from "@/pages/LoginPage";
 import { OfferCreatePage } from "@/pages/OfferCreatePage";
 import { OfferDetailPage } from "@/pages/OfferDetailPage";
 import { OffersListPage } from "@/pages/OffersListPage";
+import { ReportsPage } from "@/pages/ReportsPage";
 import { VacancyRequestCreatePage } from "@/pages/VacancyRequestCreatePage";
 import { VacancyRequestDetailPage } from "@/pages/VacancyRequestDetailPage";
 import { VacancyRequestEditPage } from "@/pages/VacancyRequestEditPage";
@@ -44,6 +45,7 @@ export function App() {
           <Route path="/offers" element={<OffersListPage />} />
           <Route path="/offers/new" element={<OfferCreatePage />} />
           <Route path="/offers/:id" element={<OfferDetailPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
         </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
