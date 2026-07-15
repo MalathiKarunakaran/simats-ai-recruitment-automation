@@ -1,20 +1,29 @@
-"""Centralized Anthropic client construction and call patterns.
+"""Centralized AI client construction and call patterns.
 
-Every Claude call in this codebase goes through this module -- never import
-`anthropic` directly in a router or another service file. This keeps the
-model ID, structured-output schemas, and exception->HTTP mapping in one
-place.
+Two providers are used side by side, deliberately not unified behind one
+interface:
 
-Model: claude-opus-4-8 for every call (current Anthropic guidance: always use
-this unless a user explicitly names another model). Anthropic has no public
-embeddings endpoint -- semantic similarity is handled by ChromaDB's own
-default embedding function (see app/services/vector_store.py), not a Claude
-call.
+- OpenAI (gpt-4o): generate_jd, score_and_extract_resume,
+  generate_interview_questions -- the three structured-output calls behind
+  Module 3 (JD generation) and Module 6 (resume screening/interview
+  questions). Never import `openai` directly in a router or another service
+  file; go through get_openai_client()/these three functions.
+- Anthropic (claude-opus-4-8): call_with_tools, generate_narrative -- used
+  only by Module 14 ("Hermes", assistant chat + daily briefing) via
+  get_ai_client(). Kept on Anthropic because Hermes's tool-calling loop
+  (app/services/hermes.py) is written against Anthropic's tool_use content-
+  block format, which doesn't map 1:1 onto OpenAI's function-calling shape --
+  not touched by the OpenAI migration below.
+
+Anthropic has no public embeddings endpoint -- semantic similarity is
+handled by ChromaDB's own default embedding function (see
+app/services/vector_store.py), not an LLM call either way.
 """
 
 import json
 
 import anthropic
+import openai
 from fastapi import HTTPException, status
 
 from app.core.config import settings
@@ -132,7 +141,8 @@ role, not generic."""
 
 
 def get_ai_client() -> anthropic.Anthropic:
-    """FastAPI dependency -- overridden with a fake in tests.
+    """FastAPI dependency -- overridden with a fake in tests. Anthropic-only;
+    used by Module 14 (Hermes) alone (see module docstring).
 
     An empty/unset ANTHROPIC_API_KEY makes the SDK raise a plain TypeError
     (not an anthropic.AnthropicError) on the first call, which would
@@ -144,6 +154,17 @@ def get_ai_client() -> anthropic.Anthropic:
             detail="AI features are not configured (ANTHROPIC_API_KEY is not set)",
         )
     return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+
+def get_openai_client() -> openai.OpenAI:
+    """FastAPI dependency -- overridden with a fake in tests. Backs
+    generate_jd/score_and_extract_resume/generate_interview_questions."""
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI features are not configured (OPENAI_API_KEY is not set)",
+        )
+    return openai.OpenAI(api_key=settings.OPENAI_API_KEY)
 
 
 def _call(fn, *args, **kwargs):
@@ -167,6 +188,27 @@ def _call(fn, *args, **kwargs):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service call failed") from exc
 
 
+def _call_openai(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except openai.RateLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI service is rate-limited; please retry shortly",
+        ) from exc
+    except openai.APIConnectionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not reach the AI service"
+        ) from exc
+    except openai.APIStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI service returned an error ({exc.status_code})",
+        ) from exc
+    except openai.OpenAIError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service call failed") from exc
+
+
 def _parse_structured_json(response) -> dict:
     text_block = next((block for block in response.content if block.type == "text"), None)
     if text_block is None:
@@ -175,6 +217,20 @@ def _parse_structured_json(response) -> dict:
         )
     try:
         return json.loads(text_block.text)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"
+        ) from exc
+
+
+def _parse_openai_structured_json(response) -> dict:
+    content = response.choices[0].message.content if response.choices else None
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"
+        )
+    try:
+        return json.loads(content)
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"
@@ -202,17 +258,19 @@ def _jd_user_content(vacancy_request: VacancyRequest, additional_instructions: s
 
 
 def generate_jd(
-    client: anthropic.Anthropic, vacancy_request: VacancyRequest, additional_instructions: str | None
+    client: openai.OpenAI, vacancy_request: VacancyRequest, additional_instructions: str | None
 ) -> dict:
-    response = _call(
-        client.messages.create,
-        model=settings.ANTHROPIC_MODEL,
-        max_tokens=4000,
-        system=_JD_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": _jd_user_content(vacancy_request, additional_instructions)}],
-        output_config={"format": {"type": "json_schema", "schema": JD_JSON_SCHEMA}},
+    response = _call_openai(
+        client.chat.completions.create,
+        model=settings.OPENAI_MODEL,
+        max_completion_tokens=4000,
+        messages=[
+            {"role": "system", "content": _JD_SYSTEM_PROMPT},
+            {"role": "user", "content": _jd_user_content(vacancy_request, additional_instructions)},
+        ],
+        response_format={"type": "json_schema", "json_schema": {"name": "job_description", "schema": JD_JSON_SCHEMA, "strict": True}},
     )
-    return _parse_structured_json(response)
+    return _parse_openai_structured_json(response)
 
 
 def render_jd_text(jd_fields: dict) -> str:
@@ -237,7 +295,7 @@ def render_jd_text(jd_fields: dict) -> str:
 
 
 def score_and_extract_resume(
-    client: anthropic.Anthropic, *, jd_text: str, resume_text: str, semantic_similarity: float | None
+    client: openai.OpenAI, *, jd_text: str, resume_text: str, semantic_similarity: float | None
 ) -> dict:
     similarity_note = (
         f"A separate semantic-similarity system scored this resume/JD pair at "
@@ -250,33 +308,46 @@ def score_and_extract_resume(
         f"# Resume Text\n{resume_text}\n\n"
         f"# Additional Signal\n{similarity_note}"
     )
-    response = _call(
-        client.messages.create,
-        model=settings.ANTHROPIC_MODEL,
-        max_tokens=6000,
-        thinking={"type": "adaptive"},
-        system=_SCORING_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
-        output_config={"format": {"type": "json_schema", "schema": RESUME_SCORE_JSON_SCHEMA}},
+    response = _call_openai(
+        client.chat.completions.create,
+        model=settings.OPENAI_MODEL,
+        max_completion_tokens=6000,
+        messages=[
+            {"role": "system", "content": _SCORING_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "resume_score", "schema": RESUME_SCORE_JSON_SCHEMA, "strict": True},
+        },
     )
-    return _parse_structured_json(response)
+    return _parse_openai_structured_json(response)
 
 
 def generate_interview_questions(
-    client: anthropic.Anthropic, *, jd_text: str, interview_type: str, resume_text: str | None
+    client: openai.OpenAI, *, jd_text: str, interview_type: str, resume_text: str | None
 ) -> dict:
     user_content = f"# Job Description\n{jd_text}\n\n# Interview Type\n{interview_type}"
     if resume_text:
         user_content += f"\n\n# Candidate Resume\n{resume_text}"
-    response = _call(
-        client.messages.create,
-        model=settings.ANTHROPIC_MODEL,
-        max_tokens=2000,
-        system=_QUESTION_GEN_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_content}],
-        output_config={"format": {"type": "json_schema", "schema": INTERVIEW_QUESTIONS_JSON_SCHEMA}},
+    response = _call_openai(
+        client.chat.completions.create,
+        model=settings.OPENAI_MODEL,
+        max_completion_tokens=2000,
+        messages=[
+            {"role": "system", "content": _QUESTION_GEN_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "interview_questions",
+                "schema": INTERVIEW_QUESTIONS_JSON_SCHEMA,
+                "strict": True,
+            },
+        },
     )
-    return _parse_structured_json(response)
+    return _parse_openai_structured_json(response)
 
 
 def call_with_tools(

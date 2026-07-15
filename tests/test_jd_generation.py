@@ -90,9 +90,9 @@ def test_recruitment_officer_cannot_generate_jd(client, user_factory, department
     assert response.status_code == 403
 
 
-def test_generate_jd_ai_error_maps_to_502(client, user_factory, department_factory, fake_ai_client):
-    import anthropic
+def test_generate_jd_ai_error_maps_to_502(client, user_factory, department_factory, fake_openai_client):
     import httpx
+    import openai
 
     department = department_factory("SSE")
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
@@ -114,10 +114,10 @@ def test_generate_jd_ai_error_maps_to_502(client, user_factory, department_facto
     vr_id = create.json()["id"]
 
     def _raise_connection_error(**kwargs):
-        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
-        raise anthropic.APIConnectionError(request=req)
+        req = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+        raise openai.APIConnectionError(request=req)
 
-    fake_ai_client.messages.create = _raise_connection_error
+    fake_openai_client.chat.completions.create = _raise_connection_error
 
     response = client.post(
         f"/api/v1/vacancy-requests/{vr_id}/generate-jd", headers=auth_headers(client, hod), json={}

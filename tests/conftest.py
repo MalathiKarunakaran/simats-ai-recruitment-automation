@@ -47,7 +47,7 @@ from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.services import joining as joining_service
 from app.services import pipeline, vacancy_workflow
-from app.services.ai_client import get_ai_client
+from app.services.ai_client import get_ai_client, get_openai_client
 from app.services.storage import get_minio_client
 from app.services.vector_store import get_chroma_collection
 
@@ -182,6 +182,78 @@ class FakeAnthropicClient:
         return self.response_provider(kwargs)
 
 
+class FakeOpenAIChoiceMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class FakeOpenAIChoice:
+    def __init__(self, content: str):
+        self.message = FakeOpenAIChoiceMessage(content)
+
+
+class FakeOpenAIResponse:
+    def __init__(self, content: str):
+        self.choices = [FakeOpenAIChoice(content)]
+
+
+def _default_openai_response(kwargs: dict) -> FakeOpenAIResponse:
+    """Canned structured-JSON responses, dispatched by which JSON schema was
+    requested -- mirrors _default_ai_response but reads OpenAI's
+    response_format={"type": "json_schema", "json_schema": {"schema": ...}}
+    shape instead of Anthropic's output_config.format.schema."""
+    schema = kwargs.get("response_format", {}).get("json_schema", {}).get("schema", {})
+    properties = schema.get("properties", {})
+
+    if "role_overview" in properties:
+        payload = {
+            "role_overview": "Test role overview for a faculty position.",
+            "responsibilities": ["Teach undergraduate courses.", "Mentor students."],
+            "required_qualifications": ["PhD in a relevant field."],
+            "preferred_skills": ["Research publications.", "Industry experience."],
+            "application_process": "Apply online via the SIMATS careers portal.",
+        }
+    elif "eligibility_score" in properties:
+        payload = {
+            "eligibility_score": 82.5,
+            "skill_match_pct": 75.0,
+            "qualification_match_pct": 90.0,
+            "experience_match_pct": 80.0,
+            "publication_count": 3,
+            "overall_recruitment_score": 81.0,
+            "rationale": "Strong candidate with relevant qualifications and experience.",
+            "extracted_skills": ["Python", "Teaching", "Research"],
+            "extracted_qualification": "PhD in Computer Science",
+            "extracted_experience_years": 5.0,
+            "missing_required_fields": [],
+        }
+    elif "questions" in properties:
+        payload = {
+            "questions": [
+                {"category": "Technical", "question": "Describe a project you led."},
+                {"category": "Behavioral", "question": "How do you handle disagreement in a team?"},
+            ]
+        }
+    else:
+        payload = {}
+    return FakeOpenAIResponse(json.dumps(payload))
+
+
+class FakeOpenAIClient:
+    """Fake for app.services.ai_client.get_openai_client. `response_provider`
+    defaults to _default_openai_response; tests that need to exercise the
+    exception->HTTP mapping in ai_client._call_openai swap in a provider (or
+    a `.chat.completions.create` override) that raises a real
+    `openai.*Error`."""
+
+    def __init__(self, response_provider=_default_openai_response):
+        self.response_provider = response_provider
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        return self.response_provider(kwargs)
+
+
 class _FakeMinioResponse:
     def __init__(self, data: bytes):
         self._data = data
@@ -309,6 +381,11 @@ def fake_ai_client():
 
 
 @pytest.fixture()
+def fake_openai_client():
+    return FakeOpenAIClient()
+
+
+@pytest.fixture()
 def fake_minio_client():
     return FakeMinioClient()
 
@@ -319,12 +396,13 @@ def fake_chroma_collection():
 
 
 @pytest.fixture()
-def client(db_session, fake_ai_client, fake_minio_client, fake_chroma_collection):
+def client(db_session, fake_ai_client, fake_openai_client, fake_minio_client, fake_chroma_collection):
     def _override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_ai_client] = lambda: fake_ai_client
+    app.dependency_overrides[get_openai_client] = lambda: fake_openai_client
     app.dependency_overrides[get_minio_client] = lambda: fake_minio_client
     app.dependency_overrides[get_chroma_collection] = lambda: fake_chroma_collection
     with TestClient(app) as test_client:

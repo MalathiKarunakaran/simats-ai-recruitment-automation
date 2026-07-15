@@ -153,6 +153,11 @@ export interface VacancyRequestCreatePayload {
 
 export type VacancyRequestUpdatePayload = Partial<Omit<VacancyRequestCreatePayload, "campus_id" | "department_id">>;
 
+// Mirrors app/schemas/vacancy_request.py::VacancyRequestGenerateJDRequest.
+export interface VacancyRequestGenerateJDPayload {
+  additional_instructions?: string | null;
+}
+
 // Mirrors app/schemas/approved_vacancy.py::ApprovedVacancyRead.
 export interface ApprovedVacancyRead {
   id: string;
@@ -177,6 +182,19 @@ export interface JobPostingRead {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+// Mirrors app/schemas/resume_score.py::RankedApplicationRead.
+export interface RankedApplicationRead {
+  application_id: string;
+  candidate_id: string;
+  candidate_full_name: string;
+  candidate_email: string;
+  application_status: string;
+  overall_recruitment_score: number | null;
+  eligibility_score: number | null;
+  is_duplicate: boolean;
+  is_incomplete_profile: boolean;
 }
 
 // Mirrors app/models/enums.py::ApplicationStatusEnum.
@@ -250,6 +268,32 @@ export interface ApplicationStatusTransitionPayload {
   status: ApplicationStatus;
   reason?: string | null;
   force?: boolean;
+}
+
+// Mirrors app/schemas/resume_score.py::ResumeScoreRead.
+export interface ResumeScoreRead {
+  id: string;
+  application_id: string;
+  eligibility_score: number;
+  skill_match_pct: number;
+  qualification_match_pct: number;
+  experience_match_pct: number;
+  publication_count: number;
+  overall_recruitment_score: number;
+  semantic_similarity_score: number | null;
+  rationale: string;
+  extracted_skills: string[];
+  extracted_qualification: string;
+  extracted_experience_years: number;
+  is_duplicate: boolean;
+  duplicate_of_candidate_id: string | null;
+  is_incomplete_profile: boolean;
+  incomplete_reasons: string[] | null;
+  screened_at: string;
+  screened_by_id: string;
+  model_version: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // Mirrors app/schemas/candidate.py::CandidateRead.
@@ -343,6 +387,16 @@ export interface InterviewFeedbackRead {
   overall_recommendation: InterviewRecommendation;
   comments: string | null;
   submitted_at: string;
+}
+
+// Mirrors app/schemas/interview.py::InterviewQuestionItem/InterviewQuestionsResponse.
+export interface InterviewQuestionItem {
+  category: string;
+  question: string;
+}
+
+export interface InterviewQuestionsResponse {
+  questions: InterviewQuestionItem[];
 }
 
 // Mirrors app/models/enums.py::OfferStatusEnum.

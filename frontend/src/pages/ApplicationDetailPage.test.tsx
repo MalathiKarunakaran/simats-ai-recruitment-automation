@@ -6,9 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as applicationsApi from "@/api/applications";
 import * as candidatesApi from "@/api/candidates";
+import { ApiError } from "@/api/client";
 import * as interviewsApi from "@/api/interviews";
 import * as joiningApi from "@/api/joining";
 import * as offersApi from "@/api/offers";
+import * as resumeScreeningApi from "@/api/resumeScreening";
 import type { ApplicationRead, CandidateRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import * as jobPostingLookup from "@/hooks/useJobPostingLookup";
@@ -20,6 +22,7 @@ vi.mock("@/api/interviews");
 vi.mock("@/api/offers");
 vi.mock("@/api/joining");
 vi.mock("@/api/employees");
+vi.mock("@/api/resumeScreening");
 vi.mock("@/hooks/useJobPostingLookup");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
@@ -34,6 +37,8 @@ const mockedListOffers = vi.mocked(offersApi.listOffers);
 const mockedGetJoiningRecord = vi.mocked(joiningApi.getJoiningRecord);
 const mockedListJoiningDocuments = vi.mocked(joiningApi.listJoiningDocuments);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
+const mockedGetResumeScore = vi.mocked(resumeScreeningApi.getResumeScore);
+const mockedScreenApplication = vi.mocked(resumeScreeningApi.screenApplication);
 
 const CANDIDATE: CandidateRead = {
   id: "cand-1",
@@ -96,6 +101,7 @@ beforeEach(() => {
     updated_at: "2026-01-02T00:00:00Z",
   });
   mockedListJoiningDocuments.mockResolvedValue([]);
+  mockedGetResumeScore.mockRejectedValue(new ApiError(404, "Not found"));
 });
 
 describe("ApplicationDetailPage", () => {
@@ -222,5 +228,63 @@ describe("ApplicationDetailPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
     expect(screen.queryByText("Joining")).not.toBeInTheDocument();
+  });
+
+  it("shows 'Not screened yet' and a disabled Screen button when the candidate has no resume", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetApplication.mockResolvedValue(makeApplication());
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Not screened yet.")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Screen resume" })).toBeDisabled();
+    expect(screen.getByText("Candidate has no uploaded resume yet.")).toBeInTheDocument();
+  });
+
+  it("enables screening and renders the score once the candidate has a resume and is screened", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetCandidate.mockResolvedValue({ ...CANDIDATE, resume_storage_key: "cand-1/resume.pdf" });
+    mockedGetApplication.mockResolvedValue(makeApplication());
+    mockedScreenApplication.mockResolvedValue({
+      id: "score-1",
+      application_id: "app-1",
+      eligibility_score: 82.5,
+      skill_match_pct: 75,
+      qualification_match_pct: 90,
+      experience_match_pct: 80,
+      publication_count: 3,
+      overall_recruitment_score: 81,
+      semantic_similarity_score: 70,
+      rationale: "Strong candidate.",
+      extracted_skills: ["Python", "Teaching"],
+      extracted_qualification: "PhD",
+      extracted_experience_years: 5,
+      is_duplicate: false,
+      duplicate_of_candidate_id: null,
+      is_incomplete_profile: false,
+      incomplete_reasons: null,
+      screened_at: "2026-01-03T00:00:00Z",
+      screened_by_id: "u-1",
+      model_version: "gpt-4o",
+      created_at: "2026-01-03T00:00:00Z",
+      updated_at: "2026-01-03T00:00:00Z",
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Screen resume" })).not.toBeDisabled());
+
+    await userEvent.click(screen.getByRole("button", { name: "Screen resume" }));
+
+    await waitFor(() => expect(mockedScreenApplication).toHaveBeenCalledWith("app-1"));
   });
 });

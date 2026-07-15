@@ -1,6 +1,6 @@
 import uuid
 
-import anthropic
+import openai
 from chromadb.api.models.Collection import Collection
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from minio import Minio
@@ -13,7 +13,7 @@ from app.models.resume_score import ResumeScore
 from app.models.user import User
 from app.schemas.resume_score import ResumeScoreRead
 from app.services import resume_screening
-from app.services.ai_client import get_ai_client
+from app.services.ai_client import get_openai_client
 from app.services.storage import get_minio_client
 from app.services.vector_store import get_chroma_collection
 
@@ -45,7 +45,7 @@ def screen_application(
     scope: CampusScope = Depends(get_campus_scope),
     minio_client: Minio = Depends(get_minio_client),
     chroma_collection: Collection = Depends(get_chroma_collection),
-    ai: anthropic.Anthropic = Depends(get_ai_client),
+    ai: openai.OpenAI = Depends(get_openai_client),
 ) -> ResumeScore:
     application = _get_application_or_404_scoped(db, application_id, scope)
     score = resume_screening.run_screening(

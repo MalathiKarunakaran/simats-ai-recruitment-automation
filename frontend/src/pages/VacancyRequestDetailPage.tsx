@@ -7,6 +7,7 @@ import {
   closeVacancyRequest,
   deanApproveVacancyRequest,
   deleteVacancyRequest,
+  generateJd,
   getVacancyRequest,
   hrApproveVacancyRequest,
   publishVacancyRequest,
@@ -36,6 +37,8 @@ export function VacancyRequestDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [jdDialogOpen, setJdDialogOpen] = useState(false);
+  const [jdInstructions, setJdInstructions] = useState("");
 
   const { data: vr, isLoading } = useQuery({
     queryKey: ["vacancy-request", id],
@@ -79,6 +82,16 @@ export function VacancyRequestDetailPage() {
     },
     onError: (err: unknown) => setError(err instanceof ApiError ? err.message : "Reject failed"),
   });
+  const generateJdMutation = useMutation({
+    mutationFn: () => generateJd(id!, { additional_instructions: jdInstructions || null }),
+    onSuccess: () => {
+      setError(null);
+      setJdDialogOpen(false);
+      setJdInstructions("");
+      afterAction();
+    },
+    onError: (err: unknown) => setError(err instanceof ApiError ? err.message : "JD generation failed"),
+  });
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -102,6 +115,8 @@ export function VacancyRequestDetailPage() {
     (role === "HR_ADMIN" || role === "RECRUITMENT_OFFICER" || role === "SUPER_ADMIN") && vr.status === "APPROVED";
   const canClose = (role === "HR_ADMIN" || role === "SUPER_ADMIN") && vr.status === "PUBLISHED";
 
+  const canGenerateJd = canSubmit;
+
   const isBusy =
     submitMutation.isPending ||
     deanApproveMutation.isPending ||
@@ -109,7 +124,8 @@ export function VacancyRequestDetailPage() {
     publishMutation.isPending ||
     closeMutation.isPending ||
     deleteMutation.isPending ||
-    rejectMutation.isPending;
+    rejectMutation.isPending ||
+    generateJdMutation.isPending;
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -177,6 +193,19 @@ export function VacancyRequestDetailPage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Job Description</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
+          {vr.jd_draft ? (
+            <pre className="whitespace-pre-wrap font-sans">{vr.jd_draft}</pre>
+          ) : (
+            <p className="text-muted-foreground">No job description generated yet.</p>
+          )}
+        </CardContent>
+      </Card>
+
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       <div className="flex flex-wrap gap-2">
@@ -189,6 +218,33 @@ export function VacancyRequestDetailPage() {
           <Button disabled={isBusy} onClick={() => submitMutation.mutate()}>
             Submit
           </Button>
+        ) : null}
+        {canGenerateJd ? (
+          <Dialog open={jdDialogOpen} onOpenChange={setJdDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" disabled={isBusy}>
+                {vr.jd_draft ? "Regenerate JD" : "Generate JD"}
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Generate job description</DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="jd_instructions">Additional instructions (optional)</Label>
+                <Textarea
+                  id="jd_instructions"
+                  value={jdInstructions}
+                  onChange={(e) => setJdInstructions(e.target.value)}
+                />
+              </div>
+              <DialogFooter>
+                <Button disabled={generateJdMutation.isPending} onClick={() => generateJdMutation.mutate()}>
+                  {generateJdMutation.isPending ? "Generating…" : "Generate"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         ) : null}
         {canDeanApprove ? (
           <Button disabled={isBusy} onClick={() => deanApproveMutation.mutate()}>

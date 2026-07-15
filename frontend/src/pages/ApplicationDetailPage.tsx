@@ -7,6 +7,7 @@ import { getCandidate } from "@/api/candidates";
 import { ApiError } from "@/api/client";
 import { listInterviews } from "@/api/interviews";
 import { listOffers } from "@/api/offers";
+import { getResumeScore, screenApplication } from "@/api/resumeScreening";
 import {
   APPLICATION_STATUS_ORDER,
   APPLICATION_TERMINAL_STATUSES,
@@ -17,6 +18,7 @@ import { StatusBadge } from "@/components/applications/StatusBadge";
 import { StatusBadge as InterviewStatusBadge } from "@/components/interviews/StatusBadge";
 import { JoiningCard } from "@/components/joining/JoiningCard";
 import { StatusBadge as OfferStatusBadge } from "@/components/offers/StatusBadge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -63,6 +65,19 @@ export function ApplicationDetailPage() {
     queryFn: () => getCandidate(application!.candidate_id),
     enabled: Boolean(application),
   });
+
+  const canScreen = Boolean(user && WRITE_ROLES.includes(user.role));
+  const {
+    data: resumeScore,
+    error: resumeScoreError,
+    isLoading: resumeScoreLoading,
+  } = useQuery({
+    queryKey: ["resume-score", id],
+    queryFn: () => getResumeScore(id!),
+    enabled: Boolean(id) && canScreen,
+    retry: false,
+  });
+  const resumeScoreNotFound = resumeScoreError instanceof ApiError && resumeScoreError.status === 404;
 
   const { data: applicationInterviews } = useQuery({
     queryKey: ["interviews", { applicationId: id }],
@@ -120,6 +135,15 @@ export function ApplicationDetailPage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Force correction failed"),
   });
 
+  const screenMutation = useMutation({
+    mutationFn: () => screenApplication(id!),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["resume-score", id] });
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Resume screening failed"),
+  });
+
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
@@ -147,7 +171,11 @@ export function ApplicationDetailPage() {
     <div className="flex max-w-2xl flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">{label?.positionTitle ?? "Application"}</h1>
+          <h1 className="text-lg font-semibold">
+            <Link to={`/job-postings/${application.job_posting_id}`} className="hover:underline">
+              {label?.positionTitle ?? "Application"}
+            </Link>
+          </h1>
           <div className="mt-1">
             <StatusBadge status={application.status} />
           </div>
@@ -172,6 +200,74 @@ export function ApplicationDetailPage() {
           <div className="text-muted-foreground">{candidate?.email}</div>
         </CardContent>
       </Card>
+
+      {canScreen ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Resume Screening</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 text-sm">
+            {resumeScoreLoading ? (
+              <p className="text-muted-foreground">Loading…</p>
+            ) : resumeScore ? (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className="text-muted-foreground">Overall score</div>
+                  <div>{resumeScore.overall_recruitment_score}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Eligibility score</div>
+                  <div>{resumeScore.eligibility_score}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Skill match</div>
+                  <div>{resumeScore.skill_match_pct}%</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Qualification match</div>
+                  <div>{resumeScore.qualification_match_pct}%</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Experience match</div>
+                  <div>{resumeScore.experience_match_pct}%</div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-muted-foreground">Extracted skills</div>
+                  <div>{resumeScore.extracted_skills.join(", ") || "—"}</div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-muted-foreground">Rationale</div>
+                  <div>{resumeScore.rationale}</div>
+                </div>
+                {resumeScore.is_duplicate || resumeScore.is_incomplete_profile ? (
+                  <div className="col-span-2 flex gap-2">
+                    {resumeScore.is_duplicate ? <Badge variant="warning">Possible duplicate</Badge> : null}
+                    {resumeScore.is_incomplete_profile ? <Badge variant="warning">Incomplete profile</Badge> : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : resumeScoreNotFound ? (
+              <p className="text-muted-foreground">Not screened yet.</p>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              disabled={!candidate?.resume_storage_key || screenMutation.isPending}
+              onClick={() => screenMutation.mutate()}
+            >
+              {screenMutation.isPending
+                ? "Screening…"
+                : resumeScore
+                  ? "Re-screen resume"
+                  : "Screen resume"}
+            </Button>
+            {!candidate?.resume_storage_key ? (
+              <p className="text-xs text-muted-foreground">Candidate has no uploaded resume yet.</p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

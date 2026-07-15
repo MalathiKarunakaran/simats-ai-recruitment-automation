@@ -1,6 +1,6 @@
 import uuid
 
-import anthropic
+import openai
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,7 @@ from app.schemas.interview import (
     InterviewScheduleUpdate,
 )
 from app.services import ai_client, interviews
-from app.services.ai_client import get_ai_client
+from app.services.ai_client import get_openai_client
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
 
@@ -169,7 +169,7 @@ def generate_interview_questions(
         require_roles(*_WRITE_ROLES, UserRoleEnum.INTERVIEW_PANEL_MEMBER)
     ),
     scope: CampusScope = Depends(get_campus_scope),
-    ai: anthropic.Anthropic = Depends(get_ai_client),
+    ai: openai.OpenAI = Depends(get_openai_client),
 ) -> InterviewQuestionsResponse:
     schedule = _get_schedule_or_404_scoped(db, interview_id, scope)
     vacancy_request = schedule.application.job_posting.approved_vacancy.vacancy_request

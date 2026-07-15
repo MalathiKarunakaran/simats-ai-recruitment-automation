@@ -14,6 +14,7 @@ import { EmployeesListPage } from "@/pages/EmployeesListPage";
 import { InterviewCreatePage } from "@/pages/InterviewCreatePage";
 import { InterviewDetailPage } from "@/pages/InterviewDetailPage";
 import { InterviewsListPage } from "@/pages/InterviewsListPage";
+import { JobPostingDetailPage } from "@/pages/JobPostingDetailPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { OfferCreatePage } from "@/pages/OfferCreatePage";
 import { OfferDetailPage } from "@/pages/OfferDetailPage";
@@ -50,6 +51,7 @@ export function App() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/employees" element={<EmployeesListPage />} />
           <Route path="/employees/:id" element={<EmployeeDetailPage />} />
+          <Route path="/job-postings/:id" element={<JobPostingDetailPage />} />
         </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

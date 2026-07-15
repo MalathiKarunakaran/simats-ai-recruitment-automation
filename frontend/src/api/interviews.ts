@@ -2,6 +2,7 @@ import { apiFetch } from "@/api/client";
 import type {
   InterviewFeedbackCreatePayload,
   InterviewFeedbackRead,
+  InterviewQuestionsResponse,
   InterviewScheduleCreatePayload,
   InterviewScheduleRead,
   InterviewScheduleStatus,
@@ -52,4 +53,8 @@ export async function submitInterviewFeedback(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function generateInterviewQuestions(interviewId: string): Promise<InterviewQuestionsResponse> {
+  return apiFetch<InterviewQuestionsResponse>(`/interviews/${interviewId}/generate-questions`, { method: "POST" });
 }

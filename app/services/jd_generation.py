@@ -8,7 +8,7 @@ text, reviewed/edited via the existing PATCH /vacancy-requests/{id} (DRAFT-only)
 before submission -- this service does not publish anything on its own.
 """
 
-import anthropic
+import openai
 from fastapi import Request
 from sqlalchemy.orm import Session
 
@@ -22,7 +22,7 @@ def generate_and_apply_jd(
     db: Session,
     *,
     vacancy_request: VacancyRequest,
-    client: anthropic.Anthropic,
+    client: openai.OpenAI,
     additional_instructions: str | None,
     actor: User,
     request: Request | None = None,

@@ -8,7 +8,7 @@ write ResumeScore.
 import io
 from datetime import datetime, timezone
 
-import anthropic
+import openai
 from fastapi import HTTPException, Request, status
 from minio import Minio
 from pypdf import PdfReader
@@ -36,7 +36,7 @@ def run_screening(
     application: Application,
     minio_client: Minio,
     chroma_collection,
-    ai: anthropic.Anthropic,
+    ai: openai.OpenAI,
     actor: User,
     request: Request | None = None,
 ) -> ResumeScore:
@@ -103,7 +103,7 @@ def run_screening(
     score.incomplete_reasons = incomplete_reasons or None
     score.screened_at = now
     score.screened_by_id = actor.id
-    score.model_version = settings.ANTHROPIC_MODEL
+    score.model_version = settings.OPENAI_MODEL
 
     db.flush()
 

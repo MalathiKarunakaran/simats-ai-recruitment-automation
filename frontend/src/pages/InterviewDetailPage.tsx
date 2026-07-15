@@ -5,8 +5,14 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { getApplication } from "@/api/applications";
 import { getCandidate } from "@/api/candidates";
 import { ApiError } from "@/api/client";
-import { getInterview, listInterviewFeedback, submitInterviewFeedback, updateInterview } from "@/api/interviews";
-import type { InterviewRecommendation } from "@/api/types";
+import {
+  generateInterviewQuestions,
+  getInterview,
+  listInterviewFeedback,
+  submitInterviewFeedback,
+  updateInterview,
+} from "@/api/interviews";
+import type { InterviewQuestionItem, InterviewRecommendation } from "@/api/types";
 import { listUsers } from "@/api/users";
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/interviews/StatusBadge";
@@ -55,6 +61,7 @@ export function InterviewDetailPage() {
   const [teachingDemoScore, setTeachingDemoScore] = useState("");
   const [recommendation, setRecommendation] = useState<InterviewRecommendation | "">("");
   const [comments, setComments] = useState("");
+  const [generatedQuestions, setGeneratedQuestions] = useState<InterviewQuestionItem[] | null>(null);
 
   const { data: interview, isLoading } = useQuery({
     queryKey: ["interview", id],
@@ -139,6 +146,15 @@ export function InterviewDetailPage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Feedback submission failed"),
   });
 
+  const generateQuestionsMutation = useMutation({
+    mutationFn: () => generateInterviewQuestions(id!),
+    onSuccess: (result) => {
+      setError(null);
+      setGeneratedQuestions(result.questions);
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Question generation failed"),
+  });
+
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
@@ -159,6 +175,7 @@ export function InterviewDetailPage() {
     interview.panel_member_ids.includes(user.id);
   const hasSubmittedFeedback = feedbackEntries?.some((f) => f.panel_member_id === user.id) ?? false;
   const canSubmitFeedback = isAssignedPanelMember && !hasSubmittedFeedback;
+  const canGenerateQuestions = canWrite || isAssignedPanelMember;
 
   function openEditDialog() {
     if (!interview) return;
@@ -325,6 +342,39 @@ export function InterviewDetailPage() {
             {cancelMutation.isPending ? "Cancelling…" : "Cancel"}
           </Button>
         </div>
+      ) : null}
+
+      {canGenerateQuestions ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Interview Questions</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              disabled={generateQuestionsMutation.isPending}
+              onClick={() => generateQuestionsMutation.mutate()}
+            >
+              {generateQuestionsMutation.isPending ? "Generating…" : "Generate interview questions"}
+            </Button>
+            {generatedQuestions ? (
+              generatedQuestions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No questions were generated.</p>
+              ) : (
+                <ul className="flex flex-col gap-2 text-sm">
+                  {generatedQuestions.map((q, index) => (
+                    <li key={index} className="rounded-md border border-border p-3">
+                      <div className="text-xs font-medium text-muted-foreground">{q.category}</div>
+                      <div>{q.question}</div>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : null}
+          </CardContent>
+        </Card>
       ) : null}
 
       <Card>

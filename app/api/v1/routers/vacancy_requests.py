@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-import anthropic
+import openai
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,7 @@ from app.schemas.vacancy_request import (
     VacancyRequestUpdate,
 )
 from app.services import jd_generation, vacancy_workflow
-from app.services.ai_client import get_ai_client
+from app.services.ai_client import get_openai_client
 from app.services.audit import log_create, log_delete, log_update
 
 router = APIRouter(prefix="/vacancy-requests", tags=["vacancy-requests"])
@@ -209,7 +209,7 @@ def generate_jd_for_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_can_write),
     scope: CampusScope = Depends(get_campus_scope),
-    ai: anthropic.Anthropic = Depends(get_ai_client),
+    ai: openai.OpenAI = Depends(get_openai_client),
 ) -> VacancyRequest:
     vr = _get_or_404_scoped(db, vacancy_request_id, scope)
     if vr.status != VacancyRequestStatusEnum.DRAFT:

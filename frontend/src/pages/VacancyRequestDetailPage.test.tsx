@@ -18,6 +18,7 @@ vi.mock("@/auth/AuthContext", async () => {
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedGetVacancyRequest = vi.mocked(vacancyRequestsApi.getVacancyRequest);
 const mockedSubmit = vi.mocked(vacancyRequestsApi.submitVacancyRequest);
+const mockedGenerateJd = vi.mocked(vacancyRequestsApi.generateJd);
 
 function baseVr(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
   return {
@@ -126,5 +127,48 @@ describe("VacancyRequestDetailPage", () => {
 
     await waitFor(() => expect(mockedSubmit).toHaveBeenCalledWith("vr-1"));
     await waitFor(() => expect(screen.getByText("SUBMITTED")).toBeInTheDocument());
+  });
+
+  it("shows Generate JD for a DRAFT request's owning HOD, submits instructions, and renders the result", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "DRAFT", jd_draft: null }));
+    mockedGenerateJd.mockResolvedValue(baseVr({ status: "DRAFT", jd_draft: "## Role Overview\nGenerated JD text." }));
+    mockedGetVacancyRequest.mockResolvedValueOnce(
+      baseVr({ status: "DRAFT", jd_draft: "## Role Overview\nGenerated JD text." }),
+    );
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Generate JD")).toBeInTheDocument());
+    expect(screen.getByText("No job description generated yet.")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Generate JD"));
+    await userEvent.type(screen.getByLabelText(/Additional instructions/), "Emphasize research experience.");
+    await userEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    await waitFor(() =>
+      expect(mockedGenerateJd).toHaveBeenCalledWith("vr-1", {
+        additional_instructions: "Emphasize research experience.",
+      }),
+    );
+    expect(await screen.findByText(/Generated JD text/)).toBeInTheDocument();
+  });
+
+  it("does not show Generate JD for a Recruitment Officer", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.queryByText("Generate JD")).not.toBeInTheDocument();
   });
 });

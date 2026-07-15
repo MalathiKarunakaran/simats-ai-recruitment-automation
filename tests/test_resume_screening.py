@@ -71,7 +71,7 @@ def test_screen_application_happy_path(
     assert body["eligibility_score"] == 82.5
     assert body["extracted_skills"] == ["Python", "Teaching", "Research"]
     assert body["is_incomplete_profile"] is False
-    assert body["model_version"] == "claude-opus-4-8"
+    assert body["model_version"] == "gpt-4o"
 
     fetched = client.get(
         f"/api/v1/applications/{application.id}/resume-score", headers=auth_headers(client, vacancy.hr_admin)
@@ -122,10 +122,10 @@ def test_screen_application_flags_duplicate_resume(
 
 
 def test_screen_application_ai_error_maps_to_503_on_rate_limit(
-    client, published_vacancy_factory, application_factory, candidate_factory, fake_ai_client
+    client, published_vacancy_factory, application_factory, candidate_factory, fake_openai_client
 ):
-    import anthropic
     import httpx
+    import openai
 
     vacancy = published_vacancy_factory(slot_count=1)
     candidate = candidate_factory()
@@ -133,11 +133,11 @@ def test_screen_application_ai_error_maps_to_503_on_rate_limit(
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin, candidate=candidate)
 
     def _raise_rate_limit(**kwargs):
-        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        req = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
         resp = httpx.Response(429, request=req)
-        raise anthropic.RateLimitError("rate limited", response=resp, body=None)
+        raise openai.RateLimitError("rate limited", response=resp, body=None)
 
-    fake_ai_client.messages.create = _raise_rate_limit
+    fake_openai_client.chat.completions.create = _raise_rate_limit
 
     response = client.post(
         f"/api/v1/applications/{application.id}/screen", headers=auth_headers(client, vacancy.hr_admin)

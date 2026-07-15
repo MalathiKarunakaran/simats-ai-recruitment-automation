@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,6 +36,7 @@ const mockedGetCandidate = vi.mocked(candidatesApi.getCandidate);
 const mockedListUsers = vi.mocked(usersApi.listUsers);
 const mockedListInterviewFeedback = vi.mocked(interviewsApi.listInterviewFeedback);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
+const mockedGenerateInterviewQuestions = vi.mocked(interviewsApi.generateInterviewQuestions);
 
 const CANDIDATE: CandidateRead = {
   id: "cand-1",
@@ -212,5 +214,31 @@ describe("InterviewDetailPage", () => {
     expect(screen.queryByText("Submit feedback")).not.toBeInTheDocument();
     expect(screen.queryByText("Mark completed")).not.toBeInTheDocument();
     expect(screen.queryByText("Cancel")).not.toBeInTheDocument();
+    expect(screen.queryByText("Generate interview questions")).not.toBeInTheDocument();
+  });
+
+  it("shows Generate interview questions for an assigned panel member without write access, and renders results", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { id: "panel-1", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetInterview.mockResolvedValue(makeInterview());
+    mockedGenerateInterviewQuestions.mockResolvedValue({
+      questions: [
+        { category: "Technical", question: "Describe a project you led." },
+        { category: "Behavioral", question: "How do you handle disagreement?" },
+      ],
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Generate interview questions")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByText("Generate interview questions"));
+
+    await waitFor(() => expect(mockedGenerateInterviewQuestions).toHaveBeenCalledWith("int-1"));
+    expect(await screen.findByText("Describe a project you led.")).toBeInTheDocument();
+    expect(screen.getByText("How do you handle disagreement?")).toBeInTheDocument();
   });
 });

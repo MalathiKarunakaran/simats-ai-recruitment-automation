@@ -4,6 +4,7 @@ import type {
   JobPostingRead,
   PaginatedResponse,
   VacancyRequestCreatePayload,
+  VacancyRequestGenerateJDPayload,
   VacancyRequestRead,
   VacancyRequestStatus,
   VacancyRequestUpdatePayload,
@@ -60,4 +61,14 @@ export async function publishVacancyRequest(id: string): Promise<JobPostingRead>
 
 export async function closeVacancyRequest(id: string): Promise<VacancyRequestRead> {
   return apiFetch<VacancyRequestRead>(`/vacancy-requests/${id}/close`, { method: "POST" });
+}
+
+export async function generateJd(
+  id: string,
+  payload: VacancyRequestGenerateJDPayload,
+): Promise<VacancyRequestRead> {
+  return apiFetch<VacancyRequestRead>(`/vacancy-requests/${id}/generate-jd`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

@@ -17,12 +17,18 @@ class Settings(BaseSettings):
     SEED_SUPER_ADMIN_PASSWORD: str = ""
     SEED_SAMPLE_USER_PASSWORD: str = "DevPass123!"
 
-    # --- Anthropic (Phase 3: JD generation, resume scoring) ---
+    # --- Anthropic (Module 14 "Hermes": assistant chat + daily briefing) ---
     # Defaults to "" (not required) so the app/test suite can import and run
     # without a live key -- only real AI-call endpoints need it set; tests
     # override the ai_client dependency with a fake.
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-opus-4-8"
+
+    # --- OpenAI (Phase 3: JD generation, resume scoring, interview questions) ---
+    # Same unconfigured-by-default precedent as ANTHROPIC_API_KEY above --
+    # leave blank to run without live AI calls; tests override get_openai_client.
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o"
 
     # --- MinIO (Phase 3: resume object storage) ---
     MINIO_ENDPOINT: str = "localhost:9000"
