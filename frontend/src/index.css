@@ -3,44 +3,53 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --radius: 0.625rem;
+  /* SIMATS brand hues -- constant across themes, drawn from the institutional
+     seal (cobalt blue / lime gear teeth / orange book) and the SSE campus
+     mark. Used sparingly as accents, not as the base UI palette. */
+  --brand-blue: #1b5faa;
+  --brand-blue-deep: #0f3d73;
+  --brand-green: #3fa34d;
+  --brand-orange: #f4791e;
+  --brand-lime: #a9cc3b;
+
+  --background: #faf9f6;
+  --foreground: #14202e;
+  --card: #ffffff;
+  --card-foreground: #14202e;
+  --primary: #1b5faa;
+  --primary-foreground: #ffffff;
+  --secondary: #eef3f8;
+  --secondary-foreground: #0f3d73;
+  --muted: #f1efe9;
+  --muted-foreground: #5b6572;
+  --accent: #eaf1f8;
+  --accent-foreground: #0f3d73;
+  --destructive: #d63a2e;
+  --destructive-foreground: #ffffff;
+  --border: #e4e0d6;
+  --input: #e4e0d6;
+  --ring: #1b5faa;
+  --radius: 0.75rem;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --background: #0b1420;
+  --foreground: #edeff2;
+  --card: #101c2c;
+  --card-foreground: #edeff2;
+  --primary: #4a8fd6;
+  --primary-foreground: #071019;
+  --secondary: #16263a;
+  --secondary-foreground: #c9d8e8;
+  --muted: #16263a;
+  --muted-foreground: #90a0b2;
+  --accent: #1b2f47;
+  --accent-foreground: #edeff2;
+  --destructive: #e15b4e;
+  --destructive-foreground: #071019;
+  --border: #22344b;
+  --input: #22344b;
+  --ring: #4a8fd6;
 }
 
 @theme inline {
@@ -61,13 +70,41 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-blue-deep: var(--brand-blue-deep);
+  --color-brand-green: var(--brand-green);
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-lime: var(--brand-lime);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Inter", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 body {
   margin: 0;
-  @apply bg-background text-foreground;
+  @apply bg-background text-foreground font-sans;
+}
+
+h1 {
+  @apply font-display;
+}
+
+/* Signature accent: a restrained echo of the SIMATS seal's gear-tooth edge,
+   used once along the top of the sidebar header. */
+.gear-edge {
+  height: 6px;
+  background-image:
+    linear-gradient(135deg, var(--brand-lime) 25%, transparent 25%),
+    linear-gradient(225deg, var(--brand-lime) 25%, transparent 25%);
+  background-position:
+    0 0,
+    5px 0;
+  background-size: 10px 6px;
 }

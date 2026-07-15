@@ -2,6 +2,7 @@ import { BarChart3, Briefcase, CalendarClock, FileCheck, IdCard, LayoutDashboard
 import type { ReactNode } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
+import simatsSeal from "@/assets/simats-seal.png";
 import { useAuth } from "@/auth/AuthContext";
 import { CampusSwitcher } from "@/components/layout/CampusSwitcher";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
@@ -46,9 +47,16 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="w-56 shrink-0 border-r border-border p-4">
-        <div className="mb-6 px-2 text-sm font-semibold">SIMATS Recruitment</div>
-        <nav className="flex flex-col gap-1">
+      <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card">
+        <div className="gear-edge" />
+        <div className="flex items-center gap-2.5 px-4 py-4">
+          <img src={simatsSeal} alt="SIMATS" className="h-9 w-9 shrink-0 object-contain" />
+          <div className="leading-tight">
+            <div className="font-display text-sm font-bold tracking-tight">SIMATS</div>
+            <div className="text-[11px] text-muted-foreground">Recruitment</div>
+          </div>
+        </div>
+        <nav className="flex flex-col gap-0.5 px-3 pb-4">
           {visibleNavItems.map((item) =>
             item.enabled ? (
               <NavLink
@@ -56,18 +64,18 @@ export function AppShell({ children }: { children?: ReactNode }) {
                 to={item.to}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground",
-                    isActive && "bg-accent text-accent-foreground font-medium",
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/75 transition-colors hover:bg-accent hover:text-accent-foreground",
+                    isActive && "bg-primary text-primary-foreground font-medium shadow-sm hover:bg-primary hover:text-primary-foreground",
                   )
                 }
               >
-                {item.icon ? <item.icon className="h-4 w-4" /> : null}
+                {item.icon ? <item.icon className="h-4 w-4 shrink-0" /> : null}
                 {item.label}
               </NavLink>
             ) : (
               <span
                 key={item.to}
-                className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm text-muted-foreground opacity-60"
+                className="flex items-center justify-between rounded-lg px-3 py-2 text-sm text-muted-foreground opacity-60"
               >
                 {item.label}
                 <span className="text-xs">soon</span>
@@ -78,7 +86,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
       </aside>
 
       <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between gap-4 border-b border-border px-6 py-3">
+        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-card/80 px-6 py-3 backdrop-blur">
           <CampusSwitcher />
           <div className="flex items-center gap-3">
             <div className="text-right text-sm">

@@ -62,14 +62,14 @@ export function EmployeesListPage() {
               return (
                 <tr key={employee.id} className="border-b border-border last:border-0 hover:bg-accent/50">
                   <td className="py-2">
-                    <Link to={`/employees/${employee.id}`} className="font-medium hover:underline">
+                    <Link to={`/employees/${employee.id}`} className="font-mono text-xs font-medium hover:underline">
                       {employee.employee_code}
                     </Link>
                   </td>
                   <td className="py-2">{employee.full_name}</td>
                   <td className="py-2">{employee.designation}</td>
                   <td className="py-2">{department?.name ?? "—"}</td>
-                  <td className="py-2">{campus?.code ?? "—"}</td>
+                  <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
                   <td className="py-2">{employee.email}</td>
                   <td className="py-2">{new Date(employee.date_of_joining).toLocaleDateString()}</td>
                 </tr>

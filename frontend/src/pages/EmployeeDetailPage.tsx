@@ -45,7 +45,7 @@ export function EmployeeDetailPage() {
         <CardContent className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <div className="text-muted-foreground">Employee code</div>
-            <div>{employee.employee_code}</div>
+            <div className="font-mono text-xs">{employee.employee_code}</div>
           </div>
           <div>
             <div className="text-muted-foreground">Designation</div>
