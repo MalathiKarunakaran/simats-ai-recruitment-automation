@@ -1,4 +1,4 @@
-import { BarChart3, Briefcase, CalendarClock, FileCheck, LayoutDashboard, Users } from "lucide-react";
+import { BarChart3, Briefcase, CalendarClock, FileCheck, IdCard, LayoutDashboard, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
@@ -34,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
     visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT"],
   },
   { to: "/reports", label: "Reports", icon: BarChart3, enabled: true },
+  { to: "/employees", label: "Employees", icon: IdCard, enabled: true },
 ];
 
 export function AppShell({ children }: { children?: ReactNode }) {

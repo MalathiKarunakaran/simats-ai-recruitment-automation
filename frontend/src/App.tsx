@@ -9,6 +9,8 @@ import { CandidateCreatePage } from "@/pages/CandidateCreatePage";
 import { CandidateDetailPage } from "@/pages/CandidateDetailPage";
 import { CandidatesListPage } from "@/pages/CandidatesListPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { EmployeeDetailPage } from "@/pages/EmployeeDetailPage";
+import { EmployeesListPage } from "@/pages/EmployeesListPage";
 import { InterviewCreatePage } from "@/pages/InterviewCreatePage";
 import { InterviewDetailPage } from "@/pages/InterviewDetailPage";
 import { InterviewsListPage } from "@/pages/InterviewsListPage";
@@ -46,6 +48,8 @@ export function App() {
           <Route path="/offers/new" element={<OfferCreatePage />} />
           <Route path="/offers/:id" element={<OfferDetailPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/employees" element={<EmployeesListPage />} />
+          <Route path="/employees/:id" element={<EmployeeDetailPage />} />
         </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
