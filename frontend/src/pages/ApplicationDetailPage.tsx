@@ -38,7 +38,7 @@ const WRITE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
 const CAN_VIEW_OFFERS_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT"];
 const CAN_CREATE_OFFER_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
 const CAN_VIEW_JOINING_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN"];
-const ALL_STATUSES: ApplicationStatus[] = [...APPLICATION_STATUS_ORDER, "REJECTED"];
+const ALL_STATUSES: ApplicationStatus[] = [...APPLICATION_STATUS_ORDER, "REJECTED", "WITHDRAWN"];
 
 export function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,6 +50,8 @@ export function ApplicationDetailPage() {
   const [advanceTo, setAdvanceTo] = useState("");
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
+  const [withdrawReason, setWithdrawReason] = useState("");
   const [forceDialogOpen, setForceDialogOpen] = useState(false);
   const [forceStatus, setForceStatus] = useState("");
   const [forceReason, setForceReason] = useState("");
@@ -118,6 +120,17 @@ export function ApplicationDetailPage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Reject failed"),
   });
 
+  const withdrawMutation = useMutation({
+    mutationFn: () => transitionApplicationStatus(id!, { status: "WITHDRAWN", reason: withdrawReason }),
+    onSuccess: () => {
+      setError(null);
+      setWithdrawDialogOpen(false);
+      setWithdrawReason("");
+      afterAction();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Withdraw failed"),
+  });
+
   const forceMutation = useMutation({
     mutationFn: () =>
       transitionApplicationStatus(id!, {
@@ -158,6 +171,7 @@ export function ApplicationDetailPage() {
   const canWrite = WRITE_ROLES.includes(user.role);
   const canAdvance = canWrite && !isTerminal && forwardStatuses.length > 0;
   const canReject = canWrite && !isTerminal;
+  const canWithdraw = canWrite && !isTerminal;
   const canForce = user.role === "SUPER_ADMIN";
 
   const joiningPendingIndex = APPLICATION_STATUS_ORDER.indexOf("JOINING_PENDING");
@@ -165,7 +179,8 @@ export function ApplicationDetailPage() {
     CAN_VIEW_JOINING_ROLES.includes(user.role) && currentIndex >= joiningPendingIndex;
 
   const label = getLabel(application.job_posting_id);
-  const isBusy = advanceMutation.isPending || rejectMutation.isPending || forceMutation.isPending;
+  const isBusy =
+    advanceMutation.isPending || rejectMutation.isPending || withdrawMutation.isPending || forceMutation.isPending;
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -284,6 +299,12 @@ export function ApplicationDetailPage() {
               <div>{application.rejection_reason}</div>
             </div>
           ) : null}
+          {application.status === "WITHDRAWN" && application.withdrawn_reason ? (
+            <div className="col-span-2">
+              <div className="text-muted-foreground">Withdrawal reason</div>
+              <div>{application.withdrawn_reason}</div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -398,6 +419,38 @@ export function ApplicationDetailPage() {
                   onClick={() => rejectMutation.mutate()}
                 >
                   {rejectMutation.isPending ? "Rejecting…" : "Confirm reject"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        ) : null}
+
+        {canWithdraw ? (
+          <Dialog open={withdrawDialogOpen} onOpenChange={setWithdrawDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" disabled={isBusy}>
+                Withdraw
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Withdraw application</DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="withdraw_reason">Reason</Label>
+                <Textarea
+                  id="withdraw_reason"
+                  required
+                  value={withdrawReason}
+                  onChange={(e) => setWithdrawReason(e.target.value)}
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  disabled={!withdrawReason.trim() || withdrawMutation.isPending}
+                  onClick={() => withdrawMutation.mutate()}
+                >
+                  {withdrawMutation.isPending ? "Withdrawing…" : "Confirm withdraw"}
                 </Button>
               </DialogFooter>
             </DialogContent>

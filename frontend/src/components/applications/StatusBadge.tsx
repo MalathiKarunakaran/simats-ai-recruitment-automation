@@ -10,6 +10,7 @@ const SUCCESS_STATUSES = new Set<ApplicationStatus>([
 
 function variantFor(status: ApplicationStatus): BadgeProps["variant"] {
   if (status === "REJECTED") return "destructive";
+  if (status === "WITHDRAWN") return "warning";
   if (SUCCESS_STATUSES.has(status)) return "success";
   if (status === "APPLIED") return "outline";
   return "default";

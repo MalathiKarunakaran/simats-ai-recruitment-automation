@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { ProtectedRoute } from "@/auth/ProtectedRoute";
 import { AppShell } from "@/components/layout/AppShell";
+import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { ApplicationCreatePage } from "@/pages/ApplicationCreatePage";
 import { ApplicationDetailPage } from "@/pages/ApplicationDetailPage";
 import { ApplicationsListPage } from "@/pages/ApplicationsListPage";
@@ -15,14 +16,18 @@ import { InterviewCreatePage } from "@/pages/InterviewCreatePage";
 import { InterviewDetailPage } from "@/pages/InterviewDetailPage";
 import { InterviewsListPage } from "@/pages/InterviewsListPage";
 import { JobPostingDetailPage } from "@/pages/JobPostingDetailPage";
+import { JobPostingsListPage } from "@/pages/JobPostingsListPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { OfferCreatePage } from "@/pages/OfferCreatePage";
 import { OfferDetailPage } from "@/pages/OfferDetailPage";
 import { OffersListPage } from "@/pages/OffersListPage";
+import { OnboardingListPage } from "@/pages/OnboardingListPage";
 import { ReportsPage } from "@/pages/ReportsPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 import { UserCreatePage } from "@/pages/UserCreatePage";
 import { UserDetailPage } from "@/pages/UserDetailPage";
 import { UsersListPage } from "@/pages/UsersListPage";
+import { VacancyApprovalsPage } from "@/pages/VacancyApprovalsPage";
 import { VacancyImportPage } from "@/pages/VacancyImportPage";
 import { VacancyRequestCreatePage } from "@/pages/VacancyRequestCreatePage";
 import { VacancyRequestDetailPage } from "@/pages/VacancyRequestDetailPage";
@@ -37,6 +42,7 @@ export function App() {
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/vacancy-requests" element={<VacancyRequestsListPage />} />
+          <Route path="/vacancy-approvals" element={<VacancyApprovalsPage />} />
           <Route path="/vacancy-requests/import" element={<VacancyImportPage />} />
           <Route path="/vacancy-requests/new" element={<VacancyRequestCreatePage />} />
           <Route path="/vacancy-requests/:id" element={<VacancyRequestDetailPage />} />
@@ -56,7 +62,11 @@ export function App() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/employees" element={<EmployeesListPage />} />
           <Route path="/employees/:id" element={<EmployeeDetailPage />} />
+          <Route path="/job-postings" element={<JobPostingsListPage />} />
           <Route path="/job-postings/:id" element={<JobPostingDetailPage />} />
+          <Route path="/onboarding" element={<OnboardingListPage />} />
+          <Route path="/activity-log" element={<ActivityLogPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/users" element={<UsersListPage />} />
           <Route path="/users/new" element={<UserCreatePage />} />
           <Route path="/users/:id" element={<UserDetailPage />} />

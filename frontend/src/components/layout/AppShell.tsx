@@ -1,4 +1,18 @@
-import { BarChart3, Briefcase, CalendarClock, FileCheck, IdCard, LayoutDashboard, Users, UserCog } from "lucide-react";
+import {
+  BarChart3,
+  Briefcase,
+  CalendarClock,
+  ClipboardCheck,
+  FileCheck,
+  History,
+  IdCard,
+  LayoutDashboard,
+  Newspaper,
+  Settings,
+  UserCog,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
@@ -23,6 +37,16 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
   { to: "/vacancy-requests", label: "Vacancy Requests", icon: Briefcase, enabled: true },
+  {
+    to: "/vacancy-approvals",
+    label: "Vacancy Approvals",
+    icon: ClipboardCheck,
+    enabled: true,
+    // Mirrors VacancyApprovalsPage's own ACTIONABLE_STATUSES_BY_ROLE -- only
+    // roles that actually take part in the approval chain see this link.
+    visibleForRoles: ["ASSOCIATE_DEAN_RECRUITMENT", "HR_ADMIN", "SUPER_ADMIN"],
+  },
+  { to: "/job-postings", label: "Job Postings", icon: Newspaper, enabled: true },
   { to: "/candidates", label: "Candidates", icon: Users, enabled: true },
   { to: "/applications", label: "Applications", icon: Briefcase, enabled: true },
   { to: "/interviews", label: "Interviews", icon: CalendarClock, enabled: true },
@@ -36,6 +60,15 @@ const NAV_ITEMS: NavItem[] = [
     // roles would just hit a 403, so the nav link is hidden for them.
     visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT"],
   },
+  {
+    to: "/onboarding",
+    label: "Onboarding",
+    icon: UserPlus,
+    enabled: true,
+    // Mirrors OnboardingListPage's own CAN_VIEW_ROLES (JoiningCard's own
+    // view gate, one level broader than its write gate).
+    visibleForRoles: ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN"],
+  },
   { to: "/reports", label: "Reports", icon: BarChart3, enabled: true },
   { to: "/employees", label: "Employees", icon: IdCard, enabled: true },
   {
@@ -47,6 +80,16 @@ const NAV_ITEMS: NavItem[] = [
     // can actually create/edit users, so only they see the nav link.
     visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN"],
   },
+  {
+    to: "/activity-log",
+    label: "Activity Log",
+    icon: History,
+    enabled: true,
+    // Mirrors the backend's own audit-log read-role gate exactly
+    // (app/api/v1/routers/audit_logs.py::_READ_ROLES).
+    visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN", "ASSOCIATE_DEAN_RECRUITMENT", "CAMPUS_HOD"],
+  },
+  { to: "/settings", label: "Settings", icon: Settings, enabled: true },
 ];
 
 export function AppShell({ children }: { children?: ReactNode }) {

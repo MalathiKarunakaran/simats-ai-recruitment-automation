@@ -92,6 +92,13 @@ export interface UserUpdatePayload {
   is_active?: boolean;
 }
 
+// Mirrors app/schemas/user.py::UserSelfUpdate.
+export interface UserSelfUpdatePayload {
+  full_name?: string;
+  phone_number?: string | null;
+  password?: string;
+}
+
 // Mirrors app/schemas/common.py::PaginatedResponse.
 export interface PaginatedResponse<T> {
   items: T[];
@@ -237,6 +244,25 @@ export interface NotificationRead {
   related_entity_id: string | null;
   sent_at: string | null;
   error_message: string | null;
+  created_at: string;
+}
+
+// Mirrors app/schemas/audit_log.py::AuditLogRead.
+export interface AuditLogRead {
+  id: string;
+  actor_user_id: string | null;
+  actor_role_snapshot: string | null;
+  campus_context_id: string | null;
+  action: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  http_method: string | null;
+  http_path: string | null;
+  status_code: number | null;
+  ip_address: string | null;
+  user_agent: string | null;
   created_at: string;
 }
 

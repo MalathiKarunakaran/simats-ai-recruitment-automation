@@ -43,7 +43,7 @@ export function ApplicationsListPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ALL">All statuses</SelectItem>
-            {APPLICATION_STATUS_ORDER.concat("REJECTED").map((status) => (
+            {APPLICATION_STATUS_ORDER.concat("REJECTED", "WITHDRAWN").map((status) => (
               <SelectItem key={status} value={status}>
                 {status.replace(/_/g, " ")}
               </SelectItem>
