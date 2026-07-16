@@ -5,6 +5,8 @@ import { NavLink, Outlet } from "react-router-dom";
 import simatsSeal from "@/assets/simats-seal.png";
 import { useAuth } from "@/auth/AuthContext";
 import { CampusSwitcher } from "@/components/layout/CampusSwitcher";
+import { GlobalSearch } from "@/components/layout/GlobalSearch";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -95,13 +97,17 @@ export function AppShell({ children }: { children?: ReactNode }) {
       </aside>
 
       <div className="flex flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-border bg-card/80 px-6 py-3 backdrop-blur">
+        <header className="sticky top-0 z-10 flex items-center gap-4 border-b border-border bg-card/80 px-6 py-3 backdrop-blur">
           <CampusSwitcher />
+          <div className="flex flex-1 justify-center px-4">
+            <GlobalSearch />
+          </div>
           <div className="flex items-center gap-3">
             <div className="text-right text-sm">
               <div className="font-medium">{user?.full_name}</div>
               <div className="text-xs text-muted-foreground">{user?.role.replace(/_/g, " ")}</div>
             </div>
+            <NotificationBell />
             <ThemeToggle />
             <Button variant="outline" size="sm" onClick={() => void logout()}>
               Sign out

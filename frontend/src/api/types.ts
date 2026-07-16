@@ -114,6 +114,13 @@ export interface CampusRead {
 export interface CampusHiringRow {
   campus_code: string;
   hired_count: number;
+  open_count: number;
+  in_progress_count: number;
+}
+
+export interface SourceBreakdownRow {
+  source: "Reference" | "Mail" | "Other";
+  count: number;
 }
 
 export interface DashboardKpis {
@@ -126,6 +133,9 @@ export interface DashboardKpis {
   campus_wise_hiring: CampusHiringRow[];
   average_time_to_hire_days: number | null;
   vacancy_closure_rate_pct: number;
+  source_wise_breakdown: SourceBreakdownRow[];
+  rejected_count: number;
+  withdrawn_count: number;
 }
 
 // Mirrors app/schemas/department.py::DepartmentRead.
@@ -204,6 +214,32 @@ export interface VacancyRequestGenerateJDPayload {
   additional_instructions?: string | null;
 }
 
+// Mirrors app/models/enums.py::NotificationChannelEnum.
+export type NotificationChannel = "EMAIL" | "TELEGRAM" | "SMS" | "WHATSAPP";
+
+// Mirrors app/models/enums.py::NotificationStatusEnum -- delivery status
+// (was the notification actually sent via its channel), not a read/unread
+// flag -- this backend has no per-user read-tracking on notifications.
+export type NotificationDeliveryStatus = "PENDING" | "SENT" | "FAILED";
+
+// Mirrors app/schemas/notification.py::NotificationRead.
+export interface NotificationRead {
+  id: string;
+  recipient_user_id: string | null;
+  recipient_email: string | null;
+  campus_context_id: string | null;
+  notification_type: string;
+  channel: NotificationChannel;
+  subject: string;
+  body: string;
+  status: NotificationDeliveryStatus;
+  related_entity_type: string | null;
+  related_entity_id: string | null;
+  sent_at: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
 // Mirrors app/schemas/migration.py::MigrationRowResult.
 export interface MigrationRowResult {
   row_number: number;
@@ -275,7 +311,8 @@ export type ApplicationStatus =
   | "JOINED"
   | "ONBOARDING_COMPLETE"
   | "EMPLOYEE_CREATED"
-  | "REJECTED";
+  | "REJECTED"
+  | "WITHDRAWN";
 
 // Mirrors app/models/enums.py::APPLICATION_STATUS_ORDER -- forward-progression
 // order for the happy-path pipeline. REJECTED is deliberately excluded, same
@@ -302,6 +339,7 @@ export const APPLICATION_STATUS_ORDER: readonly ApplicationStatus[] = [
 export const APPLICATION_TERMINAL_STATUSES: ReadonlySet<ApplicationStatus> = new Set([
   "EMPLOYEE_CREATED",
   "REJECTED",
+  "WITHDRAWN",
 ]);
 
 // Mirrors app/schemas/application.py::ApplicationRead.
@@ -315,6 +353,8 @@ export interface ApplicationRead {
   recorded_by_id: string;
   rejection_reason: string | null;
   rejected_at: string | null;
+  withdrawn_reason: string | null;
+  withdrawn_at: string | null;
   created_at: string;
   updated_at: string;
 }

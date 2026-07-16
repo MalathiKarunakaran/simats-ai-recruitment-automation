@@ -51,6 +51,8 @@ const APPLICATION: ApplicationRead = {
   recorded_by_id: "u-1",
   rejection_reason: null,
   rejected_at: null,
+  withdrawn_reason: null,
+  withdrawn_at: null,
   created_at: "2026-01-02T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
 };

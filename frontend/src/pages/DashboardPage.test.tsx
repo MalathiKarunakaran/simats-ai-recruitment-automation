@@ -23,17 +23,23 @@ function renderWithProviders() {
 
 describe("DashboardPage", () => {
   it("renders KPI values from the API response", async () => {
-    mockedGetDashboardKpis.mockResolvedValue({
+    // The dashboard fires one call for the main KPIs and one per role
+    // category (for the category-wise split card) -- differentiate by the
+    // role_category argument so each renders a distinct, unambiguous number.
+    mockedGetDashboardKpis.mockImplementation(async (_campusCode, _dateRange, roleCategory) => ({
       scope_note: "Global access: results span all campuses.",
-      total_applications: 42,
+      total_applications: roleCategory ? 9 : 42,
       open_positions: 7,
       interviews_today: 3,
       joinings_today: 1,
       offers_pending: 2,
-      campus_wise_hiring: [{ campus_code: "SSE", hired_count: 5 }],
+      campus_wise_hiring: [{ campus_code: "SSE", hired_count: 5, open_count: 1, in_progress_count: 3 }],
       average_time_to_hire_days: 14.5,
       vacancy_closure_rate_pct: 80,
-    });
+      source_wise_breakdown: [{ source: "Reference", count: 10 }],
+      rejected_count: 4,
+      withdrawn_count: 1,
+    }));
 
     renderWithProviders();
 
@@ -41,6 +47,7 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Global access: results span all campuses.")).toBeInTheDocument();
     expect(screen.getByText("14.5")).toBeInTheDocument();
     expect(screen.getByText("SSE")).toBeInTheDocument();
+    expect(screen.getAllByText("9")).toHaveLength(3);
   });
 
   it("shows an error message when the request fails", async () => {

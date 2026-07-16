@@ -16,15 +16,22 @@ export interface FieldValidation<T> {
  * required/invalid states inline instead of a single post-submit banner.
  * Errors only surface after the field is touched (blurred once, or the
  * form was submitted) so a fresh empty required field doesn't show red
- * before the user has had a chance to fill it in. */
-export function useFieldValidation<T>(initialValue: T, validator: Validator<T>): FieldValidation<T> {
+ * before the user has had a chance to fill it in.
+ *
+ * String-specific rather than generic over T: a generic `useFieldValidation<T>("", ...)`
+ * call infers T as the literal type `""` (not `string`) from the initial
+ * value with no wider contextual type to widen against, which then rejects
+ * any real typed string at onChange. Every field in this codebase is text
+ * input anyway, so this sidesteps the inference problem instead of forcing
+ * callers to annotate `<string>` at every call site. */
+export function useFieldValidation(initialValue: string, validator: Validator<string>): FieldValidation<string> {
   const [value, setValue] = useState(initialValue);
   const [touched, setTouched] = useState(false);
 
   const rawError = validator(value);
   const error = touched ? rawError : null;
 
-  function onChange(next: T) {
+  function onChange(next: string) {
     setValue(next);
   }
 
