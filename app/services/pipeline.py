@@ -32,7 +32,11 @@ from app.services.audit import log_event
 
 
 def _application_snapshot(application: Application) -> dict:
-    return {"status": application.status.value, "rejection_reason": application.rejection_reason}
+    return {
+        "status": application.status.value,
+        "rejection_reason": application.rejection_reason,
+        "withdrawn_reason": application.withdrawn_reason,
+    }
 
 
 def _reserve_slot(db: Session, application: Application, actor: User, request: Request | None) -> HiringSlot:
@@ -216,7 +220,13 @@ def transition_application_status(
             detail="A reason is required when rejecting an application",
         )
 
-    if not force and new_status != ApplicationStatusEnum.REJECTED:
+    if new_status == ApplicationStatusEnum.WITHDRAWN and not reason:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A reason is required when withdrawing an application",
+        )
+
+    if not force and new_status not in (ApplicationStatusEnum.REJECTED, ApplicationStatusEnum.WITHDRAWN):
         if new_status not in APPLICATION_STATUS_ORDER:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invalid status transition")
         current_index = APPLICATION_STATUS_ORDER.index(current) if current in APPLICATION_STATUS_ORDER else -1
@@ -240,6 +250,21 @@ def transition_application_status(
             notification_type="APPLICATION_REJECTED",
             subject="Application status update",
             body=f"Your application status has been updated to Rejected. Reason: {reason}",
+            campus_context_id=application.campus_id,
+            related_entity_type="Application",
+            related_entity_id=application.id,
+            request=request,
+        )
+    elif new_status == ApplicationStatusEnum.WITHDRAWN:
+        application.withdrawn_reason = reason
+        application.withdrawn_at = datetime.now(timezone.utc)
+        _release_slot_if_reserved(db, application, actor, request)
+        notifications.notify(
+            db,
+            recipient_email=application.candidate.email,
+            notification_type="APPLICATION_WITHDRAWN",
+            subject="Application status update",
+            body=f"Your application has been marked as withdrawn. Reason: {reason}",
             campus_context_id=application.campus_id,
             related_entity_type="Application",
             related_entity_id=application.id,

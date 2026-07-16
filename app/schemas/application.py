@@ -29,5 +29,7 @@ class ApplicationRead(BaseModel):
     recorded_by_id: uuid.UUID
     rejection_reason: str | None
     rejected_at: datetime | None
+    withdrawn_reason: str | None
+    withdrawn_at: datetime | None
     created_at: datetime
     updated_at: datetime

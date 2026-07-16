@@ -10,3 +10,4 @@ htmlcov/
 .vscode/
 .idea/
 requirements-lock.txt
+.db_backups/

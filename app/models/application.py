@@ -39,6 +39,8 @@ class Application(Base):
     )
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    withdrawn_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

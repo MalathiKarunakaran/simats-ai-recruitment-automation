@@ -117,6 +117,7 @@ class ApplicationStatusEnum(str, enum.Enum):
     ONBOARDING_COMPLETE = "ONBOARDING_COMPLETE"
     EMPLOYEE_CREATED = "EMPLOYEE_CREATED"
     REJECTED = "REJECTED"
+    WITHDRAWN = "WITHDRAWN"
 
 
 # Forward-progression order for the happy-path pipeline. REJECTED is
@@ -142,6 +143,7 @@ APPLICATION_STATUS_ORDER: tuple[ApplicationStatusEnum, ...] = (
 APPLICATION_TERMINAL_STATUSES = {
     ApplicationStatusEnum.EMPLOYEE_CREATED,
     ApplicationStatusEnum.REJECTED,
+    ApplicationStatusEnum.WITHDRAWN,
 }
 
 

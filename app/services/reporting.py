@@ -22,24 +22,41 @@ Metric definitions (documented since none of these are literal DB fields):
   denominator is every vacancy that ever passed HR approval (APPROVED,
   PUBLISHED, or CLOSED); a vacancy still in DRAFT/SUBMITTED/REJECTED was
   never a "closable" vacancy in the first place.
-- campus_wise_hiring: count of Employee rows grouped by Employee.campus_id.
+- campus_wise_hiring: per campus, hired_count (Employee rows), open_count
+  (open HiringSlot rows), and in_progress_count (non-terminal Application
+  rows) -- the open/in_progress pair mirrors the grouping already used by
+  build_ad_briefing_summary's campus_role_breakdown, just collapsed to
+  campus-only instead of campus x role_category.
+- source_wise_breakdown: applications bucketed by Candidate.source via a
+  case-insensitive substring match ("referr..." -> Reference, "...mail..."
+  -> Mail, anything else -> Other). Candidate.source is deliberately free
+  text (see app/models/candidate.py) with no controlled vocabulary, so this
+  is a best-effort bucketing, not an exact enum match.
+- start_date/end_date (optional): when given, narrows total_applications,
+  interviews (today's date-only default becomes range-scoped), joinings,
+  rejected_count, withdrawn_count, and source_wise_breakdown to
+  Application.applied_at (or the equivalent business timestamp) within the
+  range. Omitting both preserves the exact prior all-time/today behavior --
+  this is additive, not a breaking change to existing callers.
 """
 
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.core.deps import CampusScope
 from app.models.application import Application
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.campus import Campus
+from app.models.candidate import Candidate
 from app.models.employee import Employee
 from app.models.enums import (
     APPLICATION_TERMINAL_STATUSES,
     CAMPUS_CODES,
+    ApplicationStatusEnum,
     HiringSlotStatusEnum,
     InterviewScheduleStatusEnum,
     OfferStatusEnum,
@@ -85,6 +102,14 @@ def validate_role_category(value: str | None) -> StaffRoleCategoryEnum | None:
     return StaffRoleCategoryEnum[value]
 
 
+def validate_date_range(start_date: date | None, end_date: date | None) -> None:
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="start_date must not be after end_date",
+        )
+
+
 def _time_to_hire_days(
     db: Session, campus_id_filter, role_category: StaffRoleCategoryEnum | None
 ) -> list[dict]:
@@ -115,12 +140,28 @@ def get_dashboard_kpis(
     scope: CampusScope,
     campus_code: str | None = None,
     role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
     now = datetime.now(timezone.utc)
-    today = now.date()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
+
+    # "Today" cards (interviews/joinings) fall back to the literal calendar
+    # day when no range is given, preserving prior behavior exactly; a range
+    # widens that window instead of always meaning "today".
+    if start_date is not None or end_date is not None:
+        range_start = (
+            datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc) if start_date else today_start
+        )
+        range_end = (
+            datetime.combine(end_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(days=1)
+            if end_date
+            else today_end
+        )
+    else:
+        range_start, range_end = today_start, today_end
 
     app_query = db.query(Application)
     if role_category is not None:
@@ -132,7 +173,27 @@ def get_dashboard_kpis(
         )
     if campus_id_filter is not None:
         app_query = app_query.filter(Application.campus_id == campus_id_filter)
+    # Only apply date narrowing when a range was actually requested -- the
+    # no-args call must keep returning the exact same all-time count as
+    # before this parameter existed.
+    if start_date is not None:
+        app_query = app_query.filter(Application.applied_at >= range_start)
+    if end_date is not None:
+        app_query = app_query.filter(Application.applied_at < range_end)
     total_applications = app_query.count()
+
+    rejected_count = app_query.filter(Application.status == ApplicationStatusEnum.REJECTED).count()
+    withdrawn_count = app_query.filter(Application.status == ApplicationStatusEnum.WITHDRAWN).count()
+
+    source_bucket = case(
+        (Candidate.source.ilike("%referr%"), "Reference"),
+        (Candidate.source.ilike("%mail%"), "Mail"),
+        else_="Other",
+    )
+    source_query = app_query.join(Candidate, Application.candidate_id == Candidate.id).with_entities(
+        source_bucket, func.count(Application.id)
+    ).group_by(source_bucket)
+    source_wise_breakdown = [{"source": bucket, "count": count} for bucket, count in source_query.all()]
 
     slot_query = (
         db.query(HiringSlot)
@@ -154,8 +215,8 @@ def get_dashboard_kpis(
         .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
         .filter(
             InterviewSchedule.status == InterviewScheduleStatusEnum.SCHEDULED,
-            InterviewSchedule.scheduled_at >= today_start,
-            InterviewSchedule.scheduled_at < today_end,
+            InterviewSchedule.scheduled_at >= range_start,
+            InterviewSchedule.scheduled_at < range_end,
         )
     )
     if campus_id_filter is not None:
@@ -170,7 +231,10 @@ def get_dashboard_kpis(
         .join(JobPosting, Application.job_posting_id == JobPosting.id)
         .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
         .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
-        .filter(JoiningRecord.actual_joining_date == today)
+        .filter(
+            JoiningRecord.actual_joining_date >= range_start.date(),
+            JoiningRecord.actual_joining_date < range_end.date(),
+        )
     )
     if campus_id_filter is not None:
         joining_today_query = joining_today_query.filter(Application.campus_id == campus_id_filter)
@@ -190,6 +254,10 @@ def get_dashboard_kpis(
         offer_query = offer_query.filter(Application.campus_id == campus_id_filter)
     if role_category is not None:
         offer_query = offer_query.filter(VacancyRequest.role_category == role_category)
+    if start_date is not None:
+        offer_query = offer_query.filter(Offer.created_at >= range_start)
+    if end_date is not None:
+        offer_query = offer_query.filter(Offer.created_at < range_end)
     offers_pending = offer_query.count()
 
     hiring_query = db.query(Campus.code, func.count(Employee.id)).select_from(Employee).join(
@@ -206,7 +274,53 @@ def get_dashboard_kpis(
     if campus_id_filter is not None:
         hiring_query = hiring_query.filter(Employee.campus_id == campus_id_filter)
     hiring_query = hiring_query.group_by(Campus.code)
-    campus_wise_hiring = [{"campus_code": code, "hired_count": count} for code, count in hiring_query.all()]
+    hired_by_campus = dict(hiring_query.all())
+
+    # Same open/in-progress grouping build_ad_briefing_summary already
+    # computes per (campus, role_category) -- collapsed to campus-only here
+    # for the dashboard's campus-wise table.
+    open_by_campus_query = (
+        db.query(Campus.code, func.count(HiringSlot.id))
+        .select_from(HiringSlot)
+        .join(ApprovedVacancy, HiringSlot.approved_vacancy_id == ApprovedVacancy.id)
+        .join(Campus, ApprovedVacancy.campus_id == Campus.id)
+        .filter(HiringSlot.status == HiringSlotStatusEnum.OPEN)
+    )
+    if role_category is not None:
+        open_by_campus_query = open_by_campus_query.join(
+            VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id
+        ).filter(VacancyRequest.role_category == role_category)
+    if campus_id_filter is not None:
+        open_by_campus_query = open_by_campus_query.filter(ApprovedVacancy.campus_id == campus_id_filter)
+    open_by_campus = dict(open_by_campus_query.group_by(Campus.code).all())
+
+    in_progress_by_campus_query = (
+        db.query(Campus.code, func.count(Application.id))
+        .select_from(Application)
+        .join(Campus, Application.campus_id == Campus.id)
+        .filter(~Application.status.in_(APPLICATION_TERMINAL_STATUSES))
+    )
+    if role_category is not None:
+        in_progress_by_campus_query = (
+            in_progress_by_campus_query.join(JobPosting, Application.job_posting_id == JobPosting.id)
+            .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
+            .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
+            .filter(VacancyRequest.role_category == role_category)
+        )
+    if campus_id_filter is not None:
+        in_progress_by_campus_query = in_progress_by_campus_query.filter(Application.campus_id == campus_id_filter)
+    in_progress_by_campus = dict(in_progress_by_campus_query.group_by(Campus.code).all())
+
+    all_campus_codes = set(hired_by_campus) | set(open_by_campus) | set(in_progress_by_campus)
+    campus_wise_hiring = [
+        {
+            "campus_code": code,
+            "hired_count": hired_by_campus.get(code, 0),
+            "open_count": open_by_campus.get(code, 0),
+            "in_progress_count": in_progress_by_campus.get(code, 0),
+        }
+        for code in sorted(all_campus_codes)
+    ]
 
     ttf_entries = _time_to_hire_days(db, campus_id_filter, role_category)
     average_time_to_hire_days = (
@@ -232,6 +346,9 @@ def get_dashboard_kpis(
         "campus_wise_hiring": campus_wise_hiring,
         "average_time_to_hire_days": average_time_to_hire_days,
         "vacancy_closure_rate_pct": vacancy_closure_rate_pct,
+        "source_wise_breakdown": source_wise_breakdown,
+        "rejected_count": rejected_count,
+        "withdrawn_count": withdrawn_count,
     }
 
 

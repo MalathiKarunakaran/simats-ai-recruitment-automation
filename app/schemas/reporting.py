@@ -14,6 +14,9 @@ class DashboardKPIResponse(BaseModel):
     campus_wise_hiring: list[dict[str, Any]]
     average_time_to_hire_days: float | None
     vacancy_closure_rate_pct: float
+    source_wise_breakdown: list[dict[str, Any]]
+    rejected_count: int
+    withdrawn_count: int
 
 
 class ReportResponse(BaseModel):
