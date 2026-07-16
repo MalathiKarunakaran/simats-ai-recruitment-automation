@@ -1,4 +1,4 @@
-import { BarChart3, Briefcase, CalendarClock, FileCheck, IdCard, LayoutDashboard, Users } from "lucide-react";
+import { BarChart3, Briefcase, CalendarClock, FileCheck, IdCard, LayoutDashboard, Users, UserCog } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
@@ -36,6 +36,15 @@ const NAV_ITEMS: NavItem[] = [
   },
   { to: "/reports", label: "Reports", icon: BarChart3, enabled: true },
   { to: "/employees", label: "Employees", icon: IdCard, enabled: true },
+  {
+    to: "/users",
+    label: "Users",
+    icon: UserCog,
+    enabled: true,
+    // Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES -- only these roles
+    // can actually create/edit users, so only they see the nav link.
+    visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN"],
+  },
 ];
 
 export function AppShell({ children }: { children?: ReactNode }) {

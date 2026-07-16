@@ -18,6 +18,31 @@ export const GLOBAL_SCOPE_ROLES: readonly UserRole[] = [
   "MANAGEMENT",
 ];
 
+// Mirrors app/models/enums.py::SINGLE_CAMPUS_SCOPE_ROLES -- roles that must
+// be pinned to one home campus.
+export const SINGLE_CAMPUS_SCOPE_ROLES: readonly UserRole[] = [
+  "CAMPUS_HOD",
+  "RECRUITMENT_OFFICER",
+  "INTERVIEW_PANEL_MEMBER",
+];
+
+// Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES -- roles allowed to
+// create/update/deactivate other users.
+export const USER_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
+
+// Every staff-assignable role -- excludes CANDIDATE, which is never created
+// through the admin Users UI (candidates are tracked via the separate
+// Candidate model, not a login-capable User).
+export const ASSIGNABLE_STAFF_ROLES: readonly UserRole[] = [
+  "SUPER_ADMIN",
+  "HR_ADMIN",
+  "ASSOCIATE_DEAN_RECRUITMENT",
+  "RECRUITMENT_OFFICER",
+  "CAMPUS_HOD",
+  "INTERVIEW_PANEL_MEMBER",
+  "MANAGEMENT",
+];
+
 // Mirrors app/models/enums.py::CAMPUS_CODES exactly -- institutional codes,
 // never renamed/reformatted.
 export const CAMPUS_CODES = ["SSE", "SCLAS", "SCAD", "STUDIO", "SPIER", "SHOTS", "SSPE"] as const;
@@ -44,6 +69,27 @@ export interface UserRead {
   last_login_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Mirrors app/schemas/user.py::UserCreate.
+export interface UserCreatePayload {
+  email: string;
+  password: string;
+  full_name: string;
+  role: UserRole;
+  campus_id?: string | null;
+  department_id?: string | null;
+  phone_number?: string | null;
+}
+
+// Mirrors app/schemas/user.py::UserUpdate.
+export interface UserUpdatePayload {
+  full_name?: string;
+  role?: UserRole;
+  campus_id?: string | null;
+  department_id?: string | null;
+  phone_number?: string | null;
+  is_active?: boolean;
 }
 
 // Mirrors app/schemas/common.py::PaginatedResponse.
@@ -156,6 +202,22 @@ export type VacancyRequestUpdatePayload = Partial<Omit<VacancyRequestCreatePaylo
 // Mirrors app/schemas/vacancy_request.py::VacancyRequestGenerateJDRequest.
 export interface VacancyRequestGenerateJDPayload {
   additional_instructions?: string | null;
+}
+
+// Mirrors app/schemas/migration.py::MigrationRowResult.
+export interface MigrationRowResult {
+  row_number: number;
+  status: "created" | "error";
+  vacancy_request_id: string | null;
+  errors: string[];
+}
+
+// Mirrors app/schemas/migration.py::MigrationImportResponse.
+export interface MigrationImportResponse {
+  total_rows: number;
+  created_count: number;
+  error_count: number;
+  rows: MigrationRowResult[];
 }
 
 // Mirrors app/schemas/approved_vacancy.py::ApprovedVacancyRead.

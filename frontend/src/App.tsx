@@ -20,6 +20,10 @@ import { OfferCreatePage } from "@/pages/OfferCreatePage";
 import { OfferDetailPage } from "@/pages/OfferDetailPage";
 import { OffersListPage } from "@/pages/OffersListPage";
 import { ReportsPage } from "@/pages/ReportsPage";
+import { UserCreatePage } from "@/pages/UserCreatePage";
+import { UserDetailPage } from "@/pages/UserDetailPage";
+import { UsersListPage } from "@/pages/UsersListPage";
+import { VacancyImportPage } from "@/pages/VacancyImportPage";
 import { VacancyRequestCreatePage } from "@/pages/VacancyRequestCreatePage";
 import { VacancyRequestDetailPage } from "@/pages/VacancyRequestDetailPage";
 import { VacancyRequestEditPage } from "@/pages/VacancyRequestEditPage";
@@ -33,6 +37,7 @@ export function App() {
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/vacancy-requests" element={<VacancyRequestsListPage />} />
+          <Route path="/vacancy-requests/import" element={<VacancyImportPage />} />
           <Route path="/vacancy-requests/new" element={<VacancyRequestCreatePage />} />
           <Route path="/vacancy-requests/:id" element={<VacancyRequestDetailPage />} />
           <Route path="/vacancy-requests/:id/edit" element={<VacancyRequestEditPage />} />
@@ -52,6 +57,9 @@ export function App() {
           <Route path="/employees" element={<EmployeesListPage />} />
           <Route path="/employees/:id" element={<EmployeeDetailPage />} />
           <Route path="/job-postings/:id" element={<JobPostingDetailPage />} />
+          <Route path="/users" element={<UsersListPage />} />
+          <Route path="/users/new" element={<UserCreatePage />} />
+          <Route path="/users/:id" element={<UserDetailPage />} />
         </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

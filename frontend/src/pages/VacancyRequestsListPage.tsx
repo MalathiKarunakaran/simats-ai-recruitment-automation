@@ -21,6 +21,7 @@ const STATUSES: VacancyRequestStatus[] = [
 ];
 
 const CAN_CREATE_ROLES = ["CAMPUS_HOD", "SUPER_ADMIN"];
+const CAN_IMPORT_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
 
 export function VacancyRequestsListPage() {
   const { user } = useAuth();
@@ -36,11 +37,18 @@ export function VacancyRequestsListPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Vacancy Requests</h1>
-        {user && CAN_CREATE_ROLES.includes(user.role) ? (
-          <Button asChild>
-            <Link to="/vacancy-requests/new">New vacancy request</Link>
-          </Button>
-        ) : null}
+        <div className="flex gap-2">
+          {user && CAN_IMPORT_ROLES.includes(user.role) ? (
+            <Button variant="outline" asChild>
+              <Link to="/vacancy-requests/import">Import CSV</Link>
+            </Button>
+          ) : null}
+          {user && CAN_CREATE_ROLES.includes(user.role) ? (
+            <Button asChild>
+              <Link to="/vacancy-requests/new">New vacancy request</Link>
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="w-56">
