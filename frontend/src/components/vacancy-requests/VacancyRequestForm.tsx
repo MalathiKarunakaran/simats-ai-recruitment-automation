@@ -117,7 +117,7 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
           <Label>Campus</Label>
           {campusReadOnly ? (
             <p className="flex h-9 items-center text-sm text-muted-foreground">
-              {campusLabel ? `${campusLabel.code} · ${campusLabel.name}` : "—"}
+              {campusLabel ? campusLabel.code : "—"}
             </p>
           ) : (
             <Select value={campusId} onValueChange={(value) => { setCampusId(value); setDepartmentId(""); }}>
@@ -127,7 +127,7 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
               <SelectContent>
                 {campuses?.map((campus) => (
                   <SelectItem key={campus.id} value={campus.id}>
-                    {campus.code} · {campus.name}
+                    {campus.code}
                   </SelectItem>
                 ))}
               </SelectContent>

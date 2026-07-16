@@ -17,7 +17,7 @@ export function CampusSwitcher() {
     const ownCampus = campuses?.find((c) => c.id === user?.campus_id);
     return (
       <span className="rounded-md border border-input bg-muted px-3 py-1.5 text-sm text-muted-foreground">
-        {ownCampus ? `${ownCampus.code} · ${ownCampus.name}` : "Your campus"}
+        {ownCampus ? ownCampus.code : "Your campus"}
       </span>
     );
   }
@@ -34,7 +34,7 @@ export function CampusSwitcher() {
         <SelectItem value="ALL">All campuses</SelectItem>
         {campuses?.map((campus) => (
           <SelectItem key={campus.id} value={campus.code}>
-            {campus.code} · {campus.name}
+            {campus.code}
           </SelectItem>
         ))}
       </SelectContent>
