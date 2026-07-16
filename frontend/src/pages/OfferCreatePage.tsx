@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
 const CAN_CREATE_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
@@ -34,9 +35,9 @@ export function OfferCreatePage() {
   const [application, setApplication] = useState<ApplicationRead | null>(null);
   const selectedApplication = preselectedApplicationId ? preselected : application;
 
-  const [salaryAmount, setSalaryAmount] = useState("");
+  const salaryAmount = useFieldValidation("", required("Salary amount is required"));
   const [salaryCurrency, setSalaryCurrency] = useState("INR");
-  const [joiningDate, setJoiningDate] = useState("");
+  const joiningDate = useFieldValidation("", required("Joining date is required"));
   const [terms, setTerms] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -50,9 +51,9 @@ export function OfferCreatePage() {
     mutationFn: () =>
       createOffer({
         application_id: selectedApplication!.id,
-        salary_amount: Number(salaryAmount),
+        salary_amount: Number(salaryAmount.value),
         salary_currency: salaryCurrency,
-        joining_date: joiningDate,
+        joining_date: joiningDate.value,
         terms: terms || null,
         expires_at: expiresAt || null,
       }),
@@ -74,6 +75,9 @@ export function OfferCreatePage() {
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);
+          const salaryAmountValid = salaryAmount.validate();
+          const joiningDateValid = joiningDate.validate();
+          if (!salaryAmountValid || !joiningDateValid) return;
           mutation.mutate();
         }}
         className="flex max-w-lg flex-col gap-4"
@@ -104,9 +108,12 @@ export function OfferCreatePage() {
               min={0}
               step="0.01"
               required
-              value={salaryAmount}
-              onChange={(e) => setSalaryAmount(e.target.value)}
+              value={salaryAmount.value}
+              onChange={(e) => salaryAmount.onChange(e.target.value)}
+              onBlur={salaryAmount.onBlur}
+              aria-invalid={Boolean(salaryAmount.error)}
             />
+            {salaryAmount.error ? <p className="text-xs text-destructive">{salaryAmount.error}</p> : null}
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="salary_currency">Currency</Label>
@@ -125,9 +132,12 @@ export function OfferCreatePage() {
             id="joining_date"
             type="date"
             required
-            value={joiningDate}
-            onChange={(e) => setJoiningDate(e.target.value)}
+            value={joiningDate.value}
+            onChange={(e) => joiningDate.onChange(e.target.value)}
+            onBlur={joiningDate.onBlur}
+            aria-invalid={Boolean(joiningDate.error)}
           />
+          {joiningDate.error ? <p className="text-xs text-destructive">{joiningDate.error}</p> : null}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -144,7 +154,7 @@ export function OfferCreatePage() {
 
         <Button
           type="submit"
-          disabled={mutation.isPending || !selectedApplication || !salaryAmount || !joiningDate}
+          disabled={mutation.isPending || !selectedApplication || !salaryAmount.value || !joiningDate.value}
         >
           {mutation.isPending ? "Saving…" : "Create draft offer"}
         </Button>

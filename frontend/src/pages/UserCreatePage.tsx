@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { combine, email as emailValidator, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 export function UserCreatePage() {
   const { user } = useAuth();
@@ -21,9 +22,12 @@ export function UserCreatePage() {
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
 
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const fullName = useFieldValidation("", required("Full name is required"));
+  const email = useFieldValidation("", combine(required("Email is required"), emailValidator()));
+  const password = useFieldValidation(
+    "",
+    combine(required("Password is required"), minLength(8, "Must be at least 8 characters")),
+  );
   const [role, setRole] = useState<UserRole>("RECRUITMENT_OFFICER");
   const [campusId, setCampusId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
@@ -36,9 +40,9 @@ export function UserCreatePage() {
   const mutation = useMutation({
     mutationFn: () =>
       createUser({
-        email,
-        password,
-        full_name: fullName,
+        email: email.value,
+        password: password.value,
+        full_name: fullName.value,
         role,
         campus_id: campusId || null,
         department_id: departmentId || null,
@@ -57,6 +61,10 @@ export function UserCreatePage() {
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    const fullNameValid = fullName.validate();
+    const emailValid = email.validate();
+    const passwordValid = password.validate();
+    if (!fullNameValid || !emailValid || !passwordValid) return;
     mutation.mutate();
   }
 
@@ -75,11 +83,28 @@ export function UserCreatePage() {
       <form onSubmit={handleSubmit} className="flex max-w-md flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="full_name">Full name</Label>
-          <Input id="full_name" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <Input
+            id="full_name"
+            required
+            value={fullName.value}
+            onChange={(e) => fullName.onChange(e.target.value)}
+            onBlur={fullName.onBlur}
+            aria-invalid={Boolean(fullName.error)}
+          />
+          {fullName.error ? <p className="text-xs text-destructive">{fullName.error}</p> : null}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Input
+            id="email"
+            type="email"
+            required
+            value={email.value}
+            onChange={(e) => email.onChange(e.target.value)}
+            onBlur={email.onBlur}
+            aria-invalid={Boolean(email.error)}
+          />
+          {email.error ? <p className="text-xs text-destructive">{email.error}</p> : null}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="password">Password</Label>
@@ -88,9 +113,12 @@ export function UserCreatePage() {
             type="password"
             required
             minLength={8}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={password.value}
+            onChange={(e) => password.onChange(e.target.value)}
+            onBlur={password.onBlur}
+            aria-invalid={Boolean(password.error)}
           />
+          {password.error ? <p className="text-xs text-destructive">{password.error}</p> : null}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>Role</Label>

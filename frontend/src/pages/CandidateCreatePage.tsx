@@ -9,15 +9,18 @@ import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { combine, email as emailValidator, required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+const SOURCE_OPTIONS = ["Reference", "Mail", "Other"] as const;
 
 export function CandidateCreatePage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const fullName = useFieldValidation("", required("Full name is required"));
+  const email = useFieldValidation("", combine(required("Email is required"), emailValidator()));
   const [phoneNumber, setPhoneNumber] = useState("");
   const [source, setSource] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,8 +28,8 @@ export function CandidateCreatePage() {
   const mutation = useMutation({
     mutationFn: () =>
       createCandidate({
-        full_name: fullName,
-        email,
+        full_name: fullName.value,
+        email: email.value,
         phone_number: phoneNumber || null,
         source: source || null,
       }),
@@ -45,6 +48,9 @@ export function CandidateCreatePage() {
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    const fullNameValid = fullName.validate();
+    const emailValid = email.validate();
+    if (!fullNameValid || !emailValid) return;
     mutation.mutate();
   }
 
@@ -54,19 +60,47 @@ export function CandidateCreatePage() {
       <form onSubmit={handleSubmit} className="flex max-w-md flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="full_name">Full name</Label>
-          <Input id="full_name" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          <Input
+            id="full_name"
+            required
+            value={fullName.value}
+            onChange={(e) => fullName.onChange(e.target.value)}
+            onBlur={fullName.onBlur}
+            aria-invalid={Boolean(fullName.error)}
+          />
+          {fullName.error ? <p className="text-xs text-destructive">{fullName.error}</p> : null}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Input
+            id="email"
+            type="email"
+            required
+            value={email.value}
+            onChange={(e) => email.onChange(e.target.value)}
+            onBlur={email.onBlur}
+            aria-invalid={Boolean(email.error)}
+          />
+          {email.error ? <p className="text-xs text-destructive">{email.error}</p> : null}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="phone_number">Phone number (optional)</Label>
           <Input id="phone_number" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} />
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="source">Source (optional)</Label>
-          <Input id="source" value={source} onChange={(e) => setSource(e.target.value)} />
+          <Label>Source (optional)</Label>
+          <Select value={source} onValueChange={setSource}>
+            <SelectTrigger>
+              <SelectValue placeholder="How did they hear about this role?" />
+            </SelectTrigger>
+            <SelectContent>
+              {SOURCE_OPTIONS.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}

@@ -3,32 +3,18 @@ import { useQuery } from "@tanstack/react-query";
 import { getDashboardKpis } from "@/api/dashboard";
 import type { DashboardKpis } from "@/api/types";
 import { useCampus } from "@/campus/CampusContext";
+import { StatTile, type StatAccent } from "@/components/dashboard/StatTile";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 
-type Accent = "blue" | "green" | "orange";
-
-const ACCENT_BORDER: Record<Accent, string> = {
-  blue: "border-l-brand-blue",
-  green: "border-l-brand-green",
-  orange: "border-l-brand-orange",
-};
-
-const KPI_CARDS: { key: keyof DashboardKpis; label: string; accent: Accent }[] = [
-  { key: "total_applications", label: "Total applications", accent: "blue" },
-  { key: "open_positions", label: "Open positions", accent: "blue" },
-  { key: "interviews_today", label: "Interviews today", accent: "blue" },
+const KPI_CARDS: { key: keyof DashboardKpis; label: string; accent: StatAccent }[] = [
+  { key: "total_applications", label: "Total applications", accent: "gold" },
+  { key: "open_positions", label: "Open positions", accent: "gold" },
+  { key: "interviews_today", label: "Interviews today", accent: "gold" },
   { key: "joinings_today", label: "Joinings today", accent: "green" },
   { key: "offers_pending", label: "Offers pending", accent: "orange" },
-  { key: "average_time_to_hire_days", label: "Avg. time to hire (days)", accent: "blue" },
+  { key: "average_time_to_hire_days", label: "Avg. time to hire (days)", accent: "gold" },
   { key: "vacancy_closure_rate_pct", label: "Vacancy closure rate (%)", accent: "green" },
 ];
-
-function formatKpiValue(value: DashboardKpis[keyof DashboardKpis]): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "number" || typeof value === "string") return String(value);
-  return "—";
-}
 
 export function DashboardPage() {
   const { selectedCampusCode } = useCampus();
@@ -37,11 +23,7 @@ export function DashboardPage() {
     queryFn: () => getDashboardKpis(selectedCampusCode),
   });
 
-  if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading dashboard…</p>;
-  }
-
-  if (isError || !data) {
+  if (isError) {
     return <p className="text-sm text-destructive">{error instanceof Error ? error.message : "Failed to load"}</p>;
   }
 
@@ -49,19 +31,20 @@ export function DashboardPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-display text-xl font-bold tracking-tight">Executive Dashboard</h1>
-        <p className="text-sm text-muted-foreground">{data.scope_note}</p>
+        <div className="gear-edge mt-2 w-24" />
+        <p className="mt-2 text-sm text-muted-foreground">{isLoading ? "Loading…" : data?.scope_note}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {KPI_CARDS.map(({ key, label, accent }) => (
-          <Card key={key} className={cn("border-l-4", ACCENT_BORDER[accent])}>
-            <CardHeader className="pb-2">
-              <CardTitle>{label}</CardTitle>
-            </CardHeader>
-            <CardContent className="font-display text-3xl font-bold tabular-nums">
-              {formatKpiValue(data[key])}
-            </CardContent>
-          </Card>
+          <StatTile
+            key={key}
+            label={label}
+            value={isLoading ? undefined : (data?.[key] as number | string | null | undefined)}
+            isLoading={isLoading}
+            accent={accent}
+            zeroCaption="No activity in this scope yet"
+          />
         ))}
       </div>
 
@@ -70,7 +53,9 @@ export function DashboardPage() {
           <CardTitle>Campus-wise hiring</CardTitle>
         </CardHeader>
         <CardContent>
-          {data.campus_wise_hiring.length === 0 ? (
+          {isLoading ? (
+            <div role="status" aria-label="Loading campus-wise hiring" className="h-24 animate-pulse rounded bg-muted" />
+          ) : !data || data.campus_wise_hiring.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hires recorded in this scope yet.</p>
           ) : (
             <table className="w-full text-sm">

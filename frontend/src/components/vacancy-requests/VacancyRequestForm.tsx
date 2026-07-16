@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 const ROLE_CATEGORIES: StaffRoleCategory[] = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
 const EMPLOYMENT_TYPES: EmploymentType[] = ["FULL_TIME", "PART_TIME", "CONTRACT", "VISITING"];
@@ -45,13 +46,22 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
   );
   const [departmentId, setDepartmentId] = useState(initialValues?.department_id ?? "");
   const [roleCategory, setRoleCategory] = useState<StaffRoleCategory>(initialValues?.role_category ?? "TEACHING");
-  const [positionTitle, setPositionTitle] = useState(initialValues?.position_title ?? "");
+  const positionTitle = useFieldValidation(
+    initialValues?.position_title ?? "",
+    required("Position title is required"),
+  );
   const [employmentType, setEmploymentType] = useState<EmploymentType>(
     initialValues?.employment_type ?? "FULL_TIME",
   );
   const [requestedCount, setRequestedCount] = useState(String(initialValues?.requested_count ?? 1));
-  const [qualification, setQualification] = useState(initialValues?.qualification ?? "");
-  const [experienceRequired, setExperienceRequired] = useState(initialValues?.experience_required ?? "");
+  const qualification = useFieldValidation(
+    initialValues?.qualification ?? "",
+    required("Qualification is required"),
+  );
+  const experienceRequired = useFieldValidation(
+    initialValues?.experience_required ?? "",
+    required("Experience required is required"),
+  );
   const [salaryMin, setSalaryMin] = useState(initialValues?.salary_band_min?.toString() ?? "");
   const [salaryMax, setSalaryMax] = useState(initialValues?.salary_band_max?.toString() ?? "");
   const [skills, setSkills] = useState(initialValues?.skills?.join(", ") ?? "");
@@ -72,11 +82,11 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
           campus_id: campusId,
           department_id: departmentId,
           role_category: roleCategory,
-          position_title: positionTitle,
+          position_title: positionTitle.value,
           employment_type: employmentType,
           requested_count: Number(requestedCount),
-          qualification,
-          experience_required: experienceRequired,
+          qualification: qualification.value,
+          experience_required: experienceRequired.value,
           salary_band_min: salaryMin ? Number(salaryMin) : null,
           salary_band_max: salaryMax ? Number(salaryMax) : null,
           skills: skillsList.length ? skillsList : null,
@@ -85,11 +95,11 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
         return createVacancyRequest(payload);
       }
       return updateVacancyRequest(initialValues!.id, {
-        position_title: positionTitle,
+        position_title: positionTitle.value,
         employment_type: employmentType,
         requested_count: Number(requestedCount),
-        qualification,
-        experience_required: experienceRequired,
+        qualification: qualification.value,
+        experience_required: experienceRequired.value,
         salary_band_min: salaryMin ? Number(salaryMin) : null,
         salary_band_max: salaryMax ? Number(salaryMax) : null,
         skills: skillsList.length ? skillsList : null,
@@ -103,6 +113,10 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    const positionTitleValid = positionTitle.validate();
+    const qualificationValid = qualification.validate();
+    const experienceRequiredValid = experienceRequired.validate();
+    if (!positionTitleValid || !qualificationValid || !experienceRequiredValid) return;
     mutation.mutate();
   }
 
@@ -158,7 +172,15 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="position_title">Position title</Label>
-        <Input id="position_title" required value={positionTitle} onChange={(e) => setPositionTitle(e.target.value)} />
+        <Input
+          id="position_title"
+          required
+          value={positionTitle.value}
+          onChange={(e) => positionTitle.onChange(e.target.value)}
+          onBlur={positionTitle.onBlur}
+          aria-invalid={Boolean(positionTitle.error)}
+        />
+        {positionTitle.error ? <p className="text-xs text-destructive">{positionTitle.error}</p> : null}
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -225,7 +247,15 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="qualification">Qualification</Label>
-        <Textarea id="qualification" required value={qualification} onChange={(e) => setQualification(e.target.value)} />
+        <Textarea
+          id="qualification"
+          required
+          value={qualification.value}
+          onChange={(e) => qualification.onChange(e.target.value)}
+          onBlur={qualification.onBlur}
+          aria-invalid={Boolean(qualification.error)}
+        />
+        {qualification.error ? <p className="text-xs text-destructive">{qualification.error}</p> : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -233,9 +263,12 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
         <Input
           id="experience_required"
           required
-          value={experienceRequired}
-          onChange={(e) => setExperienceRequired(e.target.value)}
+          value={experienceRequired.value}
+          onChange={(e) => experienceRequired.onChange(e.target.value)}
+          onBlur={experienceRequired.onBlur}
+          aria-invalid={Boolean(experienceRequired.error)}
         />
+        {experienceRequired.error ? <p className="text-xs text-destructive">{experienceRequired.error}</p> : null}
       </div>
 
       <div className="grid grid-cols-2 gap-4">

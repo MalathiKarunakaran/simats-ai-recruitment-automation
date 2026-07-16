@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
 const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
@@ -40,7 +41,7 @@ export function InterviewCreatePage() {
   const selectedApplication = preselectedApplicationId ? preselected : application;
 
   const [interviewType, setInterviewType] = useState<InterviewType>("TECHNICAL");
-  const [scheduledAt, setScheduledAt] = useState("");
+  const scheduledAt = useFieldValidation("", required("Scheduled time is required"));
   const [durationMinutes, setDurationMinutes] = useState("30");
   const [meetingLink, setMeetingLink] = useState("");
   const [location, setLocation] = useState("");
@@ -62,7 +63,7 @@ export function InterviewCreatePage() {
       createInterview({
         application_id: selectedApplication!.id,
         interview_type: interviewType,
-        scheduled_at: new Date(scheduledAt).toISOString(),
+        scheduled_at: new Date(scheduledAt.value).toISOString(),
         duration_minutes: Number(durationMinutes),
         meeting_link: meetingLink || null,
         location: location || null,
@@ -91,6 +92,7 @@ export function InterviewCreatePage() {
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);
+          if (!scheduledAt.validate()) return;
           mutation.mutate();
         }}
         className="flex max-w-lg flex-col gap-4"
@@ -134,9 +136,12 @@ export function InterviewCreatePage() {
             id="scheduled_at"
             type="datetime-local"
             required
-            value={scheduledAt}
-            onChange={(e) => setScheduledAt(e.target.value)}
+            value={scheduledAt.value}
+            onChange={(e) => scheduledAt.onChange(e.target.value)}
+            onBlur={scheduledAt.onBlur}
+            aria-invalid={Boolean(scheduledAt.error)}
           />
+          {scheduledAt.error ? <p className="text-xs text-destructive">{scheduledAt.error}</p> : null}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -179,7 +184,7 @@ export function InterviewCreatePage() {
 
         <Button
           type="submit"
-          disabled={mutation.isPending || !selectedApplication || !scheduledAt || panelMemberIds.length === 0}
+          disabled={mutation.isPending || !selectedApplication || !scheduledAt.value || panelMemberIds.length === 0}
         >
           {mutation.isPending ? "Scheduling…" : "Schedule interview"}
         </Button>
