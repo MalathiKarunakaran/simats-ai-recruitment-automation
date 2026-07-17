@@ -1,10 +1,12 @@
 import { apiFetch } from "@/api/client";
 import type {
-  EmployeeCreatePayload,
+  DepartmentRoomAllotmentPayload,
   EmployeeRead,
+  HandoverToHodPayload,
   JoiningDocumentRead,
   JoiningDocumentUpdatePayload,
   JoiningRecordRead,
+  OrientationCompletePayload,
   PaginatedResponse,
 } from "@/api/types";
 
@@ -33,14 +35,28 @@ export async function markJoined(applicationId: string): Promise<JoiningRecordRe
   return apiFetch<JoiningRecordRead>(`/applications/${applicationId}/joining/mark-joined`, { method: "POST" });
 }
 
-export async function completeOnboarding(applicationId: string): Promise<JoiningRecordRead> {
-  return apiFetch<JoiningRecordRead>(`/applications/${applicationId}/joining/complete-onboarding`, {
+export async function allotDepartmentRoom(
+  applicationId: string,
+  payload: DepartmentRoomAllotmentPayload,
+): Promise<JoiningRecordRead> {
+  return apiFetch<JoiningRecordRead>(`/applications/${applicationId}/joining/allot-department-room`, {
     method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
-export async function createEmployee(applicationId: string, payload: EmployeeCreatePayload): Promise<EmployeeRead> {
-  return apiFetch<EmployeeRead>(`/applications/${applicationId}/joining/create-employee`, {
+export async function completeOrientation(
+  applicationId: string,
+  payload: OrientationCompletePayload,
+): Promise<JoiningRecordRead> {
+  return apiFetch<JoiningRecordRead>(`/applications/${applicationId}/joining/complete-orientation`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function handOverToHod(applicationId: string, payload: HandoverToHodPayload): Promise<EmployeeRead> {
+  return apiFetch<EmployeeRead>(`/applications/${applicationId}/joining/hand-over-to-hod`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

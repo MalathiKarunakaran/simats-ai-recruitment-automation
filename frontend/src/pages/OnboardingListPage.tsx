@@ -22,9 +22,9 @@ export function OnboardingListPage() {
 
   const canView = Boolean(user && CAN_VIEW_ROLES.includes(user.role));
 
-  const joiningPendingQuery = useQuery({
-    queryKey: ["applications", { status: "JOINING_PENDING" }],
-    queryFn: () => listApplications({ status: "JOINING_PENDING" }),
+  const joiningConfirmedQuery = useQuery({
+    queryKey: ["applications", { status: "JOINING_CONFIRMED" }],
+    queryFn: () => listApplications({ status: "JOINING_CONFIRMED" }),
     enabled: canView,
   });
   const joinedQuery = useQuery({
@@ -32,9 +32,14 @@ export function OnboardingListPage() {
     queryFn: () => listApplications({ status: "JOINED" }),
     enabled: canView,
   });
-  const onboardingCompleteQuery = useQuery({
-    queryKey: ["applications", { status: "ONBOARDING_COMPLETE" }],
-    queryFn: () => listApplications({ status: "ONBOARDING_COMPLETE" }),
+  const departmentRoomAllottedQuery = useQuery({
+    queryKey: ["applications", { status: "DEPARTMENT_ROOM_ALLOTTED" }],
+    queryFn: () => listApplications({ status: "DEPARTMENT_ROOM_ALLOTTED" }),
+    enabled: canView,
+  });
+  const orientationCompleteQuery = useQuery({
+    queryKey: ["applications", { status: "ORIENTATION_COMPLETE" }],
+    queryFn: () => listApplications({ status: "ORIENTATION_COMPLETE" }),
     enabled: canView,
   });
 
@@ -46,11 +51,16 @@ export function OnboardingListPage() {
     );
   }
 
-  const isLoading = joiningPendingQuery.isLoading || joinedQuery.isLoading || onboardingCompleteQuery.isLoading;
+  const isLoading =
+    joiningConfirmedQuery.isLoading ||
+    joinedQuery.isLoading ||
+    departmentRoomAllottedQuery.isLoading ||
+    orientationCompleteQuery.isLoading;
   const applications = [
-    ...(joiningPendingQuery.data ?? []),
+    ...(joiningConfirmedQuery.data ?? []),
     ...(joinedQuery.data ?? []),
-    ...(onboardingCompleteQuery.data ?? []),
+    ...(departmentRoomAllottedQuery.data ?? []),
+    ...(orientationCompleteQuery.data ?? []),
   ];
 
   return (

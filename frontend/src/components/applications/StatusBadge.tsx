@@ -2,10 +2,11 @@ import type { ApplicationStatus } from "@/api/types";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 
 const SUCCESS_STATUSES = new Set<ApplicationStatus>([
-  "EMPLOYEE_CREATED",
+  "HANDED_OVER_TO_HOD",
   "JOINED",
   "OFFER_ACCEPTED",
-  "ONBOARDING_COMPLETE",
+  "DEPARTMENT_ROOM_ALLOTTED",
+  "ORIENTATION_COMPLETE",
 ]);
 
 function variantFor(status: ApplicationStatus): BadgeProps["variant"] {

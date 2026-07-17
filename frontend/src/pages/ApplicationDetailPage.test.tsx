@@ -47,6 +47,7 @@ const CANDIDATE: CandidateRead = {
   phone_number: null,
   resume_storage_key: null,
   source: null,
+  reference_name: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -64,6 +65,19 @@ function makeApplication(overrides: Partial<ApplicationRead> = {}): ApplicationR
     rejected_at: null,
     withdrawn_reason: null,
     withdrawn_at: null,
+    panel_members: null,
+    panel_result: null,
+    panel_remarks: null,
+    salary_fixed: null,
+    called_date: null,
+    interview_scheduled_date: null,
+    offer_given_date: null,
+    expected_joining_date: null,
+    actual_joining_date: null,
+    department_allotted_id: null,
+    room_allotted: null,
+    orientation_date: null,
+    hod_assigned: null,
     created_at: "2026-01-02T00:00:00Z",
     updated_at: "2026-01-02T00:00:00Z",
     ...overrides,
@@ -193,14 +207,14 @@ describe("ApplicationDetailPage", () => {
     );
   });
 
-  it("shows the Joining card once JOINING_PENDING for HR Admin, but hides it for Campus HOD", async () => {
+  it("shows the Joining card once JOINING_CONFIRMED for HR Admin, but hides it for Campus HOD", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(),
       logout: vi.fn(),
     });
-    mockedGetApplication.mockResolvedValue(makeApplication({ status: "JOINING_PENDING" }));
+    mockedGetApplication.mockResolvedValue(makeApplication({ status: "JOINING_CONFIRMED" }));
 
     const { unmount } = renderPage();
     await waitFor(() => expect(screen.getByText("Joining")).toBeInTheDocument());

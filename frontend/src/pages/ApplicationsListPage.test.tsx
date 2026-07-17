@@ -31,6 +31,7 @@ const CANDIDATE: CandidateRead = {
   phone_number: null,
   resume_storage_key: null,
   source: null,
+  reference_name: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -47,6 +48,19 @@ const APPLICATION: ApplicationRead = {
   rejected_at: null,
   withdrawn_reason: null,
   withdrawn_at: null,
+  panel_members: null,
+  panel_result: null,
+  panel_remarks: null,
+  salary_fixed: null,
+  called_date: null,
+  interview_scheduled_date: null,
+  offer_given_date: null,
+  expected_joining_date: null,
+  actual_joining_date: null,
+  department_allotted_id: null,
+  room_allotted: null,
+  orientation_date: null,
+  hod_assigned: null,
   created_at: "2026-01-02T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
 };
@@ -99,9 +113,9 @@ describe("ApplicationsListPage", () => {
     await waitFor(() => expect(mockedListApplications).toHaveBeenCalledWith({ status: null }));
 
     await userEvent.click(screen.getByRole("combobox"));
-    await userEvent.click(await screen.findByRole("option", { name: "SHORTLISTED" }));
+    await userEvent.click(await screen.findByRole("option", { name: "CALLED FOR INTERVIEW" }));
 
-    await waitFor(() => expect(mockedListApplications).toHaveBeenCalledWith({ status: "SHORTLISTED" }));
+    await waitFor(() => expect(mockedListApplications).toHaveBeenCalledWith({ status: "CALLED_FOR_INTERVIEW" }));
   });
 
   it("hides the create button for a role without write access", async () => {

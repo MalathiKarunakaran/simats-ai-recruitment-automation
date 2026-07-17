@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 
-import { getApplication, transitionApplicationStatus } from "@/api/applications";
+import { getApplication, transitionApplicationStatus, updateApplicationPipelineDetails } from "@/api/applications";
 import { getCandidate } from "@/api/candidates";
 import { ApiError } from "@/api/client";
 import { listInterviews } from "@/api/interviews";
@@ -29,6 +29,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -55,6 +56,15 @@ export function ApplicationDetailPage() {
   const [forceDialogOpen, setForceDialogOpen] = useState(false);
   const [forceStatus, setForceStatus] = useState("");
   const [forceReason, setForceReason] = useState("");
+  const [pipelineDialogOpen, setPipelineDialogOpen] = useState(false);
+  const [panelMembers, setPanelMembers] = useState("");
+  const [panelResult, setPanelResult] = useState("");
+  const [panelRemarks, setPanelRemarks] = useState("");
+  const [salaryFixed, setSalaryFixed] = useState("");
+  const [calledDate, setCalledDate] = useState("");
+  const [interviewScheduledDate, setInterviewScheduledDate] = useState("");
+  const [offerGivenDate, setOfferGivenDate] = useState("");
+  const [expectedJoiningDate, setExpectedJoiningDate] = useState("");
 
   const { data: application, isLoading } = useQuery({
     queryKey: ["application", id],
@@ -148,6 +158,26 @@ export function ApplicationDetailPage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Force correction failed"),
   });
 
+  const pipelineDetailsMutation = useMutation({
+    mutationFn: () =>
+      updateApplicationPipelineDetails(id!, {
+        panel_members: panelMembers || null,
+        panel_result: panelResult || null,
+        panel_remarks: panelRemarks || null,
+        salary_fixed: salaryFixed ? Number(salaryFixed) : null,
+        called_date: calledDate || null,
+        interview_scheduled_date: interviewScheduledDate || null,
+        offer_given_date: offerGivenDate || null,
+        expected_joining_date: expectedJoiningDate || null,
+      }),
+    onSuccess: () => {
+      setError(null);
+      setPipelineDialogOpen(false);
+      afterAction();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Pipeline details update failed"),
+  });
+
   const screenMutation = useMutation({
     mutationFn: () => screenApplication(id!),
     onSuccess: () => {
@@ -164,6 +194,18 @@ export function ApplicationDetailPage() {
     return <Navigate to="/applications" replace />;
   }
 
+  function openPipelineDialog() {
+    setPanelMembers(application!.panel_members ?? "");
+    setPanelResult(application!.panel_result ?? "");
+    setPanelRemarks(application!.panel_remarks ?? "");
+    setSalaryFixed(application!.salary_fixed != null ? String(application!.salary_fixed) : "");
+    setCalledDate(application!.called_date ?? "");
+    setInterviewScheduledDate(application!.interview_scheduled_date ?? "");
+    setOfferGivenDate(application!.offer_given_date ?? "");
+    setExpectedJoiningDate(application!.expected_joining_date ?? "");
+    setPipelineDialogOpen(true);
+  }
+
   const isTerminal = APPLICATION_TERMINAL_STATUSES.has(application.status);
   const currentIndex = APPLICATION_STATUS_ORDER.indexOf(application.status);
   const forwardStatuses = currentIndex >= 0 ? APPLICATION_STATUS_ORDER.slice(currentIndex + 1) : [];
@@ -174,9 +216,9 @@ export function ApplicationDetailPage() {
   const canWithdraw = canWrite && !isTerminal;
   const canForce = user.role === "SUPER_ADMIN";
 
-  const joiningPendingIndex = APPLICATION_STATUS_ORDER.indexOf("JOINING_PENDING");
+  const joiningConfirmedIndex = APPLICATION_STATUS_ORDER.indexOf("JOINING_CONFIRMED");
   const canViewJoining =
-    CAN_VIEW_JOINING_ROLES.includes(user.role) && currentIndex >= joiningPendingIndex;
+    CAN_VIEW_JOINING_ROLES.includes(user.role) && currentIndex >= joiningConfirmedIndex;
 
   const label = getLabel(application.job_posting_id);
   const isBusy =
@@ -306,6 +348,148 @@ export function ApplicationDetailPage() {
             </div>
           ) : null}
         </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Pipeline Details</CardTitle>
+          {canWrite ? (
+            <Button variant="outline" size="sm" onClick={openPipelineDialog}>
+              Edit
+            </Button>
+          ) : null}
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-4 text-sm">
+          {application.panel_members ? (
+            <div className="col-span-2">
+              <div className="text-muted-foreground">Panel members</div>
+              <div>{application.panel_members}</div>
+            </div>
+          ) : null}
+          {application.panel_result ? (
+            <div>
+              <div className="text-muted-foreground">Panel result</div>
+              <div>{application.panel_result}</div>
+            </div>
+          ) : null}
+          {application.salary_fixed != null ? (
+            <div>
+              <div className="text-muted-foreground">Salary fixed</div>
+              <div>{application.salary_fixed}</div>
+            </div>
+          ) : null}
+          {application.panel_remarks ? (
+            <div className="col-span-2">
+              <div className="text-muted-foreground">Panel remarks</div>
+              <div>{application.panel_remarks}</div>
+            </div>
+          ) : null}
+          {application.called_date ? (
+            <div>
+              <div className="text-muted-foreground">Called date</div>
+              <div>{new Date(application.called_date).toLocaleDateString()}</div>
+            </div>
+          ) : null}
+          {application.interview_scheduled_date ? (
+            <div>
+              <div className="text-muted-foreground">Interview scheduled date</div>
+              <div>{new Date(application.interview_scheduled_date).toLocaleDateString()}</div>
+            </div>
+          ) : null}
+          {application.offer_given_date ? (
+            <div>
+              <div className="text-muted-foreground">Offer given date</div>
+              <div>{new Date(application.offer_given_date).toLocaleDateString()}</div>
+            </div>
+          ) : null}
+          {application.expected_joining_date ? (
+            <div>
+              <div className="text-muted-foreground">Expected joining date</div>
+              <div>{new Date(application.expected_joining_date).toLocaleDateString()}</div>
+            </div>
+          ) : null}
+          {!application.panel_members &&
+          !application.panel_result &&
+          !application.panel_remarks &&
+          application.salary_fixed == null &&
+          !application.called_date &&
+          !application.interview_scheduled_date &&
+          !application.offer_given_date &&
+          !application.expected_joining_date ? (
+            <p className="col-span-2 text-muted-foreground">No pipeline details recorded yet.</p>
+          ) : null}
+        </CardContent>
+
+        <Dialog open={pipelineDialogOpen} onOpenChange={setPipelineDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit pipeline details</DialogTitle>
+            </DialogHeader>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="panel_members">Panel members</Label>
+                <Textarea id="panel_members" value={panelMembers} onChange={(e) => setPanelMembers(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="panel_result">Panel result</Label>
+                  <Input id="panel_result" value={panelResult} onChange={(e) => setPanelResult(e.target.value)} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="salary_fixed">Salary fixed</Label>
+                  <Input
+                    id="salary_fixed"
+                    type="number"
+                    value={salaryFixed}
+                    onChange={(e) => setSalaryFixed(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="panel_remarks">Panel remarks</Label>
+                <Textarea id="panel_remarks" value={panelRemarks} onChange={(e) => setPanelRemarks(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="called_date">Called date</Label>
+                  <Input id="called_date" type="date" value={calledDate} onChange={(e) => setCalledDate(e.target.value)} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="interview_scheduled_date">Interview scheduled date</Label>
+                  <Input
+                    id="interview_scheduled_date"
+                    type="date"
+                    value={interviewScheduledDate}
+                    onChange={(e) => setInterviewScheduledDate(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="offer_given_date">Offer given date</Label>
+                  <Input
+                    id="offer_given_date"
+                    type="date"
+                    value={offerGivenDate}
+                    onChange={(e) => setOfferGivenDate(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="expected_joining_date">Expected joining date</Label>
+                  <Input
+                    id="expected_joining_date"
+                    type="date"
+                    value={expectedJoiningDate}
+                    onChange={(e) => setExpectedJoiningDate(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button disabled={pipelineDetailsMutation.isPending} onClick={() => pipelineDetailsMutation.mutate()}>
+                {pipelineDetailsMutation.isPending ? "Saving…" : "Save pipeline details"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </Card>
 
       <Card>

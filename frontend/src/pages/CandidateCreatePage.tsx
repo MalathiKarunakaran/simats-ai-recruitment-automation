@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import { createCandidate } from "@/api/candidates";
+import type { CandidateSource } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { combine, email as emailValidator, required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
-const SOURCE_OPTIONS = ["Reference", "Mail", "Other"] as const;
+// Mirrors the 4 real sourcing channels (app/schemas/candidate.py::CandidateSource)
+// -- sourcing/shortlisting is manual today, these are the only channels used.
+const SOURCE_OPTIONS: CandidateSource[] = ["Reference", "Job Portal", "FacultyPlus", "Walk-in"];
 
 export function CandidateCreatePage() {
   const { user } = useAuth();
@@ -22,7 +25,9 @@ export function CandidateCreatePage() {
   const fullName = useFieldValidation("", required("Full name is required"));
   const email = useFieldValidation("", combine(required("Email is required"), emailValidator()));
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [source, setSource] = useState("");
+  const [source, setSource] = useState<CandidateSource | "">("");
+  const [referenceName, setReferenceName] = useState("");
+  const [referenceNameError, setReferenceNameError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
@@ -32,6 +37,7 @@ export function CandidateCreatePage() {
         email: email.value,
         phone_number: phoneNumber || null,
         source: source || null,
+        reference_name: source === "Reference" ? referenceName : null,
       }),
     onSuccess: (result) => navigate(`/candidates/${result.id}`),
     onError: (err) => setError(err instanceof ApiError ? err.message : "Something went wrong"),
@@ -50,7 +56,14 @@ export function CandidateCreatePage() {
     setError(null);
     const fullNameValid = fullName.validate();
     const emailValid = email.validate();
-    if (!fullNameValid || !emailValid) return;
+    let referenceNameValid = true;
+    if (source === "Reference" && !referenceName.trim()) {
+      referenceNameValid = false;
+      setReferenceNameError("Reference name is required when source is Reference");
+    } else {
+      setReferenceNameError(null);
+    }
+    if (!fullNameValid || !emailValid || !referenceNameValid) return;
     mutation.mutate();
   }
 
@@ -89,7 +102,7 @@ export function CandidateCreatePage() {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>Source (optional)</Label>
-          <Select value={source} onValueChange={setSource}>
+          <Select value={source} onValueChange={(value) => setSource(value as CandidateSource)}>
             <SelectTrigger>
               <SelectValue placeholder="How did they hear about this role?" />
             </SelectTrigger>
@@ -102,6 +115,20 @@ export function CandidateCreatePage() {
             </SelectContent>
           </Select>
         </div>
+
+        {source === "Reference" ? (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="reference_name">Reference name</Label>
+            <Input
+              id="reference_name"
+              required
+              value={referenceName}
+              onChange={(e) => setReferenceName(e.target.value)}
+              aria-invalid={Boolean(referenceNameError)}
+            />
+            {referenceNameError ? <p className="text-xs text-destructive">{referenceNameError}</p> : null}
+          </div>
+        ) : null}
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 

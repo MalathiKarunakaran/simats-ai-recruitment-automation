@@ -1,15 +1,24 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as departmentsApi from "@/api/departments";
 import * as employeesApi from "@/api/employees";
 import * as joiningApi from "@/api/joining";
-import type { ApplicationRead, EmployeeRead, JoiningDocumentRead, JoiningRecordRead, UserRead } from "@/api/types";
+import type {
+  ApplicationRead,
+  DepartmentRead,
+  EmployeeRead,
+  JoiningDocumentRead,
+  JoiningRecordRead,
+  UserRead,
+} from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import { JoiningCard } from "@/components/joining/JoiningCard";
 
 vi.mock("@/api/joining");
 vi.mock("@/api/employees");
+vi.mock("@/api/departments");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -19,6 +28,7 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedGetJoiningRecord = vi.mocked(joiningApi.getJoiningRecord);
 const mockedListJoiningDocuments = vi.mocked(joiningApi.listJoiningDocuments);
 const mockedListEmployees = vi.mocked(employeesApi.listEmployees);
+const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 
 function makeApplication(overrides: Partial<ApplicationRead> = {}): ApplicationRead {
   return {
@@ -26,13 +36,26 @@ function makeApplication(overrides: Partial<ApplicationRead> = {}): ApplicationR
     candidate_id: "cand-1",
     job_posting_id: "jp-1",
     campus_id: "c-sse",
-    status: "JOINING_PENDING",
+    status: "JOINING_CONFIRMED",
     applied_at: "2026-01-02T00:00:00Z",
     recorded_by_id: "u-1",
     rejection_reason: null,
     rejected_at: null,
     withdrawn_reason: null,
     withdrawn_at: null,
+    panel_members: null,
+    panel_result: null,
+    panel_remarks: null,
+    salary_fixed: null,
+    called_date: null,
+    interview_scheduled_date: null,
+    offer_given_date: null,
+    expected_joining_date: null,
+    actual_joining_date: null,
+    department_allotted_id: null,
+    room_allotted: null,
+    orientation_date: null,
+    hod_assigned: null,
     created_at: "2026-01-02T00:00:00Z",
     updated_at: "2026-01-02T00:00:00Z",
     ...overrides,
@@ -48,6 +71,15 @@ const RECORD: JoiningRecordRead = {
   onboarding_completed_by_id: null,
   created_at: "2026-01-02T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
+};
+
+const DEPARTMENT: DepartmentRead = {
+  id: "dept-1",
+  campus_id: "c-sse",
+  name: "Computer Science",
+  is_active: true,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
 };
 
 function makeDocument(overrides: Partial<JoiningDocumentRead> = {}): JoiningDocumentRead {
@@ -75,6 +107,10 @@ function renderCard(application: ApplicationRead) {
 }
 
 describe("JoiningCard", () => {
+  beforeEach(() => {
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+  });
+
   it("renders nothing for a role outside the read roles", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
@@ -97,7 +133,7 @@ describe("JoiningCard", () => {
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument()]);
 
-    renderCard(makeApplication({ status: "JOINING_PENDING" }));
+    renderCard(makeApplication({ status: "JOINING_CONFIRMED" }));
 
     await waitFor(() => expect(screen.getByText("Mark joined")).toBeInTheDocument());
     expect(screen.queryByText("Mark received")).not.toBeInTheDocument();
@@ -113,12 +149,12 @@ describe("JoiningCard", () => {
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument()]);
 
-    renderCard(makeApplication({ status: "JOINING_PENDING" }));
+    renderCard(makeApplication({ status: "JOINING_CONFIRMED" }));
 
     await waitFor(() => expect(screen.getByText("Mark received")).toBeInTheDocument());
   });
 
-  it("disables Complete onboarding while a document is still pending", async () => {
+  it("disables the department/room allotment confirm button while a document is still pending", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
@@ -130,12 +166,14 @@ describe("JoiningCard", () => {
 
     renderCard(makeApplication({ status: "JOINED" }));
 
-    await waitFor(() => expect(screen.getByText("Complete onboarding")).toBeInTheDocument());
-    expect(screen.getByText("Complete onboarding")).toBeDisabled();
+    await waitFor(() =>
+      expect(screen.getByText("Confirm department & room allotment")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Confirm department & room allotment")).toBeDisabled();
     expect(screen.getByText("All documents must be received first.")).toBeInTheDocument();
   });
 
-  it("enables Complete onboarding once all documents are received", async () => {
+  it("enables the department/room allotment confirm button once all documents are received and a department is picked", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
@@ -147,10 +185,43 @@ describe("JoiningCard", () => {
 
     renderCard(makeApplication({ status: "JOINED" }));
 
-    await waitFor(() => expect(screen.getByText("Complete onboarding")).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    // No department selected yet -- still disabled even with docs received.
+    expect(screen.getByText("Confirm department & room allotment")).toBeDisabled();
   });
 
-  it("shows employee fields inline once EMPLOYEE_CREATED", async () => {
+  it("shows the orientation date input at DEPARTMENT_ROOM_ALLOTTED", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
+
+    renderCard(makeApplication({ status: "DEPARTMENT_ROOM_ALLOTTED" }));
+
+    await waitFor(() => expect(screen.getByText("Mark orientation complete")).toBeInTheDocument());
+  });
+
+  it("requires HOD assigned before enabling Hand over to HOD at ORIENTATION_COMPLETE", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
+
+    renderCard(makeApplication({ status: "ORIENTATION_COMPLETE" }));
+
+    await waitFor(() => expect(screen.getByText("Hand over to HOD")).toBeInTheDocument());
+    expect(screen.getByText("Hand over to HOD")).toBeDisabled();
+  });
+
+  it("shows employee fields inline once HANDED_OVER_TO_HOD", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
@@ -165,7 +236,7 @@ describe("JoiningCard", () => {
         application_id: "app-1",
         employee_code: "SSE-0001",
         campus_id: "c-sse",
-        department_id: null,
+        department_id: "dept-1",
         full_name: "Jane Doe",
         email: "jane@example.com",
         phone_number: null,
@@ -177,8 +248,16 @@ describe("JoiningCard", () => {
       } satisfies EmployeeRead,
     ]);
 
-    renderCard(makeApplication({ status: "EMPLOYEE_CREATED" }));
+    renderCard(
+      makeApplication({
+        status: "HANDED_OVER_TO_HOD",
+        room_allotted: "R-305",
+        hod_assigned: "Dr. Test HOD",
+      }),
+    );
 
     await waitFor(() => expect(screen.getByText("SSE-0001")).toBeInTheDocument());
+    expect(screen.getByText("R-305")).toBeInTheDocument();
+    expect(screen.getByText("Dr. Test HOD")).toBeInTheDocument();
   });
 });

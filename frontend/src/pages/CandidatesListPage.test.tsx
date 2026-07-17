@@ -24,6 +24,7 @@ const CANDIDATE: CandidateRead = {
   phone_number: "+91 9876543210",
   resume_storage_key: null,
   source: "Referral",
+  reference_name: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };

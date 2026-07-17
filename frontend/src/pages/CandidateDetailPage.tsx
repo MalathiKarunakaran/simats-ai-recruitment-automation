@@ -59,6 +59,12 @@ export function CandidateDetailPage() {
             <div className="text-muted-foreground">Source</div>
             <div>{candidate.source ?? "—"}</div>
           </div>
+          {candidate.source === "Reference" && candidate.reference_name ? (
+            <div>
+              <div className="text-muted-foreground">Reference name</div>
+              <div>{candidate.reference_name}</div>
+            </div>
+          ) : null}
           <div className="col-span-2">
             <div className="mb-1 text-muted-foreground">Resume</div>
             <ResumeUpload candidate={candidate} />

@@ -1,6 +1,7 @@
 import { apiFetch } from "@/api/client";
 import type {
   ApplicationCreatePayload,
+  ApplicationPipelineDetailsUpdatePayload,
   ApplicationRead,
   ApplicationStatus,
   ApplicationStatusTransitionPayload,
@@ -35,6 +36,16 @@ export async function transitionApplicationStatus(
   payload: ApplicationStatusTransitionPayload,
 ): Promise<ApplicationRead> {
   return apiFetch<ApplicationRead>(`/applications/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateApplicationPipelineDetails(
+  id: string,
+  payload: ApplicationPipelineDetailsUpdatePayload,
+): Promise<ApplicationRead> {
+  return apiFetch<ApplicationRead>(`/applications/${id}/pipeline-details`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });

@@ -321,22 +321,25 @@ export interface RankedApplicationRead {
   is_incomplete_profile: boolean;
 }
 
-// Mirrors app/models/enums.py::ApplicationStatusEnum.
+// Mirrors app/models/enums.py::ApplicationStatusEnum -- the real,
+// currently-manual SIMATS hiring sequence (not a generic ATS pipeline):
+// sourcing/shortlisting is manual, a department panel interviews and fixes
+// salary, and joining is followed by 3 separate real hand-tracked stages
+// (department/room allotment, orientation, handover to HOD) rather than one
+// collapsed "onboarding complete" step.
 export type ApplicationStatus =
   | "APPLIED"
   | "SCREENING"
-  | "ELIGIBLE"
-  | "SHORTLISTED"
-  | "INTERVIEW_SCHEDULED"
-  | "TECHNICAL_INTERVIEW"
-  | "HR_INTERVIEW"
+  | "CALLED_FOR_INTERVIEW"
+  | "INTERVIEWED"
   | "SELECTED"
   | "OFFER_SENT"
   | "OFFER_ACCEPTED"
-  | "JOINING_PENDING"
+  | "JOINING_CONFIRMED"
   | "JOINED"
-  | "ONBOARDING_COMPLETE"
-  | "EMPLOYEE_CREATED"
+  | "DEPARTMENT_ROOM_ALLOTTED"
+  | "ORIENTATION_COMPLETE"
+  | "HANDED_OVER_TO_HOD"
   | "REJECTED"
   | "WITHDRAWN";
 
@@ -347,23 +350,21 @@ export type ApplicationStatus =
 export const APPLICATION_STATUS_ORDER: readonly ApplicationStatus[] = [
   "APPLIED",
   "SCREENING",
-  "ELIGIBLE",
-  "SHORTLISTED",
-  "INTERVIEW_SCHEDULED",
-  "TECHNICAL_INTERVIEW",
-  "HR_INTERVIEW",
+  "CALLED_FOR_INTERVIEW",
+  "INTERVIEWED",
   "SELECTED",
   "OFFER_SENT",
   "OFFER_ACCEPTED",
-  "JOINING_PENDING",
+  "JOINING_CONFIRMED",
   "JOINED",
-  "ONBOARDING_COMPLETE",
-  "EMPLOYEE_CREATED",
+  "DEPARTMENT_ROOM_ALLOTTED",
+  "ORIENTATION_COMPLETE",
+  "HANDED_OVER_TO_HOD",
 ];
 
 // Mirrors app/models/enums.py::APPLICATION_TERMINAL_STATUSES.
 export const APPLICATION_TERMINAL_STATUSES: ReadonlySet<ApplicationStatus> = new Set([
-  "EMPLOYEE_CREATED",
+  "HANDED_OVER_TO_HOD",
   "REJECTED",
   "WITHDRAWN",
 ]);
@@ -381,6 +382,19 @@ export interface ApplicationRead {
   rejected_at: string | null;
   withdrawn_reason: string | null;
   withdrawn_at: string | null;
+  panel_members: string | null;
+  panel_result: string | null;
+  panel_remarks: string | null;
+  salary_fixed: number | null;
+  called_date: string | null;
+  interview_scheduled_date: string | null;
+  offer_given_date: string | null;
+  expected_joining_date: string | null;
+  actual_joining_date: string | null;
+  department_allotted_id: string | null;
+  room_allotted: string | null;
+  orientation_date: string | null;
+  hod_assigned: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -396,6 +410,37 @@ export interface ApplicationStatusTransitionPayload {
   status: ApplicationStatus;
   reason?: string | null;
   force?: boolean;
+}
+
+// Mirrors app/schemas/application.py::ApplicationPipelineDetailsUpdate --
+// the flat, spreadsheet-shaped fields the real manual workflow tracks,
+// independent of the status transition itself.
+export interface ApplicationPipelineDetailsUpdatePayload {
+  panel_members?: string | null;
+  panel_result?: string | null;
+  panel_remarks?: string | null;
+  salary_fixed?: number | null;
+  called_date?: string | null;
+  interview_scheduled_date?: string | null;
+  offer_given_date?: string | null;
+  expected_joining_date?: string | null;
+}
+
+// Mirrors app/schemas/joining.py::DepartmentRoomAllotmentRequest.
+export interface DepartmentRoomAllotmentPayload {
+  department_id: string;
+  room_allotted?: string | null;
+}
+
+// Mirrors app/schemas/joining.py::OrientationCompleteRequest.
+export interface OrientationCompletePayload {
+  orientation_date?: string | null;
+}
+
+// Mirrors app/schemas/joining.py::HandoverToHodRequest.
+export interface HandoverToHodPayload {
+  hod_assigned: string;
+  designation?: string | null;
 }
 
 // Mirrors app/schemas/resume_score.py::ResumeScoreRead.
@@ -424,6 +469,11 @@ export interface ResumeScoreRead {
   updated_at: string;
 }
 
+// Mirrors app/schemas/candidate.py::CandidateSource -- the 4 real sourcing
+// channels; the column itself stays an unconstrained string on the backend,
+// this narrows what the app writes.
+export type CandidateSource = "Reference" | "Job Portal" | "FacultyPlus" | "Walk-in";
+
 // Mirrors app/schemas/candidate.py::CandidateRead.
 export interface CandidateRead {
   id: string;
@@ -432,6 +482,7 @@ export interface CandidateRead {
   phone_number: string | null;
   resume_storage_key: string | null;
   source: string | null;
+  reference_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -441,7 +492,8 @@ export interface CandidateCreatePayload {
   full_name: string;
   email: string;
   phone_number?: string | null;
-  source?: string | null;
+  source?: CandidateSource | null;
+  reference_name?: string | null;
 }
 
 // Mirrors app/models/enums.py::InterviewTypeEnum.
@@ -608,11 +660,6 @@ export interface EmployeeRead {
   user_id: string | null;
   created_at: string;
   updated_at: string;
-}
-
-// Mirrors app/schemas/employee.py::EmployeeCreateRequest.
-export interface EmployeeCreatePayload {
-  designation?: string | null;
 }
 
 // Mirrors app/services/reporting.py::REPORT_BUILDERS keys.
