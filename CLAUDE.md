@@ -2,6 +2,19 @@
 
 Instructions for Claude Code when working in this repository.
 
+## Source spec
+
+`RTCFR Prompt.docx` (repo root, deliberately untracked — a binary Word file,
+not code) is the original Role/Task/Context/Features/Result brief this system
+was built from, covering all 15 modules and the 7-phase build plan. Read it
+first if asked to check whether something is "in scope" or matches the
+original design intent. One known spec-vs-build gap: the doc says "8 campuses:
+SSE, SCLAS, SCAD, STUDIO, SPIER, SHOTS, SSPE, and others" (only 7 named, an
+implied 8th never specified) — the actual system implements exactly those 7
+codes (`app/models/enums.py`'s `CAMPUS_CODES`). Don't "fix" this as a bug;
+it's an intentional built-vs-spec state, flag it to the user if it matters to
+a task instead of silently reconciling it either direction.
+
 ## What this is
 
 SIMATS AI Recruitment Automation System: a campus-aware recruitment automation

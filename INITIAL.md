@@ -119,6 +119,17 @@ trail, role-gated read access), **Legacy Migration** (CSV importer for
 vacancy data coming from an existing n8n + Airtable pipeline — every imported
 row lands as a DRAFT for human review, nothing auto-publishes).
 
+## Source document
+
+This file summarizes the product; `RTCFR Prompt.docx` (repo root) is the
+original brief it's derived from — the full Role/Task/Context/Features/Result
+prompt that specified all 15 modules, the 7-phase build plan, and the
+non-negotiable preservation rules (campus codes and Teaching/Non-Teaching/
+Housekeeping role categories must never be renamed or reformatted). It's
+intentionally untracked by git (a binary `.docx`, not source code) but stays
+in the repo as the reference of record — read it directly for the original
+wording on anything this summary compresses or omits.
+
 ## What this is not (yet)
 
 The frontend does not yet have a screen for every module — check
