@@ -82,6 +82,11 @@ class VacancyRequest(Base):
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # The tracker workbook's own "Request ID" (app/services/tracker_import.py)
+    # -- lets a re-import upsert instead of duplicating rows. Unset for
+    # everything created through the normal in-app requisition flow.
+    external_ref: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

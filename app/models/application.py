@@ -55,6 +55,7 @@ class Application(Base):
     interview_scheduled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     offer_given_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     expected_joining_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    actual_joining_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     department_allotted_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
     )
@@ -64,6 +65,11 @@ class Application(Base):
     # campus, not a distinct HOD per department as the real process assumes.
     # Modeling that properly is a real RBAC expansion, out of scope here.
     hod_assigned: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
+    # The tracker workbook's own "Candidate ID" (app/services/tracker_import.py)
+    # -- lets a re-import upsert instead of duplicating rows. Unset for
+    # everything created through the normal in-app application flow.
+    external_ref: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

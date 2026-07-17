@@ -29,6 +29,7 @@ class ApplicationPipelineDetailsUpdate(BaseModel):
     interview_scheduled_date: date | None = None
     offer_given_date: date | None = None
     expected_joining_date: date | None = None
+    actual_joining_date: date | None = None
 
 
 class ApplicationRead(BaseModel):
@@ -53,6 +54,7 @@ class ApplicationRead(BaseModel):
     interview_scheduled_date: date | None
     offer_given_date: date | None
     expected_joining_date: date | None
+    actual_joining_date: date | None
     department_allotted_id: uuid.UUID | None
     room_allotted: str | None
     orientation_date: date | None
