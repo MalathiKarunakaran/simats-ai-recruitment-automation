@@ -280,3 +280,21 @@ def test_import_skips_placeholder_sample_row_by_default(client, campus_factory, 
     body = response.json()
     assert body["vacancy_total_rows"] == 0
     assert db_session.query(VacancyRequest).filter(VacancyRequest.external_ref == "REQ-2026-001").count() == 0
+
+
+def test_download_tracker_template_happy_path(client, user_factory):
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    response = client.get("/api/v1/migration/tracker-template", headers=auth_headers(client, hr_admin))
+    assert response.status_code == 200
+    assert response.headers["content-type"] == (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert len(response.content) > 0
+
+
+def test_download_tracker_template_rbac_denies_recruitment_officer(client, user_factory):
+    recruitment_officer = user_factory(UserRoleEnum.RECRUITMENT_OFFICER, campus_code="SSE")
+    response = client.get(
+        "/api/v1/migration/tracker-template", headers=auth_headers(client, recruitment_officer)
+    )
+    assert response.status_code == 403

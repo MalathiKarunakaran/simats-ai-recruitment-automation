@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, require_roles
@@ -12,6 +15,11 @@ router = APIRouter(prefix="/migration", tags=["migration"])
 
 _MAX_CSV_BYTES = 5 * 1024 * 1024  # 5 MB
 _MAX_XLSX_BYTES = 10 * 1024 * 1024  # 10 MB
+_XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# app/api/v1/routers/migration.py -> repo root
+_TRACKER_TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[4] / "data" / "SIMATS_Recruitment_Tracker_TEMPLATE.xlsx"
+)
 
 
 @router.post("/import-legacy-vacancies", response_model=MigrationImportResponse)
@@ -31,6 +39,25 @@ def import_legacy_vacancies(
     result = migration.import_legacy_vacancies(db, csv_bytes=data, actor=current_user, request=request)
     db.commit()
     return result
+
+
+@router.get("/tracker-template")
+def download_tracker_template(
+    current_user: User = Depends(require_roles(UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)),
+) -> FileResponse:
+    """Serves the real generated template (scripts/generate_tracker_template.py)
+    -- not a client-side-regenerated stub -- so the Master Lists sheet and
+    its Excel data-validation dropdowns actually make it to the user."""
+    if not _TRACKER_TEMPLATE_PATH.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Template not found on the server -- run scripts/generate_tracker_template.py",
+        )
+    return FileResponse(
+        _TRACKER_TEMPLATE_PATH,
+        media_type=_XLSX_MEDIA_TYPE,
+        filename="SIMATS_Recruitment_Tracker_TEMPLATE.xlsx",
+    )
 
 
 @router.post("/import-tracker-workbook", response_model=TrackerImportResponse)

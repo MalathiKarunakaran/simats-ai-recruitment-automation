@@ -24,6 +24,7 @@ import { OffersListPage } from "@/pages/OffersListPage";
 import { OnboardingListPage } from "@/pages/OnboardingListPage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { TrackerImportPage } from "@/pages/TrackerImportPage";
 import { UserCreatePage } from "@/pages/UserCreatePage";
 import { UserDetailPage } from "@/pages/UserDetailPage";
 import { UsersListPage } from "@/pages/UsersListPage";
@@ -65,6 +66,7 @@ export function App() {
           <Route path="/job-postings" element={<JobPostingsListPage />} />
           <Route path="/job-postings/:id" element={<JobPostingDetailPage />} />
           <Route path="/onboarding" element={<OnboardingListPage />} />
+          <Route path="/import-tracker" element={<TrackerImportPage />} />
           <Route path="/activity-log" element={<ActivityLogPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/users" element={<UsersListPage />} />

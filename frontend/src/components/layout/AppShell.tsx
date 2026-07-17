@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Newspaper,
   Settings,
+  Upload,
   UserCog,
   UserPlus,
   Users,
@@ -71,6 +72,15 @@ const NAV_ITEMS: NavItem[] = [
   },
   { to: "/reports", label: "Reports", icon: BarChart3, enabled: true },
   { to: "/employees", label: "Employees", icon: IdCard, enabled: true },
+  {
+    to: "/import-tracker",
+    label: "Import Data",
+    icon: Upload,
+    enabled: true,
+    // Mirrors the backend's own gate on POST /migration/import-tracker-workbook
+    // (HR_ADMIN/SUPER_ADMIN only).
+    visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN"],
+  },
   {
     to: "/users",
     label: "Users",

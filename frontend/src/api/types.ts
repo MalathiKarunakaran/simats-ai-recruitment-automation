@@ -282,6 +282,34 @@ export interface MigrationImportResponse {
   rows: MigrationRowResult[];
 }
 
+// Mirrors app/schemas/tracker_import.py::TrackerVacancyRowResult.
+export interface TrackerVacancyRowResult {
+  row_number: number;
+  status: "imported" | "flagged";
+  errors: string[];
+  vacancy_request_id: string | null;
+}
+
+// Mirrors app/schemas/tracker_import.py::TrackerCandidateRowResult.
+export interface TrackerCandidateRowResult {
+  row_number: number;
+  status: "imported" | "imported_with_warning" | "flagged";
+  errors: string[];
+  application_id: string | null;
+}
+
+// Mirrors app/schemas/tracker_import.py::TrackerImportResponse.
+export interface TrackerImportResponse {
+  vacancy_total_rows: number;
+  vacancy_imported_count: number;
+  vacancy_flagged_count: number;
+  vacancy_rows: TrackerVacancyRowResult[];
+  candidate_total_rows: number;
+  candidate_imported_count: number;
+  candidate_flagged_count: number;
+  candidate_rows: TrackerCandidateRowResult[];
+}
+
 // Mirrors app/schemas/approved_vacancy.py::ApprovedVacancyRead.
 export interface ApprovedVacancyRead {
   id: string;
