@@ -20,9 +20,14 @@ class Candidate(Base):
     # Metadata-only stub -- MinIO wiring is Phase 3, same stub pattern as
     # Phase 1's password-reset-email. No upload endpoint yet.
     resume_storage_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # Plain string, not an enum -- source channels (referral, LinkedIn, walk-in,
-    # campus drive...) will grow without needing a migration each time.
+    # Plain string, not a DB enum -- deliberately unconstrained at the column
+    # level so it can grow without a migration; app_level validation (see
+    # app/schemas/candidate.py) constrains new writes to the 4 real sourcing
+    # channels (Reference/Job Portal/FacultyPlus/Walk-in).
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Who referred the candidate -- only meaningful (and required, enforced
+    # in the schema) when source == "Reference".
+    reference_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

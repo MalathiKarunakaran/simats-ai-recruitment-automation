@@ -145,7 +145,7 @@ def test_backward_transition_without_force_rejected(client, published_vacancy_fa
     vacancy = published_vacancy_factory(slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
 
-    _transition(client, application.id, vacancy.hr_admin, "SHORTLISTED")
+    _transition(client, application.id, vacancy.hr_admin, "CALLED_FOR_INTERVIEW")
     response = _transition(client, application.id, vacancy.hr_admin, "SCREENING")
     assert response.status_code == 409
 

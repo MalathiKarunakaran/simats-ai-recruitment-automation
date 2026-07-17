@@ -10,8 +10,15 @@ from app.models.enums import ApplicationStatusEnum, UserRoleEnum
 from app.models.joining import JoiningDocument, JoiningRecord
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
-from app.schemas.employee import EmployeeCreateRequest, EmployeeRead
-from app.schemas.joining import JoiningDocumentRead, JoiningDocumentUpdate, JoiningRecordRead
+from app.schemas.employee import EmployeeRead
+from app.schemas.joining import (
+    DepartmentRoomAllotmentRequest,
+    HandoverToHodRequest,
+    JoiningDocumentRead,
+    JoiningDocumentUpdate,
+    JoiningRecordRead,
+    OrientationCompleteRequest,
+)
 from app.services import joining as joining_service
 from app.services import pipeline
 from app.services.audit import log_update
@@ -116,10 +123,10 @@ def mark_joined(
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JoiningRecord:
     application = _get_application_or_404_scoped(db, application_id, scope)
-    if application.status != ApplicationStatusEnum.JOINING_PENDING:
+    if application.status != ApplicationStatusEnum.JOINING_CONFIRMED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot mark Joined from status {application.status.value} (must be JOINING_PENDING)",
+            detail=f"Cannot mark Joined from status {application.status.value} (must be JOINING_CONFIRMED)",
         )
     joining_record = _get_joining_record_or_404(db, application)
 
@@ -144,9 +151,10 @@ def mark_joined(
     return joining_record
 
 
-@router.post("/applications/{application_id}/joining/complete-onboarding", response_model=JoiningRecordRead)
-def complete_onboarding(
+@router.post("/applications/{application_id}/joining/allot-department-room", response_model=JoiningRecordRead)
+def allot_department_room(
     application_id: uuid.UUID,
+    payload: DepartmentRoomAllotmentRequest,
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(*_HR_ONLY_ROLES)),
@@ -156,17 +164,28 @@ def complete_onboarding(
     if application.status != ApplicationStatusEnum.JOINED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot complete onboarding from status {application.status.value} (must be JOINED)",
+            detail=f"Cannot allot department/room from status {application.status.value} (must be JOINED)",
         )
     joining_record = _get_joining_record_or_404(db, application)
 
+    # Same "documents must be received first" guard the old collapsed
+    # "complete onboarding" step enforced -- still real, just gates the
+    # first of the three new post-Joined stages now instead of one step.
     joining_service.complete_onboarding(
         db, application=application, joining_record=joining_record, actor=current_user, request=request
+    )
+    joining_service.allot_department_room(
+        db,
+        application=application,
+        department_id=payload.department_id,
+        room_allotted=payload.room_allotted,
+        actor=current_user,
+        request=request,
     )
     pipeline.transition_application_status(
         db,
         application=application,
-        new_status=ApplicationStatusEnum.ONBOARDING_COMPLETE,
+        new_status=ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
         actor=current_user,
         request=request,
     )
@@ -176,22 +195,77 @@ def complete_onboarding(
     return joining_record
 
 
-@router.post("/applications/{application_id}/joining/create-employee", response_model=EmployeeRead)
-def create_employee(
+@router.post("/applications/{application_id}/joining/complete-orientation", response_model=JoiningRecordRead)
+def complete_orientation(
     application_id: uuid.UUID,
-    payload: EmployeeCreateRequest,
+    payload: OrientationCompleteRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_HR_ONLY_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> JoiningRecord:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    if application.status != ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Cannot complete orientation from status {application.status.value} "
+                "(must be DEPARTMENT_ROOM_ALLOTTED)"
+            ),
+        )
+    joining_record = _get_joining_record_or_404(db, application)
+
+    joining_service.complete_orientation(
+        db,
+        application=application,
+        orientation_date=payload.orientation_date or datetime.now(timezone.utc).date(),
+        actor=current_user,
+        request=request,
+    )
+    pipeline.transition_application_status(
+        db,
+        application=application,
+        new_status=ApplicationStatusEnum.ORIENTATION_COMPLETE,
+        actor=current_user,
+        request=request,
+    )
+
+    db.commit()
+    db.refresh(joining_record)
+    return joining_record
+
+
+@router.post("/applications/{application_id}/joining/hand-over-to-hod", response_model=EmployeeRead)
+def hand_over_to_hod(
+    application_id: uuid.UUID,
+    payload: HandoverToHodRequest,
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(*_HR_ONLY_ROLES)),
     scope: CampusScope = Depends(get_campus_scope),
 ):
     application = _get_application_or_404_scoped(db, application_id, scope)
-    if application.status != ApplicationStatusEnum.ONBOARDING_COMPLETE:
+    if application.status != ApplicationStatusEnum.ORIENTATION_COMPLETE:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot create employee from status {application.status.value} (must be ONBOARDING_COMPLETE)",
+            detail=(
+                f"Cannot hand over to HOD from status {application.status.value} (must be ORIENTATION_COMPLETE)"
+            ),
         )
     joining_record = _get_joining_record_or_404(db, application)
+
+    before = {"hod_assigned": application.hod_assigned}
+    application.hod_assigned = payload.hod_assigned
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="Application",
+        entity=application,
+        campus_context_id=application.campus_id,
+        before_state=before,
+        after_state={"hod_assigned": payload.hod_assigned},
+        request=request,
+    )
 
     employee = joining_service.create_employee(
         db,
@@ -204,7 +278,7 @@ def create_employee(
     pipeline.transition_application_status(
         db,
         application=application,
-        new_status=ApplicationStatusEnum.EMPLOYEE_CREATED,
+        new_status=ApplicationStatusEnum.HANDED_OVER_TO_HOD,
         actor=current_user,
         request=request,
     )

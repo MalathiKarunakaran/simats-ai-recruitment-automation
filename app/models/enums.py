@@ -102,20 +102,33 @@ class HiringSlotStatusEnum(str, enum.Enum):
 
 
 class ApplicationStatusEnum(str, enum.Enum):
+    """Mirrors the real, currently-manual SIMATS hiring sequence (not a
+    generic ATS pipeline): sourcing/shortlisting is manual, a department
+    panel interviews and fixes salary, and joining is followed by three
+    separate, real hand-tracked stages -- department/room allotment,
+    orientation, and handover to the department HOD -- rather than one
+    collapsed "onboarding complete" step.
+
+    The underlying Postgres native enum (application_status_enum) still
+    physically contains the old, pre-rename labels (ELIGIBLE, SHORTLISTED,
+    INTERVIEW_SCHEDULED, TECHNICAL_INTERVIEW, HR_INTERVIEW, JOINING_PENDING,
+    ONBOARDING_COMPLETE, EMPLOYEE_CREATED) -- Postgres has no ALTER TYPE ...
+    DROP VALUE, so they can't be removed. They're simply never written again;
+    see the migration that renamed this pipeline for the old-to-new mapping.
+    """
+
     APPLIED = "APPLIED"
     SCREENING = "SCREENING"
-    ELIGIBLE = "ELIGIBLE"
-    SHORTLISTED = "SHORTLISTED"
-    INTERVIEW_SCHEDULED = "INTERVIEW_SCHEDULED"
-    TECHNICAL_INTERVIEW = "TECHNICAL_INTERVIEW"
-    HR_INTERVIEW = "HR_INTERVIEW"
+    CALLED_FOR_INTERVIEW = "CALLED_FOR_INTERVIEW"
+    INTERVIEWED = "INTERVIEWED"
     SELECTED = "SELECTED"
     OFFER_SENT = "OFFER_SENT"
     OFFER_ACCEPTED = "OFFER_ACCEPTED"
-    JOINING_PENDING = "JOINING_PENDING"
+    JOINING_CONFIRMED = "JOINING_CONFIRMED"
     JOINED = "JOINED"
-    ONBOARDING_COMPLETE = "ONBOARDING_COMPLETE"
-    EMPLOYEE_CREATED = "EMPLOYEE_CREATED"
+    DEPARTMENT_ROOM_ALLOTTED = "DEPARTMENT_ROOM_ALLOTTED"
+    ORIENTATION_COMPLETE = "ORIENTATION_COMPLETE"
+    HANDED_OVER_TO_HOD = "HANDED_OVER_TO_HOD"
     REJECTED = "REJECTED"
     WITHDRAWN = "WITHDRAWN"
 
@@ -126,22 +139,20 @@ class ApplicationStatusEnum(str, enum.Enum):
 APPLICATION_STATUS_ORDER: tuple[ApplicationStatusEnum, ...] = (
     ApplicationStatusEnum.APPLIED,
     ApplicationStatusEnum.SCREENING,
-    ApplicationStatusEnum.ELIGIBLE,
-    ApplicationStatusEnum.SHORTLISTED,
-    ApplicationStatusEnum.INTERVIEW_SCHEDULED,
-    ApplicationStatusEnum.TECHNICAL_INTERVIEW,
-    ApplicationStatusEnum.HR_INTERVIEW,
+    ApplicationStatusEnum.CALLED_FOR_INTERVIEW,
+    ApplicationStatusEnum.INTERVIEWED,
     ApplicationStatusEnum.SELECTED,
     ApplicationStatusEnum.OFFER_SENT,
     ApplicationStatusEnum.OFFER_ACCEPTED,
-    ApplicationStatusEnum.JOINING_PENDING,
+    ApplicationStatusEnum.JOINING_CONFIRMED,
     ApplicationStatusEnum.JOINED,
-    ApplicationStatusEnum.ONBOARDING_COMPLETE,
-    ApplicationStatusEnum.EMPLOYEE_CREATED,
+    ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
+    ApplicationStatusEnum.ORIENTATION_COMPLETE,
+    ApplicationStatusEnum.HANDED_OVER_TO_HOD,
 )
 
 APPLICATION_TERMINAL_STATUSES = {
-    ApplicationStatusEnum.EMPLOYEE_CREATED,
+    ApplicationStatusEnum.HANDED_OVER_TO_HOD,
     ApplicationStatusEnum.REJECTED,
     ApplicationStatusEnum.WITHDRAWN,
 }
@@ -211,14 +222,6 @@ class InterviewRecommendationEnum(str, enum.Enum):
     STRONG_NO_HIRE = "STRONG_NO_HIRE"
 
 
-# Which Application status an interview_type advances the pipeline to, via
-# pipeline.advance_if_behind, when the interview is scheduled.
-INTERVIEW_TYPE_TO_APPLICATION_STATUS = {
-    InterviewTypeEnum.TECHNICAL: ApplicationStatusEnum.TECHNICAL_INTERVIEW,
-    InterviewTypeEnum.HR: ApplicationStatusEnum.HR_INTERVIEW,
-    InterviewTypeEnum.TEACHING_DEMO: ApplicationStatusEnum.INTERVIEW_SCHEDULED,
-    InterviewTypeEnum.GENERAL: ApplicationStatusEnum.INTERVIEW_SCHEDULED,
-}
 
 
 class NotificationChannelEnum(str, enum.Enum):

@@ -176,7 +176,7 @@ def accept_offer(
         db, application=application, target_status=ApplicationStatusEnum.OFFER_ACCEPTED, actor=current_user, request=request
     )
     pipeline.advance_if_behind(
-        db, application=application, target_status=ApplicationStatusEnum.JOINING_PENDING, actor=current_user, request=request
+        db, application=application, target_status=ApplicationStatusEnum.JOINING_CONFIRMED, actor=current_user, request=request
     )
     joining_service.initialize_joining_checklist(
         db, application=application, joining_date=offer.joining_date, actor=current_user, request=request

@@ -4,10 +4,6 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict
 
 
-class EmployeeCreateRequest(BaseModel):
-    designation: str | None = None
-
-
 class EmployeeRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

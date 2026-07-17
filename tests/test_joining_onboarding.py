@@ -1,7 +1,7 @@
 from tests.conftest import auth_headers
 
 
-def _drive_to_joining_pending(client, vacancy, application):
+def _drive_to_joining_confirmed(client, vacancy, application):
     client.patch(
         f"/api/v1/applications/{application.id}/status",
         headers=auth_headers(client, vacancy.hr_admin),
@@ -29,7 +29,7 @@ def _mark_all_documents_received(client, vacancy, application_id):
         )
 
 
-def test_mark_joined_requires_joining_pending(client, published_vacancy_factory, application_factory):
+def test_mark_joined_requires_joining_confirmed(client, published_vacancy_factory, application_factory):
     vacancy = published_vacancy_factory(slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
 
@@ -54,7 +54,7 @@ def test_get_joining_record_returns_404_before_offer_accepted(
 def test_get_joining_record_happy_path(client, published_vacancy_factory, application_factory):
     vacancy = published_vacancy_factory(slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
-    _drive_to_joining_pending(client, vacancy, application)
+    _drive_to_joining_confirmed(client, vacancy, application)
 
     response = client.get(
         f"/api/v1/applications/{application.id}/joining-record", headers=auth_headers(client, vacancy.hr_admin)
@@ -64,12 +64,12 @@ def test_get_joining_record_happy_path(client, published_vacancy_factory, applic
     assert response.json()["actual_joining_date"] is None
 
 
-def test_complete_onboarding_requires_all_documents_received(
+def test_allot_department_room_requires_all_documents_received(
     client, published_vacancy_factory, application_factory
 ):
     vacancy = published_vacancy_factory(slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
-    _drive_to_joining_pending(client, vacancy, application)
+    _drive_to_joining_confirmed(client, vacancy, application)
 
     joined = client.post(
         f"/api/v1/applications/{application.id}/joining/mark-joined", headers=auth_headers(client, vacancy.hr_admin)
@@ -77,24 +77,43 @@ def test_complete_onboarding_requires_all_documents_received(
     assert joined.status_code == 200
 
     response = client.post(
-        f"/api/v1/applications/{application.id}/joining/complete-onboarding",
+        f"/api/v1/applications/{application.id}/joining/allot-department-room",
         headers=auth_headers(client, vacancy.hr_admin),
+        json={"department_id": str(vacancy.department.id)},
     )
     assert response.status_code == 409
 
 
-def test_create_employee_requires_onboarding_complete(client, published_vacancy_factory, application_factory):
+def test_complete_orientation_requires_department_room_allotted(
+    client, published_vacancy_factory, application_factory
+):
     vacancy = published_vacancy_factory(slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
-    _drive_to_joining_pending(client, vacancy, application)
+    _drive_to_joining_confirmed(client, vacancy, application)
     client.post(
         f"/api/v1/applications/{application.id}/joining/mark-joined", headers=auth_headers(client, vacancy.hr_admin)
     )
 
     response = client.post(
-        f"/api/v1/applications/{application.id}/joining/create-employee",
+        f"/api/v1/applications/{application.id}/joining/complete-orientation",
         headers=auth_headers(client, vacancy.hr_admin),
         json={},
+    )
+    assert response.status_code == 409
+
+
+def test_hand_over_to_hod_requires_orientation_complete(client, published_vacancy_factory, application_factory):
+    vacancy = published_vacancy_factory(slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    _drive_to_joining_confirmed(client, vacancy, application)
+    client.post(
+        f"/api/v1/applications/{application.id}/joining/mark-joined", headers=auth_headers(client, vacancy.hr_admin)
+    )
+
+    response = client.post(
+        f"/api/v1/applications/{application.id}/joining/hand-over-to-hod",
+        headers=auth_headers(client, vacancy.hr_admin),
+        json={"hod_assigned": "Dr. Test HOD"},
     )
     assert response.status_code == 409
 
@@ -104,32 +123,44 @@ def test_full_joining_flow_creates_employee_and_sets_status(
 ):
     vacancy = published_vacancy_factory(slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
-    _drive_to_joining_pending(client, vacancy, application)
+    _drive_to_joining_confirmed(client, vacancy, application)
 
     client.post(
         f"/api/v1/applications/{application.id}/joining/mark-joined", headers=auth_headers(client, vacancy.hr_admin)
     )
     _mark_all_documents_received(client, vacancy, application.id)
 
-    onboarding = client.post(
-        f"/api/v1/applications/{application.id}/joining/complete-onboarding",
+    allotment = client.post(
+        f"/api/v1/applications/{application.id}/joining/allot-department-room",
         headers=auth_headers(client, vacancy.hr_admin),
+        json={"department_id": str(vacancy.department.id), "room_allotted": "R-204"},
     )
-    assert onboarding.status_code == 200
+    assert allotment.status_code == 200
+
+    orientation = client.post(
+        f"/api/v1/applications/{application.id}/joining/complete-orientation",
+        headers=auth_headers(client, vacancy.hr_admin),
+        json={"orientation_date": "2026-09-05"},
+    )
+    assert orientation.status_code == 200
 
     employee = client.post(
-        f"/api/v1/applications/{application.id}/joining/create-employee",
+        f"/api/v1/applications/{application.id}/joining/hand-over-to-hod",
         headers=auth_headers(client, vacancy.hr_admin),
-        json={"designation": "Assistant Professor"},
+        json={"hod_assigned": "Dr. Test HOD", "designation": "Assistant Professor"},
     )
     assert employee.status_code == 200
     assert employee.json()["employee_code"].startswith(f"{vacancy.campus.code}-")
     assert employee.json()["designation"] == "Assistant Professor"
+    assert employee.json()["department_id"] == str(vacancy.department.id)
 
     app_detail = client.get(
         f"/api/v1/applications/{application.id}", headers=auth_headers(client, vacancy.hr_admin)
     ).json()
-    assert app_detail["status"] == "EMPLOYEE_CREATED"
+    assert app_detail["status"] == "HANDED_OVER_TO_HOD"
+    assert app_detail["room_allotted"] == "R-204"
+    assert app_detail["orientation_date"] == "2026-09-05"
+    assert app_detail["hod_assigned"] == "Dr. Test HOD"
 
 
 def test_employee_codes_are_sequential_per_campus(client, published_vacancy_factory, application_factory):
@@ -138,20 +169,26 @@ def test_employee_codes_are_sequential_per_campus(client, published_vacancy_fact
     codes = []
     for _ in range(2):
         application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
-        _drive_to_joining_pending(client, vacancy, application)
+        _drive_to_joining_confirmed(client, vacancy, application)
         client.post(
             f"/api/v1/applications/{application.id}/joining/mark-joined",
             headers=auth_headers(client, vacancy.hr_admin),
         )
         _mark_all_documents_received(client, vacancy, application.id)
         client.post(
-            f"/api/v1/applications/{application.id}/joining/complete-onboarding",
+            f"/api/v1/applications/{application.id}/joining/allot-department-room",
             headers=auth_headers(client, vacancy.hr_admin),
+            json={"department_id": str(vacancy.department.id)},
         )
-        employee = client.post(
-            f"/api/v1/applications/{application.id}/joining/create-employee",
+        client.post(
+            f"/api/v1/applications/{application.id}/joining/complete-orientation",
             headers=auth_headers(client, vacancy.hr_admin),
             json={},
+        )
+        employee = client.post(
+            f"/api/v1/applications/{application.id}/joining/hand-over-to-hod",
+            headers=auth_headers(client, vacancy.hr_admin),
+            json={"hod_assigned": "Dr. Test HOD"},
         ).json()
         codes.append(employee["employee_code"])
 

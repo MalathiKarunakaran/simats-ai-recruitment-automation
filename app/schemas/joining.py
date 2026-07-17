@@ -37,3 +37,17 @@ class JoiningDocumentRead(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class DepartmentRoomAllotmentRequest(BaseModel):
+    department_id: uuid.UUID
+    room_allotted: str | None = None
+
+
+class OrientationCompleteRequest(BaseModel):
+    orientation_date: date | None = None
+
+
+class HandoverToHodRequest(BaseModel):
+    hod_assigned: str
+    designation: str | None = None

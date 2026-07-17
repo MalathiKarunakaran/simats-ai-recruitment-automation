@@ -123,7 +123,7 @@ def _get_existing_vacancy_request(db, campus: Campus, position_title: str) -> Va
 
 def _seed_scenario_full_happy_path(db, *, campus, department, hod, dean, hr_admin, recruitment_officer) -> None:
     """Two-slot vacancy at SSE, driven all the way through: one slot filled
-    via the full offer/joining/onboarding flow ending in EMPLOYEE_CREATED,
+    via the full offer/joining/onboarding flow ending in HANDED_OVER_TO_HOD,
     the other slot Selected-then-Rejected (exercising slot release) and
     re-filled by a third candidate directly to Joined, which triggers
     Module 11's auto-close once both slots are Filled."""
@@ -168,9 +168,13 @@ def _seed_scenario_full_happy_path(db, *, campus, department, hod, dean, hr_admi
         db.flush()
         return application
 
-    # Candidate A: full happy path -> EMPLOYEE_CREATED, fills slot 1.
+    # Candidate A: full happy path -> HANDED_OVER_TO_HOD, fills slot 1.
     app_a = _record_application("alice.faculty@example.com", "Alice Faculty")
-    for target in (ApplicationStatusEnum.SCREENING, ApplicationStatusEnum.ELIGIBLE, ApplicationStatusEnum.SHORTLISTED):
+    for target in (
+        ApplicationStatusEnum.SCREENING,
+        ApplicationStatusEnum.CALLED_FOR_INTERVIEW,
+        ApplicationStatusEnum.INTERVIEWED,
+    ):
         pipeline.transition_application_status(db, application=app_a, new_status=target, actor=recruitment_officer)
     pipeline.transition_application_status(
         db, application=app_a, new_status=ApplicationStatusEnum.SELECTED, actor=hr_admin
@@ -195,7 +199,7 @@ def _seed_scenario_full_happy_path(db, *, campus, department, hod, dean, hr_admi
         db, application=app_a, target_status=ApplicationStatusEnum.OFFER_ACCEPTED, actor=hr_admin
     )
     pipeline.advance_if_behind(
-        db, application=app_a, target_status=ApplicationStatusEnum.JOINING_PENDING, actor=hr_admin
+        db, application=app_a, target_status=ApplicationStatusEnum.JOINING_CONFIRMED, actor=hr_admin
     )
     joining_record_a = joining_service.initialize_joining_checklist(
         db, application=app_a, joining_date=offer_a.joining_date, actor=hr_admin
@@ -213,20 +217,30 @@ def _seed_scenario_full_happy_path(db, *, campus, department, hod, dean, hr_admi
     joining_service.complete_onboarding(
         db, application=app_a, joining_record=joining_record_a, actor=hr_admin
     )
-    pipeline.transition_application_status(
-        db, application=app_a, new_status=ApplicationStatusEnum.ONBOARDING_COMPLETE, actor=hr_admin
+    joining_service.allot_department_room(
+        db, application=app_a, department_id=department.id, room_allotted="R-101", actor=hr_admin
     )
+    pipeline.transition_application_status(
+        db, application=app_a, new_status=ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED, actor=hr_admin
+    )
+    joining_service.complete_orientation(
+        db, application=app_a, orientation_date=joining_date, actor=hr_admin
+    )
+    pipeline.transition_application_status(
+        db, application=app_a, new_status=ApplicationStatusEnum.ORIENTATION_COMPLETE, actor=hr_admin
+    )
+    app_a.hod_assigned = hod.full_name
     joining_service.create_employee(
         db, application=app_a, joining_record=joining_record_a, designation=None, actor=hr_admin
     )
     pipeline.transition_application_status(
-        db, application=app_a, new_status=ApplicationStatusEnum.EMPLOYEE_CREATED, actor=hr_admin
+        db, application=app_a, new_status=ApplicationStatusEnum.HANDED_OVER_TO_HOD, actor=hr_admin
     )
 
     # Candidate B: Selected (reserves slot 2), then Rejected -- exercises slot release.
     app_b = _record_application("bob.faculty@example.com", "Bob Faculty")
     pipeline.transition_application_status(
-        db, application=app_b, new_status=ApplicationStatusEnum.SHORTLISTED, actor=recruitment_officer
+        db, application=app_b, new_status=ApplicationStatusEnum.CALLED_FOR_INTERVIEW, actor=recruitment_officer
     )
     pipeline.transition_application_status(
         db, application=app_b, new_status=ApplicationStatusEnum.SELECTED, actor=hr_admin

@@ -9,7 +9,7 @@ def _select(client, application_id, actor):
     return client.patch(
         f"/api/v1/applications/{application_id}/status",
         headers=auth_headers(client, actor),
-        json={"status": "SHORTLISTED"},
+        json={"status": "CALLED_FOR_INTERVIEW"},
     )
 
 
@@ -42,7 +42,7 @@ def test_schedule_interview_advances_application_status(
     app_detail = client.get(
         f"/api/v1/applications/{application.id}", headers=auth_headers(client, vacancy.hr_admin)
     ).json()
-    assert app_detail["status"] == "TECHNICAL_INTERVIEW"
+    assert app_detail["status"] == "CALLED_FOR_INTERVIEW"
 
 
 def test_schedule_interview_rejects_panel_member_from_other_campus(
@@ -208,6 +208,11 @@ def test_mark_interview_completed(client, published_vacancy_factory, application
     )
     assert response.status_code == 200
     assert response.json()["status"] == "COMPLETED"
+
+    app_detail = client.get(
+        f"/api/v1/applications/{application.id}", headers=auth_headers(client, vacancy.hr_admin)
+    ).json()
+    assert app_detail["status"] == "INTERVIEWED"
 
 
 def test_generate_interview_questions(client, published_vacancy_factory, application_factory, user_factory):

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
@@ -17,6 +17,20 @@ class ApplicationStatusTransitionRequest(BaseModel):
     force: bool = False
 
 
+class ApplicationPipelineDetailsUpdate(BaseModel):
+    """Partial update for the flat, spreadsheet-shaped fields the real
+    manual workflow tracks -- independent of the status transition itself."""
+
+    panel_members: str | None = None
+    panel_result: str | None = None
+    panel_remarks: str | None = None
+    salary_fixed: float | None = None
+    called_date: date | None = None
+    interview_scheduled_date: date | None = None
+    offer_given_date: date | None = None
+    expected_joining_date: date | None = None
+
+
 class ApplicationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -31,5 +45,17 @@ class ApplicationRead(BaseModel):
     rejected_at: datetime | None
     withdrawn_reason: str | None
     withdrawn_at: datetime | None
+    panel_members: str | None
+    panel_result: str | None
+    panel_remarks: str | None
+    salary_fixed: float | None
+    called_date: date | None
+    interview_scheduled_date: date | None
+    offer_given_date: date | None
+    expected_joining_date: date | None
+    department_allotted_id: uuid.UUID | None
+    room_allotted: str | None
+    orientation_date: date | None
+    hod_assigned: str | None
     created_at: datetime
     updated_at: datetime

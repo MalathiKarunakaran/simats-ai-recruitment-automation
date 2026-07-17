@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.application import Application
 from app.models.enums import (
-    INTERVIEW_TYPE_TO_APPLICATION_STATUS,
+    ApplicationStatusEnum,
     InterviewScheduleStatusEnum,
     InterviewTypeEnum,
     StaffRoleCategoryEnum,
@@ -70,9 +70,16 @@ def schedule_interview(
     for member in panel_members:
         db.add(InterviewPanelAssignment(interview_schedule_id=schedule.id, panel_member_id=member.id))
 
-    target_status = INTERVIEW_TYPE_TO_APPLICATION_STATUS[interview_type]
+    # Scheduling an interview (of any type -- there's no longer a per-type
+    # split in the pipeline) means the candidate has been called for
+    # interview; the panel actually interviewing them is a separate,
+    # later transition (see mark_completed).
     pipeline.advance_if_behind(
-        db, application=application, target_status=target_status, actor=actor, request=request
+        db,
+        application=application,
+        target_status=ApplicationStatusEnum.CALLED_FOR_INTERVIEW,
+        actor=actor,
+        request=request,
     )
 
     log_create(
@@ -152,6 +159,15 @@ def mark_completed(
         campus_context_id=schedule.campus_id,
         before_state=before,
         after_state={"status": schedule.status.value},
+        request=request,
+    )
+    # The panel has now actually interviewed the candidate -- distinct from
+    # (and later than) "called for interview" at scheduling time.
+    pipeline.advance_if_behind(
+        db,
+        application=schedule.application,
+        target_status=ApplicationStatusEnum.INTERVIEWED,
+        actor=actor,
         request=request,
     )
     return schedule

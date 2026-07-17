@@ -60,6 +60,20 @@ cleanly dropped in `downgrade()` (see the other enum-drop calls in
 automatically drop the Postgres enum type it referenced, so `downgrade()`
 must drop the type explicitly too).
 
+**Multi-revision `ADD VALUE` + same-run `UPDATE` gotcha** — real example hit
+during the Phase 5 pipeline-rename migrations
+(`f32d13801269`/`ba2e30350b8a`): `alembic/env.py` wraps a whole `alembic
+upgrade` invocation in one transaction (`context.begin_transaction()` around
+`context.run_migrations()`, not per-revision), so running `alembic upgrade
+head` in a single command applies every pending revision in that one
+transaction. If revision N does `ADD VALUE` and revision N+1 (applied in the
+same command) does `UPDATE ... SET status = '<that value>'`, Postgres raises
+`UnsafeNewEnumValueUsage` because the new label was never actually committed
+before the UPDATE tried to use it — even though they're different Python
+migration files. Fix: apply as two separate CLI invocations, e.g. `alembic
+upgrade f32d13801269` then `alembic upgrade head`, not one `alembic upgrade
+head` from further back.
+
 ## Connection pooling (`app/db/session.py`)
 
 ```python

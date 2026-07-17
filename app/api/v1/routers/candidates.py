@@ -48,6 +48,7 @@ def create_candidate(
         email=payload.email,
         phone_number=payload.phone_number,
         source=payload.source,
+        reference_name=payload.reference_name,
     )
     db.add(candidate)
     db.flush()

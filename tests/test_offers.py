@@ -50,7 +50,7 @@ def test_accept_offer_creates_joining_record_and_default_documents(
     app_detail = client.get(
         f"/api/v1/applications/{application.id}", headers=auth_headers(client, vacancy.hr_admin)
     ).json()
-    assert app_detail["status"] == "JOINING_PENDING"
+    assert app_detail["status"] == "JOINING_CONFIRMED"
 
     documents = client.get(
         f"/api/v1/applications/{application.id}/joining-documents", headers=auth_headers(client, vacancy.hr_admin)

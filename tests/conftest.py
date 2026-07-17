@@ -582,7 +582,7 @@ def published_vacancy_factory(db_session, campus_factory, department_factory, us
 @pytest.fixture()
 def hired_employee_factory(db_session, candidate_factory):
     """Drives one Application against an already-published vacancy all the
-    way to EMPLOYEE_CREATED, mirroring app/db/seed.py's
+    way to HANDED_OVER_TO_HOD, mirroring app/db/seed.py's
     _seed_scenario_full_happy_path candidate-A sequence exactly (same
     service calls, same status order) but with `applied_at`/`joining_date`
     exposed as parameters -- needed for exact time-to-hire assertions in
@@ -606,8 +606,8 @@ def hired_employee_factory(db_session, candidate_factory):
 
         for target in (
             ApplicationStatusEnum.SCREENING,
-            ApplicationStatusEnum.ELIGIBLE,
-            ApplicationStatusEnum.SHORTLISTED,
+            ApplicationStatusEnum.CALLED_FOR_INTERVIEW,
+            ApplicationStatusEnum.INTERVIEWED,
         ):
             pipeline.transition_application_status(db_session, application=application, new_status=target, actor=actor)
         pipeline.transition_application_status(
@@ -630,7 +630,7 @@ def hired_employee_factory(db_session, candidate_factory):
             db_session, application=application, target_status=ApplicationStatusEnum.OFFER_ACCEPTED, actor=actor
         )
         pipeline.advance_if_behind(
-            db_session, application=application, target_status=ApplicationStatusEnum.JOINING_PENDING, actor=actor
+            db_session, application=application, target_status=ApplicationStatusEnum.JOINING_CONFIRMED, actor=actor
         )
 
         joining_record = joining_service.initialize_joining_checklist(
@@ -649,14 +649,27 @@ def hired_employee_factory(db_session, candidate_factory):
         joining_service.complete_onboarding(
             db_session, application=application, joining_record=joining_record, actor=actor
         )
-        pipeline.transition_application_status(
-            db_session, application=application, new_status=ApplicationStatusEnum.ONBOARDING_COMPLETE, actor=actor
+        joining_service.allot_department_room(
+            db_session, application=application, department_id=vacancy.department.id, room_allotted="R-101", actor=actor
         )
+        pipeline.transition_application_status(
+            db_session,
+            application=application,
+            new_status=ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
+            actor=actor,
+        )
+        joining_service.complete_orientation(
+            db_session, application=application, orientation_date=joining_date, actor=actor
+        )
+        pipeline.transition_application_status(
+            db_session, application=application, new_status=ApplicationStatusEnum.ORIENTATION_COMPLETE, actor=actor
+        )
+        application.hod_assigned = vacancy.hod.full_name
         employee = joining_service.create_employee(
             db_session, application=application, joining_record=joining_record, designation=None, actor=actor
         )
         pipeline.transition_application_status(
-            db_session, application=application, new_status=ApplicationStatusEnum.EMPLOYEE_CREATED, actor=actor
+            db_session, application=application, new_status=ApplicationStatusEnum.HANDED_OVER_TO_HOD, actor=actor
         )
 
         return SimpleNamespace(application=application, offer=offer, joining_record=joining_record, employee=employee)

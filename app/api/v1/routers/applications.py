@@ -17,10 +17,15 @@ from app.models.candidate import Candidate
 from app.models.enums import ApplicationStatusEnum, UserRoleEnum
 from app.models.job_posting import JobPosting
 from app.models.user import User
-from app.schemas.application import ApplicationCreate, ApplicationRead, ApplicationStatusTransitionRequest
+from app.schemas.application import (
+    ApplicationCreate,
+    ApplicationPipelineDetailsUpdate,
+    ApplicationRead,
+    ApplicationStatusTransitionRequest,
+)
 from app.schemas.common import PaginatedResponse
 from app.services import pipeline
-from app.services.audit import log_create
+from app.services.audit import log_create, log_update
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
@@ -128,6 +133,39 @@ def get_application(
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Application:
     return _get_or_404_scoped(db, application_id, scope)
+
+
+@router.patch("/{application_id}/pipeline-details", response_model=ApplicationRead)
+def update_pipeline_details(
+    application_id: uuid.UUID,
+    payload: ApplicationPipelineDetailsUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> Application:
+    """Record-keeping fields for the real manual workflow (panel members/
+    result/remarks, salary fixed, key dates) -- a plain field update, not a
+    status transition. Used by the tracker-workbook importer and by HR
+    manually noting these in the UI."""
+    application = _get_or_404_scoped(db, application_id, scope)
+    updates = payload.model_dump(exclude_unset=True)
+    before = {field: getattr(application, field) for field in updates}
+    for field, value in updates.items():
+        setattr(application, field, value)
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="Application",
+        entity=application,
+        campus_context_id=application.campus_id,
+        before_state=before,
+        after_state=updates,
+        request=request,
+    )
+    db.commit()
+    db.refresh(application)
+    return application
 
 
 @router.patch("/{application_id}/status", response_model=ApplicationRead)

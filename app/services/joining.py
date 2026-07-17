@@ -1,6 +1,7 @@
 """Module 10: joining checklist initialization, onboarding completion, and
 employee record creation."""
 
+import uuid
 from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, Request, status
@@ -122,6 +123,54 @@ def complete_onboarding(
     return joining_record
 
 
+def allot_department_room(
+    db: Session,
+    *,
+    application: Application,
+    department_id: uuid.UUID,
+    room_allotted: str | None,
+    actor: User,
+    request: Request | None = None,
+) -> Application:
+    before = {"department_allotted_id": None, "room_allotted": application.room_allotted}
+    application.department_allotted_id = department_id
+    application.room_allotted = room_allotted
+    log_update(
+        db,
+        actor=actor,
+        entity_type="Application",
+        entity=application,
+        campus_context_id=application.campus_id,
+        before_state=before,
+        after_state={"department_allotted_id": str(department_id), "room_allotted": room_allotted},
+        request=request,
+    )
+    return application
+
+
+def complete_orientation(
+    db: Session,
+    *,
+    application: Application,
+    orientation_date: date,
+    actor: User,
+    request: Request | None = None,
+) -> Application:
+    before = {"orientation_date": None}
+    application.orientation_date = orientation_date
+    log_update(
+        db,
+        actor=actor,
+        entity_type="Application",
+        entity=application,
+        campus_context_id=application.campus_id,
+        before_state=before,
+        after_state={"orientation_date": orientation_date.isoformat()},
+        request=request,
+    )
+    return application
+
+
 def _generate_employee_code(db: Session, campus: Campus) -> str:
     # Row-locks the campus itself as a simple, correct concurrency guard for
     # per-campus sequence generation -- Phase 2 doesn't have a dedicated
@@ -150,7 +199,9 @@ def create_employee(
         application_id=application.id,
         employee_code=_generate_employee_code(db, campus),
         campus_id=campus.id,
-        department_id=vacancy_request.department_id,
+        # Prefer the department the candidate was actually allotted to over
+        # the vacancy's original department -- they can differ in practice.
+        department_id=application.department_allotted_id or vacancy_request.department_id,
         full_name=candidate.full_name,
         email=candidate.email,
         phone_number=candidate.phone_number,
