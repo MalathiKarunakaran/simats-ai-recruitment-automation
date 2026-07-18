@@ -1,16 +1,26 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db
+from app.core.deps import (
+    CampusScope,
+    enforce_campus_match,
+    get_campus_scope,
+    get_current_active_user,
+    get_db,
+    require_roles,
+)
 from app.models.employee import Employee
-from app.models.enums import UserRoleEnum
+from app.models.enums import EmploymentStatusEnum, UserRoleEnum
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
-from app.schemas.employee import EmployeeRead
+from app.schemas.employee import EmployeeOffboardRequest, EmployeeRead
+from app.services import employees as employees_service
 
 router = APIRouter(prefix="/employees", tags=["employees"])
+
+_HR_ONLY_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -23,6 +33,7 @@ def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
 def list_employees(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    employment_status: EmploymentStatusEnum | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
@@ -30,6 +41,8 @@ def list_employees(
     query = db.query(Employee)
     if not scope.is_global:
         query = query.filter(Employee.campus_id == scope.campus_id)
+    if employment_status is not None:
+        query = query.filter(Employee.employment_status == employment_status)
     total = query.count()
     rows = query.order_by(Employee.created_at.desc()).offset(offset).limit(limit).all()
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
@@ -46,4 +59,32 @@ def get_employee(
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, employee.campus_id)
+    return employee
+
+
+@router.post("/{employee_id}/offboard", response_model=EmployeeRead)
+def offboard_employee(
+    employee_id: uuid.UUID,
+    payload: EmployeeOffboardRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_HR_ONLY_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> Employee:
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    enforce_campus_match(scope, employee.campus_id)
+
+    employees_service.offboard_employee(
+        db,
+        employee=employee,
+        separation_type=payload.separation_type,
+        separation_date=payload.separation_date,
+        reason=payload.reason,
+        actor=current_user,
+        request=request,
+    )
+    db.commit()
+    db.refresh(employee)
     return employee

@@ -48,6 +48,10 @@ const EMPLOYEE: EmployeeRead = {
   designation: "Assistant Professor",
   date_of_joining: "2026-03-01",
   user_id: null,
+  employment_status: "ACTIVE",
+  separation_date: null,
+  separation_reason: null,
+  separated_by_id: null,
   created_at: "2026-01-02T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
 };
@@ -103,5 +107,39 @@ describe("EmployeesListPage", () => {
 
     await waitFor(() => expect(screen.queryByText("John Smith")).not.toBeInTheDocument());
     expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+  });
+
+  it("renders an employment status badge per row", async () => {
+    mockedListEmployees.mockResolvedValue([
+      EMPLOYEE,
+      { ...EMPLOYEE, id: "emp-2", employee_code: "SSE-0002", full_name: "John Smith", employment_status: "TERMINATED" },
+    ]);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("ACTIVE")).toBeInTheDocument();
+    expect(screen.getByText("TERMINATED")).toBeInTheDocument();
+  });
+
+  it("narrows the list with the employment status filter", async () => {
+    mockedListEmployees.mockResolvedValue([
+      EMPLOYEE,
+      { ...EMPLOYEE, id: "emp-2", employee_code: "SSE-0002", full_name: "John Smith", employment_status: "TERMINATED" },
+    ]);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByText("Terminated"));
+
+    await waitFor(() => expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
   });
 });

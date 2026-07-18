@@ -673,6 +673,11 @@ export interface JoiningDocumentUpdatePayload {
   notes?: string | null;
 }
 
+// Mirrors app/models/enums.py::EmploymentStatusEnum -- current employment
+// state of a hired employee; ACTIVE is the default, the other 3 are terminal
+// separation states set via the offboarding endpoint.
+export type EmploymentStatus = "ACTIVE" | "RESIGNED" | "TERMINATED" | "RETIRED";
+
 // Mirrors app/schemas/employee.py::EmployeeRead.
 export interface EmployeeRead {
   id: string;
@@ -686,8 +691,19 @@ export interface EmployeeRead {
   designation: string;
   date_of_joining: string;
   user_id: string | null;
+  employment_status: EmploymentStatus;
+  separation_date: string | null;
+  separation_reason: string | null;
+  separated_by_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Mirrors app/schemas/employee.py::EmployeeOffboardRequest.
+export interface EmployeeOffboardPayload {
+  separation_type: Exclude<EmploymentStatus, "ACTIVE">;
+  separation_date: string;
+  reason: string;
 }
 
 // Mirrors app/services/reporting.py::REPORT_BUILDERS keys.

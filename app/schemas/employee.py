@@ -1,7 +1,9 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.enums import EmploymentStatusEnum
 
 
 class EmployeeRead(BaseModel):
@@ -18,5 +20,15 @@ class EmployeeRead(BaseModel):
     designation: str
     date_of_joining: date
     user_id: uuid.UUID | None
+    employment_status: EmploymentStatusEnum
+    separation_date: date | None
+    separation_reason: str | None
+    separated_by_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+class EmployeeOffboardRequest(BaseModel):
+    separation_type: EmploymentStatusEnum
+    separation_date: date
+    reason: str = Field(min_length=1)

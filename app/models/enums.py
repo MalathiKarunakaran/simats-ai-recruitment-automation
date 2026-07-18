@@ -72,6 +72,18 @@ class EmploymentTypeEnum(str, enum.Enum):
     VISITING = "VISITING"
 
 
+class EmploymentStatusEnum(str, enum.Enum):
+    """Current employment status of an Employee record. Doubles as the
+    separation-type vocabulary once an employee is offboarded (RESIGNED /
+    TERMINATED / RETIRED) -- no separate "separation type" enum needed since
+    the two concepts never diverge (an employee's status *is* how they left)."""
+
+    ACTIVE = "ACTIVE"
+    RESIGNED = "RESIGNED"
+    TERMINATED = "TERMINATED"
+    RETIRED = "RETIRED"
+
+
 class VacancyPriorityEnum(str, enum.Enum):
     LOW = "LOW"
     NORMAL = "NORMAL"

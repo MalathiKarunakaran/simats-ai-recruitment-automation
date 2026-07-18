@@ -5,10 +5,16 @@ import { Link } from "react-router-dom";
 import { listCampuses } from "@/api/campuses";
 import { listDepartments } from "@/api/departments";
 import { listEmployees } from "@/api/employees";
+import type { EmploymentStatus } from "@/api/types";
+import { StatusBadge } from "@/components/employees/StatusBadge";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+const EMPLOYMENT_STATUSES: EmploymentStatus[] = ["ACTIVE", "RESIGNED", "TERMINATED", "RETIRED"];
 
 export function EmployeesListPage() {
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<EmploymentStatus | "ALL">("ALL");
 
   const { data: employees, isLoading } = useQuery({ queryKey: ["employees"], queryFn: listEmployees });
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
@@ -16,6 +22,7 @@ export function EmployeesListPage() {
 
   const normalizedSearch = search.trim().toLowerCase();
   const filteredEmployees = employees?.filter((employee) => {
+    if (statusFilter !== "ALL" && employee.employment_status !== statusFilter) return false;
     if (!normalizedSearch) return true;
     return (
       employee.full_name.toLowerCase().includes(normalizedSearch) ||
@@ -30,12 +37,29 @@ export function EmployeesListPage() {
         <h1 className="text-lg font-semibold">Employees</h1>
       </div>
 
-      <div className="w-72">
-        <Input
-          placeholder="Search by name, email, or employee code"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="flex items-center gap-3">
+        <div className="w-72">
+          <Input
+            placeholder="Search by name, email, or employee code"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="w-56">
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as EmploymentStatus | "ALL")}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All employment statuses</SelectItem>
+              {EMPLOYMENT_STATUSES.map((status) => (
+                <SelectItem key={status} value={status}>
+                  {status.charAt(0) + status.slice(1).toLowerCase()}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? (
@@ -53,6 +77,7 @@ export function EmployeesListPage() {
               <th className="py-2 font-medium">Campus</th>
               <th className="py-2 font-medium">Email</th>
               <th className="py-2 font-medium">Date of joining</th>
+              <th className="py-2 font-medium">Employment status</th>
             </tr>
           </thead>
           <tbody>
@@ -72,6 +97,9 @@ export function EmployeesListPage() {
                   <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
                   <td className="py-2">{employee.email}</td>
                   <td className="py-2">{new Date(employee.date_of_joining).toLocaleDateString()}</td>
+                  <td className="py-2">
+                    <StatusBadge status={employee.employment_status} />
+                  </td>
                 </tr>
               );
             })}

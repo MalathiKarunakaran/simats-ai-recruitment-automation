@@ -1,21 +1,38 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
 import * as departmentsApi from "@/api/departments";
 import * as employeesApi from "@/api/employees";
-import type { CampusRead, DepartmentRead, EmployeeRead } from "@/api/types";
+import type { CampusRead, DepartmentRead, EmployeeRead, UserRead } from "@/api/types";
+import * as authContext from "@/auth/AuthContext";
 import { EmployeeDetailPage } from "@/pages/EmployeeDetailPage";
 
 vi.mock("@/api/employees");
 vi.mock("@/api/departments");
 vi.mock("@/api/campuses");
+vi.mock("@/auth/AuthContext", async () => {
+  const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
+  return { ...actual, useAuth: vi.fn() };
+});
 
 const mockedGetEmployee = vi.mocked(employeesApi.getEmployee);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
+const mockedOffboardEmployee = vi.mocked(employeesApi.offboardEmployee);
+const mockedUseAuth = vi.mocked(authContext.useAuth);
+
+function mockUser(role: UserRead["role"] | null) {
+  mockedUseAuth.mockReturnValue({
+    user: role ? ({ role } as UserRead) : null,
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+  });
+}
 
 const CAMPUS: CampusRead = {
   id: "c-sse",
@@ -47,6 +64,10 @@ const EMPLOYEE: EmployeeRead = {
   designation: "Assistant Professor",
   date_of_joining: "2026-03-01",
   user_id: null,
+  employment_status: "ACTIVE",
+  separation_date: null,
+  separation_reason: null,
+  separated_by_id: null,
   created_at: "2026-01-02T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
 };
@@ -66,6 +87,7 @@ function renderPage() {
 
 describe("EmployeeDetailPage", () => {
   it("shows all employee fields with resolved department/campus and a link to the source application", async () => {
+    mockUser("HR_ADMIN");
     mockedGetEmployee.mockResolvedValue(EMPLOYEE);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
@@ -81,5 +103,103 @@ describe("EmployeeDetailPage", () => {
 
     const link = screen.getByRole("link", { name: "View application" });
     expect(link).toHaveAttribute("href", "/applications/app-1");
+  });
+
+  it("shows the ACTIVE status badge for an active employee", async () => {
+    mockUser("HR_ADMIN");
+    mockedGetEmployee.mockResolvedValue(EMPLOYEE);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("ACTIVE")).toBeInTheDocument());
+    expect(screen.queryByText("Separation details")).not.toBeInTheDocument();
+  });
+
+  it("shows the Offboard button for HR Admin", async () => {
+    mockUser("HR_ADMIN");
+    mockedGetEmployee.mockResolvedValue(EMPLOYEE);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Offboard" })).toBeInTheDocument();
+  });
+
+  it("shows the Offboard button for Super Admin", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedGetEmployee.mockResolvedValue(EMPLOYEE);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Offboard" })).toBeInTheDocument();
+  });
+
+  it("hides the Offboard button for a non-HR role", async () => {
+    mockUser("CAMPUS_HOD");
+    mockedGetEmployee.mockResolvedValue(EMPLOYEE);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Offboard" })).not.toBeInTheDocument();
+  });
+
+  it("shows separation details instead of the Offboard button once separated", async () => {
+    mockUser("HR_ADMIN");
+    mockedGetEmployee.mockResolvedValue({
+      ...EMPLOYEE,
+      employment_status: "RESIGNED",
+      separation_date: "2026-06-01",
+      separation_reason: "Took a new role elsewhere",
+      separated_by_id: "u-hr-1",
+    });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Separation details")).toBeInTheDocument());
+    expect(screen.getByText("Took a new role elsewhere")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Offboard" })).not.toBeInTheDocument();
+  });
+
+  it("submits an offboard request with the entered details", async () => {
+    mockUser("HR_ADMIN");
+    mockedGetEmployee.mockResolvedValue(EMPLOYEE);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedOffboardEmployee.mockResolvedValue({
+      ...EMPLOYEE,
+      employment_status: "RESIGNED",
+      separation_date: "2026-06-01",
+      separation_reason: "Took a new role elsewhere",
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Offboard" })).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Offboard" }));
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByText("Resigned"));
+    await userEvent.type(screen.getByLabelText("Separation date"), "2026-06-01");
+    await userEvent.type(screen.getByLabelText("Reason"), "Took a new role elsewhere");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm offboard" }));
+
+    await waitFor(() =>
+      expect(mockedOffboardEmployee).toHaveBeenCalledWith("emp-1", {
+        separation_type: "RESIGNED",
+        separation_date: "2026-06-01",
+        reason: "Took a new role elsewhere",
+      }),
+    );
   });
 });

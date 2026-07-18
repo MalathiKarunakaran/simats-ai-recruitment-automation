@@ -171,7 +171,5 @@ FastAPI-injectable dependencies overridden with in-memory fakes in
 - No live AI API keys configured in this dev environment — AI endpoints
   return 503 until `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are set.
 - No GitHub Actions CI — no `.github/workflows/` exists yet.
-- Employees module (`app/api/v1/routers/employees.py`) is read-only (GET
-  list/detail only) — no termination/offboarding tracking.
 - `DEPLOYMENT.md`'s runbook was verified locally via Docker, never against a
   real remote VPS.

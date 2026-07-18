@@ -1,11 +1,12 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, func
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+from app.models.enums import EmploymentStatusEnum
 
 
 class Employee(Base):
@@ -36,6 +37,16 @@ class Employee(Base):
     date_of_joining: Mapped[date] = mapped_column(Date, nullable=False)
     # Future login-linkage hook (Module 5+) -- unused/nullable in Phase 2.
     user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    employment_status: Mapped[EmploymentStatusEnum] = mapped_column(
+        Enum(EmploymentStatusEnum, name="employment_status_enum"),
+        nullable=False,
+        default=EmploymentStatusEnum.ACTIVE,
+    )
+    separation_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    separation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    separated_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
