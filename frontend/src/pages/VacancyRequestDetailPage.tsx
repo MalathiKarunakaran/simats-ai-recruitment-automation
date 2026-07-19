@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
+import { getApprovedVacancyForRequest, listHiringSlots } from "@/api/approvedVacancies";
 import { ApiError } from "@/api/client";
 import {
+  cancelVacancyRequest,
   closeVacancyRequest,
   deanApproveVacancyRequest,
   deleteVacancyRequest,
@@ -13,6 +15,7 @@ import {
   publishVacancyRequest,
   rejectVacancyRequest,
   submitVacancyRequest,
+  updateSlotCount,
 } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -25,6 +28,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/vacancy-requests/StatusBadge";
@@ -39,11 +43,29 @@ export function VacancyRequestDetailPage() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [jdDialogOpen, setJdDialogOpen] = useState(false);
   const [jdInstructions, setJdInstructions] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [slotCountDialogOpen, setSlotCountDialogOpen] = useState(false);
+  const [slotCountInput, setSlotCountInput] = useState("");
 
   const { data: vr, isLoading } = useQuery({
     queryKey: ["vacancy-request", id],
     queryFn: () => getVacancyRequest(id!),
     enabled: Boolean(id),
+  });
+
+  const canViewPositions = vr?.status === "APPROVED" || vr?.status === "PUBLISHED";
+
+  const { data: approvedVacancy } = useQuery({
+    queryKey: ["approved-vacancy", id],
+    queryFn: () => getApprovedVacancyForRequest(id!),
+    enabled: Boolean(id) && canViewPositions,
+  });
+
+  const { data: hiringSlots } = useQuery({
+    queryKey: ["hiring-slots", approvedVacancy?.id],
+    queryFn: () => listHiringSlots(approvedVacancy!.id),
+    enabled: Boolean(approvedVacancy),
   });
 
   function afterAction() {
@@ -92,6 +114,27 @@ export function VacancyRequestDetailPage() {
     },
     onError: (err: unknown) => setError(err instanceof ApiError ? err.message : "JD generation failed"),
   });
+  const cancelMutation = useMutation({
+    mutationFn: () => cancelVacancyRequest(id!, cancelReason),
+    onSuccess: () => {
+      setError(null);
+      setCancelDialogOpen(false);
+      setCancelReason("");
+      afterAction();
+    },
+    onError: (err: unknown) => setError(err instanceof ApiError ? err.message : "Cancel failed"),
+  });
+  const updateSlotCountMutation = useMutation({
+    mutationFn: () => updateSlotCount(id!, Number(slotCountInput)),
+    onSuccess: () => {
+      setError(null);
+      setSlotCountDialogOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["approved-vacancy", id] });
+      void queryClient.invalidateQueries({ queryKey: ["hiring-slots", approvedVacancy?.id] });
+      afterAction();
+    },
+    onError: (err: unknown) => setError(err instanceof ApiError ? err.message : "Adjust count failed"),
+  });
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -114,6 +157,11 @@ export function VacancyRequestDetailPage() {
   const canPublish =
     (role === "HR_ADMIN" || role === "RECRUITMENT_OFFICER" || role === "SUPER_ADMIN") && vr.status === "APPROVED";
   const canClose = (role === "HR_ADMIN" || role === "SUPER_ADMIN") && vr.status === "PUBLISHED";
+  const canCancel =
+    (role === "HR_ADMIN" || role === "SUPER_ADMIN") &&
+    ["SUBMITTED", "DEAN_APPROVED", "APPROVED", "PUBLISHED"].includes(vr.status);
+  const canAdjustSlotCount =
+    (role === "HR_ADMIN" || role === "SUPER_ADMIN") && (vr.status === "APPROVED" || vr.status === "PUBLISHED");
 
   const canGenerateJd = canSubmit;
 
@@ -125,7 +173,13 @@ export function VacancyRequestDetailPage() {
     closeMutation.isPending ||
     deleteMutation.isPending ||
     rejectMutation.isPending ||
-    generateJdMutation.isPending;
+    generateJdMutation.isPending ||
+    cancelMutation.isPending ||
+    updateSlotCountMutation.isPending;
+
+  const openSlotCount = hiringSlots?.filter((s) => s.status === "OPEN").length ?? 0;
+  const reservedSlotCount = hiringSlots?.filter((s) => s.status === "RESERVED").length ?? 0;
+  const filledSlotCount = hiringSlots?.filter((s) => s.status === "FILLED").length ?? 0;
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -190,8 +244,34 @@ export function VacancyRequestDetailPage() {
               <div>{vr.rejection_reason}</div>
             </div>
           ) : null}
+          {vr.status === "CANCELLED" && vr.cancellation_reason ? (
+            <div className="col-span-2">
+              <div className="text-muted-foreground">Cancellation reason</div>
+              <div>{vr.cancellation_reason}</div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
+
+      {canViewPositions && approvedVacancy ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Positions</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div className="text-muted-foreground">Total positions</div>
+              <div>{approvedVacancy.total_positions}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Open / Reserved / Filled</div>
+              <div>
+                {openSlotCount} / {reservedSlotCount} / {filledSlotCount}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -265,6 +345,76 @@ export function VacancyRequestDetailPage() {
           <Button variant="outline" disabled={isBusy} onClick={() => closeMutation.mutate()}>
             Close
           </Button>
+        ) : null}
+        {canAdjustSlotCount ? (
+          <Dialog
+            open={slotCountDialogOpen}
+            onOpenChange={(open) => {
+              setSlotCountDialogOpen(open);
+              if (open) setSlotCountInput(String(approvedVacancy?.total_positions ?? ""));
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button variant="outline" disabled={isBusy}>
+                Adjust count
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Adjust position count</DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="slot_count">Requested count</Label>
+                <Input
+                  id="slot_count"
+                  type="number"
+                  min={1}
+                  value={slotCountInput}
+                  onChange={(e) => setSlotCountInput(e.target.value)}
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  disabled={!slotCountInput || Number(slotCountInput) < 1 || updateSlotCountMutation.isPending}
+                  onClick={() => updateSlotCountMutation.mutate()}
+                >
+                  {updateSlotCountMutation.isPending ? "Updating…" : "Update count"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        ) : null}
+        {canCancel ? (
+          <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="destructive" disabled={isBusy}>
+                Cancel
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Cancel vacancy request</DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cancel_reason">Reason</Label>
+                <Textarea
+                  id="cancel_reason"
+                  required
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                />
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="destructive"
+                  disabled={!cancelReason.trim() || cancelMutation.isPending}
+                  onClick={() => cancelMutation.mutate()}
+                >
+                  {cancelMutation.isPending ? "Cancelling…" : "Confirm cancel"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         ) : null}
         {canReject ? (
           <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>

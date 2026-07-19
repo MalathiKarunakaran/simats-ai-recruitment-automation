@@ -24,11 +24,13 @@ from app.schemas.approved_vacancy import ApprovedVacancyRead
 from app.schemas.common import PaginatedResponse
 from app.schemas.job_posting import JobPostingRead
 from app.schemas.vacancy_request import (
+    VacancyRequestCancelRequest,
     VacancyRequestCreate,
     VacancyRequestGenerateJDRequest,
     VacancyRequestRead,
     VacancyRequestRejectRequest,
     VacancyRequestUpdate,
+    VacancySlotCountUpdateRequest,
 )
 from app.services import jd_generation, vacancy_workflow
 from app.services.ai_client import get_openai_client
@@ -366,3 +368,52 @@ def close_vacancy_request(
     db.commit()
     db.refresh(vr)
     return vr
+
+
+@router.post("/{vacancy_request_id}/cancel", response_model=VacancyRequestRead)
+def cancel_vacancy_request(
+    vacancy_request_id: uuid.UUID,
+    payload: VacancyRequestCancelRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> VacancyRequest:
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    approved_vacancy = (
+        db.query(ApprovedVacancy).filter(ApprovedVacancy.vacancy_request_id == vr.id).one_or_none()
+    )
+    job_posting = None
+    if approved_vacancy is not None:
+        job_posting = (
+            db.query(JobPosting).filter(JobPosting.approved_vacancy_id == approved_vacancy.id).one_or_none()
+        )
+
+    vacancy_workflow.cancel(db, vr, approved_vacancy, job_posting, current_user, payload.reason, request)
+    db.commit()
+    db.refresh(vr)
+    return vr
+
+
+@router.patch("/{vacancy_request_id}/slot-count", response_model=ApprovedVacancyRead)
+def adjust_vacancy_request_slot_count(
+    vacancy_request_id: uuid.UUID,
+    payload: VacancySlotCountUpdateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> ApprovedVacancy:
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    approved_vacancy = (
+        db.query(ApprovedVacancy).filter(ApprovedVacancy.vacancy_request_id == vr.id).one_or_none()
+    )
+    if approved_vacancy is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vacancy request has not been approved")
+
+    approved_vacancy = vacancy_workflow.adjust_slot_count(
+        db, vr, approved_vacancy, payload.requested_count, current_user, request
+    )
+    db.commit()
+    db.refresh(approved_vacancy)
+    return approved_vacancy

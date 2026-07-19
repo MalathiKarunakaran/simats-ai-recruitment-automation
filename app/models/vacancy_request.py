@@ -82,6 +82,12 @@ class VacancyRequest(Base):
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    cancelled_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # The tracker workbook's own "Request ID" (app/services/tracker_import.py)
     # -- lets a re-import upsert instead of duplicating rows. Unset for
     # everything created through the normal in-app requisition flow.

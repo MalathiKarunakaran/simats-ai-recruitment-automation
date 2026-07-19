@@ -9,6 +9,7 @@ const STATUS_VARIANT: Record<VacancyRequestStatus, BadgeProps["variant"]> = {
   PUBLISHED: "success",
   CLOSED: "outline",
   REJECTED: "destructive",
+  CANCELLED: "destructive",
 };
 
 export function StatusBadge({ status }: { status: VacancyRequestStatus }) {

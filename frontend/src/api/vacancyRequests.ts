@@ -72,3 +72,17 @@ export async function generateJd(
     body: JSON.stringify(payload),
   });
 }
+
+export async function cancelVacancyRequest(id: string, reason: string): Promise<VacancyRequestRead> {
+  return apiFetch<VacancyRequestRead>(`/vacancy-requests/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function updateSlotCount(id: string, requestedCount: number): Promise<ApprovedVacancyRead> {
+  return apiFetch<ApprovedVacancyRead>(`/vacancy-requests/${id}/slot-count`, {
+    method: "PATCH",
+    body: JSON.stringify({ requested_count: requestedCount }),
+  });
+}

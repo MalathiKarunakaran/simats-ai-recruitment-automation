@@ -46,6 +46,9 @@ const VR: VacancyRequestRead = {
   rejected_by_id: null,
   rejected_at: null,
   rejection_reason: null,
+  cancelled_by_id: null,
+  cancelled_at: null,
+  cancellation_reason: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -122,5 +125,24 @@ describe("VacancyRequestsListPage", () => {
     await userEvent.click(await screen.findByRole("option", { name: "SUBMITTED" }));
 
     await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith("SUBMITTED"));
+  });
+
+  it("offers CANCELLED as a status filter option", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListVacancyRequests.mockResolvedValue([VR]);
+    mockedListCampuses.mockResolvedValue([]);
+
+    renderPage();
+    await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith(null));
+
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByRole("option", { name: "CANCELLED" }));
+
+    await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith("CANCELLED"));
   });
 });

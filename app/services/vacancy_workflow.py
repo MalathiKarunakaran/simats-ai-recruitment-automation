@@ -7,6 +7,7 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.approved_vacancy import ApprovedVacancy
@@ -334,3 +335,219 @@ def close(
         request=request,
     )
     return vacancy_request
+
+
+_CANCEL_TERMINAL_STATUSES = {
+    VacancyRequestStatusEnum.CLOSED,
+    VacancyRequestStatusEnum.REJECTED,
+    VacancyRequestStatusEnum.CANCELLED,
+}
+
+
+def cancel(
+    db: Session,
+    vacancy_request: VacancyRequest,
+    approved_vacancy: ApprovedVacancy | None,
+    job_posting: JobPosting | None,
+    actor: User,
+    reason: str,
+    request: Request | None,
+) -> VacancyRequest:
+    """Admin-initiated soft-cancel of a vacancy request that's no longer
+    needed -- a new terminal status distinct from REJECTED (which is only
+    reachable pre-HR-approval, during the approval chain) and CLOSED (which
+    means the positions were filled). Blocked once any candidate has been
+    committed (RESERVED/FILLED slot) -- the admin must reject/withdraw those
+    applications first, mirroring the policy already enforced for shrinking
+    slot counts."""
+    if vacancy_request.status in _CANCEL_TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot cancel from status {vacancy_request.status.value}",
+        )
+
+    if approved_vacancy is not None:
+        committed_count = len(
+            db.execute(
+                select(HiringSlot.id).where(
+                    HiringSlot.approved_vacancy_id == approved_vacancy.id,
+                    HiringSlot.status != HiringSlotStatusEnum.OPEN,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if committed_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Cannot cancel: {committed_count} slot(s) already reserved or filled. "
+                    "Reject or withdraw those candidates first."
+                ),
+            )
+
+    before = _snapshot(vacancy_request)
+    now = datetime.now(timezone.utc)
+    vacancy_request.status = VacancyRequestStatusEnum.CANCELLED
+    vacancy_request.cancelled_by_id = actor.id
+    vacancy_request.cancelled_at = now
+    vacancy_request.cancellation_reason = reason
+
+    if approved_vacancy is not None:
+        approved_vacancy.closed_at = now
+    if job_posting is not None:
+        job_posting.closed_at = now
+        job_posting.is_active = False
+
+    log_event(
+        db,
+        actor=actor,
+        action="VACANCY_REQUEST_CANCELLED",
+        campus_context_id=vacancy_request.campus_id,
+        entity_type="VacancyRequest",
+        entity_id=vacancy_request.id,
+        before_state=before,
+        after_state=_snapshot(vacancy_request),
+        request=request,
+    )
+    notifications.notify(
+        db,
+        recipient_user=vacancy_request.requested_by,
+        notification_type="VACANCY_REQUEST_CANCELLED",
+        subject=f"Cancelled: {vacancy_request.position_title}",
+        body=f"Your vacancy request for {vacancy_request.position_title} was cancelled. Reason: {reason}",
+        campus_context_id=vacancy_request.campus_id,
+        related_entity_type="VacancyRequest",
+        related_entity_id=vacancy_request.id,
+        request=request,
+    )
+    return vacancy_request
+
+
+def adjust_slot_count(
+    db: Session,
+    vacancy_request: VacancyRequest,
+    approved_vacancy: ApprovedVacancy,
+    new_count: int,
+    actor: User,
+    request: Request | None,
+) -> ApprovedVacancy:
+    """Admin-editable position-count adjustment for an already-approved/
+    published vacancy, without going through the Excel tracker re-import.
+    Shrinking below the number of already-committed (RESERVED/FILLED)
+    HiringSlots is blocked -- the admin must reject/withdraw those candidates
+    first rather than have slots force-released out from under them."""
+    if vacancy_request.status not in (
+        VacancyRequestStatusEnum.APPROVED,
+        VacancyRequestStatusEnum.PUBLISHED,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Can only adjust slot count for an approved or published vacancy",
+        )
+
+    slots = (
+        db.execute(
+            select(HiringSlot)
+            .where(HiringSlot.approved_vacancy_id == approved_vacancy.id)
+            .order_by(HiringSlot.slot_number)
+        )
+        .scalars()
+        .all()
+    )
+    committed_count = sum(1 for slot in slots if slot.status != HiringSlotStatusEnum.OPEN)
+
+    if new_count < committed_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot shrink below {committed_count} slot(s) already reserved or filled",
+        )
+
+    current_total = len(slots)
+    before = {"total_positions": approved_vacancy.total_positions}
+
+    if new_count > current_total:
+        max_slot_number = max((slot.slot_number for slot in slots), default=0)
+        for offset in range(1, new_count - current_total + 1):
+            db.add(
+                HiringSlot(
+                    approved_vacancy_id=approved_vacancy.id,
+                    slot_number=max_slot_number + offset,
+                    status=HiringSlotStatusEnum.OPEN,
+                )
+            )
+        db.flush()
+    elif new_count < current_total:
+        open_slots_desc = sorted(
+            (slot for slot in slots if slot.status == HiringSlotStatusEnum.OPEN),
+            key=lambda slot: slot.slot_number,
+            reverse=True,
+        )
+        for slot in open_slots_desc[: current_total - new_count]:
+            db.delete(slot)
+        db.flush()
+
+    approved_vacancy.total_positions = new_count
+    vacancy_request.requested_count = new_count
+
+    log_event(
+        db,
+        actor=actor,
+        action="VACANCY_SLOT_COUNT_ADJUSTED",
+        campus_context_id=vacancy_request.campus_id,
+        entity_type="ApprovedVacancy",
+        entity_id=approved_vacancy.id,
+        before_state=before,
+        after_state={"total_positions": approved_vacancy.total_positions},
+        request=request,
+    )
+
+    if vacancy_request.status == VacancyRequestStatusEnum.CLOSED:
+        return approved_vacancy
+
+    remaining_unfilled = (
+        db.execute(
+            select(HiringSlot.id).where(
+                HiringSlot.approved_vacancy_id == approved_vacancy.id,
+                HiringSlot.status != HiringSlotStatusEnum.FILLED,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if remaining_unfilled:
+        return approved_vacancy
+
+    now = datetime.now(timezone.utc)
+    approved_vacancy.closed_at = now
+    vacancy_request.status = VacancyRequestStatusEnum.CLOSED
+
+    job_posting = db.execute(
+        select(JobPosting).where(JobPosting.approved_vacancy_id == approved_vacancy.id)
+    ).scalar_one_or_none()
+    if job_posting is not None:
+        job_posting.closed_at = now
+        job_posting.is_active = False
+
+    log_event(
+        db,
+        actor=actor,
+        action="VACANCY_AUTO_CLOSE",
+        campus_context_id=vacancy_request.campus_id,
+        entity_type="ApprovedVacancy",
+        entity_id=approved_vacancy.id,
+        after_state={"closed_at": now.isoformat()},
+        request=request,
+    )
+    notifications.notify_role(
+        db,
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT},
+        campus_id=vacancy_request.campus_id,
+        notification_type="VACANCY_AUTO_CLOSE",
+        subject=f"Vacancy auto-closed: {vacancy_request.position_title}",
+        body=f"All {approved_vacancy.total_positions} hiring slot(s) are now filled -- the vacancy has auto-closed.",
+        related_entity_type="ApprovedVacancy",
+        related_entity_id=approved_vacancy.id,
+        request=request,
+    )
+    return approved_vacancy

@@ -18,6 +18,7 @@ const STATUSES: VacancyRequestStatus[] = [
   "PUBLISHED",
   "CLOSED",
   "REJECTED",
+  "CANCELLED",
 ];
 
 const CAN_CREATE_ROLES = ["CAMPUS_HOD", "SUPER_ADMIN"];

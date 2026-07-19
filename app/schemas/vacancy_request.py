@@ -39,6 +39,14 @@ class VacancyRequestRejectRequest(BaseModel):
     reason: str = Field(min_length=1)
 
 
+class VacancyRequestCancelRequest(BaseModel):
+    reason: str = Field(min_length=1)
+
+
+class VacancySlotCountUpdateRequest(BaseModel):
+    requested_count: int = Field(gt=0)
+
+
 class VacancyRequestGenerateJDRequest(BaseModel):
     additional_instructions: str | None = None
 
@@ -70,5 +78,8 @@ class VacancyRequestRead(BaseModel):
     rejected_by_id: uuid.UUID | None
     rejected_at: datetime | None
     rejection_reason: str | None
+    cancelled_by_id: uuid.UUID | None
+    cancelled_at: datetime | None
+    cancellation_reason: str | None
     created_at: datetime
     updated_at: datetime

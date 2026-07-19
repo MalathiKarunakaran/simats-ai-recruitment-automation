@@ -4,12 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
-import type { UserRead, VacancyRequestRead } from "@/api/types";
+import type { ApprovedVacancyRead, HiringSlotRead, UserRead, VacancyRequestRead } from "@/api/types";
+import * as approvedVacanciesApi from "@/api/approvedVacancies";
 import * as vacancyRequestsApi from "@/api/vacancyRequests";
 import * as authContext from "@/auth/AuthContext";
 import { VacancyRequestDetailPage } from "@/pages/VacancyRequestDetailPage";
 
 vi.mock("@/api/vacancyRequests");
+vi.mock("@/api/approvedVacancies");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -19,6 +21,10 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedGetVacancyRequest = vi.mocked(vacancyRequestsApi.getVacancyRequest);
 const mockedSubmit = vi.mocked(vacancyRequestsApi.submitVacancyRequest);
 const mockedGenerateJd = vi.mocked(vacancyRequestsApi.generateJd);
+const mockedCancel = vi.mocked(vacancyRequestsApi.cancelVacancyRequest);
+const mockedUpdateSlotCount = vi.mocked(vacancyRequestsApi.updateSlotCount);
+const mockedGetApprovedVacancyForRequest = vi.mocked(approvedVacanciesApi.getApprovedVacancyForRequest);
+const mockedListHiringSlots = vi.mocked(approvedVacanciesApi.listHiringSlots);
 
 function baseVr(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
   return {
@@ -46,8 +52,42 @@ function baseVr(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
     rejected_by_id: null,
     rejected_at: null,
     rejection_reason: null,
+    cancelled_by_id: null,
+    cancelled_at: null,
+    cancellation_reason: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function baseApprovedVacancy(overrides: Partial<ApprovedVacancyRead>): ApprovedVacancyRead {
+  return {
+    id: "av-1",
+    vacancy_request_id: "vr-1",
+    campus_id: "c-sse",
+    total_positions: 2,
+    approved_by_id: "u-2",
+    approved_at: "2026-01-02T00:00:00Z",
+    closed_at: null,
+    created_at: "2026-01-02T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function slot(overrides: Partial<HiringSlotRead>): HiringSlotRead {
+  return {
+    id: "slot-1",
+    approved_vacancy_id: "av-1",
+    slot_number: 1,
+    status: "OPEN",
+    reserved_application_id: null,
+    reserved_at: null,
+    filled_at: null,
+    released_at: null,
+    created_at: "2026-01-02T00:00:00Z",
+    updated_at: "2026-01-02T00:00:00Z",
     ...overrides,
   };
 }
@@ -170,5 +210,109 @@ describe("VacancyRequestDetailPage", () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
     expect(screen.queryByText("Generate JD")).not.toBeInTheDocument();
+  });
+
+  it("shows Cancel for HR_ADMIN on a PUBLISHED request, but not for an unrelated role", async () => {
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "PUBLISHED" }));
+    mockedGetApprovedVacancyForRequest.mockResolvedValue(baseApprovedVacancy({}));
+    mockedListHiringSlots.mockResolvedValue([slot({ id: "s1" }), slot({ id: "s2", status: "FILLED" })]);
+
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const { unmount } = renderDetail();
+    await waitFor(() => expect(screen.getByText("Cancel")).toBeInTheDocument());
+    unmount();
+
+    mockedUseAuth.mockReturnValue({
+      user: { role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.queryByText("Cancel")).not.toBeInTheDocument();
+  });
+
+  it("cancelling a request requires a reason and calls the mutation with it", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "PUBLISHED" }));
+    mockedGetApprovedVacancyForRequest.mockResolvedValue(baseApprovedVacancy({}));
+    mockedListHiringSlots.mockResolvedValue([slot({})]);
+    mockedCancel.mockResolvedValue(
+      baseVr({ status: "CANCELLED", cancellation_reason: "No longer needed", cancelled_by_id: "u-9" }),
+    );
+    mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "CANCELLED", cancellation_reason: "No longer needed" }));
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Cancel")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByText("Cancel"));
+    const confirmButton = screen.getByRole("button", { name: "Confirm cancel" });
+    expect(confirmButton).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText("Reason"), "No longer needed");
+    expect(confirmButton).not.toBeDisabled();
+
+    await userEvent.click(confirmButton);
+
+    await waitFor(() => expect(mockedCancel).toHaveBeenCalledWith("vr-1", "No longer needed"));
+    await waitFor(() => expect(screen.getByText("CANCELLED")).toBeInTheDocument());
+  });
+
+  it("shows the Positions card and Adjust count dialog for an APPROVED request, submitting the new count", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "APPROVED", requested_count: 5 }));
+    mockedGetApprovedVacancyForRequest.mockResolvedValue(baseApprovedVacancy({ total_positions: 2 }));
+    mockedListHiringSlots.mockResolvedValue([
+      slot({ id: "s1", status: "OPEN" }),
+      slot({ id: "s2", status: "FILLED" }),
+    ]);
+    mockedUpdateSlotCount.mockResolvedValue(baseApprovedVacancy({ total_positions: 3 }));
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Positions")).toBeInTheDocument());
+    expect(screen.getByText("2")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Adjust count"));
+    const countInput = screen.getByLabelText("Requested count") as HTMLInputElement;
+    expect(countInput.value).toBe("2");
+
+    await userEvent.clear(countInput);
+    await userEvent.type(countInput, "3");
+    await userEvent.click(screen.getByRole("button", { name: "Update count" }));
+
+    await waitFor(() => expect(mockedUpdateSlotCount).toHaveBeenCalledWith("vr-1", 3));
+  });
+
+  it("does not show Cancel or Adjust count for a Recruitment Officer", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "APPROVED" }));
+    mockedGetApprovedVacancyForRequest.mockResolvedValue(baseApprovedVacancy({}));
+    mockedListHiringSlots.mockResolvedValue([slot({})]);
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.queryByText("Cancel")).not.toBeInTheDocument();
+    expect(screen.queryByText("Adjust count")).not.toBeInTheDocument();
   });
 });

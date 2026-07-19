@@ -187,7 +187,15 @@ export interface EligibilityRuleCreatePayload {
 export type EligibilityRuleUpdatePayload = Partial<EligibilityRuleCreatePayload>;
 
 // Mirrors app/models/enums.py::VacancyRequestStatusEnum.
-export type VacancyRequestStatus = "DRAFT" | "SUBMITTED" | "DEAN_APPROVED" | "APPROVED" | "PUBLISHED" | "CLOSED" | "REJECTED";
+export type VacancyRequestStatus =
+  | "DRAFT"
+  | "SUBMITTED"
+  | "DEAN_APPROVED"
+  | "APPROVED"
+  | "PUBLISHED"
+  | "CLOSED"
+  | "REJECTED"
+  | "CANCELLED";
 
 // Mirrors app/models/enums.py::EmploymentTypeEnum.
 export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACT" | "VISITING";
@@ -224,6 +232,9 @@ export interface VacancyRequestRead {
   rejected_by_id: string | null;
   rejected_at: string | null;
   rejection_reason: string | null;
+  cancelled_by_id: string | null;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -350,6 +361,20 @@ export interface ApprovedVacancyRead {
   approved_by_id: string;
   approved_at: string;
   closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/hiring_slot.py::HiringSlotRead.
+export interface HiringSlotRead {
+  id: string;
+  approved_vacancy_id: string;
+  slot_number: number;
+  status: "OPEN" | "RESERVED" | "FILLED";
+  reserved_application_id: string | null;
+  reserved_at: string | null;
+  filled_at: string | null;
+  released_at: string | null;
   created_at: string;
   updated_at: string;
 }

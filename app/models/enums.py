@@ -105,6 +105,7 @@ class VacancyRequestStatusEnum(str, enum.Enum):
     PUBLISHED = "PUBLISHED"
     CLOSED = "CLOSED"
     REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
 
 
 class HiringSlotStatusEnum(str, enum.Enum):

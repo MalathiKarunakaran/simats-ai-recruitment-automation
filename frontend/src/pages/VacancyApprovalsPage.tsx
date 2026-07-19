@@ -24,6 +24,7 @@ const STATUS_ACTION_LABEL: Record<VacancyRequestStatus, string> = {
   PUBLISHED: "",
   CLOSED: "",
   REJECTED: "",
+  CANCELLED: "",
 };
 
 export function VacancyApprovalsPage() {

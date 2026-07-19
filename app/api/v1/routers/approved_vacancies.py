@@ -33,6 +33,7 @@ def _get_or_404_scoped(db: Session, approved_vacancy_id: uuid.UUID, scope: Campu
 def list_approved_vacancies(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    vacancy_request_id: uuid.UUID | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
@@ -40,6 +41,8 @@ def list_approved_vacancies(
     query = db.query(ApprovedVacancy)
     if not scope.is_global:
         query = query.filter(ApprovedVacancy.campus_id == scope.campus_id)
+    if vacancy_request_id is not None:
+        query = query.filter(ApprovedVacancy.vacancy_request_id == vacancy_request_id)
     total = query.count()
     rows = query.order_by(ApprovedVacancy.created_at.desc()).offset(offset).limit(limit).all()
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
