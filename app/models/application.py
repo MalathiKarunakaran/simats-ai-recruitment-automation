@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +41,13 @@ class Application(Base):
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     withdrawn_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Non-blocking eligibility-rule-engine flag (Phase 8 addendum, Stage 1) --
+    # set at creation time by app/services/eligibility.py, never blocks/
+    # rejects application creation. A human reviews it later (e.g. before
+    # rejecting via the normal pipeline).
+    qualification_mismatch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    qualification_mismatch_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Flat, spreadsheet-shaped fields for the real manual workflow -- kept
     # separate from InterviewSchedule/InterviewFeedback/Offer.salary_amount

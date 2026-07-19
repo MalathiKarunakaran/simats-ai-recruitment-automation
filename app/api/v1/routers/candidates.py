@@ -11,8 +11,9 @@ from app.core.deps import get_current_active_user, get_db, require_roles
 from app.models.candidate import Candidate
 from app.models.enums import UserRoleEnum
 from app.models.user import User
-from app.schemas.candidate import CandidateCreate, CandidateRead
+from app.schemas.candidate import CandidateCreate, CandidateRead, CandidateWithdrawRequest
 from app.schemas.common import PaginatedResponse
+from app.services import candidates as candidates_service
 from app.services import storage
 from app.services.audit import log_create, log_update
 from app.services.storage import get_minio_client
@@ -71,12 +72,15 @@ def list_candidates(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     email: str | None = Query(None),
+    is_withdrawn: bool | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
 ) -> PaginatedResponse[CandidateRead]:
     query = db.query(Candidate)
     if email is not None:
         query = query.filter(Candidate.email.ilike(f"%{email}%"))
+    if is_withdrawn is not None:
+        query = query.filter(Candidate.is_withdrawn == is_withdrawn)
     total = query.count()
     rows = query.order_by(Candidate.created_at.desc()).offset(offset).limit(limit).all()
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
@@ -91,6 +95,30 @@ def get_candidate(
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return candidate
+
+
+@router.post("/{candidate_id}/withdraw", response_model=CandidateRead)
+def withdraw_candidate(
+    candidate_id: uuid.UUID,
+    payload: CandidateWithdrawRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+) -> Candidate:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    candidates_service.withdraw_candidate(
+        db,
+        candidate=candidate,
+        reason=payload.reason,
+        actor=current_user,
+        request=request,
+    )
+    db.commit()
+    db.refresh(candidate)
     return candidate
 
 

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import Boolean, DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,14 @@ class Candidate(Base):
     # Who referred the candidate -- only meaningful (and required, enforced
     # in the schema) when source == "Reference".
     reference_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
+    # Soft-delete/withdraw -- a candidate is never hard-deleted (their
+    # Applications/Employee records must remain queryable for audit/reporting),
+    # so this is a flag + timestamp + reason, mirroring Employee's
+    # employment_status/separation_date/separation_reason offboarding pattern.
+    is_withdrawn: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    withdrawn_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

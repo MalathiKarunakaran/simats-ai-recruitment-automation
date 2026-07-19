@@ -48,6 +48,9 @@ const CANDIDATE: CandidateRead = {
   resume_storage_key: null,
   source: null,
   reference_name: null,
+  is_withdrawn: false,
+  withdrawn_at: null,
+  withdrawn_reason: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -78,6 +81,8 @@ function makeApplication(overrides: Partial<ApplicationRead> = {}): ApplicationR
     room_allotted: null,
     orientation_date: null,
     hod_assigned: null,
+    qualification_mismatch: false,
+    qualification_mismatch_reason: null,
     created_at: "2026-01-02T00:00:00Z",
     updated_at: "2026-01-02T00:00:00Z",
     ...overrides,
@@ -260,6 +265,49 @@ describe("ApplicationDetailPage", () => {
     await waitFor(() => expect(screen.getByText("Not screened yet.")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Screen resume" })).toBeDisabled();
     expect(screen.getByText("Candidate has no uploaded resume yet.")).toBeInTheDocument();
+  });
+
+  it("shows the Qualification Mismatch banner when flagged, including inside the reject dialog", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetApplication.mockResolvedValue(
+      makeApplication({
+        qualification_mismatch: true,
+        qualification_mismatch_reason: "PhD-requiring Teaching position at SCAD has no active eligibility rule.",
+      }),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getAllByText("Qualification Mismatch").length).toBeGreaterThan(0));
+    expect(
+      screen.getByText("PhD-requiring Teaching position at SCAD has no active eligibility rule."),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Reject"));
+
+    // The banner is duplicated inside the reject dialog so a human sees the
+    // reason before confirming a rejection -- there should now be 2 copies.
+    await waitFor(() => expect(screen.getAllByText("Qualification Mismatch").length).toBe(2));
+  });
+
+  it("does not show the Qualification Mismatch banner when not flagged", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetApplication.mockResolvedValue(makeApplication({ qualification_mismatch: false }));
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.queryByText("Qualification Mismatch")).not.toBeInTheDocument();
   });
 
   it("enables screening and renders the score once the candidate has a resume and is screened", async () => {

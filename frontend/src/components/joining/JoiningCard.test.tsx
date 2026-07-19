@@ -56,6 +56,8 @@ function makeApplication(overrides: Partial<ApplicationRead> = {}): ApplicationR
     room_allotted: null,
     orientation_date: null,
     hod_assigned: null,
+    qualification_mismatch: false,
+    qualification_mismatch_reason: null,
     created_at: "2026-01-02T00:00:00Z",
     updated_at: "2026-01-02T00:00:00Z",
     ...overrides,

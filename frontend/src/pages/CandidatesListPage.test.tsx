@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -25,6 +26,9 @@ const CANDIDATE: CandidateRead = {
   resume_storage_key: null,
   source: "Referral",
   reference_name: null,
+  is_withdrawn: false,
+  withdrawn_at: null,
+  withdrawn_reason: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -78,5 +82,42 @@ describe("CandidatesListPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/No candidates found/)).toBeInTheDocument());
     expect(screen.queryByText("New candidate")).not.toBeInTheDocument();
+  });
+
+  it("renders a status badge per row", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "John Smith", is_withdrawn: true },
+    ]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.getByText("Withdrawn")).toBeInTheDocument();
+  });
+
+  it("threads the status filter into listCandidates as isWithdrawn", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListCandidates.mockResolvedValue([CANDIDATE]);
+
+    renderPage();
+    await waitFor(() => expect(mockedListCandidates).toHaveBeenCalledWith(undefined, undefined));
+
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByText("Withdrawn"));
+
+    await waitFor(() => expect(mockedListCandidates).toHaveBeenCalledWith(undefined, true));
   });
 });

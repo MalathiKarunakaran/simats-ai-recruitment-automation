@@ -326,6 +326,18 @@ export function ApplicationDetailPage() {
         </Card>
       ) : null}
 
+      {application.qualification_mismatch ? (
+        <div className="flex flex-col gap-1 rounded-lg border border-brand-orange/30 bg-brand-orange/10 p-4 text-sm">
+          <div className="flex items-center gap-2">
+            <Badge variant="warning">Qualification Mismatch</Badge>
+          </div>
+          <p className="text-foreground/90">
+            {application.qualification_mismatch_reason ??
+              "This application's declared qualification does not match an active eligibility rule for its campus. This is informational only -- it never auto-rejects a candidate."}
+          </p>
+        </div>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Details</CardTitle>
@@ -587,6 +599,17 @@ export function ApplicationDetailPage() {
               <DialogHeader>
                 <DialogTitle>Reject application</DialogTitle>
               </DialogHeader>
+              {application.qualification_mismatch ? (
+                <div className="mb-4 flex flex-col gap-1 rounded-lg border border-brand-orange/30 bg-brand-orange/10 p-3 text-sm">
+                  <Badge variant="warning" className="w-fit">
+                    Qualification Mismatch
+                  </Badge>
+                  <p className="text-foreground/90">
+                    {application.qualification_mismatch_reason ??
+                      "This application's declared qualification does not match an active eligibility rule for its campus."}
+                  </p>
+                </div>
+              ) : null}
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="reject_reason">Reason</Label>
                 <Textarea

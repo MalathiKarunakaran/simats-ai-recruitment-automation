@@ -536,7 +536,12 @@ def published_vacancy_factory(db_session, campus_factory, department_factory, us
     exactly what the API does -- so tests exercise the same code path.
     Returns a SimpleNamespace with all the created entities/actors."""
 
-    def _make(campus_code: str = "SSE", slot_count: int = 2, role_category: StaffRoleCategoryEnum = StaffRoleCategoryEnum.TEACHING):
+    def _make(
+        campus_code: str = "SSE",
+        slot_count: int = 2,
+        role_category: StaffRoleCategoryEnum = StaffRoleCategoryEnum.TEACHING,
+        qualification: str = "Test qualification",
+    ):
         campus = campus_factory(campus_code)
         department = department_factory(campus_code)
         hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code=campus_code)
@@ -551,7 +556,7 @@ def published_vacancy_factory(db_session, campus_factory, department_factory, us
             position_title=f"Position-{uuid.uuid4().hex[:8]}",
             employment_type=EmploymentTypeEnum.FULL_TIME,
             requested_count=slot_count,
-            qualification="Test qualification",
+            qualification=qualification,
             experience_required="Test experience",
             requested_by_id=hod.id,
         )

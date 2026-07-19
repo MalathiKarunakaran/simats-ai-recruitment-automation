@@ -10,6 +10,7 @@ import { CandidateCreatePage } from "@/pages/CandidateCreatePage";
 import { CandidateDetailPage } from "@/pages/CandidateDetailPage";
 import { CandidatesListPage } from "@/pages/CandidatesListPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { EligibilityRulesPage } from "@/pages/EligibilityRulesPage";
 import { EmployeeDetailPage } from "@/pages/EmployeeDetailPage";
 import { EmployeesListPage } from "@/pages/EmployeesListPage";
 import { InterviewCreatePage } from "@/pages/InterviewCreatePage";
@@ -72,6 +73,7 @@ export function App() {
           <Route path="/users" element={<UsersListPage />} />
           <Route path="/users/new" element={<UserCreatePage />} />
           <Route path="/users/:id" element={<UserDetailPage />} />
+          <Route path="/eligibility-rules" element={<EligibilityRulesPage />} />
         </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

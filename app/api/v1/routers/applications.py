@@ -24,7 +24,7 @@ from app.schemas.application import (
     ApplicationStatusTransitionRequest,
 )
 from app.schemas.common import PaginatedResponse
-from app.services import pipeline
+from app.services import eligibility, pipeline
 from app.services.audit import log_create, log_update
 
 router = APIRouter(prefix="/applications", tags=["applications"])
@@ -77,12 +77,28 @@ def create_application(
             status_code=status.HTTP_409_CONFLICT, detail="This candidate has already applied to this posting"
         )
 
+    # Non-blocking eligibility-rule-engine check -- checked against the
+    # vacancy's own declared configuration (no candidate-side qualification
+    # data exists yet at this point; resume screening happens later). Never
+    # blocks or rejects application creation, only sets a flag for a human
+    # to review later.
+    vacancy_request = job_posting.approved_vacancy.vacancy_request
+    qualification_mismatch, qualification_mismatch_reason = eligibility.check_qualification_mismatch(
+        db,
+        campus_id=job_posting.campus_id,
+        role_category=vacancy_request.role_category,
+        position_title=vacancy_request.position_title,
+        qualification_text=vacancy_request.qualification,
+    )
+
     application = Application(
         candidate_id=candidate.id,
         job_posting_id=job_posting.id,
         campus_id=job_posting.campus_id,
         applied_at=datetime.now(timezone.utc),
         recorded_by_id=current_user.id,
+        qualification_mismatch=qualification_mismatch,
+        qualification_mismatch_reason=qualification_mismatch_reason,
     )
     db.add(application)
     db.flush()
@@ -92,7 +108,11 @@ def create_application(
         entity_type="Application",
         entity=application,
         campus_context_id=application.campus_id,
-        after_state={"status": application.status.value},
+        after_state={
+            "status": application.status.value,
+            "qualification_mismatch": application.qualification_mismatch,
+            "qualification_mismatch_reason": application.qualification_mismatch_reason,
+        },
         request=request,
     )
     db.commit()

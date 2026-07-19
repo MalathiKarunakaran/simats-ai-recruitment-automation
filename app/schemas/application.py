@@ -46,6 +46,8 @@ class ApplicationRead(BaseModel):
     rejected_at: datetime | None
     withdrawn_reason: str | None
     withdrawn_at: datetime | None
+    qualification_mismatch: bool
+    qualification_mismatch_reason: str | None
     panel_members: str | None
     panel_result: str | None
     panel_remarks: str | None

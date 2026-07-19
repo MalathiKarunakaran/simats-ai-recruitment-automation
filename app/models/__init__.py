@@ -21,3 +21,4 @@ from app.models.employee import Employee  # noqa: F401
 from app.models.resume_score import ResumeScore  # noqa: F401
 from app.models.interview import InterviewFeedback, InterviewPanelAssignment, InterviewSchedule  # noqa: F401
 from app.models.notification import Notification  # noqa: F401
+from app.models.eligibility_rule import EligibilityRule  # noqa: F401

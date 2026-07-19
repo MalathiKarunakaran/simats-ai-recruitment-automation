@@ -29,6 +29,7 @@ from app.models.application import Application
 from app.models.candidate import Candidate
 from app.models.campus import Campus
 from app.models.department import Department
+from app.models.eligibility_rule import EligibilityRule
 from app.models.enums import (
     CAMPUS_CODES,
     ApplicationStatusEnum,
@@ -48,6 +49,7 @@ from app.models.resume_score import ResumeScore
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.schemas.interview import InterviewFeedbackCreate
+from app.services import eligibility as eligibility_service
 from app.services import interviews as interviews_service
 from app.services import joining as joining_service
 from app.services import pipeline, vacancy_workflow
@@ -119,6 +121,99 @@ def _get_existing_vacancy_request(db, campus: Campus, position_title: str) -> Va
         .filter(VacancyRequest.campus_id == campus.id, VacancyRequest.position_title == position_title)
         .one_or_none()
     )
+
+
+def _get_or_create_eligibility_rule(
+    db, *, campus: Campus, staff_category: StaffRoleCategoryEnum, keyword: str
+) -> EligibilityRule:
+    rule = (
+        db.query(EligibilityRule)
+        .filter(
+            EligibilityRule.campus_id == campus.id,
+            EligibilityRule.staff_category == staff_category,
+            EligibilityRule.position_title.is_(None),
+            EligibilityRule.required_qualification_keyword == keyword,
+        )
+        .one_or_none()
+    )
+    if rule is None:
+        rule = EligibilityRule(
+            campus_id=campus.id,
+            staff_category=staff_category,
+            position_title=None,
+            required_qualification_keyword=keyword,
+            is_active=True,
+            notes="Seed demo -- PhD-requiring Teaching positions permitted at this campus.",
+        )
+        db.add(rule)
+        db.flush()
+    return rule
+
+
+def _seed_phase8_eligibility_rules_demo(db, *, campuses) -> None:
+    """The spec's own literal example: PhD-requiring Teaching positions are
+    permitted at SSE/SCLAS/SSPE (wildcard position_title -- applies to all
+    Teaching positions at those campuses), and nowhere else. See
+    app/services/eligibility.py."""
+    for code in ("SSE", "SCLAS", "SSPE"):
+        _get_or_create_eligibility_rule(
+            db, campus=campuses[code], staff_category=StaffRoleCategoryEnum.TEACHING, keyword="PHD"
+        )
+
+
+def _seed_scenario_eligibility_mismatch_demo(db, *, campus, department, hod, dean, hr_admin) -> None:
+    """A Teaching + PhD-qualification vacancy at SCAD -- a campus NOT in the
+    eligibility rules table -- published and applied to directly (bypassing
+    the /applications API, same as every other seed scenario), so the
+    resulting Application's qualification_mismatch flag is visible live
+    without any manual setup. Mirrors what create_application does: calls
+    the real eligibility service and sets the two flag fields."""
+    position_title = "Associate Professor (Eligibility Demo)"
+    if _get_existing_vacancy_request(db, campus, position_title) is not None:
+        return
+
+    vr = VacancyRequest(
+        campus_id=campus.id,
+        department_id=department.id,
+        role_category=StaffRoleCategoryEnum.TEACHING,
+        position_title=position_title,
+        employment_type=EmploymentTypeEnum.FULL_TIME,
+        requested_count=1,
+        qualification="PhD in a relevant field required",
+        experience_required="2+ years teaching experience",
+        priority=VacancyPriorityEnum.NORMAL,
+        requested_by_id=hod.id,
+    )
+    db.add(vr)
+    db.flush()
+
+    vacancy_workflow.submit(db, vr, hod, None)
+    vacancy_workflow.dean_approve(db, vr, dean, None)
+    approved_vacancy = vacancy_workflow.hr_approve(db, vr, hr_admin, None)
+    job_posting = vacancy_workflow.publish(db, vr, approved_vacancy, hr_admin, None)
+    db.flush()
+
+    candidate = _get_or_create_candidate(
+        db, email="dana.faculty.demo@example.com", full_name="Dana Faculty (Eligibility Demo)", source="Seed demo"
+    )
+    qualification_mismatch, qualification_mismatch_reason = eligibility_service.check_qualification_mismatch(
+        db,
+        campus_id=job_posting.campus_id,
+        role_category=vr.role_category,
+        position_title=vr.position_title,
+        qualification_text=vr.qualification,
+    )
+    application = Application(
+        candidate_id=candidate.id,
+        job_posting_id=job_posting.id,
+        campus_id=job_posting.campus_id,
+        applied_at=datetime.now(timezone.utc),
+        recorded_by_id=hr_admin.id,
+        qualification_mismatch=qualification_mismatch,
+        qualification_mismatch_reason=qualification_mismatch_reason,
+    )
+    db.add(application)
+    db.flush()
 
 
 def _seed_scenario_full_happy_path(db, *, campus, department, hod, dean, hr_admin, recruitment_officer) -> None:
@@ -579,10 +674,20 @@ def seed() -> None:
         )
         _seed_phase3_demo(db, campuses=campuses, departments=departments, hod_sse=hod_sse, hr_admin=hr_admin)
 
+        _seed_phase8_eligibility_rules_demo(db, campuses=campuses)
+        _seed_scenario_eligibility_mismatch_demo(
+            db,
+            campus=campuses["SCAD"],
+            department=departments["SCAD"][0],
+            hod=hod_scad,
+            dean=associate_dean,
+            hr_admin=hr_admin,
+        )
+
         db.commit()
         print(
             f"Seed complete: {len(campuses)} campuses, sample users across all 8 roles, "
-            "Phase 2 + Phase 3 demo scenarios."
+            "Phase 2 + Phase 3 demo scenarios, Phase 8 eligibility-rules demo."
         )
     finally:
         db.close()

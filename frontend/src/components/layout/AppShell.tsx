@@ -7,6 +7,7 @@ import {
   History,
   IdCard,
   LayoutDashboard,
+  ListChecks,
   Newspaper,
   Settings,
   Upload,
@@ -88,6 +89,16 @@ const NAV_ITEMS: NavItem[] = [
     enabled: true,
     // Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES -- only these roles
     // can actually create/edit users, so only they see the nav link.
+    visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN"],
+  },
+  {
+    to: "/eligibility-rules",
+    label: "Eligibility Rules",
+    icon: ListChecks,
+    enabled: true,
+    // Mirrors app/api/v1/routers/eligibility_rules.py's write-role gate
+    // (SUPER_ADMIN/HR_ADMIN only) -- reads are staff-only, but only these
+    // roles can actually manage rules on this admin page.
     visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN"],
   },
   {

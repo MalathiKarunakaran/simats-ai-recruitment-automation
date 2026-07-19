@@ -34,6 +34,9 @@ const CANDIDATE: CandidateRead = {
   resume_storage_key: null,
   source: null,
   reference_name: null,
+  is_withdrawn: false,
+  withdrawn_at: null,
+  withdrawn_reason: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -63,6 +66,8 @@ const APPLICATION: ApplicationRead = {
   room_allotted: null,
   orientation_date: null,
   hod_assigned: null,
+  qualification_mismatch: false,
+  qualification_mismatch_reason: null,
   created_at: "2026-01-02T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
 };

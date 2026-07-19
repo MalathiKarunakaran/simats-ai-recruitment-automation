@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 CandidateSource = Literal["Reference", "Job Portal", "FacultyPlus", "Walk-in"]
 
@@ -31,5 +31,12 @@ class CandidateRead(BaseModel):
     resume_storage_key: str | None
     source: str | None
     reference_name: str | None
+    is_withdrawn: bool
+    withdrawn_at: datetime | None
+    withdrawn_reason: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class CandidateWithdrawRequest(BaseModel):
+    reason: str = Field(min_length=1)

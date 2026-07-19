@@ -30,6 +30,11 @@ export const SINGLE_CAMPUS_SCOPE_ROLES: readonly UserRole[] = [
 // create/update/deactivate other users.
 export const USER_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
 
+// Mirrors app/api/v1/routers/eligibility_rules.py's write-role gate --
+// roles allowed to create/update eligibility rules (reads are staff-only,
+// same as departments).
+export const ELIGIBILITY_RULE_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
+
 // Every staff-assignable role -- excludes CANDIDATE, which is never created
 // through the admin Users UI (candidates are tracked via the separate
 // Candidate model, not a login-capable User).
@@ -154,6 +159,32 @@ export interface DepartmentRead {
   created_at: string;
   updated_at: string;
 }
+
+// Mirrors app/schemas/eligibility_rule.py::EligibilityRuleRead.
+export interface EligibilityRule {
+  id: string;
+  campus_id: string;
+  staff_category: StaffRoleCategory;
+  position_title: string | null;
+  required_qualification_keyword: string;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/eligibility_rule.py::EligibilityRuleCreate.
+export interface EligibilityRuleCreatePayload {
+  campus_id: string;
+  staff_category: StaffRoleCategory;
+  position_title?: string | null;
+  required_qualification_keyword: string;
+  is_active?: boolean;
+  notes?: string | null;
+}
+
+// Mirrors app/schemas/eligibility_rule.py::EligibilityRuleUpdate.
+export type EligibilityRuleUpdatePayload = Partial<EligibilityRuleCreatePayload>;
 
 // Mirrors app/models/enums.py::VacancyRequestStatusEnum.
 export type VacancyRequestStatus = "DRAFT" | "SUBMITTED" | "DEAN_APPROVED" | "APPROVED" | "PUBLISHED" | "CLOSED" | "REJECTED";
@@ -423,6 +454,10 @@ export interface ApplicationRead {
   room_allotted: string | null;
   orientation_date: string | null;
   hod_assigned: string | null;
+  // Mirrors app/services/eligibility.py's non-blocking flag -- purely
+  // informational, set at application-creation time; never auto-rejects.
+  qualification_mismatch: boolean;
+  qualification_mismatch_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -511,6 +546,9 @@ export interface CandidateRead {
   resume_storage_key: string | null;
   source: string | null;
   reference_name: string | null;
+  is_withdrawn: boolean;
+  withdrawn_at: string | null;
+  withdrawn_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -522,6 +560,14 @@ export interface CandidateCreatePayload {
   phone_number?: string | null;
   source?: CandidateSource | null;
   reference_name?: string | null;
+}
+
+// Mirrors app/schemas/candidate.py::CandidateWithdrawRequest -- a one-way,
+// never-reactivated soft withdraw (same shape as EmployeeOffboardPayload's
+// terminal-state pattern, but with no separation-type Select since a
+// candidate withdraw has only the one outcome).
+export interface CandidateWithdrawPayload {
+  reason: string;
 }
 
 // Mirrors app/models/enums.py::InterviewTypeEnum.

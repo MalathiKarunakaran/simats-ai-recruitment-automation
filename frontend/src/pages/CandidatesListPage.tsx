@@ -4,37 +4,62 @@ import { Link } from "react-router-dom";
 
 import { listCandidates } from "@/api/candidates";
 import { useAuth } from "@/auth/AuthContext";
+import { StatusBadge } from "@/components/candidates/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+// Mirrors the backend's RECRUITMENT_OFFICER/HR_ADMIN/SUPER_ADMIN gate on
+// both candidate creation and POST /candidates/{id}/withdraw
+// (app/api/v1/routers/candidates.py) -- routine candidate management, not
+// HR-exclusive like employee offboarding. Shared with CandidateDetailPage.
+export const CAN_MANAGE_CANDIDATES_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+
+type StatusFilter = "ACTIVE" | "WITHDRAWN" | "ALL";
 
 export function CandidatesListPage() {
   const { user } = useAuth();
   const [emailFilter, setEmailFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+
+  const isWithdrawn = statusFilter === "ALL" ? undefined : statusFilter === "WITHDRAWN";
 
   const { data: candidates, isLoading } = useQuery({
-    queryKey: ["candidates", emailFilter],
-    queryFn: () => listCandidates(emailFilter || undefined),
+    queryKey: ["candidates", emailFilter, isWithdrawn],
+    queryFn: () => listCandidates(emailFilter || undefined, isWithdrawn),
   });
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Candidates</h1>
-        {user && CAN_CREATE_ROLES.includes(user.role) ? (
+        {user && CAN_MANAGE_CANDIDATES_ROLES.includes(user.role) ? (
           <Button asChild>
             <Link to="/candidates/new">New candidate</Link>
           </Button>
         ) : null}
       </div>
 
-      <div className="w-72">
-        <Input
-          placeholder="Search by email"
-          value={emailFilter}
-          onChange={(e) => setEmailFilter(e.target.value)}
-        />
+      <div className="flex items-center gap-3">
+        <div className="w-72">
+          <Input
+            placeholder="Search by email"
+            value={emailFilter}
+            onChange={(e) => setEmailFilter(e.target.value)}
+          />
+        </div>
+        <div className="w-56">
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All statuses</SelectItem>
+              <SelectItem value="ACTIVE">Active</SelectItem>
+              <SelectItem value="WITHDRAWN">Withdrawn</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? (
@@ -50,6 +75,7 @@ export function CandidatesListPage() {
               <th className="py-2 font-medium">Phone</th>
               <th className="py-2 font-medium">Source</th>
               <th className="py-2 font-medium">Resume</th>
+              <th className="py-2 font-medium">Status</th>
               <th className="py-2 font-medium">Created</th>
             </tr>
           </thead>
@@ -65,6 +91,9 @@ export function CandidatesListPage() {
                 <td className="py-2">{candidate.phone_number ?? "—"}</td>
                 <td className="py-2">{candidate.source ?? "—"}</td>
                 <td className="py-2">{candidate.resume_storage_key ? "Yes" : "No"}</td>
+                <td className="py-2">
+                  <StatusBadge status={candidate.is_withdrawn} />
+                </td>
                 <td className="py-2">{new Date(candidate.created_at).toLocaleDateString()}</td>
               </tr>
             ))}
