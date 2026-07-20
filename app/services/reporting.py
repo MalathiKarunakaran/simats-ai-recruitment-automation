@@ -38,6 +38,11 @@ Metric definitions (documented since none of these are literal DB fields):
   Application.applied_at (or the equivalent business timestamp) within the
   range. Omitting both preserves the exact prior all-time/today behavior --
   this is additive, not a breaking change to existing callers.
+  build_ad_briefing_summary accepts the same two params (threaded straight
+  into get_dashboard_kpis) so the weekly-director-briefing PPTX can be scoped
+  to "this week" instead of always meaning "today" -- campus_role_breakdown's
+  own open/in_pipeline/hired columns stay point-in-time regardless (mirrors
+  campus_wise_hiring's hired_count, which is likewise never date-filtered).
 """
 
 from collections.abc import Callable
@@ -524,9 +529,23 @@ REPORT_BUILDERS: dict[str, Callable[..., dict]] = {
 }
 
 
-def build_ad_briefing_summary(db: Session, scope: CampusScope, campus_code: str | None = None) -> dict:
+def build_ad_briefing_summary(
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
-    kpis = get_dashboard_kpis(db, scope, campus_code=campus_code, role_category=None)
+    kpis = get_dashboard_kpis(
+        db, scope, campus_code=campus_code, role_category=None, start_date=start_date, end_date=end_date
+    )
+    if start_date is None and end_date is None:
+        period_label = "Today"
+    elif start_date == end_date:
+        period_label = str(start_date)
+    else:
+        period_label = f"{start_date if start_date else '…'} to {end_date if end_date else '…'}"
     kpi_headline = {
         "total_applications": kpis["total_applications"],
         "open_positions": kpis["open_positions"],
@@ -581,6 +600,7 @@ def build_ad_briefing_summary(db: Session, scope: CampusScope, campus_code: str 
     return {
         "scope_note": scope_note,
         "generated_at": datetime.now(timezone.utc),
+        "period_label": period_label,
         "kpi_headline": kpi_headline,
         "campus_role_breakdown": campus_role_breakdown,
     }

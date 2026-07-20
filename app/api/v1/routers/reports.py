@@ -1,5 +1,5 @@
 import io
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -44,24 +44,34 @@ def _build_report(
 @router.get("/ad-briefing", response_model=ADBriefingResponse)
 def get_ad_briefing(
     campus_code: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> ADBriefingResponse:
     validated_campus_code = reporting.validate_campus_code(campus_code)
-    summary = reporting.build_ad_briefing_summary(db, scope, campus_code=validated_campus_code)
+    reporting.validate_date_range(start_date, end_date)
+    summary = reporting.build_ad_briefing_summary(
+        db, scope, campus_code=validated_campus_code, start_date=start_date, end_date=end_date
+    )
     return ADBriefingResponse(**summary)
 
 
 @router.get("/ad-briefing/export")
 def export_ad_briefing(
     campus_code: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> StreamingResponse:
     validated_campus_code = reporting.validate_campus_code(campus_code)
-    summary = reporting.build_ad_briefing_summary(db, scope, campus_code=validated_campus_code)
+    reporting.validate_date_range(start_date, end_date)
+    summary = reporting.build_ad_briefing_summary(
+        db, scope, campus_code=validated_campus_code, start_date=start_date, end_date=end_date
+    )
     pptx_bytes = exports.build_ad_briefing_pptx(summary)
     filename = f"simats-ad-briefing-{datetime.now(timezone.utc):%Y%m%d}.pptx"
     return StreamingResponse(

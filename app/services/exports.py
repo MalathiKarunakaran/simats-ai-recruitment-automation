@@ -86,9 +86,10 @@ def build_ad_briefing_pptx(summary: dict) -> bytes:
     subtitle_run.font.color.rgb = _WHITE
 
     kpi = summary["kpi_headline"]
+    period_label = summary["period_label"]
     kpi_text = (
         f"Applications: {kpi['total_applications']}  |  Open positions: {kpi['open_positions']}  |  "
-        f"Interviews today: {kpi['interviews_today']}  |  Joinings today: {kpi['joinings_today']}  |  "
+        f"Interviews ({period_label}): {kpi['interviews_today']}  |  Joinings ({period_label}): {kpi['joinings_today']}  |  "
         f"Offers pending: {kpi['offers_pending']}  |  Closure rate: {kpi['vacancy_closure_rate_pct']}%"
     )
     kpi_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.7), Inches(12.3), Inches(0.6))

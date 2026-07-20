@@ -29,6 +29,7 @@ const FUNNEL_REPORT: ReportResponse = {
 const BRIEFING: ADBriefingResponse = {
   scope_note: "Global access: results span all campuses.",
   generated_at: "2026-01-01T00:00:00Z",
+  period_label: "Today",
   kpi_headline: {
     total_applications: 5,
     open_positions: 1,
@@ -76,6 +77,27 @@ describe("ReportsPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText(/No data in this scope yet/)).toBeInTheDocument());
+  });
+
+  it("shows the AD briefing's period label and re-fetches with a date range when selected", async () => {
+    mockedGetReport.mockResolvedValue(FUNNEL_REPORT);
+    mockedGetAdBriefing.mockResolvedValue(BRIEFING);
+
+    renderPage();
+    await waitFor(() =>
+      expect(mockedGetAdBriefing).toHaveBeenCalledWith({ campusCode: null, startDate: null, endDate: null }),
+    );
+    expect(await screen.findByText(/showing: Today/)).toBeInTheDocument();
+
+    mockedGetAdBriefing.mockResolvedValue({ ...BRIEFING, period_label: "This week" });
+    await userEvent.click(screen.getByRole("button", { name: /All time/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "This week" }));
+
+    await waitFor(() =>
+      expect(mockedGetAdBriefing).toHaveBeenCalledWith(
+        expect.objectContaining({ campusCode: null, startDate: expect.any(String), endDate: expect.any(String) }),
+      ),
+    );
   });
 
   it("re-fetches with the new report type when the selector changes", async () => {

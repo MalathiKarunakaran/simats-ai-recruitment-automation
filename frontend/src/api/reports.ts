@@ -6,6 +6,12 @@ interface ReportFilters {
   roleCategory?: string | null;
 }
 
+interface AdBriefingFilters {
+  campusCode?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
 function buildParams(filters: ReportFilters): string {
   const params = new URLSearchParams();
   if (filters.campusCode) params.set("campus_code", filters.campusCode);
@@ -14,12 +20,21 @@ function buildParams(filters: ReportFilters): string {
   return query ? `?${query}` : "";
 }
 
+function buildAdBriefingParams(filters: AdBriefingFilters): string {
+  const params = new URLSearchParams();
+  if (filters.campusCode) params.set("campus_code", filters.campusCode);
+  if (filters.startDate) params.set("start_date", filters.startDate);
+  if (filters.endDate) params.set("end_date", filters.endDate);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 export async function getReport(reportType: ReportType, filters: ReportFilters = {}): Promise<ReportResponse> {
   return apiFetch<ReportResponse>(`/reports/${reportType}${buildParams(filters)}`);
 }
 
-export async function getAdBriefing(filters: Pick<ReportFilters, "campusCode"> = {}): Promise<ADBriefingResponse> {
-  return apiFetch<ADBriefingResponse>(`/reports/ad-briefing${buildParams(filters)}`);
+export async function getAdBriefing(filters: AdBriefingFilters = {}): Promise<ADBriefingResponse> {
+  return apiFetch<ADBriefingResponse>(`/reports/ad-briefing${buildAdBriefingParams(filters)}`);
 }
 
 /** Downloads a Blob (auth-header-carrying) and triggers a browser save --
@@ -40,8 +55,8 @@ export async function downloadReportExport(reportType: ReportType, filters: Repo
   triggerDownload(blob, `simats-${reportType}-${date}.xlsx`);
 }
 
-export async function downloadAdBriefingExport(filters: Pick<ReportFilters, "campusCode"> = {}): Promise<void> {
-  const blob = await apiFetchBlob(`/reports/ad-briefing/export${buildParams(filters)}`);
+export async function downloadAdBriefingExport(filters: AdBriefingFilters = {}): Promise<void> {
+  const blob = await apiFetchBlob(`/reports/ad-briefing/export${buildAdBriefingParams(filters)}`);
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   triggerDownload(blob, `simats-ad-briefing-${date}.pptx`);
 }

@@ -32,5 +32,6 @@ class ReportResponse(BaseModel):
 class ADBriefingResponse(BaseModel):
     scope_note: str
     generated_at: datetime
+    period_label: str
     kpi_headline: dict[str, Any]
     campus_role_breakdown: list[dict[str, Any]]

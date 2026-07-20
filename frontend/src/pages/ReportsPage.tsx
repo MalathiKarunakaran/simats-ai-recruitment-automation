@@ -4,6 +4,7 @@ import { useState } from "react";
 import { downloadAdBriefingExport, downloadReportExport, getAdBriefing, getReport } from "@/api/reports";
 import type { ReportType } from "@/api/types";
 import { useCampus } from "@/campus/CampusContext";
+import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
 import { GenericReportTable } from "@/components/reports/GenericReportTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,8 +25,8 @@ const ROLE_CATEGORIES = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
 const KPI_HEADLINE_LABELS: Record<string, string> = {
   total_applications: "Total applications",
   open_positions: "Open positions",
-  interviews_today: "Interviews today",
-  joinings_today: "Joinings today",
+  interviews_today: "Interviews",
+  joinings_today: "Joinings",
   offers_pending: "Offers pending",
   vacancy_closure_rate_pct: "Vacancy closure rate (%)",
 };
@@ -37,6 +38,7 @@ export function ReportsPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportingReport, setExportingReport] = useState(false);
   const [exportingBriefing, setExportingBriefing] = useState(false);
+  const [briefingDateRange, setBriefingDateRange] = useState<DateRangeValue>({ startDate: null, endDate: null });
 
   const { data: report, isLoading: reportLoading } = useQuery({
     queryKey: ["report", reportType, selectedCampusCode, roleCategory],
@@ -48,8 +50,13 @@ export function ReportsPage() {
   });
 
   const { data: briefing, isLoading: briefingLoading } = useQuery({
-    queryKey: ["ad-briefing", selectedCampusCode],
-    queryFn: () => getAdBriefing({ campusCode: selectedCampusCode }),
+    queryKey: ["ad-briefing", selectedCampusCode, briefingDateRange.startDate, briefingDateRange.endDate],
+    queryFn: () =>
+      getAdBriefing({
+        campusCode: selectedCampusCode,
+        startDate: briefingDateRange.startDate,
+        endDate: briefingDateRange.endDate,
+      }),
   });
 
   async function handleExportReport() {
@@ -71,7 +78,11 @@ export function ReportsPage() {
     setExportError(null);
     setExportingBriefing(true);
     try {
-      await downloadAdBriefingExport({ campusCode: selectedCampusCode });
+      await downloadAdBriefingExport({
+        campusCode: selectedCampusCode,
+        startDate: briefingDateRange.startDate,
+        endDate: briefingDateRange.endDate,
+      });
     } catch {
       setExportError("Failed to export AD briefing");
     } finally {
@@ -138,17 +149,24 @@ export function ReportsPage() {
           <CardTitle>AD Briefing</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-fit"
-            disabled={exportingBriefing}
-            onClick={() => void handleExportBriefing()}
-          >
-            {exportingBriefing ? "Exporting…" : "Export as PowerPoint"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <DateRangeControl value={briefingDateRange} onChange={setBriefingDateRange} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              disabled={exportingBriefing}
+              onClick={() => void handleExportBriefing()}
+            >
+              {exportingBriefing ? "Exporting…" : "Export as PowerPoint"}
+            </Button>
+          </div>
 
-          {briefing ? <p className="text-sm text-muted-foreground">{briefing.scope_note}</p> : null}
+          {briefing ? (
+            <p className="text-sm text-muted-foreground">
+              {briefing.scope_note} — showing: {briefing.period_label}
+            </p>
+          ) : null}
 
           {briefingLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>

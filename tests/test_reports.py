@@ -175,3 +175,70 @@ def test_ad_briefing_json_and_export(client, published_vacancy_factory, hired_em
         if shape.has_text_frame
     )
     assert "AD Briefing" in all_text
+
+
+def test_ad_briefing_defaults_to_today_period_label(client, published_vacancy_factory, hired_employee_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired_employee_factory(vacancy)
+
+    response = client.get("/api/v1/reports/ad-briefing", headers=auth_headers(client, vacancy.hr_admin))
+    assert response.status_code == 200
+    assert response.json()["period_label"] == "Today"
+
+
+def test_ad_briefing_date_range_narrows_kpi_headline_and_sets_period_label(
+    client, published_vacancy_factory, application_factory
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=2)
+    application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+
+    today = date.today()
+    week_ago = today - timedelta(days=7)
+
+    response = client.get(
+        "/api/v1/reports/ad-briefing",
+        headers=auth_headers(client, vacancy.hr_admin),
+        params={"start_date": week_ago.isoformat(), "end_date": today.isoformat()},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kpi_headline"]["total_applications"] == 1
+    assert body["period_label"] == f"{week_ago.isoformat()} to {today.isoformat()}"
+
+    future_start = today + timedelta(days=1)
+    excluding_response = client.get(
+        "/api/v1/reports/ad-briefing",
+        headers=auth_headers(client, vacancy.hr_admin),
+        params={"start_date": future_start.isoformat(), "end_date": future_start.isoformat()},
+    )
+    assert excluding_response.status_code == 200
+    assert excluding_response.json()["kpi_headline"]["total_applications"] == 0
+
+
+def test_ad_briefing_rejects_start_after_end_date(client, published_vacancy_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    today = date.today()
+
+    response = client.get(
+        "/api/v1/reports/ad-briefing",
+        headers=auth_headers(client, vacancy.hr_admin),
+        params={"start_date": today.isoformat(), "end_date": (today - timedelta(days=1)).isoformat()},
+    )
+    assert response.status_code == 422
+
+
+def test_ad_briefing_export_reflects_period_label_in_slide_text(client, published_vacancy_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    today = date.today()
+
+    response = client.get(
+        "/api/v1/reports/ad-briefing/export",
+        headers=auth_headers(client, vacancy.hr_admin),
+        params={"start_date": today.isoformat(), "end_date": today.isoformat()},
+    )
+    assert response.status_code == 200
+    presentation = Presentation(io.BytesIO(response.content))
+    all_text = " ".join(
+        shape.text_frame.text for shape in presentation.slides[0].shapes if shape.has_text_frame
+    )
+    assert f"Interviews ({today.isoformat()})" in all_text

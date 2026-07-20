@@ -812,6 +812,7 @@ export interface CampusRoleBreakdownRow {
 export interface ADBriefingResponse {
   scope_note: string;
   generated_at: string;
+  period_label: string;
   kpi_headline: Record<string, number>;
   campus_role_breakdown: CampusRoleBreakdownRow[];
 }
