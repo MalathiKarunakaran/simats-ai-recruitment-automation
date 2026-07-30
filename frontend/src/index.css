@@ -35,6 +35,15 @@
   --input: #e2dccb;
   --ring: #b8901f;
   --radius: 0.75rem;
+
+  /* Chart categorical palette -- deliberately NOT the brand gold/green/orange/
+     red set above, which failed the dataviz skill's CVD-separation validator
+     when tried as a chart series palette. Validated instead against this
+     theme's real card surface (#ffffff). */
+  --chart-1: #2a78d6;
+  --chart-2: #008300;
+  --chart-3: #e87ba4;
+  --chart-4: #eda100;
 }
 
 .dark {
@@ -55,6 +64,13 @@
   --border: #223349;
   --input: #223349;
   --ring: #c9a227;
+
+  /* Chart categorical palette -- validated against this theme's real card
+     surface (#101828). Keep in sync with the light-mode set above. */
+  --chart-1: #3987e5;
+  --chart-2: #008300;
+  --chart-3: #d55181;
+  --chart-4: #c98500;
 }
 
 @theme inline {
@@ -83,6 +99,11 @@
   --color-brand-gold-deep: var(--brand-gold-deep);
   --color-brand-green: var(--brand-green);
   --color-brand-orange: var(--brand-orange);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

@@ -5,6 +5,8 @@ import { getDashboardKpis } from "@/api/dashboard";
 import { downloadAdBriefingExport } from "@/api/reports";
 import type { DashboardKpis, StaffRoleCategory } from "@/api/types";
 import { useCampus } from "@/campus/CampusContext";
+import { CampusHiringChart } from "@/components/dashboard/CampusHiringChart";
+import { CategoryBarChart } from "@/components/dashboard/CategoryBarChart";
 import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
 import { StatTile, type StatAccent } from "@/components/dashboard/StatTile";
 import { Button } from "@/components/ui/button";
@@ -114,14 +116,10 @@ export function DashboardPage() {
             ) : !data || data.source_wise_breakdown.length === 0 ? (
               <p className="text-sm text-muted-foreground">No applications in this scope yet.</p>
             ) : (
-              <ul className="flex flex-col gap-2 text-sm">
-                {data.source_wise_breakdown.map((row) => (
-                  <li key={row.source} className="flex items-center justify-between">
-                    <span>{row.source}</span>
-                    <span className="font-display font-semibold tabular-nums">{row.count}</span>
-                  </li>
-                ))}
-              </ul>
+              <CategoryBarChart
+                ariaLabel="Source-wise split"
+                data={data.source_wise_breakdown.map((row) => ({ label: row.source, value: row.count }))}
+              />
             )}
           </CardContent>
         </Card>
@@ -131,23 +129,18 @@ export function DashboardPage() {
             <CardTitle>Category-wise split</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="flex flex-col gap-2 text-sm">
-              {ROLE_CATEGORIES.map(({ key, label }, i) => {
-                const q = categoryQueries[i];
-                return (
-                  <li key={key} className="flex items-center justify-between">
-                    <span>{label}</span>
-                    {q.isLoading ? (
-                      <div role="status" aria-label={`Loading ${label}`} className="h-4 w-8 animate-pulse rounded bg-muted" />
-                    ) : (
-                      <span className="font-display font-semibold tabular-nums">
-                        {q.data?.total_applications ?? "—"}
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+            {categoryQueries.some((q) => q.isLoading) ? (
+              <div role="status" aria-label="Loading category split" className="h-16 animate-pulse rounded bg-muted" />
+            ) : (
+              <CategoryBarChart
+                ariaLabel="Category-wise split"
+                data={ROLE_CATEGORIES.map(({ label }, i) => ({
+                  label,
+                  value: categoryQueries[i]?.data?.total_applications ?? 0,
+                }))}
+                color="var(--color-chart-2)"
+              />
+            )}
           </CardContent>
         </Card>
 
@@ -159,16 +152,14 @@ export function DashboardPage() {
             {isLoading ? (
               <div role="status" aria-label="Loading rejected vs withdrawn" className="h-16 animate-pulse rounded bg-muted" />
             ) : (
-              <ul className="flex flex-col gap-2 text-sm">
-                <li className="flex items-center justify-between">
-                  <span>Rejected</span>
-                  <span className="font-display font-semibold tabular-nums">{data?.rejected_count ?? 0}</span>
-                </li>
-                <li className="flex items-center justify-between">
-                  <span>Withdrawn</span>
-                  <span className="font-display font-semibold tabular-nums">{data?.withdrawn_count ?? 0}</span>
-                </li>
-              </ul>
+              <CategoryBarChart
+                ariaLabel="Rejected vs withdrawn"
+                data={[
+                  { label: "Rejected", value: data?.rejected_count ?? 0 },
+                  { label: "Withdrawn", value: data?.withdrawn_count ?? 0 },
+                ]}
+                color="var(--color-chart-4)"
+              />
             )}
           </CardContent>
         </Card>
@@ -184,26 +175,7 @@ export function DashboardPage() {
           ) : !data || data.campus_wise_hiring.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hires recorded in this scope yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="py-1.5 font-medium">Campus</th>
-                  <th className="py-1.5 font-medium">Hired</th>
-                  <th className="py-1.5 font-medium">Open</th>
-                  <th className="py-1.5 font-medium">In progress</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.campus_wise_hiring.map((row) => (
-                  <tr key={row.campus_code} className="border-b border-border last:border-0">
-                    <td className="py-1.5 font-mono text-xs">{row.campus_code}</td>
-                    <td className="py-1.5 font-display font-semibold tabular-nums">{row.hired_count}</td>
-                    <td className="py-1.5 tabular-nums">{row.open_count}</td>
-                    <td className="py-1.5 tabular-nums">{row.in_progress_count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <CampusHiringChart data={data.campus_wise_hiring} />
           )}
         </CardContent>
       </Card>
