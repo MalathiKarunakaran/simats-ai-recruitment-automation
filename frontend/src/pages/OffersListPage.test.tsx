@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as applicationsApi from "@/api/applications";
+import * as campusesApi from "@/api/campuses";
 import * as candidatesApi from "@/api/candidates";
 import * as offersApi from "@/api/offers";
 import type { ApplicationRead, CandidateRead, OfferRead, UserRead } from "@/api/types";
@@ -14,6 +16,7 @@ import { OffersListPage } from "@/pages/OffersListPage";
 vi.mock("@/api/offers");
 vi.mock("@/api/applications");
 vi.mock("@/api/candidates");
+vi.mock("@/api/campuses");
 vi.mock("@/hooks/useJobPostingLookup");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
@@ -24,6 +27,7 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListOffers = vi.mocked(offersApi.listOffers);
 const mockedListApplications = vi.mocked(applicationsApi.listApplications);
 const mockedListCandidates = vi.mocked(candidatesApi.listCandidates);
+const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
 
 const CANDIDATE: CandidateRead = {
@@ -111,6 +115,7 @@ describe("OffersListPage", () => {
     mockedListOffers.mockResolvedValue([OFFER]);
     mockedListApplications.mockResolvedValue([APPLICATION]);
     mockedListCandidates.mockResolvedValue([CANDIDATE]);
+    mockedListCampuses.mockResolvedValue([]);
     mockedUseJobPostingLookup.mockReturnValue({
       getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
       jobPostings: [],
@@ -134,6 +139,7 @@ describe("OffersListPage", () => {
     mockedListOffers.mockResolvedValue([OFFER]);
     mockedListApplications.mockResolvedValue([APPLICATION]);
     mockedListCandidates.mockResolvedValue([CANDIDATE]);
+    mockedListCampuses.mockResolvedValue([]);
     mockedUseJobPostingLookup.mockReturnValue({
       getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
       jobPostings: [],
@@ -157,5 +163,139 @@ describe("OffersListPage", () => {
     renderPage();
 
     expect(screen.getByText(/Only HR Admin, Super Admin, or Management/)).toBeInTheDocument();
+  });
+
+  it("narrows the list client-side by status without re-fetching", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const sentOffer: OfferRead = { ...OFFER, id: "offer-2", application_id: "app-2", status: "SENT" };
+    mockedListOffers.mockResolvedValue([OFFER, sentOffer]);
+    mockedListApplications.mockResolvedValue([
+      APPLICATION,
+      { ...APPLICATION, id: "app-2", candidate_id: "cand-2" },
+    ]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    const callCountBeforeFilter = mockedListOffers.mock.calls.length;
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SENT" }));
+
+    expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    expect(mockedListOffers).toHaveBeenCalledTimes(callCountBeforeFilter);
+  });
+
+  it("narrows the list client-side by campus (resolved via the application)", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const other: OfferRead = { ...OFFER, id: "offer-2", application_id: "app-2" };
+    mockedListOffers.mockResolvedValue([OFFER, other]);
+    mockedListApplications.mockResolvedValue([
+      APPLICATION,
+      { ...APPLICATION, id: "app-2", candidate_id: "cand-2", campus_id: "c-scad" },
+    ]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SCAD" }));
+
+    expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+  });
+
+  it("narrows the list client-side by a candidate-or-position search", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const other: OfferRead = { ...OFFER, id: "offer-2", application_id: "app-2" };
+    mockedListOffers.mockResolvedValue([OFFER, other]);
+    mockedListApplications.mockResolvedValue([
+      APPLICATION,
+      { ...APPLICATION, id: "app-2", candidate_id: "cand-2" },
+    ]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText("Search by candidate or position"), "john");
+
+    expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+  });
+
+  it("shows a filters-specific empty state when filters narrow a non-empty list to zero", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListOffers.mockResolvedValue([OFFER]);
+    mockedListApplications.mockResolvedValue([APPLICATION]);
+    mockedListCandidates.mockResolvedValue([CANDIDATE]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByPlaceholderText("Search by candidate or position"), "nonexistent");
+
+    expect(await screen.findByText("No offers match these filters.")).toBeInTheDocument();
   });
 });
