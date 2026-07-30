@@ -121,7 +121,7 @@ describe("VacancyRequestsListPage", () => {
     renderPage();
     await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith(null));
 
-    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
     await userEvent.click(await screen.findByRole("option", { name: "SUBMITTED" }));
 
     await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith("SUBMITTED"));
@@ -140,9 +140,78 @@ describe("VacancyRequestsListPage", () => {
     renderPage();
     await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith(null));
 
-    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
     await userEvent.click(await screen.findByRole("option", { name: "CANCELLED" }));
 
     await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith("CANCELLED"));
+  });
+
+  it("narrows the list client-side by campus without re-fetching", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const other = { ...VR, id: "vr-2", campus_id: "c-scad", position_title: "Lab Assistant" };
+    mockedListVacancyRequests.mockResolvedValue([VR, other]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.getByText("Lab Assistant")).toBeInTheDocument();
+    const callCountBeforeFilter = mockedListVacancyRequests.mock.calls.length;
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SCAD" }));
+
+    expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+    expect(screen.getByText("Lab Assistant")).toBeInTheDocument();
+    expect(mockedListVacancyRequests).toHaveBeenCalledTimes(callCountBeforeFilter);
+  });
+
+  it("narrows the list client-side by a position-title search", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const other = { ...VR, id: "vr-2", campus_id: "c-sse", position_title: "Lab Assistant" };
+    mockedListVacancyRequests.mockResolvedValue([VR, other]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByPlaceholderText("Search by position title"), "lab");
+
+    expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+    expect(screen.getByText("Lab Assistant")).toBeInTheDocument();
+  });
+
+  it("shows a filters-specific empty state when filters narrow a non-empty list to zero", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListVacancyRequests.mockResolvedValue([VR]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByPlaceholderText("Search by position title"), "nonexistent");
+
+    expect(await screen.findByText("No vacancy requests match these filters.")).toBeInTheDocument();
   });
 });
