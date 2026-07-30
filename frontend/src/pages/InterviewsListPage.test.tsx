@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as applicationsApi from "@/api/applications";
+import * as campusesApi from "@/api/campuses";
 import * as candidatesApi from "@/api/candidates";
 import * as interviewsApi from "@/api/interviews";
 import type { ApplicationRead, CandidateRead, InterviewScheduleRead, UserRead } from "@/api/types";
@@ -14,6 +16,7 @@ import { InterviewsListPage } from "@/pages/InterviewsListPage";
 vi.mock("@/api/interviews");
 vi.mock("@/api/applications");
 vi.mock("@/api/candidates");
+vi.mock("@/api/campuses");
 vi.mock("@/hooks/useJobPostingLookup");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
@@ -24,6 +27,7 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListInterviews = vi.mocked(interviewsApi.listInterviews);
 const mockedListApplications = vi.mocked(applicationsApi.listApplications);
 const mockedListCandidates = vi.mocked(candidatesApi.listCandidates);
+const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
 
 const CANDIDATE: CandidateRead = {
@@ -111,6 +115,7 @@ describe("InterviewsListPage", () => {
     mockedListInterviews.mockResolvedValue([INTERVIEW]);
     mockedListApplications.mockResolvedValue([APPLICATION]);
     mockedListCandidates.mockResolvedValue([CANDIDATE]);
+    mockedListCampuses.mockResolvedValue([]);
     mockedUseJobPostingLookup.mockReturnValue({
       getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
       jobPostings: [],
@@ -134,10 +139,118 @@ describe("InterviewsListPage", () => {
     mockedListInterviews.mockResolvedValue([]);
     mockedListApplications.mockResolvedValue([]);
     mockedListCandidates.mockResolvedValue([]);
+    mockedListCampuses.mockResolvedValue([]);
     mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
 
     renderPage();
     await waitFor(() => expect(screen.getByText(/No interviews/)).toBeInTheDocument());
     expect(screen.queryByText("Schedule interview")).not.toBeInTheDocument();
+  });
+
+  it("narrows the list client-side by campus without re-fetching", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN", id: "u-1" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const other: InterviewScheduleRead = { ...INTERVIEW, id: "int-2", application_id: "app-2", campus_id: "c-scad" };
+    mockedListInterviews.mockResolvedValue([INTERVIEW, other]);
+    mockedListApplications.mockResolvedValue([
+      APPLICATION,
+      { ...APPLICATION, id: "app-2", candidate_id: "cand-2", campus_id: "c-scad" },
+    ]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    const callCountBeforeFilter = mockedListInterviews.mock.calls.length;
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SCAD" }));
+
+    expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    expect(mockedListInterviews).toHaveBeenCalledTimes(callCountBeforeFilter);
+  });
+
+  it("narrows the list client-side by a candidate-or-position search", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN", id: "u-1" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const other: InterviewScheduleRead = { ...INTERVIEW, id: "int-2", application_id: "app-2" };
+    mockedListInterviews.mockResolvedValue([INTERVIEW, other]);
+    mockedListApplications.mockResolvedValue([APPLICATION, { ...APPLICATION, id: "app-2", candidate_id: "cand-2" }]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText("Search by candidate or position"), "john");
+
+    expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+  });
+
+  it("narrows the list client-side to interviews where the current user is an assigned panel member", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "INTERVIEW_PANEL_MEMBER", id: "panel-1" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const notMine: InterviewScheduleRead = {
+      ...INTERVIEW,
+      id: "int-2",
+      application_id: "app-2",
+      panel_member_ids: ["panel-2"],
+    };
+    mockedListInterviews.mockResolvedValue([INTERVIEW, notMine]);
+    mockedListApplications.mockResolvedValue([APPLICATION, { ...APPLICATION, id: "app-2", candidate_id: "cand-2" }]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "My interviews only" }));
+
+    expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
   });
 });
