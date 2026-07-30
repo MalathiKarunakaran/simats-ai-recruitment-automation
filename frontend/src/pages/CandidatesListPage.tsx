@@ -16,17 +16,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export const CAN_MANAGE_CANDIDATES_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
 
 type StatusFilter = "ACTIVE" | "WITHDRAWN" | "ALL";
+type ResumeFilter = "ALL" | "MISSING" | "UPLOADED";
 
 export function CandidatesListPage() {
   const { user } = useAuth();
-  const [emailFilter, setEmailFilter] = useState("");
+  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [resumeFilter, setResumeFilter] = useState<ResumeFilter>("ALL");
 
   const isWithdrawn = statusFilter === "ALL" ? undefined : statusFilter === "WITHDRAWN";
 
+  // Only the status filter goes server-side (the backend's `email` param is
+  // an exact-column-only ilike match) -- name matching and the resume
+  // filter are client-side, same pattern as EmployeesListPage.
   const { data: candidates, isLoading } = useQuery({
-    queryKey: ["candidates", emailFilter, isWithdrawn],
-    queryFn: () => listCandidates(emailFilter || undefined, isWithdrawn),
+    queryKey: ["candidates", isWithdrawn],
+    queryFn: () => listCandidates(undefined, isWithdrawn),
+  });
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredCandidates = candidates?.filter((candidate) => {
+    if (resumeFilter === "MISSING" && candidate.resume_storage_key) return false;
+    if (resumeFilter === "UPLOADED" && !candidate.resume_storage_key) return false;
+    if (!normalizedSearch) return true;
+    return (
+      candidate.full_name.toLowerCase().includes(normalizedSearch) ||
+      candidate.email.toLowerCase().includes(normalizedSearch)
+    );
   });
 
   return (
@@ -40,17 +56,17 @@ export function CandidatesListPage() {
         ) : null}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="w-72">
           <Input
-            placeholder="Search by email"
-            value={emailFilter}
-            onChange={(e) => setEmailFilter(e.target.value)}
+            placeholder="Search by name or email"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <div className="w-56">
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-            <SelectTrigger>
+            <SelectTrigger aria-label="Status filter">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -60,12 +76,26 @@ export function CandidatesListPage() {
             </SelectContent>
           </Select>
         </div>
+        <div className="w-56">
+          <Select value={resumeFilter} onValueChange={(v) => setResumeFilter(v as ResumeFilter)}>
+            <SelectTrigger aria-label="Resume filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Resume: All</SelectItem>
+              <SelectItem value="MISSING">Resume: Missing</SelectItem>
+              <SelectItem value="UPLOADED">Resume: Uploaded</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !candidates || candidates.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No candidates found.</p>
+      ) : !filteredCandidates || filteredCandidates.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {candidates && candidates.length > 0 ? "No candidates match these filters." : "No candidates found."}
+        </p>
       ) : (
         <table className="w-full text-sm">
           <thead>
@@ -80,7 +110,7 @@ export function CandidatesListPage() {
             </tr>
           </thead>
           <tbody>
-            {candidates.map((candidate) => (
+            {filteredCandidates.map((candidate) => (
               <tr key={candidate.id} className="border-b border-border last:border-0 hover:bg-accent/50">
                 <td className="py-2">
                   <Link to={`/candidates/${candidate.id}`} className="font-medium hover:underline">

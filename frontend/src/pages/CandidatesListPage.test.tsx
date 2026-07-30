@@ -115,9 +115,69 @@ describe("CandidatesListPage", () => {
     renderPage();
     await waitFor(() => expect(mockedListCandidates).toHaveBeenCalledWith(undefined, undefined));
 
-    await userEvent.click(screen.getByRole("combobox"));
-    await userEvent.click(await screen.findByText("Withdrawn"));
+    await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Withdrawn" }));
 
     await waitFor(() => expect(mockedListCandidates).toHaveBeenCalledWith(undefined, true));
+  });
+
+  it("narrows the list client-side by a name-or-email search without re-fetching", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const other = { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" };
+    mockedListCandidates.mockResolvedValue([CANDIDATE, other]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    const callCountBeforeSearch = mockedListCandidates.mock.calls.length;
+
+    await userEvent.type(screen.getByPlaceholderText("Search by name or email"), "jane");
+
+    expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
+    expect(mockedListCandidates).toHaveBeenCalledTimes(callCountBeforeSearch);
+  });
+
+  it("narrows the list client-side by resume presence", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const withResume = { ...CANDIDATE, id: "cand-2", full_name: "Has Resume", resume_storage_key: "resumes/cand-2.pdf" };
+    mockedListCandidates.mockResolvedValue([CANDIDATE, withResume]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("Has Resume")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Resume filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Resume: Missing" }));
+
+    expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    expect(screen.queryByText("Has Resume")).not.toBeInTheDocument();
+  });
+
+  it("shows a filters-specific empty state when filters narrow a non-empty list to zero", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListCandidates.mockResolvedValue([CANDIDATE]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByPlaceholderText("Search by name or email"), "nonexistent");
+
+    expect(await screen.findByText("No candidates match these filters.")).toBeInTheDocument();
   });
 });
