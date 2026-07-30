@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as applicationsApi from "@/api/applications";
+import * as campusesApi from "@/api/campuses";
 import * as candidatesApi from "@/api/candidates";
 import type { ApplicationRead, CandidateRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
@@ -13,6 +14,7 @@ import { ApplicationsListPage } from "@/pages/ApplicationsListPage";
 
 vi.mock("@/api/applications");
 vi.mock("@/api/candidates");
+vi.mock("@/api/campuses");
 vi.mock("@/hooks/useJobPostingLookup");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
@@ -22,6 +24,7 @@ vi.mock("@/auth/AuthContext", async () => {
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListApplications = vi.mocked(applicationsApi.listApplications);
 const mockedListCandidates = vi.mocked(candidatesApi.listCandidates);
+const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
 
 const CANDIDATE: CandidateRead = {
@@ -91,6 +94,7 @@ describe("ApplicationsListPage", () => {
     });
     mockedListApplications.mockResolvedValue([APPLICATION]);
     mockedListCandidates.mockResolvedValue([CANDIDATE]);
+    mockedListCampuses.mockResolvedValue([]);
     mockedUseJobPostingLookup.mockReturnValue({
       getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
       jobPostings: [],
@@ -112,12 +116,13 @@ describe("ApplicationsListPage", () => {
     });
     mockedListApplications.mockResolvedValue([]);
     mockedListCandidates.mockResolvedValue([]);
+    mockedListCampuses.mockResolvedValue([]);
     mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
 
     renderPage();
     await waitFor(() => expect(mockedListApplications).toHaveBeenCalledWith({ status: null }));
 
-    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
     await userEvent.click(await screen.findByRole("option", { name: "CALLED FOR INTERVIEW" }));
 
     await waitFor(() => expect(mockedListApplications).toHaveBeenCalledWith({ status: "CALLED_FOR_INTERVIEW" }));
@@ -132,10 +137,104 @@ describe("ApplicationsListPage", () => {
     });
     mockedListApplications.mockResolvedValue([]);
     mockedListCandidates.mockResolvedValue([]);
+    mockedListCampuses.mockResolvedValue([]);
     mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
 
     renderPage();
     await waitFor(() => expect(screen.getByText(/No applications/)).toBeInTheDocument());
     expect(screen.queryByText("New application")).not.toBeInTheDocument();
+  });
+
+  it("narrows the list client-side by campus without re-fetching", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const other: ApplicationRead = { ...APPLICATION, id: "app-2", candidate_id: "cand-2", campus_id: "c-scad" };
+    mockedListApplications.mockResolvedValue([APPLICATION, other]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    const callCountBeforeFilter = mockedListApplications.mock.calls.length;
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SCAD" }));
+
+    expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    expect(mockedListApplications).toHaveBeenCalledTimes(callCountBeforeFilter);
+  });
+
+  it("narrows the list client-side by a candidate-or-position search", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    const other: ApplicationRead = { ...APPLICATION, id: "app-2", candidate_id: "cand-2", job_posting_id: "jp-2" };
+    mockedListApplications.mockResolvedValue([APPLICATION, other]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: (jobPostingId) =>
+        jobPostingId === "jp-1"
+          ? { positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }
+          : { positionTitle: "Lab Assistant", campusId: "c-sse", slug: "slug-2" },
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText("Search by candidate or position"), "lab assistant");
+
+    expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+  });
+
+  it("shows a filters-specific empty state when filters narrow a non-empty list to zero", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListApplications.mockResolvedValue([APPLICATION]);
+    mockedListCandidates.mockResolvedValue([CANDIDATE]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByPlaceholderText("Search by candidate or position"), "nonexistent");
+
+    expect(await screen.findByText("No applications match these filters.")).toBeInTheDocument();
   });
 });
