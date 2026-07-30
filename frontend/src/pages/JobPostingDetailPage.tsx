@@ -1,15 +1,30 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 
+import { ApiError } from "@/api/client";
+import { distributeJobPosting, getJobAd, getQrCodeBlob } from "@/api/jobDistribution";
 import { getJobPosting, rankCandidates } from "@/api/jobPostings";
+import type { DistributeResponse, JobPortal } from "@/api/types";
+import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
+const DISTRIBUTE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+const SUPPORTED_PORTALS: JobPortal[] = ["LINKEDIN", "INDEED", "NAUKRI", "FACULTYPLUS"];
+
 export function JobPostingDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const { getLabel } = useJobPostingLookup();
+  const canDistribute = Boolean(user && DISTRIBUTE_ROLES.includes(user.role));
+
+  const [distributionError, setDistributionError] = useState<string | null>(null);
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [selectedPortals, setSelectedPortals] = useState<JobPortal[]>(SUPPORTED_PORTALS);
+  const [distributeResult, setDistributeResult] = useState<DistributeResponse | null>(null);
 
   const { data: jobPosting, isLoading } = useQuery({
     queryKey: ["job-posting", id],
@@ -22,6 +37,40 @@ export function JobPostingDetailPage() {
     queryFn: () => rankCandidates(id!),
     enabled: Boolean(id),
   });
+
+  const { data: jobAd, isLoading: jobAdLoading } = useQuery({
+    queryKey: ["job-ad", id],
+    queryFn: () => getJobAd(id!),
+    enabled: Boolean(id) && canDistribute,
+  });
+
+  useEffect(() => {
+    return () => {
+      if (qrCodeUrl) URL.revokeObjectURL(qrCodeUrl);
+    };
+  }, [qrCodeUrl]);
+
+  const qrCodeMutation = useMutation({
+    mutationFn: () => getQrCodeBlob(id!),
+    onSuccess: (blob) => {
+      setDistributionError(null);
+      setQrCodeUrl(URL.createObjectURL(blob));
+    },
+    onError: (err: unknown) => setDistributionError(err instanceof ApiError ? err.message : "QR code generation failed"),
+  });
+
+  const distributeMutation = useMutation({
+    mutationFn: (portals: JobPortal[]) => distributeJobPosting(id!, portals),
+    onSuccess: (result) => {
+      setDistributionError(null);
+      setDistributeResult(result);
+    },
+    onError: (err: unknown) => setDistributionError(err instanceof ApiError ? err.message : "Distribution failed"),
+  });
+
+  function togglePortal(portal: JobPortal) {
+    setSelectedPortals((prev) => (prev.includes(portal) ? prev.filter((p) => p !== portal) : [...prev, portal]));
+  }
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -56,6 +105,87 @@ export function JobPostingDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {canDistribute ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Distribution</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-5 text-sm">
+            {distributionError ? <p className="text-destructive">{distributionError}</p> : null}
+
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-muted-foreground">Job ad text</span>
+                {jobAd ? (
+                  <Button variant="outline" size="sm" onClick={() => void navigator.clipboard.writeText(jobAd.body)}>
+                    Copy
+                  </Button>
+                ) : null}
+              </div>
+              {jobAdLoading ? (
+                <p className="text-muted-foreground">Loading…</p>
+              ) : jobAd ? (
+                <pre className="whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 font-sans text-xs">
+                  {jobAd.body}
+                </pre>
+              ) : (
+                <p className="text-muted-foreground">No job ad available.</p>
+              )}
+            </div>
+
+            <div>
+              <div className="mb-1 text-muted-foreground">QR code (apply link)</div>
+              {qrCodeUrl ? (
+                <div className="flex items-center gap-3">
+                  <img src={qrCodeUrl} alt="Apply QR code" className="h-32 w-32 rounded-md border border-border" />
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={qrCodeUrl} download={`job-posting-${jobPosting.id}-qr.png`}>
+                      Download PNG
+                    </a>
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={qrCodeMutation.isPending}
+                  onClick={() => qrCodeMutation.mutate()}
+                >
+                  {qrCodeMutation.isPending ? "Generating…" : "Generate QR code"}
+                </Button>
+              )}
+            </div>
+
+            <div>
+              <div className="mb-2 text-muted-foreground">Distribute to portals</div>
+              <div className="mb-2 flex flex-wrap gap-2">
+                {SUPPORTED_PORTALS.map((portal) => (
+                  <Button
+                    key={portal}
+                    type="button"
+                    size="sm"
+                    variant={selectedPortals.includes(portal) ? "default" : "outline"}
+                    onClick={() => togglePortal(portal)}
+                  >
+                    {portal}
+                  </Button>
+                ))}
+              </div>
+              <Button
+                size="sm"
+                disabled={selectedPortals.length === 0 || distributeMutation.isPending}
+                onClick={() => distributeMutation.mutate(selectedPortals)}
+              >
+                {distributeMutation.isPending ? "Distributing…" : "Distribute"}
+              </Button>
+              {distributeResult ? (
+                <p className="mt-2 text-xs text-muted-foreground">Sent to: {distributeResult.portals.join(", ")}</p>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

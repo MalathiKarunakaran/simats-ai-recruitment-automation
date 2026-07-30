@@ -392,6 +392,29 @@ export interface JobPostingRead {
   updated_at: string;
 }
 
+// Mirrors app/services/job_distribution.py::SUPPORTED_PORTALS.
+export type JobPortal = "LINKEDIN" | "INDEED" | "NAUKRI" | "FACULTYPLUS";
+
+// Mirrors app/schemas/job_distribution.py::JobAdRead.
+export interface JobAdRead {
+  job_posting_id: string;
+  position_title: string;
+  campus_code: string;
+  employment_type: string;
+  role_category: string;
+  qualification: string;
+  experience_required: string;
+  body: string;
+  apply_url: string;
+  public_apply_slug: string;
+}
+
+// Mirrors app/schemas/job_distribution.py::DistributeResponse.
+export interface DistributeResponse {
+  portals: string[];
+  n8n_response: Record<string, unknown> | null;
+}
+
 // Mirrors app/schemas/resume_score.py::RankedApplicationRead.
 export interface RankedApplicationRead {
   application_id: string;
