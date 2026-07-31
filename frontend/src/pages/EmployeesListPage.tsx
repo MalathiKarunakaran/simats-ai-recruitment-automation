@@ -20,9 +20,14 @@ export function EmployeesListPage() {
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
 
+  const [campusFilter, setCampusFilter] = useState<string>("ALL");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("ALL");
+
   const normalizedSearch = search.trim().toLowerCase();
   const filteredEmployees = employees?.filter((employee) => {
     if (statusFilter !== "ALL" && employee.employment_status !== statusFilter) return false;
+    if (campusFilter !== "ALL" && employee.campus_id !== campusFilter) return false;
+    if (departmentFilter !== "ALL" && employee.department_id !== departmentFilter) return false;
     if (!normalizedSearch) return true;
     return (
       employee.full_name.toLowerCase().includes(normalizedSearch) ||
@@ -47,7 +52,7 @@ export function EmployeesListPage() {
         </div>
         <div className="w-56">
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as EmploymentStatus | "ALL")}>
-            <SelectTrigger>
+            <SelectTrigger aria-label="Status filter">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -60,12 +65,46 @@ export function EmployeesListPage() {
             </SelectContent>
           </Select>
         </div>
+        <div className="w-56">
+          <Select value={campusFilter} onValueChange={setCampusFilter}>
+            <SelectTrigger aria-label="Campus filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All campuses</SelectItem>
+              {campuses?.map((campus) => (
+                <SelectItem key={campus.id} value={campus.id}>
+                  {campus.code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="w-56">
+          <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+            <SelectTrigger aria-label="Department filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All departments</SelectItem>
+              {departments?.map((department) => (
+                <SelectItem key={department.id} value={department.id}>
+                  {department.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !filteredEmployees || filteredEmployees.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No employees found.</p>
+        <p className="text-sm text-muted-foreground">
+          {employees && employees.length > 0
+            ? "No employees match these filters."
+            : "No employees in this scope yet."}
+        </p>
       ) : (
         <table className="w-full text-sm">
           <thead>

@@ -88,7 +88,7 @@ describe("EmployeesListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("No employees found.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No employees in this scope yet.")).toBeInTheDocument());
   });
 
   it("narrows the list with the search box", async () => {
@@ -136,10 +136,65 @@ describe("EmployeesListPage", () => {
     await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
     expect(screen.getByText("John Smith")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
     await userEvent.click(await screen.findByText("Terminated"));
 
     await waitFor(() => expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument());
     expect(screen.getByText("John Smith")).toBeInTheDocument();
+  });
+
+  it("narrows the list with the campus filter without re-fetching", async () => {
+    const OTHER_CAMPUS: CampusRead = { ...CAMPUS, id: "c-scad", code: "SCAD" };
+    mockedListEmployees.mockResolvedValue([
+      EMPLOYEE,
+      { ...EMPLOYEE, id: "emp-2", employee_code: "SSE-0002", full_name: "John Smith", campus_id: "c-scad" },
+    ]);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS, OTHER_CAMPUS]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    const callCountBeforeFilter = mockedListEmployees.mock.calls.length;
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SCAD" }));
+
+    await waitFor(() => expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    expect(mockedListEmployees).toHaveBeenCalledTimes(callCountBeforeFilter);
+  });
+
+  it("narrows the list with the department filter", async () => {
+    const OTHER_DEPARTMENT: DepartmentRead = { ...DEPARTMENT, id: "d-mech", name: "Mechanical Engineering" };
+    mockedListEmployees.mockResolvedValue([
+      EMPLOYEE,
+      { ...EMPLOYEE, id: "emp-2", employee_code: "SSE-0002", full_name: "John Smith", department_id: "d-mech" },
+    ]);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT, OTHER_DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Department filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Mechanical Engineering" }));
+
+    await waitFor(() => expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument());
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+  });
+
+  it("distinguishes an empty scope from filters narrowing to zero", async () => {
+    mockedListEmployees.mockResolvedValue([EMPLOYEE]);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByPlaceholderText(/Search by name/), "nobody");
+
+    await waitFor(() => expect(screen.getByText("No employees match these filters.")).toBeInTheDocument());
   });
 });
