@@ -227,6 +227,164 @@ def test_ad_briefing_rejects_start_after_end_date(client, published_vacancy_fact
     assert response.status_code == 422
 
 
+def test_recruitment_funnel_report_date_range_narrows_by_applied_at(
+    client, published_vacancy_factory, hired_employee_factory
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=2)
+    hired_employee_factory(
+        vacancy, applied_at=datetime(2026, 1, 1, tzinfo=timezone.utc), joining_date=date(2026, 1, 11)
+    )
+
+    in_range = _report(
+        client, vacancy.hr_admin, "recruitment-funnel", start_date="2025-12-25", end_date="2026-01-05"
+    )
+    assert in_range.status_code == 200
+    assert sum(r["count"] for r in in_range.json()["rows"] if r["campus_code"] == "SSE") == 1
+
+    out_of_range = _report(
+        client, vacancy.hr_admin, "recruitment-funnel", start_date="2026-02-01", end_date="2026-02-28"
+    )
+    assert out_of_range.status_code == 200
+    assert sum(r["count"] for r in out_of_range.json()["rows"] if r["campus_code"] == "SSE") == 0
+
+
+def test_campus_role_hiring_report_date_range_narrows_by_date_of_joining(
+    client, published_vacancy_factory, hired_employee_factory
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired_employee_factory(vacancy, joining_date=date(2026, 3, 15))
+
+    in_range = _report(
+        client, vacancy.hr_admin, "campus-role-hiring", start_date="2026-03-01", end_date="2026-03-31"
+    )
+    row = next((r for r in in_range.json()["rows"] if r["campus_code"] == "SSE"), None)
+    assert row is not None and row["hired_count"] == 1
+
+    out_of_range = _report(
+        client, vacancy.hr_admin, "campus-role-hiring", start_date="2026-04-01", end_date="2026-04-30"
+    )
+    assert not any(r["campus_code"] == "SSE" for r in out_of_range.json()["rows"])
+
+
+def test_interview_report_date_range_narrows_by_scheduled_at(
+    client, published_vacancy_factory, application_factory, user_factory, db_session
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    panel_member = user_factory(UserRoleEnum.INTERVIEW_PANEL_MEMBER, campus_code="SSE")
+
+    scheduled_at = datetime(2026, 5, 10, 10, 0, tzinfo=timezone.utc)
+    interviews_service.schedule_interview(
+        db_session,
+        application=application,
+        interview_type=InterviewTypeEnum.TECHNICAL,
+        scheduled_at=scheduled_at,
+        duration_minutes=45,
+        meeting_link="https://meet.example.com/test",
+        location=None,
+        notes=None,
+        panel_member_ids=[panel_member.id],
+        actor=vacancy.hr_admin,
+    )
+
+    in_range = _report(client, vacancy.hr_admin, "interviews", start_date="2026-05-01", end_date="2026-05-31")
+    assert sum(r["count"] for r in in_range.json()["rows"] if r["campus_code"] == "SSE") == 1
+
+    out_of_range = _report(client, vacancy.hr_admin, "interviews", start_date="2026-06-01", end_date="2026-06-30")
+    assert sum(r["count"] for r in out_of_range.json()["rows"] if r["campus_code"] == "SSE") == 0
+
+
+def test_offer_report_date_range_narrows_by_created_at(client, published_vacancy_factory, hired_employee_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired_employee_factory(vacancy)
+
+    today = date.today()
+    in_range = _report(
+        client, vacancy.hr_admin, "offers", start_date=(today - timedelta(days=1)).isoformat(), end_date=today.isoformat()
+    )
+    assert sum(r["count"] for r in in_range.json()["rows"] if r["campus_code"] == "SSE") == 1
+
+    past_start = today - timedelta(days=30)
+    past_end = today - timedelta(days=20)
+    out_of_range = _report(
+        client, vacancy.hr_admin, "offers", start_date=past_start.isoformat(), end_date=past_end.isoformat()
+    )
+    assert sum(r["count"] for r in out_of_range.json()["rows"] if r["campus_code"] == "SSE") == 0
+
+
+def test_joining_report_date_range_narrows_by_created_at_not_actual_joining_date(
+    client, published_vacancy_factory, hired_employee_factory
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired_employee_factory(vacancy)
+
+    today = date.today()
+    in_range = _report(
+        client, vacancy.hr_admin, "joining", start_date=(today - timedelta(days=1)).isoformat(), end_date=today.isoformat()
+    )
+    row = next(r for r in in_range.json()["rows"] if r["campus_code"] == "SSE")
+    assert row["onboarding_status"] == "COMPLETE"
+    assert row["count"] == 1
+
+    past_start = today - timedelta(days=30)
+    past_end = today - timedelta(days=20)
+    out_of_range = _report(
+        client, vacancy.hr_admin, "joining", start_date=past_start.isoformat(), end_date=past_end.isoformat()
+    )
+    assert not any(r["campus_code"] == "SSE" for r in out_of_range.json()["rows"])
+
+
+def test_vacancy_report_date_range_narrows_by_created_at(client, published_vacancy_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+
+    today = date.today()
+    in_range = _report(
+        client, vacancy.hr_admin, "vacancies", start_date=(today - timedelta(days=1)).isoformat(), end_date=today.isoformat()
+    )
+    row = next(r for r in in_range.json()["rows"] if r["campus_code"] == "SSE" and r["status"] == "PUBLISHED")
+    assert row["count"] == 1
+
+    past_start = today - timedelta(days=30)
+    past_end = today - timedelta(days=20)
+    out_of_range = _report(
+        client, vacancy.hr_admin, "vacancies", start_date=past_start.isoformat(), end_date=past_end.isoformat()
+    )
+    assert not any(
+        r["campus_code"] == "SSE" and r["status"] == "PUBLISHED" for r in out_of_range.json()["rows"]
+    )
+
+
+def test_time_to_hire_report_date_range_narrows_by_actual_joining_date(
+    client, published_vacancy_factory, hired_employee_factory
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired_employee_factory(
+        vacancy, applied_at=datetime(2026, 1, 1, tzinfo=timezone.utc), joining_date=date(2026, 1, 11)
+    )
+
+    in_range = _report(client, vacancy.hr_admin, "time-to-hire", start_date="2026-01-01", end_date="2026-01-31")
+    row = next(r for r in in_range.json()["rows"] if r["campus_code"] == "SSE")
+    assert row["avg_days"] == 10.0
+    assert row["hired_count"] == 1
+
+    out_of_range = _report(client, vacancy.hr_admin, "time-to-hire", start_date="2026-02-01", end_date="2026-02-28")
+    assert not any(r["campus_code"] == "SSE" for r in out_of_range.json()["rows"])
+
+
+def test_report_rejects_start_after_end_date(client, published_vacancy_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    today = date.today()
+
+    response = _report(
+        client,
+        vacancy.hr_admin,
+        "vacancies",
+        start_date=today.isoformat(),
+        end_date=(today - timedelta(days=1)).isoformat(),
+    )
+    assert response.status_code == 422
+
+
 def test_ad_briefing_export_reflects_period_label_in_slide_text(client, published_vacancy_factory):
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     today = date.today()

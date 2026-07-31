@@ -90,7 +90,10 @@ describe("ReportsPage", () => {
     expect(await screen.findByText(/showing: Today/)).toBeInTheDocument();
 
     mockedGetAdBriefing.mockResolvedValue({ ...BRIEFING, period_label: "This week" });
-    await userEvent.click(screen.getByRole("button", { name: /All time/ }));
+    // Two DateRangeControls render on this page (Report card, then AD
+    // Briefing card) -- both start out showing "All time", so pick the
+    // second (AD Briefing's) by render order rather than text alone.
+    await userEvent.click(screen.getAllByRole("button", { name: /All time/ })[1]);
     await userEvent.click(await screen.findByRole("button", { name: "This week" }));
 
     await waitFor(() =>
@@ -106,14 +109,50 @@ describe("ReportsPage", () => {
 
     renderPage();
     await waitFor(() =>
-      expect(mockedGetReport).toHaveBeenCalledWith("recruitment-funnel", { campusCode: null, roleCategory: null }),
+      expect(mockedGetReport).toHaveBeenCalledWith("recruitment-funnel", {
+        campusCode: null,
+        roleCategory: null,
+        startDate: null,
+        endDate: null,
+      }),
     );
 
     await userEvent.click(screen.getAllByRole("combobox")[0]);
     await userEvent.click(await screen.findByRole("option", { name: "Offers" }));
 
     await waitFor(() =>
-      expect(mockedGetReport).toHaveBeenCalledWith("offers", { campusCode: null, roleCategory: null }),
+      expect(mockedGetReport).toHaveBeenCalledWith("offers", {
+        campusCode: null,
+        roleCategory: null,
+        startDate: null,
+        endDate: null,
+      }),
+    );
+  });
+
+  it("re-fetches the main report with a date range when the Report card's date control is used", async () => {
+    mockedGetReport.mockResolvedValue(FUNNEL_REPORT);
+    mockedGetAdBriefing.mockResolvedValue(BRIEFING);
+
+    renderPage();
+    await waitFor(() =>
+      expect(mockedGetReport).toHaveBeenCalledWith("recruitment-funnel", {
+        campusCode: null,
+        roleCategory: null,
+        startDate: null,
+        endDate: null,
+      }),
+    );
+
+    // The Report card's DateRangeControl is the first "All time" button.
+    await userEvent.click(screen.getAllByRole("button", { name: /All time/ })[0]);
+    await userEvent.click(await screen.findByRole("button", { name: "This week" }));
+
+    await waitFor(() =>
+      expect(mockedGetReport).toHaveBeenCalledWith(
+        "recruitment-funnel",
+        expect.objectContaining({ startDate: expect.any(String), endDate: expect.any(String) }),
+      ),
     );
   });
 });

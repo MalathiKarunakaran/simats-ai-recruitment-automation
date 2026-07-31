@@ -4,6 +4,8 @@ import type { ADBriefingResponse, ReportResponse, ReportType } from "@/api/types
 interface ReportFilters {
   campusCode?: string | null;
   roleCategory?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
 }
 
 interface AdBriefingFilters {
@@ -16,6 +18,8 @@ function buildParams(filters: ReportFilters): string {
   const params = new URLSearchParams();
   if (filters.campusCode) params.set("campus_code", filters.campusCode);
   if (filters.roleCategory) params.set("role_category", filters.roleCategory);
+  if (filters.startDate) params.set("start_date", filters.startDate);
+  if (filters.endDate) params.set("end_date", filters.endDate);
   const query = params.toString();
   return query ? `?${query}` : "";
 }

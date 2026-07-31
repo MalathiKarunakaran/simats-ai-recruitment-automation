@@ -39,13 +39,16 @@ export function ReportsPage() {
   const [exportingReport, setExportingReport] = useState(false);
   const [exportingBriefing, setExportingBriefing] = useState(false);
   const [briefingDateRange, setBriefingDateRange] = useState<DateRangeValue>({ startDate: null, endDate: null });
+  const [reportDateRange, setReportDateRange] = useState<DateRangeValue>({ startDate: null, endDate: null });
 
   const { data: report, isLoading: reportLoading } = useQuery({
-    queryKey: ["report", reportType, selectedCampusCode, roleCategory],
+    queryKey: ["report", reportType, selectedCampusCode, roleCategory, reportDateRange.startDate, reportDateRange.endDate],
     queryFn: () =>
       getReport(reportType, {
         campusCode: selectedCampusCode,
         roleCategory: roleCategory === "ALL" ? null : roleCategory,
+        startDate: reportDateRange.startDate,
+        endDate: reportDateRange.endDate,
       }),
   });
 
@@ -66,6 +69,8 @@ export function ReportsPage() {
       await downloadReportExport(reportType, {
         campusCode: selectedCampusCode,
         roleCategory: roleCategory === "ALL" ? null : roleCategory,
+        startDate: reportDateRange.startDate,
+        endDate: reportDateRange.endDate,
       });
     } catch {
       setExportError("Failed to export report");
@@ -129,6 +134,11 @@ export function ReportsPage() {
                 </SelectContent>
               </Select>
             </div>
+            <DateRangeControl
+              value={reportDateRange}
+              onChange={setReportDateRange}
+              ariaLabel="Report date range"
+            />
             <Button variant="outline" disabled={exportingReport} onClick={() => void handleExportReport()}>
               {exportingReport ? "Exporting…" : "Export as Excel"}
             </Button>
@@ -150,7 +160,11 @@ export function ReportsPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            <DateRangeControl value={briefingDateRange} onChange={setBriefingDateRange} />
+            <DateRangeControl
+              value={briefingDateRange}
+              onChange={setBriefingDateRange}
+              ariaLabel="AD Briefing date range"
+            />
             <Button
               variant="outline"
               size="sm"

@@ -43,6 +43,18 @@ Metric definitions (documented since none of these are literal DB fields):
   to "this week" instead of always meaning "today" -- campus_role_breakdown's
   own open/in_pipeline/hired columns stay point-in-time regardless (mirrors
   campus_wise_hiring's hired_count, which is likewise never date-filtered).
+- Each of the 7 REPORT_BUILDERS also accepts the same optional start_date/
+  end_date, each narrowed to the business timestamp that best matches what
+  the report is counting (not always applied_at): recruitment_funnel_report
+  -> Application.applied_at, campus_role_hiring_report -> Employee.
+  date_of_joining, interview_report -> InterviewSchedule.scheduled_at,
+  offer_report -> Offer.created_at, joining_report -> JoiningRecord.
+  created_at (not actual_joining_date -- a still-PENDING record has no
+  actual_joining_date yet, and excluding in-progress joinings from "this
+  month's joining activity" would defeat the point), vacancy_report ->
+  VacancyRequest.created_at, time_to_hire_report -> JoiningRecord.
+  actual_joining_date (scopes to hires that *completed* within the range).
+  Omitting both preserves the exact prior all-time behavior for every report.
 """
 
 from collections.abc import Callable
@@ -115,8 +127,26 @@ def validate_date_range(start_date: date | None, end_date: date | None) -> None:
         )
 
 
+def _optional_date_range(start_date: date | None, end_date: date | None) -> tuple[datetime | None, datetime | None]:
+    """UTC datetime bounds for filtering a report by a business timestamp, or
+    (None, None) when neither was given -- callers only apply a filter when
+    the respective bound isn't None, so omitting both preserves the exact
+    prior all-time behavior of every report builder."""
+    range_start = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc) if start_date else None
+    range_end = (
+        datetime.combine(end_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(days=1)
+        if end_date
+        else None
+    )
+    return range_start, range_end
+
+
 def _time_to_hire_days(
-    db: Session, campus_id_filter, role_category: StaffRoleCategoryEnum | None
+    db: Session,
+    campus_id_filter,
+    role_category: StaffRoleCategoryEnum | None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> list[dict]:
     query = (
         db.query(Employee, Application, JoiningRecord, VacancyRequest, Campus)
@@ -132,6 +162,10 @@ def _time_to_hire_days(
         query = query.filter(Employee.campus_id == campus_id_filter)
     if role_category is not None:
         query = query.filter(VacancyRequest.role_category == role_category)
+    if start_date is not None:
+        query = query.filter(JoiningRecord.actual_joining_date >= start_date)
+    if end_date is not None:
+        query = query.filter(JoiningRecord.actual_joining_date <= end_date)
 
     results = []
     for employee, application, joining_record, vacancy_request, campus in query.all():
@@ -358,9 +392,15 @@ def get_dashboard_kpis(
 
 
 def recruitment_funnel_report(
-    db: Session, scope: CampusScope, campus_code: str | None = None, role_category: StaffRoleCategoryEnum | None = None
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
+    range_start, range_end = _optional_date_range(start_date, end_date)
     query = db.query(Campus.code, Application.status, func.count(Application.id)).join(
         Campus, Application.campus_id == Campus.id
     )
@@ -373,13 +413,22 @@ def recruitment_funnel_report(
         )
     if campus_id_filter is not None:
         query = query.filter(Application.campus_id == campus_id_filter)
+    if range_start is not None:
+        query = query.filter(Application.applied_at >= range_start)
+    if range_end is not None:
+        query = query.filter(Application.applied_at < range_end)
     query = query.group_by(Campus.code, Application.status)
     rows = [{"campus_code": code, "status": s.value, "count": count} for code, s, count in query.all()]
     return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
 
 
 def campus_role_hiring_report(
-    db: Session, scope: CampusScope, campus_code: str | None = None, role_category: StaffRoleCategoryEnum | None = None
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
     query = (
@@ -395,6 +444,10 @@ def campus_role_hiring_report(
         query = query.filter(Employee.campus_id == campus_id_filter)
     if role_category is not None:
         query = query.filter(VacancyRequest.role_category == role_category)
+    if start_date is not None:
+        query = query.filter(Employee.date_of_joining >= start_date)
+    if end_date is not None:
+        query = query.filter(Employee.date_of_joining <= end_date)
     query = query.group_by(Campus.code, VacancyRequest.role_category)
     rows = [
         {"campus_code": code, "role_category": rc.value, "hired_count": count} for code, rc, count in query.all()
@@ -403,9 +456,15 @@ def campus_role_hiring_report(
 
 
 def interview_report(
-    db: Session, scope: CampusScope, campus_code: str | None = None, role_category: StaffRoleCategoryEnum | None = None
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
+    range_start, range_end = _optional_date_range(start_date, end_date)
     query = db.query(
         Campus.code, InterviewSchedule.status, InterviewSchedule.interview_type, func.count(InterviewSchedule.id)
     ).join(Campus, InterviewSchedule.campus_id == Campus.id)
@@ -419,6 +478,10 @@ def interview_report(
         )
     if campus_id_filter is not None:
         query = query.filter(InterviewSchedule.campus_id == campus_id_filter)
+    if range_start is not None:
+        query = query.filter(InterviewSchedule.scheduled_at >= range_start)
+    if range_end is not None:
+        query = query.filter(InterviewSchedule.scheduled_at < range_end)
     query = query.group_by(Campus.code, InterviewSchedule.status, InterviewSchedule.interview_type)
     rows = [
         {"campus_code": code, "status": s.value, "interview_type": it.value, "count": count}
@@ -428,9 +491,15 @@ def interview_report(
 
 
 def offer_report(
-    db: Session, scope: CampusScope, campus_code: str | None = None, role_category: StaffRoleCategoryEnum | None = None
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
+    range_start, range_end = _optional_date_range(start_date, end_date)
     query = (
         db.query(Campus.code, Offer.status, func.count(Offer.id))
         .select_from(Offer)
@@ -446,15 +515,25 @@ def offer_report(
         )
     if campus_id_filter is not None:
         query = query.filter(Application.campus_id == campus_id_filter)
+    if range_start is not None:
+        query = query.filter(Offer.created_at >= range_start)
+    if range_end is not None:
+        query = query.filter(Offer.created_at < range_end)
     query = query.group_by(Campus.code, Offer.status)
     rows = [{"campus_code": code, "status": s.value, "count": count} for code, s, count in query.all()]
     return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
 
 
 def joining_report(
-    db: Session, scope: CampusScope, campus_code: str | None = None, role_category: StaffRoleCategoryEnum | None = None
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
+    range_start, range_end = _optional_date_range(start_date, end_date)
     query = (
         db.query(Campus.code, JoiningRecord.onboarding_completed_at)
         .select_from(JoiningRecord)
@@ -470,6 +549,10 @@ def joining_report(
         )
     if campus_id_filter is not None:
         query = query.filter(Application.campus_id == campus_id_filter)
+    if range_start is not None:
+        query = query.filter(JoiningRecord.created_at >= range_start)
+    if range_end is not None:
+        query = query.filter(JoiningRecord.created_at < range_end)
 
     counts: dict[tuple[str, str], int] = {}
     for code, completed_at in query.all():
@@ -483,9 +566,15 @@ def joining_report(
 
 
 def vacancy_report(
-    db: Session, scope: CampusScope, campus_code: str | None = None, role_category: StaffRoleCategoryEnum | None = None
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
+    range_start, range_end = _optional_date_range(start_date, end_date)
     query = db.query(Campus.code, VacancyRequest.role_category, VacancyRequest.status, func.count(VacancyRequest.id)).join(
         Campus, VacancyRequest.campus_id == Campus.id
     )
@@ -493,6 +582,10 @@ def vacancy_report(
         query = query.filter(VacancyRequest.campus_id == campus_id_filter)
     if role_category is not None:
         query = query.filter(VacancyRequest.role_category == role_category)
+    if range_start is not None:
+        query = query.filter(VacancyRequest.created_at >= range_start)
+    if range_end is not None:
+        query = query.filter(VacancyRequest.created_at < range_end)
     query = query.group_by(Campus.code, VacancyRequest.role_category, VacancyRequest.status)
     rows = [
         {"campus_code": code, "role_category": rc.value, "status": s.value, "count": count}
@@ -502,10 +595,15 @@ def vacancy_report(
 
 
 def time_to_hire_report(
-    db: Session, scope: CampusScope, campus_code: str | None = None, role_category: StaffRoleCategoryEnum | None = None
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
-    entries = _time_to_hire_days(db, campus_id_filter, role_category)
+    entries = _time_to_hire_days(db, campus_id_filter, role_category, start_date=start_date, end_date=end_date)
 
     buckets: dict[tuple[str, str], list[int]] = {}
     for entry in entries:

@@ -25,7 +25,13 @@ def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
 
 
 def _build_report(
-    report_type: str, db: Session, scope: CampusScope, campus_code: str | None, role_category: str | None
+    report_type: str,
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None,
+    role_category: str | None,
+    start_date: date | None,
+    end_date: date | None,
 ) -> dict:
     builder = reporting.REPORT_BUILDERS.get(report_type)
     if builder is None:
@@ -35,7 +41,15 @@ def _build_report(
         )
     validated_campus_code = reporting.validate_campus_code(campus_code)
     validated_role_category = reporting.validate_role_category(role_category)
-    return builder(db, scope, campus_code=validated_campus_code, role_category=validated_role_category)
+    reporting.validate_date_range(start_date, end_date)
+    return builder(
+        db,
+        scope,
+        campus_code=validated_campus_code,
+        role_category=validated_role_category,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
 
 # NOTE: these two /ad-briefing routes must stay registered before the
@@ -86,11 +100,13 @@ def get_report(
     report_type: str,
     campus_code: str | None = Query(None),
     role_category: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> ReportResponse:
-    report = _build_report(report_type, db, scope, campus_code, role_category)
+    report = _build_report(report_type, db, scope, campus_code, role_category, start_date, end_date)
     return ReportResponse(**report)
 
 
@@ -99,12 +115,14 @@ def export_report(
     report_type: str,
     campus_code: str | None = Query(None),
     role_category: str | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
     format: Literal["xlsx"] = Query("xlsx"),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> StreamingResponse:
-    report = _build_report(report_type, db, scope, campus_code, role_category)
+    report = _build_report(report_type, db, scope, campus_code, role_category, start_date, end_date)
     excel_bytes = exports.build_report_excel(
         report_type, report["rows"], report["generated_at"], report["scope_note"]
     )

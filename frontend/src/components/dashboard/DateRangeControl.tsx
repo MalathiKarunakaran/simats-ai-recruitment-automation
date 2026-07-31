@@ -14,6 +14,7 @@ export interface DateRangeValue {
 interface DateRangeControlProps {
   value: DateRangeValue;
   onChange: (value: DateRangeValue) => void;
+  ariaLabel?: string;
 }
 
 function toIsoDate(date: Date): string {
@@ -43,7 +44,7 @@ function formatLabel(value: DateRangeValue): string {
   return `${value.startDate ?? "…"} – ${value.endDate ?? "…"}`;
 }
 
-export function DateRangeControl({ value, onChange }: DateRangeControlProps) {
+export function DateRangeControl({ value, onChange, ariaLabel }: DateRangeControlProps) {
   const [open, setOpen] = useState(false);
   const [customStart, setCustomStart] = useState(value.startDate ?? "");
   const [customEnd, setCustomEnd] = useState(value.endDate ?? "");
@@ -66,7 +67,7 @@ export function DateRangeControl({ value, onChange }: DateRangeControlProps) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5">
+        <Button variant="outline" size="sm" className="gap-1.5" title={ariaLabel}>
           <CalendarDays className="h-3.5 w-3.5" />
           {formatLabel(value)}
         </Button>
