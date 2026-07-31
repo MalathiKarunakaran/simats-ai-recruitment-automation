@@ -1,0 +1,155 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { describe, expect, it, vi } from "vitest";
+
+import * as campusesApi from "@/api/campuses";
+import type { CampusRead, JobPostingRead } from "@/api/types";
+import * as jobPostingLookup from "@/hooks/useJobPostingLookup";
+import { JobPostingsListPage } from "@/pages/JobPostingsListPage";
+
+vi.mock("@/api/campuses");
+vi.mock("@/hooks/useJobPostingLookup");
+
+const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
+const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
+
+const SSE: CampusRead = {
+  id: "c-sse",
+  code: "SSE",
+  name: "SSE Campus",
+  is_active: true,
+  created_at: "",
+  updated_at: "",
+};
+const SCAD: CampusRead = {
+  id: "c-scad",
+  code: "SCAD",
+  name: "SCAD Campus",
+  is_active: true,
+  created_at: "",
+  updated_at: "",
+};
+
+const ACTIVE_POSTING: JobPostingRead = {
+  id: "jp-1",
+  approved_vacancy_id: "av-1",
+  campus_id: "c-sse",
+  public_apply_slug: "slug-1",
+  published_at: "2026-01-01T00:00:00Z",
+  closed_at: null,
+  is_active: true,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
+const CLOSED_POSTING: JobPostingRead = {
+  id: "jp-2",
+  approved_vacancy_id: "av-2",
+  campus_id: "c-scad",
+  public_apply_slug: "slug-2",
+  published_at: "2026-01-02T00:00:00Z",
+  closed_at: "2026-01-10T00:00:00Z",
+  is_active: false,
+  created_at: "2026-01-02T00:00:00Z",
+  updated_at: "2026-01-02T00:00:00Z",
+};
+
+function mockLookup(postings: JobPostingRead[]) {
+  mockedUseJobPostingLookup.mockReturnValue({
+    jobPostings: postings,
+    isLoading: false,
+    getLabel: (id: string) =>
+      id === "jp-1"
+        ? { positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }
+        : { positionTitle: "Lab Technician", campusId: "c-scad", slug: "slug-2" },
+  });
+}
+
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <JobPostingsListPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("JobPostingsListPage", () => {
+  it("renders job postings with resolved position titles and campus codes", async () => {
+    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
+    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.getByText("Lab Technician")).toBeInTheDocument();
+    expect(await screen.findByText("SSE")).toBeInTheDocument();
+    expect(await screen.findByText("SCAD")).toBeInTheDocument();
+  });
+
+  it("shows the empty-scope message when there are no postings at all", async () => {
+    mockedListCampuses.mockResolvedValue([]);
+    mockLookup([]);
+
+    renderPage();
+
+    expect(await screen.findByText("No job postings in this scope yet.")).toBeInTheDocument();
+  });
+
+  it("narrows the list client-side by active/closed status", async () => {
+    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
+    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Closed" }));
+
+    expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+    expect(screen.getByText("Lab Technician")).toBeInTheDocument();
+  });
+
+  it("narrows the list client-side by campus", async () => {
+    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
+    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SCAD" }));
+
+    expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+    expect(screen.getByText("Lab Technician")).toBeInTheDocument();
+  });
+
+  it("narrows the list client-side by position-title search", async () => {
+    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
+    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByPlaceholderText("Search by position title"), "lab");
+
+    expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+    expect(screen.getByText("Lab Technician")).toBeInTheDocument();
+  });
+
+  it("shows a filters-specific empty state when filters narrow a non-empty list to zero", async () => {
+    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
+    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByPlaceholderText("Search by position title"), "nonexistent");
+
+    expect(await screen.findByText("No job postings match these filters.")).toBeInTheDocument();
+  });
+});

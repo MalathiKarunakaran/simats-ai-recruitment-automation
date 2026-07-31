@@ -1,22 +1,82 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { listCampuses } from "@/api/campuses";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
+
+type ActiveFilter = "ALL" | "ACTIVE" | "CLOSED";
 
 export function JobPostingsListPage() {
   const { jobPostings, getLabel, isLoading } = useJobPostingLookup();
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
 
+  const [statusFilter, setStatusFilter] = useState<ActiveFilter>("ALL");
+  const [campusFilter, setCampusFilter] = useState<string>("ALL");
+  const [search, setSearch] = useState("");
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredJobPostings = jobPostings?.filter((jp) => {
+    if (statusFilter === "ACTIVE" && !jp.is_active) return false;
+    if (statusFilter === "CLOSED" && jp.is_active) return false;
+    if (campusFilter !== "ALL" && jp.campus_id !== campusFilter) return false;
+    if (!normalizedSearch) return true;
+    const label = getLabel(jp.id);
+    return label?.positionTitle.toLowerCase().includes(normalizedSearch) ?? false;
+  });
+
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-lg font-semibold">Job Postings</h1>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="w-72">
+          <Input
+            placeholder="Search by position title"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="w-56">
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as ActiveFilter)}>
+            <SelectTrigger aria-label="Status filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All statuses</SelectItem>
+              <SelectItem value="ACTIVE">Active</SelectItem>
+              <SelectItem value="CLOSED">Closed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="w-56">
+          <Select value={campusFilter} onValueChange={setCampusFilter}>
+            <SelectTrigger aria-label="Campus filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All campuses</SelectItem>
+              {campuses?.map((campus) => (
+                <SelectItem key={campus.id} value={campus.id}>
+                  {campus.code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !jobPostings || jobPostings.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No job postings in this scope yet.</p>
+      ) : !filteredJobPostings || filteredJobPostings.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {jobPostings && jobPostings.length > 0
+            ? "No job postings match these filters."
+            : "No job postings in this scope yet."}
+        </p>
       ) : (
         <table className="w-full text-sm">
           <thead>
@@ -28,7 +88,7 @@ export function JobPostingsListPage() {
             </tr>
           </thead>
           <tbody>
-            {jobPostings.map((jp) => {
+            {filteredJobPostings.map((jp) => {
               const campus = campuses?.find((c) => c.id === jp.campus_id);
               const label = getLabel(jp.id);
               return (
