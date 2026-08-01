@@ -171,6 +171,10 @@ describe("VacancyApprovalsPage", () => {
       published_at: "2026-07-30T00:00:00Z",
       closed_at: null,
       is_active: true,
+      position_title: "Lecturer",
+      department_id: "d-sse",
+      available_count: 2,
+      required_count: 2,
       created_at: "2026-07-30T00:00:00Z",
       updated_at: "2026-07-30T00:00:00Z",
     });

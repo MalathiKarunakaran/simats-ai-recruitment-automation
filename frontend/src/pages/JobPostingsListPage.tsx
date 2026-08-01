@@ -3,16 +3,18 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { listCampuses } from "@/api/campuses";
+import { listDepartments } from "@/api/departments";
+import { listJobPostings } from "@/api/jobPostings";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
 type ActiveFilter = "ALL" | "ACTIVE" | "CLOSED";
 
 export function JobPostingsListPage() {
-  const { jobPostings, getLabel, isLoading } = useJobPostingLookup();
+  const { data: jobPostings, isLoading } = useQuery({ queryKey: ["job-postings"], queryFn: listJobPostings });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
+  const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
 
   const [statusFilter, setStatusFilter] = useState<ActiveFilter>("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
@@ -24,8 +26,7 @@ export function JobPostingsListPage() {
     if (statusFilter === "CLOSED" && jp.is_active) return false;
     if (campusFilter !== "ALL" && jp.campus_id !== campusFilter) return false;
     if (!normalizedSearch) return true;
-    const label = getLabel(jp.id);
-    return label?.positionTitle.toLowerCase().includes(normalizedSearch) ?? false;
+    return jp.position_title.toLowerCase().includes(normalizedSearch);
   });
 
   return (
@@ -81,8 +82,11 @@ export function JobPostingsListPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Position</th>
+              <th className="py-2 font-medium">Job Position</th>
+              <th className="py-2 font-medium">Department</th>
               <th className="py-2 font-medium">Campus</th>
+              <th className="py-2 font-medium">Available</th>
+              <th className="py-2 font-medium">Required</th>
               <th className="py-2 font-medium">Status</th>
               <th className="py-2 font-medium">Published</th>
             </tr>
@@ -90,15 +94,18 @@ export function JobPostingsListPage() {
           <tbody>
             {filteredJobPostings.map((jp) => {
               const campus = campuses?.find((c) => c.id === jp.campus_id);
-              const label = getLabel(jp.id);
+              const department = departments?.find((d) => d.id === jp.department_id);
               return (
                 <tr key={jp.id} className="border-b border-border last:border-0 hover:bg-accent/50">
                   <td className="py-2">
                     <Link to={`/job-postings/${jp.id}`} className="font-medium hover:underline">
-                      {label?.positionTitle ?? "Unknown position"}
+                      {jp.position_title}
                     </Link>
                   </td>
+                  <td className="py-2">{department?.name ?? "—"}</td>
                   <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
+                  <td className="py-2">{jp.available_count}</td>
+                  <td className="py-2">{jp.required_count}</td>
                   <td className="py-2">
                     <Badge variant={jp.is_active ? "success" : "outline"}>
                       {jp.is_active ? "Active" : "Closed"}

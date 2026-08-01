@@ -5,15 +5,18 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
-import type { CampusRead, JobPostingRead } from "@/api/types";
-import * as jobPostingLookup from "@/hooks/useJobPostingLookup";
+import * as departmentsApi from "@/api/departments";
+import * as jobPostingsApi from "@/api/jobPostings";
+import type { CampusRead, DepartmentRead, JobPostingRead } from "@/api/types";
 import { JobPostingsListPage } from "@/pages/JobPostingsListPage";
 
 vi.mock("@/api/campuses");
-vi.mock("@/hooks/useJobPostingLookup");
+vi.mock("@/api/departments");
+vi.mock("@/api/jobPostings");
 
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
-const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
+const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
+const mockedListJobPostings = vi.mocked(jobPostingsApi.listJobPostings);
 
 const SSE: CampusRead = {
   id: "c-sse",
@@ -32,6 +35,23 @@ const SCAD: CampusRead = {
   updated_at: "",
 };
 
+const CSE: DepartmentRead = {
+  id: "d-cse",
+  campus_id: "c-sse",
+  name: "Computer Science",
+  is_active: true,
+  created_at: "",
+  updated_at: "",
+};
+const MECH: DepartmentRead = {
+  id: "d-mech",
+  campus_id: "c-scad",
+  name: "Mechanical Engineering",
+  is_active: true,
+  created_at: "",
+  updated_at: "",
+};
+
 const ACTIVE_POSTING: JobPostingRead = {
   id: "jp-1",
   approved_vacancy_id: "av-1",
@@ -40,6 +60,10 @@ const ACTIVE_POSTING: JobPostingRead = {
   published_at: "2026-01-01T00:00:00Z",
   closed_at: null,
   is_active: true,
+  position_title: "Assistant Professor",
+  department_id: "d-cse",
+  available_count: 1,
+  required_count: 2,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -52,19 +76,18 @@ const CLOSED_POSTING: JobPostingRead = {
   published_at: "2026-01-02T00:00:00Z",
   closed_at: "2026-01-10T00:00:00Z",
   is_active: false,
+  position_title: "Lab Technician",
+  department_id: "d-mech",
+  available_count: 0,
+  required_count: 1,
   created_at: "2026-01-02T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
 };
 
-function mockLookup(postings: JobPostingRead[]) {
-  mockedUseJobPostingLookup.mockReturnValue({
-    jobPostings: postings,
-    isLoading: false,
-    getLabel: (id: string) =>
-      id === "jp-1"
-        ? { positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }
-        : { positionTitle: "Lab Technician", campusId: "c-scad", slug: "slug-2" },
-  });
+function mockData(postings: JobPostingRead[]) {
+  mockedListJobPostings.mockResolvedValue(postings);
+  mockedListCampuses.mockResolvedValue([SSE, SCAD]);
+  mockedListDepartments.mockResolvedValue([CSE, MECH]);
 }
 
 function renderPage() {
@@ -79,21 +102,21 @@ function renderPage() {
 }
 
 describe("JobPostingsListPage", () => {
-  it("renders job postings with resolved position titles and campus codes", async () => {
-    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
-    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+  it("renders job postings with position title, department, campus, and available/required counts", async () => {
+    mockData([ACTIVE_POSTING, CLOSED_POSTING]);
 
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.getByText("Computer Science")).toBeInTheDocument();
+    expect(screen.getByText("SSE")).toBeInTheDocument();
     expect(screen.getByText("Lab Technician")).toBeInTheDocument();
-    expect(await screen.findByText("SSE")).toBeInTheDocument();
-    expect(await screen.findByText("SCAD")).toBeInTheDocument();
+    expect(screen.getByText("Mechanical Engineering")).toBeInTheDocument();
+    expect(screen.getByText("SCAD")).toBeInTheDocument();
   });
 
   it("shows the empty-scope message when there are no postings at all", async () => {
-    mockedListCampuses.mockResolvedValue([]);
-    mockLookup([]);
+    mockData([]);
 
     renderPage();
 
@@ -101,8 +124,7 @@ describe("JobPostingsListPage", () => {
   });
 
   it("narrows the list client-side by active/closed status", async () => {
-    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
-    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+    mockData([ACTIVE_POSTING, CLOSED_POSTING]);
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
@@ -115,8 +137,7 @@ describe("JobPostingsListPage", () => {
   });
 
   it("narrows the list client-side by campus", async () => {
-    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
-    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+    mockData([ACTIVE_POSTING, CLOSED_POSTING]);
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
@@ -129,8 +150,7 @@ describe("JobPostingsListPage", () => {
   });
 
   it("narrows the list client-side by position-title search", async () => {
-    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
-    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+    mockData([ACTIVE_POSTING, CLOSED_POSTING]);
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
@@ -142,8 +162,7 @@ describe("JobPostingsListPage", () => {
   });
 
   it("shows a filters-specific empty state when filters narrow a non-empty list to zero", async () => {
-    mockedListCampuses.mockResolvedValue([SSE, SCAD]);
-    mockLookup([ACTIVE_POSTING, CLOSED_POSTING]);
+    mockData([ACTIVE_POSTING, CLOSED_POSTING]);
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());

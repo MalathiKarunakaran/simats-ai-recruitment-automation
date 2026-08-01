@@ -1,9 +1,10 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db
+from app.models.approved_vacancy import ApprovedVacancy
 from app.models.application import Application
 from app.models.candidate import Candidate
 from app.models.enums import UserRoleEnum
@@ -15,6 +16,14 @@ from app.schemas.job_posting import JobPostingRead
 from app.schemas.resume_score import RankedApplicationRead
 
 router = APIRouter(prefix="/job-postings", tags=["job-postings"])
+
+# Eager-loads for JobPosting's position_title/department_id/available_count/
+# required_count @properties -- without these, each row would lazy-load its
+# approved_vacancy, vacancy_request, and hiring_slots individually (N+1).
+_POSITION_TRACKING_LOADER_OPTIONS = (
+    joinedload(JobPosting.approved_vacancy).joinedload(ApprovedVacancy.vacancy_request),
+    joinedload(JobPosting.approved_vacancy).selectinload(ApprovedVacancy.hiring_slots),
+)
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -31,7 +40,7 @@ def list_job_postings(
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> PaginatedResponse[JobPostingRead]:
-    query = db.query(JobPosting)
+    query = db.query(JobPosting).options(*_POSITION_TRACKING_LOADER_OPTIONS)
     if not scope.is_global:
         query = query.filter(JobPosting.campus_id == scope.campus_id)
     total = query.count()
@@ -46,7 +55,12 @@ def get_job_posting(
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JobPosting:
-    posting = db.get(JobPosting, job_posting_id)
+    posting = (
+        db.query(JobPosting)
+        .options(*_POSITION_TRACKING_LOADER_OPTIONS)
+        .filter(JobPosting.id == job_posting_id)
+        .one_or_none()
+    )
     if posting is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, posting.campus_id)

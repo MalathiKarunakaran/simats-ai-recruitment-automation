@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+from app.models.enums import HiringSlotStatusEnum
 
 
 class JobPosting(Base):
@@ -37,6 +38,35 @@ class JobPosting(Base):
 
     approved_vacancy: Mapped["ApprovedVacancy"] = relationship(back_populates="job_posting")
     campus: Mapped["Campus"] = relationship()
+
+    # Denormalized read-only conveniences for the position-tracking view
+    # (Job Postings list: Job Position / Department / Available / Required).
+    # Same pattern as InterviewSchedule.panel_member_ids -- a plain @property
+    # backed by an already-loaded relationship, which Pydantic's
+    # from_attributes=True picks up automatically with no router changes.
+    @property
+    def position_title(self) -> str:
+        return self.approved_vacancy.vacancy_request.position_title
+
+    @property
+    def department_id(self) -> uuid.UUID:
+        return self.approved_vacancy.vacancy_request.department_id
+
+    @property
+    def required_count(self) -> int:
+        return self.approved_vacancy.total_positions
+
+    @property
+    def available_count(self) -> int:
+        # A slot only stops counting as available once someone has actually
+        # joined (FILLED) -- a RESERVED slot (candidate selected, still mid
+        # offer/joining) hasn't locked the seat yet, since offers can be
+        # declined or a selected candidate can withdraw before joining.
+        return sum(
+            1
+            for slot in self.approved_vacancy.hiring_slots
+            if slot.status in (HiringSlotStatusEnum.OPEN, HiringSlotStatusEnum.RESERVED)
+        )
 
     def __repr__(self) -> str:
         return f"<JobPosting {self.public_apply_slug}>"
