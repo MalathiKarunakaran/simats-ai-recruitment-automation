@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from app.models.enums import UserRoleEnum
 from app.models.user import User
 from app.schemas.audit_log import AuditLogRead
 from app.schemas.common import PaginatedResponse
+from app.services.reporting import validate_date_range
 
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
 
@@ -28,12 +29,13 @@ def list_audit_logs(
     actor_user_id: uuid.UUID | None = None,
     entity_type: str | None = None,
     campus_id: uuid.UUID | None = None,
-    start_date: datetime | None = None,
-    end_date: datetime | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(*_READ_ROLES)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> PaginatedResponse[AuditLogRead]:
+    validate_date_range(start_date, end_date)
     query = db.query(AuditLog)
 
     if not scope.is_global:
@@ -48,9 +50,14 @@ def list_audit_logs(
     if entity_type is not None:
         query = query.filter(AuditLog.entity_type == entity_type)
     if start_date is not None:
-        query = query.filter(AuditLog.created_at >= start_date)
+        query = query.filter(AuditLog.created_at >= datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc))
     if end_date is not None:
-        query = query.filter(AuditLog.created_at <= end_date)
+        # +1 day so end_date is inclusive of the whole day, not just its
+        # midnight instant -- same fix reporting.py's _optional_date_range
+        # already applies for report date-range filters.
+        query = query.filter(
+            AuditLog.created_at < datetime.combine(end_date, datetime.min.time(), tzinfo=timezone.utc) + timedelta(days=1)
+        )
 
     total = query.count()
     rows = query.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()

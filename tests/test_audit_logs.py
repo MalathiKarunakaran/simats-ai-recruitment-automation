@@ -1,4 +1,5 @@
 import json
+from datetime import date, timedelta
 
 from app.models.enums import UserRoleEnum
 
@@ -74,3 +75,67 @@ def test_candidate_cannot_read_audit_logs(client, user_factory):
     candidate = user_factory(UserRoleEnum.CANDIDATE)
     response = client.get("/api/v1/audit-logs", headers=auth_headers(client, candidate))
     assert response.status_code == 403
+
+
+def test_end_date_filter_is_inclusive_of_the_whole_day(client, user_factory):
+    # Regression test: end_date used to be compared as a bare midnight
+    # instant (created_at <= end_date), which silently excluded every event
+    # from later the same day. It must behave like reporting.py's own
+    # date-range filters, which treat end_date as inclusive of the full day.
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    headers = auth_headers(client, admin)
+    today = date.today()
+
+    client.patch(f"/api/v1/users/{admin.id}", headers=headers, json={"phone_number": "9999999999"})
+
+    logs = client.get(
+        "/api/v1/audit-logs",
+        headers=headers,
+        params={"start_date": today.isoformat(), "end_date": today.isoformat(), "actor_user_id": str(admin.id)},
+    ).json()["items"]
+    assert any(l["action"] == "UPDATE" and l["entity_id"] == str(admin.id) for l in logs)
+
+
+def test_start_date_filter_excludes_events_before_it(client, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    headers = auth_headers(client, admin)
+    tomorrow = date.today() + timedelta(days=1)
+
+    client.patch(f"/api/v1/users/{admin.id}", headers=headers, json={"phone_number": "8888888888"})
+
+    logs = client.get(
+        "/api/v1/audit-logs",
+        headers=headers,
+        params={"start_date": tomorrow.isoformat(), "actor_user_id": str(admin.id)},
+    ).json()["items"]
+    assert not any(l["entity_id"] == str(admin.id) for l in logs)
+
+
+def test_audit_logs_rejects_start_after_end_date(client, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    headers = auth_headers(client, admin)
+    today = date.today()
+
+    response = client.get(
+        "/api/v1/audit-logs",
+        headers=headers,
+        params={"start_date": today.isoformat(), "end_date": (today - timedelta(days=1)).isoformat()},
+    )
+    assert response.status_code == 422
+
+
+def test_campus_id_filter_narrows_for_a_global_scope_role(client, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    hod_sse = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    hod_scad = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SCAD")
+
+    client.post("/api/v1/auth/login", data={"username": hod_sse.email, "password": hod_sse.plain_password})
+    client.post("/api/v1/auth/login", data={"username": hod_scad.email, "password": hod_scad.plain_password})
+
+    headers = auth_headers(client, admin)
+    logs = client.get(
+        "/api/v1/audit-logs", headers=headers, params={"campus_id": str(hod_sse.campus_id)}
+    ).json()["items"]
+
+    campus_contexts = {l["campus_context_id"] for l in logs}
+    assert campus_contexts == {str(hod_sse.campus_id)}
