@@ -122,6 +122,19 @@ export interface CampusRead {
   updated_at: string;
 }
 
+// Mirrors app/schemas/campus.py::CampusCreate.
+export interface CampusCreatePayload {
+  code: CampusCode;
+  name: string;
+  is_active?: boolean;
+}
+
+// Mirrors app/schemas/campus.py::CampusUpdate.
+export interface CampusUpdatePayload {
+  name?: string;
+  is_active?: boolean;
+}
+
 // Mirrors app/schemas/dashboard-shaped response from app/services/reporting.py::get_dashboard_kpis.
 export interface CampusHiringRow {
   campus_code: string;
@@ -159,6 +172,22 @@ export interface DepartmentRead {
   created_at: string;
   updated_at: string;
 }
+
+// Mirrors app/schemas/department.py::DepartmentCreate.
+export interface DepartmentCreatePayload {
+  campus_id: string;
+  name: string;
+  is_active?: boolean;
+}
+
+// Mirrors app/schemas/department.py::DepartmentUpdate.
+export interface DepartmentUpdatePayload {
+  name?: string;
+  is_active?: boolean;
+}
+
+// Mirrors app/api/v1/routers/departments.py::_WRITE_ROLES.
+export const DEPARTMENT_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN", "CAMPUS_HOD"];
 
 // Mirrors app/schemas/eligibility_rule.py::EligibilityRuleRead.
 export interface EligibilityRule {
