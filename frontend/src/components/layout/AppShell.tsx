@@ -96,10 +96,10 @@ const NAV_ITEMS: NavItem[] = [
     label: "Eligibility Rules",
     icon: ListChecks,
     enabled: true,
-    // Mirrors app/api/v1/routers/eligibility_rules.py's write-role gate
-    // (SUPER_ADMIN/HR_ADMIN only) -- reads are staff-only, but only these
-    // roles can actually manage rules on this admin page.
-    visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN"],
+    // Mirrors app/api/v1/routers/eligibility_rules.py's own read gate
+    // (_staff_only, any non-CANDIDATE role) -- create/edit/toggle-active
+    // stay restricted to SUPER_ADMIN/HR_ADMIN inside EligibilityRulesPage
+    // itself, matching the backend's separate _WRITE_ROLES gate.
   },
   {
     to: "/activity-log",

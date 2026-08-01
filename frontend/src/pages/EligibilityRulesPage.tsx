@@ -131,106 +131,108 @@ export function EligibilityRulesPage() {
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
-  if (!user || !canManage) {
-    return <p className="text-sm text-muted-foreground">Only a Super Admin or HR Admin can manage eligibility rules.</p>;
+  if (!user || user.role === "CANDIDATE") {
+    return <p className="text-sm text-muted-foreground">Only staff can view eligibility rules.</p>;
   }
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Eligibility Rules</h1>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={openCreateDialog}>New rule</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingRuleId ? "Edit eligibility rule" : "New eligibility rule"}</DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label>Campus</Label>
-                <Select value={form.campusId} onValueChange={(v) => setForm((f) => ({ ...f, campusId: v }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a campus" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {campuses?.map((campus) => (
-                      <SelectItem key={campus.id} value={campus.id}>
-                        {campus.code}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        {canManage ? (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={openCreateDialog}>New rule</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{editingRuleId ? "Edit eligibility rule" : "New eligibility rule"}</DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label>Campus</Label>
+                  <Select value={form.campusId} onValueChange={(v) => setForm((f) => ({ ...f, campusId: v }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a campus" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {campuses?.map((campus) => (
+                        <SelectItem key={campus.id} value={campus.id}>
+                          {campus.code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Staff category</Label>
+                  <Select
+                    value={form.staffCategory}
+                    onValueChange={(v) => setForm((f) => ({ ...f, staffCategory: v as StaffRoleCategory }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STAFF_CATEGORIES.map((category) => (
+                        <SelectItem key={category} value={category}>
+                          {category.replace(/_/g, " ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="position_title">Position title (optional)</Label>
+                  <Input
+                    id="position_title"
+                    placeholder="Leave blank to apply to all positions in this category"
+                    value={form.positionTitle}
+                    onChange={(e) => setForm((f) => ({ ...f, positionTitle: e.target.value }))}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="keyword">Required qualification keyword</Label>
+                  <Input
+                    id="keyword"
+                    required
+                    placeholder="e.g. PHD"
+                    value={keyword.value}
+                    onChange={(e) => keyword.onChange(e.target.value)}
+                    onBlur={keyword.onBlur}
+                    aria-invalid={Boolean(keyword.error)}
+                  />
+                  {keyword.error ? <p className="text-xs text-destructive">{keyword.error}</p> : null}
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Active</Label>
+                  <Select
+                    value={form.isActive ? "true" : "false"}
+                    onValueChange={(v) => setForm((f) => ({ ...f, isActive: v === "true" }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">Active</SelectItem>
+                      <SelectItem value="false">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="notes">Notes (optional)</Label>
+                  <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+                </div>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>Staff category</Label>
-                <Select
-                  value={form.staffCategory}
-                  onValueChange={(v) => setForm((f) => ({ ...f, staffCategory: v as StaffRoleCategory }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STAFF_CATEGORIES.map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category.replace(/_/g, " ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="position_title">Position title (optional)</Label>
-                <Input
-                  id="position_title"
-                  placeholder="Leave blank to apply to all positions in this category"
-                  value={form.positionTitle}
-                  onChange={(e) => setForm((f) => ({ ...f, positionTitle: e.target.value }))}
-                />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="keyword">Required qualification keyword</Label>
-                <Input
-                  id="keyword"
-                  required
-                  placeholder="e.g. PHD"
-                  value={keyword.value}
-                  onChange={(e) => keyword.onChange(e.target.value)}
-                  onBlur={keyword.onBlur}
-                  aria-invalid={Boolean(keyword.error)}
-                />
-                {keyword.error ? <p className="text-xs text-destructive">{keyword.error}</p> : null}
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>Active</Label>
-                <Select
-                  value={form.isActive ? "true" : "false"}
-                  onValueChange={(v) => setForm((f) => ({ ...f, isActive: v === "true" }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="true">Active</SelectItem>
-                    <SelectItem value="false">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="notes">Notes (optional)</Label>
-                <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </div>
-            </div>
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <DialogFooter>
-              <Button disabled={!form.campusId || !keyword.value.trim() || isSaving} onClick={submit}>
-                {isSaving ? "Saving…" : editingRuleId ? "Save changes" : "Create rule"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              <DialogFooter>
+                <Button disabled={!form.campusId || !keyword.value.trim() || isSaving} onClick={submit}>
+                  {isSaving ? "Saving…" : editingRuleId ? "Save changes" : "Create rule"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        ) : null}
       </div>
 
       {error && !dialogOpen ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -249,7 +251,7 @@ export function EligibilityRulesPage() {
               <th className="py-2 font-medium">Required keyword</th>
               <th className="py-2 font-medium">Active</th>
               <th className="py-2 font-medium">Notes</th>
-              <th className="py-2 font-medium">Actions</th>
+              {canManage ? <th className="py-2 font-medium">Actions</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -262,22 +264,30 @@ export function EligibilityRulesPage() {
                   <td className="py-2">{rule.position_title ?? "All positions"}</td>
                   <td className="py-2">{rule.required_qualification_keyword}</td>
                   <td className="py-2">
-                    <button
-                      type="button"
-                      disabled={toggleActiveMutation.isPending}
-                      onClick={() => toggleActiveMutation.mutate({ id: rule.id, isActive: !rule.is_active })}
-                    >
+                    {canManage ? (
+                      <button
+                        type="button"
+                        disabled={toggleActiveMutation.isPending}
+                        onClick={() => toggleActiveMutation.mutate({ id: rule.id, isActive: !rule.is_active })}
+                      >
+                        <Badge variant={rule.is_active ? "success" : "destructive"}>
+                          {rule.is_active ? "Active" : "Inactive"}
+                        </Badge>
+                      </button>
+                    ) : (
                       <Badge variant={rule.is_active ? "success" : "destructive"}>
                         {rule.is_active ? "Active" : "Inactive"}
                       </Badge>
-                    </button>
+                    )}
                   </td>
                   <td className="py-2">{rule.notes ?? "—"}</td>
-                  <td className="py-2">
-                    <Button variant="outline" size="sm" onClick={() => openEditDialog(rule)}>
-                      Edit
-                    </Button>
-                  </td>
+                  {canManage ? (
+                    <td className="py-2">
+                      <Button variant="outline" size="sm" onClick={() => openEditDialog(rule)}>
+                        Edit
+                      </Button>
+                    </td>
+                  ) : null}
                 </tr>
               );
             })}

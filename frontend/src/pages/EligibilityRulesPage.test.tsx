@@ -64,19 +64,33 @@ function renderPage() {
 }
 
 describe("EligibilityRulesPage", () => {
-  it("gates the page for a non-admin role", async () => {
-    mockUser("CAMPUS_HOD");
+  it("blocks a CANDIDATE-role account from viewing the page", async () => {
+    mockUser("CANDIDATE");
     mockedListEligibilityRules.mockResolvedValue([RULE]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
     renderPage();
 
     await waitFor(() =>
-      expect(
-        screen.getByText("Only a Super Admin or HR Admin can manage eligibility rules."),
-      ).toBeInTheDocument(),
+      expect(screen.getByText("Only staff can view eligibility rules.")).toBeInTheDocument(),
     );
+  });
+
+  it("lets a non-admin staff role view rules read-only, with no write controls", async () => {
+    mockUser("CAMPUS_HOD");
+    mockedListEligibilityRules.mockResolvedValue([RULE]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("SSE")).toBeInTheDocument());
+    expect(screen.getByText("PHD")).toBeInTheDocument();
     expect(screen.queryByText("New rule")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    // The Active badge is still visible (in the "Active" column header and the row's badge),
+    // but not as a clickable toggle button.
+    expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Active" })).not.toBeInTheDocument();
   });
 
   it("renders eligibility rules with resolved campus code for HR Admin", async () => {
