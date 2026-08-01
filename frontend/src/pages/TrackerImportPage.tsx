@@ -23,6 +23,7 @@ export function TrackerImportPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<TrackerImportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [includeSample, setIncludeSample] = useState(false);
 
   const downloadMutation = useMutation({
     mutationFn: downloadTrackerTemplate,
@@ -31,7 +32,7 @@ export function TrackerImportPage() {
   });
 
   const importMutation = useMutation({
-    mutationFn: (file: File) => importTrackerWorkbook(file),
+    mutationFn: (file: File) => importTrackerWorkbook(file, includeSample),
     onSuccess: (data) => {
       setError(null);
       setResult(data);
@@ -79,7 +80,7 @@ export function TrackerImportPage() {
             Campus / Staff Category / Source / Status lists is flagged with a reason, not silently dropped.
           </p>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -99,6 +100,16 @@ export function TrackerImportPage() {
               {importMutation.isPending ? "Importing…" : "Upload filled-in workbook"}
             </Button>
           </div>
+
+          <label className="flex items-center gap-2 text-muted-foreground">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-input"
+              checked={includeSample}
+              onChange={(e) => setIncludeSample(e.target.checked)}
+            />
+            Include the template&apos;s sample row (for a test/demo import, not real data)
+          </label>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </CardContent>
