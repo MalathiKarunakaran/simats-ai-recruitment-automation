@@ -114,3 +114,35 @@ def test_inactive_rule_is_treated_as_absent(
     body = response.json()
     assert body["qualification_mismatch"] is True
     assert body["qualification_mismatch_reason"] is not None
+
+
+def test_pipeline_details_with_salary_fixed_round_trips_and_can_be_re_edited(
+    client, published_vacancy_factory, candidate_factory
+):
+    # Regression test: Application.salary_fixed is a Numeric column that
+    # SQLAlchemy returns as decimal.Decimal once reloaded from the DB
+    # (contradicting its Mapped[float | None] type hint) -- the
+    # pipeline-details PATCH's audit-log `before` snapshot reads it straight
+    # off the freshly-loaded ORM object into a dict destined for JSON
+    # storage, which crashed with "Object of type Decimal is not JSON
+    # serializable" on the second edit, before the column was declared
+    # asdecimal=False (same bug class as VacancyRequest.salary_band_min).
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    candidate = candidate_factory()
+    application_id = _create_application(client, vacancy, candidate).json()["id"]
+
+    first = client.patch(
+        f"/api/v1/applications/{application_id}/pipeline-details",
+        headers=auth_headers(client, vacancy.recruitment_officer),
+        json={"salary_fixed": 60000},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["salary_fixed"] == 60000
+
+    second = client.patch(
+        f"/api/v1/applications/{application_id}/pipeline-details",
+        headers=auth_headers(client, vacancy.recruitment_officer),
+        json={"salary_fixed": 65000},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["salary_fixed"] == 65000

@@ -21,7 +21,7 @@ class Offer(Base):
     offered_by_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
-    salary_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    salary_amount: Mapped[float] = mapped_column(Numeric(12, 2, asdecimal=False), nullable=False)
     salary_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR")
     joining_date: Mapped[date] = mapped_column(Date, nullable=False)
     terms: Mapped[str | None] = mapped_column(Text, nullable=True)

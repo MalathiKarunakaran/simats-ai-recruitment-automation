@@ -189,6 +189,37 @@ def test_cannot_edit_non_draft_vacancy_request(client, user_factory, department_
     assert response.status_code == 409
 
 
+def test_editing_a_draft_with_a_salary_band_set_round_trips_as_float(client, user_factory, department_factory):
+    # Regression test: VacancyRequest.salary_band_min/max are Numeric columns
+    # that SQLAlchemy returns as decimal.Decimal by default once a row is
+    # reloaded from the DB (contradicting their Mapped[float | None] type
+    # hint) -- the PATCH audit-log snapshot embeds the freshly-loaded value
+    # directly into a dict destined for JSON storage, which crashed with
+    # "Object of type Decimal is not JSON serializable" before the columns
+    # were declared asdecimal=False.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id), salary_band_min=50000, salary_band_max=70000),
+    )
+    assert create.status_code == 201
+    vr_id = create.json()["id"]
+
+    response = client.patch(
+        f"/api/v1/vacancy-requests/{vr_id}",
+        headers=auth_headers(client, hod),
+        json={"salary_band_min": 55000, "salary_band_max": 75000},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["salary_band_min"] == 55000
+    assert body["salary_band_max"] == 75000
+    assert isinstance(body["salary_band_min"], float | int)
+
+
 def test_management_cannot_create_vacancy_request(client, user_factory, department_factory):
     department = department_factory("SSE")
     management = user_factory(UserRoleEnum.MANAGEMENT)

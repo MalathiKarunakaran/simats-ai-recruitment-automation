@@ -57,7 +57,7 @@ class Application(Base):
     panel_members: Mapped[str | None] = mapped_column(Text, nullable=True)
     panel_result: Mapped[str | None] = mapped_column(String(100), nullable=True)
     panel_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
-    salary_fixed: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    salary_fixed: Mapped[float | None] = mapped_column(Numeric(12, 2, asdecimal=False), nullable=True)
     called_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     interview_scheduled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     offer_given_date: Mapped[date | None] = mapped_column(Date, nullable=True)

@@ -45,8 +45,8 @@ class VacancyRequest(Base):
     requested_count: Mapped[int] = mapped_column(Integer, nullable=False)
     qualification: Mapped[str] = mapped_column(Text, nullable=False)
     experience_required: Mapped[str] = mapped_column(String(100), nullable=False)
-    salary_band_min: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
-    salary_band_max: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    salary_band_min: Mapped[float | None] = mapped_column(Numeric(12, 2, asdecimal=False), nullable=True)
+    salary_band_max: Mapped[float | None] = mapped_column(Numeric(12, 2, asdecimal=False), nullable=True)
     jd_draft: Mapped[str | None] = mapped_column(Text, nullable=True)
     skills: Mapped[list[str] | None] = mapped_column(ARRAY(String(100)), nullable=True)
     priority: Mapped[VacancyPriorityEnum] = mapped_column(

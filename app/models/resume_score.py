@@ -24,21 +24,21 @@ class ResumeScore(Base):
         index=True,
     )
 
-    eligibility_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    skill_match_pct: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    qualification_match_pct: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    experience_match_pct: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    eligibility_score: Mapped[float | None] = mapped_column(Numeric(5, 2, asdecimal=False), nullable=True)
+    skill_match_pct: Mapped[float | None] = mapped_column(Numeric(5, 2, asdecimal=False), nullable=True)
+    qualification_match_pct: Mapped[float | None] = mapped_column(Numeric(5, 2, asdecimal=False), nullable=True)
+    experience_match_pct: Mapped[float | None] = mapped_column(Numeric(5, 2, asdecimal=False), nullable=True)
     publication_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     overall_recruitment_score: Mapped[float | None] = mapped_column(
-        Numeric(5, 2), nullable=True, index=True
+        Numeric(5, 2, asdecimal=False), nullable=True, index=True
     )
     # From ChromaDB semantic JD-to-resume similarity, scaled 0-100.
-    semantic_similarity_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    semantic_similarity_score: Mapped[float | None] = mapped_column(Numeric(5, 2, asdecimal=False), nullable=True)
     rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     extracted_skills: Mapped[list[str] | None] = mapped_column(ARRAY(String(100)), nullable=True)
     extracted_qualification: Mapped[str | None] = mapped_column(Text, nullable=True)
-    extracted_experience_years: Mapped[float | None] = mapped_column(Numeric(4, 1), nullable=True)
+    extracted_experience_years: Mapped[float | None] = mapped_column(Numeric(4, 1, asdecimal=False), nullable=True)
 
     is_duplicate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     duplicate_of_candidate_id: Mapped[uuid.UUID | None] = mapped_column(
