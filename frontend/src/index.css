@@ -17,22 +17,25 @@
   --brand-green: #3fa34d;
   --brand-orange: #f4791e;
 
-  --background: #f7f4ec;
-  --foreground: #14202b;
+  /* Lightened pass (2026-08-03): softened text/background contrast and
+     font weight app-wide on user request -- values chosen to keep body
+     text at or above WCAG AA (4.5:1) rather than just "look lighter". */
+  --background: #f9f7f2;
+  --foreground: #2b3644;
   --card: #ffffff;
-  --card-foreground: #14202b;
+  --card-foreground: #2b3644;
   --primary: #b8901f;
   --primary-foreground: #ffffff;
   --secondary: #efeae0;
-  --secondary-foreground: #3d2f10;
+  --secondary-foreground: #4a3c1c;
   --muted: #f0ede3;
-  --muted-foreground: #6b6455;
+  --muted-foreground: #756e5c;
   --accent: #f3ecd9;
-  --accent-foreground: #5c4813;
+  --accent-foreground: #6b551c;
   --destructive: #c0392b;
   --destructive-foreground: #ffffff;
-  --border: #e2dccb;
-  --input: #e2dccb;
+  --border: #e6e0d0;
+  --input: #e6e0d0;
   --ring: #b8901f;
   --radius: 0.75rem;
 
@@ -47,22 +50,25 @@
 }
 
 .dark {
-  --background: #0a0f1c;
-  --foreground: #e8e6dd;
-  --card: #101828;
-  --card-foreground: #e8e6dd;
+  /* Lightened pass (2026-08-03): same intent as :root above -- a lighter
+     navy field and softer (not stark-white) foreground, still well clear
+     of AA contrast against the new background/card values. */
+  --background: #121a2c;
+  --foreground: #d9d6ca;
+  --card: #182338;
+  --card-foreground: #d9d6ca;
   --primary: #c9a227;
-  --primary-foreground: #101828;
-  --secondary: #16233a;
+  --primary-foreground: #182338;
+  --secondary: #1c2a44;
   --secondary-foreground: #c7d2e0;
-  --muted: #131f33;
-  --muted-foreground: #7c8aa0;
-  --accent: #1b2c47;
-  --accent-foreground: #e8e6dd;
+  --muted: #182338;
+  --muted-foreground: #8ea0b8;
+  --accent: #23375a;
+  --accent-foreground: #d9d6ca;
   --destructive: #c0392b;
   --destructive-foreground: #fdeeec;
-  --border: #223349;
-  --input: #223349;
+  --border: #2a3c56;
+  --input: #2a3c56;
   --ring: #c9a227;
 
   /* Chart categorical palette -- validated against this theme's real card
@@ -113,10 +119,21 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Lightened pass (2026-08-03): every font-medium/font-semibold class
+     app-wide gets a touch lighter without editing each component.
+     font-normal (400, body copy's default) is already Inter's lightest
+     loaded weight -- index.html would need a 300-weight file added to go
+     lighter than that. */
+  --font-weight-medium: 450;
+  --font-weight-semibold: 540;
 }
 
 body {
   margin: 0;
+  /* Lightened pass (2026-08-03): modest base bump (16px -> 17px) so every
+     rem-based Tailwind text-* utility scales up together app-wide. */
+  font-size: 17px;
   @apply bg-background text-foreground font-sans;
 }
 
