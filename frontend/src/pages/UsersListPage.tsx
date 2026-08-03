@@ -22,7 +22,9 @@ export function UsersListPage() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "ALL">("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
+  // Defaults to Active so deactivated accounts don't clutter the default
+  // view -- still reachable via the Status filter for anyone who needs them.
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ACTIVE");
 
   const { data: users, isLoading } = useQuery({ queryKey: ["users"], queryFn: listUsers });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });

@@ -199,8 +199,11 @@ describe("UsersListPage", () => {
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
     renderPage();
+    // Status filter defaults to Active, so the inactive fixture is hidden
+    // until the filter is switched -- matches this page's convention of
+    // keeping deactivated accounts out of the default view.
     await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
-    expect(screen.getByText("John Smith")).toBeInTheDocument();
+    expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
     await userEvent.click(await screen.findByRole("option", { name: "Inactive" }));
