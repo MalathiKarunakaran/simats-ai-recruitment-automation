@@ -180,7 +180,7 @@ def _fill_slot_and_maybe_autoclose(
     )
     notifications.notify_role(
         db,
-        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT},
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT, UserRoleEnum.RECRUITMENT_COORDINATOR},
         campus_id=approved_vacancy.campus_id,
         notification_type="VACANCY_AUTO_CLOSE",
         subject=f"Vacancy auto-closed: {vacancy_request.position_title}",
@@ -298,7 +298,7 @@ def transition_application_status(
         )
         notifications.notify_role(
             db,
-            roles={UserRoleEnum.HR_ADMIN},
+            roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR},
             campus_id=application.campus_id,
             notification_type="APPLICATION_JOINED",
             subject=f"Candidate joined: {application.candidate.full_name}",

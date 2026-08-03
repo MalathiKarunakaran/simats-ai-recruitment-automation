@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -35,3 +35,30 @@ class ADBriefingResponse(BaseModel):
     period_label: str
     kpi_headline: dict[str, Any]
     campus_role_breakdown: list[dict[str, Any]]
+
+
+class WeeklyStatusRow(BaseModel):
+    group_label: str
+    attended: int
+    selected: int
+    waiting: int
+    rejected: int
+    upcoming_join: int | None = None
+    joined: int | None = None
+
+
+class WeeklyRecruitmentStatusResponse(BaseModel):
+    scope_note: str
+    generated_at: datetime
+    period_label: str
+    start_date: date
+    end_date: date
+    total_interviewed: int
+    total_selected: int
+    total_waiting: int
+    total_rejected: int
+    total_joined: int
+    selection_rate_pct: float | None
+    joined_by_category: dict[str, int]
+    teaching_rows: list[WeeklyStatusRow]
+    non_teaching_rows: list[WeeklyStatusRow]

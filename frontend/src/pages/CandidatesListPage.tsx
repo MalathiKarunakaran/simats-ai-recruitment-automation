@@ -9,11 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// Mirrors the backend's RECRUITMENT_OFFICER/HR_ADMIN/SUPER_ADMIN gate on
-// both candidate creation and POST /candidates/{id}/withdraw
-// (app/api/v1/routers/candidates.py) -- routine candidate management, not
-// HR-exclusive like employee offboarding. Shared with CandidateDetailPage.
-export const CAN_MANAGE_CANDIDATES_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+// Mirrors the backend's RECRUITMENT_OFFICER/HR_ADMIN/SUPER_ADMIN/
+// RECRUITMENT_COORDINATOR gate on both candidate creation and
+// POST /candidates/{id}/withdraw (app/api/v1/routers/candidates.py) --
+// routine candidate management, not HR-exclusive like employee offboarding.
+// Shared with CandidateDetailPage.
+export const CAN_MANAGE_CANDIDATES_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 type StatusFilter = "ACTIVE" | "WITHDRAWN" | "ALL";
 type ResumeFilter = "ALL" | "MISSING" | "UPLOADED";

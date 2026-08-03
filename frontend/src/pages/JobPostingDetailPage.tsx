@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
-const DISTRIBUTE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+const DISTRIBUTE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 const SUPPORTED_PORTALS: JobPortal[] = ["LINKEDIN", "INDEED", "NAUKRI", "FACULTYPLUS"];
 
 export function JobPostingDetailPage() {

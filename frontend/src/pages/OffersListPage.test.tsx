@@ -162,7 +162,7 @@ describe("OffersListPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/Only HR Admin, Super Admin, or Management/)).toBeInTheDocument();
+    expect(screen.getByText(/Only HR Admin, Super Admin, Management, or Recruitment Coordinator/)).toBeInTheDocument();
   });
 
   it("narrows the list client-side by status without re-fetching", async () => {

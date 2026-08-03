@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
-const WRITE_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
+const WRITE_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 export function OfferDetailPage() {
   const { id } = useParams<{ id: string }>();

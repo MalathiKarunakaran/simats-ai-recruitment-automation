@@ -525,6 +525,111 @@ def test_slot_count_adjustment_forbidden_for_campus_hod(client, published_vacanc
 # --- Approved-vacancy filter ---------------------------------------------
 
 
+# --- RECRUITMENT_COORDINATOR RBAC ----------------------------------------
+
+
+def test_recruitment_coordinator_can_reject(client, user_factory, department_factory):
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/reject",
+        headers=auth_headers(client, coordinator),
+        json={"reason": "Not needed"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "REJECTED"
+
+
+def test_recruitment_coordinator_can_hr_approve_and_publish(client, user_factory, department_factory):
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, dean))
+
+    hr_approved = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/hr-approve", headers=auth_headers(client, coordinator)
+    )
+    assert hr_approved.status_code == 200
+
+    published = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/publish", headers=auth_headers(client, coordinator)
+    )
+    assert published.status_code == 200
+    assert published.json()["is_active"] is True
+
+
+def test_recruitment_coordinator_can_close_cancel_and_adjust_slot_count(
+    client, user_factory, published_vacancy_factory
+):
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    vacancy_a = published_vacancy_factory(slot_count=2)
+    vacancy_b = published_vacancy_factory(slot_count=2)
+    vacancy_c = published_vacancy_factory(slot_count=2)
+
+    close_response = client.post(
+        f"/api/v1/vacancy-requests/{vacancy_a.vacancy_request.id}/close",
+        headers=auth_headers(client, coordinator),
+    )
+    assert close_response.status_code == 200
+    assert close_response.json()["status"] == "CLOSED"
+
+    cancel_response = client.post(
+        f"/api/v1/vacancy-requests/{vacancy_b.vacancy_request.id}/cancel",
+        headers=auth_headers(client, coordinator),
+        json={"reason": "Budget freeze"},
+    )
+    assert cancel_response.status_code == 200
+    assert cancel_response.json()["status"] == "CANCELLED"
+
+    slot_response = client.patch(
+        f"/api/v1/vacancy-requests/{vacancy_c.vacancy_request.id}/slot-count",
+        headers=auth_headers(client, coordinator),
+        json={"requested_count": 4},
+    )
+    assert slot_response.status_code == 200
+    assert slot_response.json()["total_positions"] == 4
+
+
+def test_recruitment_coordinator_cannot_dean_approve(client, user_factory, department_factory):
+    # Dean-approval is deliberately excluded from this role's grant -- it
+    # remains ASSOCIATE_DEAN_RECRUITMENT/SUPER_ADMIN only.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, coordinator)
+    )
+    assert response.status_code == 403
+
+
 def test_list_approved_vacancies_filters_by_vacancy_request_id(client, user_factory, published_vacancy_factory):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     vacancy_a = published_vacancy_factory()

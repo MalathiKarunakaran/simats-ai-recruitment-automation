@@ -17,7 +17,7 @@ from app.services.audit import log_create, log_update
 
 router = APIRouter(prefix="/offers", tags=["offers"])
 
-_WRITE_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+_WRITE_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR)
 
 _NON_TERMINAL_OFFER_STATUSES = (OfferStatusEnum.DRAFT, OfferStatusEnum.SENT)
 
@@ -194,7 +194,7 @@ def accept_offer(
     )
     notifications.notify_role(
         db,
-        roles={UserRoleEnum.HR_ADMIN},
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR},
         campus_id=application.campus_id,
         notification_type="OFFER_ACCEPTED",
         subject=f"Offer accepted: {application.candidate.full_name}",
@@ -247,7 +247,7 @@ def decline_offer(
     )
     notifications.notify_role(
         db,
-        roles={UserRoleEnum.HR_ADMIN},
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR},
         campus_id=offer.application.campus_id,
         notification_type="OFFER_DECLINED",
         subject=f"Offer declined: {offer.application.candidate.full_name}",

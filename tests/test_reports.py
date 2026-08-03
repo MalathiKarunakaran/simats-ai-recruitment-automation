@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 import openpyxl
 from pptx import Presentation
 
-from app.models.enums import InterviewTypeEnum, UserRoleEnum
+from app.models.enums import ApplicationStatusEnum, InterviewTypeEnum, StaffRoleCategoryEnum, UserRoleEnum
 from app.services import interviews as interviews_service
 
 from tests.conftest import auth_headers
@@ -16,6 +16,16 @@ def _report(client, actor, report_type, **params):
 
 def _export(client, actor, report_type, **params):
     return client.get(f"/api/v1/reports/{report_type}/export", headers=auth_headers(client, actor), params=params)
+
+
+def _weekly_status(client, actor, **params):
+    return client.get("/api/v1/reports/weekly-status", headers=auth_headers(client, actor), params=params)
+
+
+def _weekly_status_export(client, actor, **params):
+    return client.get(
+        "/api/v1/reports/weekly-status/export", headers=auth_headers(client, actor), params=params
+    )
 
 
 def test_recruitment_funnel_report_counts(client, published_vacancy_factory, application_factory):
@@ -400,3 +410,154 @@ def test_ad_briefing_export_reflects_period_label_in_slide_text(client, publishe
         shape.text_frame.text for shape in presentation.slides[0].shapes if shape.has_text_frame
     )
     assert f"Interviews ({today.isoformat()})" in all_text
+
+
+def test_weekly_status_teaching_row_selected(
+    client, published_vacancy_factory, application_factory, db_session
+):
+    vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.TEACHING
+    )
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    today = date.today()
+    application.panel_result = "Selected"
+    application.interview_scheduled_date = today
+    db_session.flush()
+
+    response = _weekly_status(
+        client, vacancy.hr_admin, start_date=today.isoformat(), end_date=today.isoformat()
+    )
+    assert response.status_code == 200
+    body = response.json()
+    row = next(r for r in body["teaching_rows"] if r["group_label"] == "SSE")
+    assert row["attended"] == 1
+    assert row["selected"] == 1
+    assert row["waiting"] == 0
+    assert row["rejected"] == 0
+    assert row["upcoming_join"] is None
+    assert row["joined"] is None
+    assert body["total_interviewed"] == 1
+    assert body["total_selected"] == 1
+    assert body["selection_rate_pct"] == 100.0 or body["selection_rate_pct"] == 100
+
+
+def test_weekly_status_non_teaching_upcoming_join(
+    client, published_vacancy_factory, application_factory, db_session
+):
+    vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.NON_TEACHING
+    )
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    today = date.today()
+    application.expected_joining_date = today + timedelta(days=7)
+    application.status = ApplicationStatusEnum.OFFER_ACCEPTED
+    db_session.flush()
+
+    response = _weekly_status(
+        client, vacancy.hr_admin, start_date=today.isoformat(), end_date=today.isoformat()
+    )
+    assert response.status_code == 200
+    body = response.json()
+    row = next(r for r in body["non_teaching_rows"] if r["group_label"] == vacancy.vacancy_request.position_title)
+    assert row["upcoming_join"] == 1
+    assert row["joined"] == 0
+
+
+def test_weekly_status_joined_this_week(
+    client, published_vacancy_factory, application_factory, db_session
+):
+    vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.NON_TEACHING
+    )
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    today = date.today()
+    application.actual_joining_date = today
+    application.status = ApplicationStatusEnum.JOINED
+    db_session.flush()
+
+    response = _weekly_status(
+        client, vacancy.hr_admin, start_date=today.isoformat(), end_date=today.isoformat()
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_joined"] == 1
+    assert body["joined_by_category"]["NON_TEACHING"] == 1
+    row = next(r for r in body["non_teaching_rows"] if r["group_label"] == vacancy.vacancy_request.position_title)
+    assert row["joined"] == 1
+
+
+def test_weekly_status_requires_start_and_end_date(client, published_vacancy_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    response = _weekly_status(client, vacancy.hr_admin)
+    assert response.status_code == 422
+
+
+def test_weekly_status_rejects_start_after_end_date(client, published_vacancy_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    today = date.today()
+    response = _weekly_status(
+        client, vacancy.hr_admin, start_date=today.isoformat(), end_date=(today - timedelta(days=1)).isoformat()
+    )
+    assert response.status_code == 422
+
+
+def test_weekly_status_export_returns_two_slide_pptx(
+    client, published_vacancy_factory, application_factory, db_session
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    today = date.today()
+    application.panel_result = "Selected"
+    application.interview_scheduled_date = today
+    db_session.flush()
+
+    response = _weekly_status_export(
+        client, vacancy.hr_admin, start_date=today.isoformat(), end_date=today.isoformat()
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+    assert len(response.content) > 0
+
+    presentation = Presentation(io.BytesIO(response.content))
+    assert len(presentation.slides) == 2
+    all_text = " ".join(
+        shape.text_frame.text
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if shape.has_text_frame
+    )
+    assert "Weekly Recruitment Status" in all_text
+    assert "Prepared by the Recruitment Office" in all_text
+
+
+def test_weekly_status_respects_campus_scoping(
+    client, published_vacancy_factory, application_factory, db_session
+):
+    vacancy_sse = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    vacancy_scad = published_vacancy_factory(campus_code="SCAD", slot_count=1)
+    today = date.today()
+
+    app_sse = application_factory(vacancy_sse.job_posting, recorded_by=vacancy_sse.hr_admin)
+    app_sse.panel_result = "Selected"
+    app_sse.interview_scheduled_date = today
+
+    app_scad = application_factory(vacancy_scad.job_posting, recorded_by=vacancy_scad.hr_admin)
+    app_scad.panel_result = "Selected"
+    app_scad.interview_scheduled_date = today
+    db_session.flush()
+
+    hod_response = _weekly_status(
+        client, vacancy_sse.hod, start_date=today.isoformat(), end_date=today.isoformat()
+    )
+    assert hod_response.status_code == 200
+    hod_labels = {r["group_label"] for r in hod_response.json()["teaching_rows"]}
+    assert hod_labels == {"SSE"}
+
+    global_response = _weekly_status(
+        client, vacancy_sse.hr_admin, start_date=today.isoformat(), end_date=today.isoformat()
+    )
+    assert global_response.status_code == 200
+    global_labels = {r["group_label"] for r in global_response.json()["teaching_rows"]}
+    assert {"SSE", "SCAD"} <= global_labels

@@ -126,3 +126,165 @@ def build_ad_briefing_pptx(summary: dict) -> bytes:
     buf = io.BytesIO()
     presentation.save(buf)
     return buf.getvalue()
+
+
+def _add_blank_slide(presentation: Presentation):
+    slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+    background = slide.shapes.add_shape(
+        MSO_SHAPE.RECTANGLE, 0, 0, presentation.slide_width, presentation.slide_height
+    )
+    background.fill.solid()
+    background.fill.fore_color.rgb = _NAVY
+    background.line.fill.background()
+    background.shadow.inherit = False
+    return slide
+
+
+def _add_textbox(slide, left, top, width, height, text: str, size: int, color: RGBColor, bold: bool = False):
+    box = slide.shapes.add_textbox(left, top, width, height)
+    frame = box.text_frame
+    frame.word_wrap = True
+    frame.text = text
+    run = frame.paragraphs[0].runs[0]
+    run.font.size = Pt(size)
+    run.font.bold = bold
+    run.font.color.rgb = color
+    return box
+
+
+def _add_status_table(slide, headers: list[str], rows: list[list[str]], left, top, width, height):
+    table_shape = slide.shapes.add_table(max(len(rows) + 1, 2), len(headers), left, top, width, height)
+    table = table_shape.table
+    for col_index, header in enumerate(headers):
+        cell = table.cell(0, col_index)
+        cell.text = header
+        cell.text_frame.paragraphs[0].runs[0].font.bold = True
+    for row_index, values in enumerate(rows, start=1):
+        for col_index, value in enumerate(values):
+            cell = table.cell(row_index, col_index)
+            cell.text = value
+            if row_index == len(rows):
+                # Rows list always ends with the caller-supplied Total row.
+                cell.text_frame.paragraphs[0].runs[0].font.bold = True
+    return table_shape
+
+
+def build_weekly_status_pptx(data: dict) -> bytes:
+    presentation = Presentation()
+    presentation.slide_width = Inches(13.33)
+    presentation.slide_height = Inches(7.5)
+
+    # Slide 1: title/subtitle, top-line KPIs, Teaching Staff table.
+    slide1 = _add_blank_slide(presentation)
+    _add_textbox(
+        slide1, Inches(0.5), Inches(0.3), Inches(12.3), Inches(0.9),
+        "Weekly Recruitment Status", 32, _GOLD, bold=True,
+    )
+    _add_textbox(
+        slide1, Inches(0.5), Inches(1.1), Inches(12.3), Inches(0.4),
+        f"Teaching & Non-Teaching Staff | SIMATS Engineering — {data['period_label']}", 14, _WHITE,
+    )
+
+    kpi_text = (
+        f"Total Interviewed: {data['total_interviewed']}  |  Selected: {data['total_selected']}  |  "
+        f"Waiting List: {data['total_waiting']}  |  Rejected: {data['total_rejected']}  |  "
+        f"Joined This Week: {data['total_joined']}"
+    )
+    _add_textbox(slide1, Inches(0.5), Inches(1.7), Inches(12.3), Inches(0.6), kpi_text, 14, _GOLD)
+
+    _add_textbox(
+        slide1, Inches(0.5), Inches(2.3), Inches(12.3), Inches(0.4),
+        "Teaching Staff (TS) — Campus-wise", 16, _WHITE, bold=True,
+    )
+    teaching_rows = data["teaching_rows"]
+    teaching_totals = {
+        "attended": sum(r["attended"] for r in teaching_rows),
+        "selected": sum(r["selected"] for r in teaching_rows),
+        "waiting": sum(r["waiting"] for r in teaching_rows),
+        "rejected": sum(r["rejected"] for r in teaching_rows),
+    }
+    teaching_table_rows = [
+        [r["group_label"], str(r["attended"]), str(r["selected"]), str(r["waiting"]), str(r["rejected"])]
+        for r in teaching_rows
+    ] + [
+        [
+            "Total",
+            str(teaching_totals["attended"]),
+            str(teaching_totals["selected"]),
+            str(teaching_totals["waiting"]),
+            str(teaching_totals["rejected"]),
+        ]
+    ]
+    _add_status_table(
+        slide1,
+        ["College", "Attended", "Selected", "Waiting", "Rejected"],
+        teaching_table_rows,
+        Inches(0.5), Inches(2.8), Inches(12.3), Inches(4.0),
+    )
+
+    # Slide 2: Joined This Week category tiles, Non-Teaching Staff table, footer.
+    slide2 = _add_blank_slide(presentation)
+    _add_textbox(
+        slide2, Inches(0.5), Inches(0.3), Inches(12.3), Inches(0.4),
+        "Joined This Week — Category-wise", 20, _GOLD, bold=True,
+    )
+    joined_by_category = data["joined_by_category"]
+    category_text = (
+        f"Teaching: {joined_by_category.get('TEACHING', 0)}  |  "
+        f"Non-Teaching: {joined_by_category.get('NON_TEACHING', 0)}  |  "
+        f"Housekeeping: {joined_by_category.get('HOUSEKEEPING', 0)}"
+    )
+    _add_textbox(slide2, Inches(0.5), Inches(0.9), Inches(12.3), Inches(0.5), category_text, 16, _WHITE)
+
+    _add_textbox(
+        slide2, Inches(0.5), Inches(1.6), Inches(12.3), Inches(0.4),
+        "Non-Teaching Staff (NTS) — Department-wise", 16, _WHITE, bold=True,
+    )
+    non_teaching_rows = data["non_teaching_rows"]
+    nts_totals = {
+        "attended": sum(r["attended"] for r in non_teaching_rows),
+        "selected": sum(r["selected"] for r in non_teaching_rows),
+        "waiting": sum(r["waiting"] for r in non_teaching_rows),
+        "rejected": sum(r["rejected"] for r in non_teaching_rows),
+        "upcoming_join": sum(r["upcoming_join"] or 0 for r in non_teaching_rows),
+        "joined": sum(r["joined"] or 0 for r in non_teaching_rows),
+    }
+    nts_table_rows = [
+        [
+            r["group_label"],
+            str(r["attended"]),
+            str(r["selected"]),
+            str(r["waiting"]),
+            str(r["rejected"]),
+            str(r["upcoming_join"] or 0),
+            str(r["joined"] or 0),
+        ]
+        for r in non_teaching_rows
+    ] + [
+        [
+            "Total",
+            str(nts_totals["attended"]),
+            str(nts_totals["selected"]),
+            str(nts_totals["waiting"]),
+            str(nts_totals["rejected"]),
+            str(nts_totals["upcoming_join"]),
+            str(nts_totals["joined"]),
+        ]
+    ]
+    _add_status_table(
+        slide2,
+        ["Department", "Attended", "Selected", "Waiting", "Rejected", "Upcoming Join", "Joined"],
+        nts_table_rows,
+        Inches(0.5), Inches(2.1), Inches(12.3), Inches(4.2),
+    )
+
+    selection_rate_pct = data["selection_rate_pct"]
+    rate_text = "N/A" if selection_rate_pct is None else f"{selection_rate_pct}%"
+    _add_textbox(
+        slide2, Inches(0.5), Inches(6.6), Inches(12.3), Inches(0.5),
+        f"Overall selection rate: {rate_text} | Prepared by the Recruitment Office", 14, _GOLD,
+    )
+
+    buf = io.BytesIO()
+    presentation.save(buf)
+    return buf.getvalue()

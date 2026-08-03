@@ -15,7 +15,12 @@ from app.services.n8n_client import N8nClient, get_n8n_client_or_503
 
 router = APIRouter(prefix="/job-postings", tags=["job-distribution"])
 
-_DISTRIBUTE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+_DISTRIBUTE_ROLES = (
+    UserRoleEnum.RECRUITMENT_OFFICER,
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+)
 
 
 def _get_posting_or_404_scoped(db: Session, job_posting_id: uuid.UUID, scope: CampusScope) -> JobPosting:

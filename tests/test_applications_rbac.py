@@ -33,6 +33,22 @@ def test_recruitment_officer_can_record_application_for_own_campus_posting(
     assert response.json()["status"] == "APPLIED"
 
 
+def test_recruitment_coordinator_can_record_application_for_any_campus_posting(
+    client, published_vacancy_factory, candidate_factory, user_factory
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    candidate = candidate_factory()
+
+    response = client.post(
+        "/api/v1/applications",
+        headers=auth_headers(client, coordinator),
+        json={"candidate_id": str(candidate.id), "job_posting_id": str(vacancy.job_posting.id)},
+    )
+    assert response.status_code == 201
+    assert response.json()["status"] == "APPLIED"
+
+
 def test_candidate_role_blocked_from_applications_endpoints(client, user_factory, published_vacancy_factory):
     vacancy = published_vacancy_factory(slot_count=1)
     candidate_user = user_factory(UserRoleEnum.CANDIDATE)

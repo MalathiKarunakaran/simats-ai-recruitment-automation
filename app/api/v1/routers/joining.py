@@ -25,8 +25,13 @@ from app.services.audit import log_update
 
 router = APIRouter(tags=["joining"])
 
-_READ_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.SUPER_ADMIN)
-_HR_ONLY_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+_READ_ROLES = (
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.RECRUITMENT_OFFICER,
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+)
+_HR_ONLY_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR)
 
 
 def _get_application_or_404_scoped(db: Session, application_id: uuid.UUID, scope: CampusScope) -> Application:

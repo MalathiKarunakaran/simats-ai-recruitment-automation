@@ -46,7 +46,7 @@ const NAV_ITEMS: NavItem[] = [
     enabled: true,
     // Mirrors VacancyApprovalsPage's own ACTIONABLE_STATUSES_BY_ROLE -- only
     // roles that actually take part in the approval chain see this link.
-    visibleForRoles: ["ASSOCIATE_DEAN_RECRUITMENT", "HR_ADMIN", "SUPER_ADMIN"],
+    visibleForRoles: ["ASSOCIATE_DEAN_RECRUITMENT", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
   },
   { to: "/job-postings", label: "Job Postings", icon: Newspaper, enabled: true },
   { to: "/candidates", label: "Candidates", icon: Users, enabled: true },
@@ -58,9 +58,10 @@ const NAV_ITEMS: NavItem[] = [
     icon: FileCheck,
     enabled: true,
     // Offers visibility mirrors the backend's own gate on GET /offers
-    // (offers.py: HR_ADMIN/SUPER_ADMIN/MANAGEMENT only) -- other staff
-    // roles would just hit a 403, so the nav link is hidden for them.
-    visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT"],
+    // (offers.py: HR_ADMIN/SUPER_ADMIN/MANAGEMENT/RECRUITMENT_COORDINATOR
+    // only) -- other staff roles would just hit a 403, so the nav link is
+    // hidden for them.
+    visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT", "RECRUITMENT_COORDINATOR"],
   },
   {
     to: "/onboarding",
@@ -69,7 +70,7 @@ const NAV_ITEMS: NavItem[] = [
     enabled: true,
     // Mirrors OnboardingListPage's own CAN_VIEW_ROLES (JoiningCard's own
     // view gate, one level broader than its write gate).
-    visibleForRoles: ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN"],
+    visibleForRoles: ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
   },
   { to: "/reports", label: "Reports", icon: BarChart3, enabled: true },
   { to: "/employees", label: "Employees", icon: IdCard, enabled: true },
@@ -121,8 +122,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
   );
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-card">
+    <div className="flex h-screen overflow-hidden">
+      <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-card">
         <div className="gear-edge" />
         <div className="flex items-center gap-2.5 px-4 py-4">
           <img src={simatsSeal} alt="SIMATS" className="h-9 w-9 shrink-0 object-contain" />
@@ -160,8 +161,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
         </nav>
       </aside>
 
-      <div className="flex flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex items-center gap-4 border-b border-border bg-card/80 px-6 py-3 backdrop-blur">
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center gap-4 border-b border-border bg-card px-6 py-3">
           <CampusSwitcher />
           <div className="flex flex-1 justify-center px-4">
             <GlobalSearch />
@@ -179,7 +180,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 p-6">{children ?? <Outlet />}</main>
+        <main className="flex-1 overflow-y-auto p-6">{children ?? <Outlet />}</main>
       </div>
     </div>
   );

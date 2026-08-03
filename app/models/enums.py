@@ -14,6 +14,7 @@ class UserRoleEnum(str, enum.Enum):
     HR_ADMIN = "HR_ADMIN"
     ASSOCIATE_DEAN_RECRUITMENT = "ASSOCIATE_DEAN_RECRUITMENT"
     RECRUITMENT_OFFICER = "RECRUITMENT_OFFICER"
+    RECRUITMENT_COORDINATOR = "RECRUITMENT_COORDINATOR"
     CAMPUS_HOD = "CAMPUS_HOD"
     INTERVIEW_PANEL_MEMBER = "INTERVIEW_PANEL_MEMBER"
     MANAGEMENT = "MANAGEMENT"
@@ -26,6 +27,7 @@ GLOBAL_SCOPE_ROLES = {
     UserRoleEnum.HR_ADMIN,
     UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT,
     UserRoleEnum.MANAGEMENT,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
 }
 
 # Roles that are scoped to a single home campus (documented Phase 1 assumption
@@ -200,18 +202,28 @@ DEFAULT_JOINING_DOCUMENT_TYPES: tuple[str, ...] = (
 
 # Approval-chain and write-access role groupings for Phase 2 routers.
 VACANCY_APPROVAL_DEAN_ROLES = {UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT, UserRoleEnum.SUPER_ADMIN}
-VACANCY_APPROVAL_HR_ROLES = {UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN}
+VACANCY_APPROVAL_HR_ROLES = {
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+}
 VACANCY_REJECT_ROLES = {
     UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT,
     UserRoleEnum.HR_ADMIN,
     UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
 }
 RECRUITMENT_WRITE_ROLES = {
     UserRoleEnum.RECRUITMENT_OFFICER,
     UserRoleEnum.HR_ADMIN,
     UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
 }
-HR_WRITE_ROLES = {UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN}
+HR_WRITE_ROLES = {
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+}
 
 
 class InterviewTypeEnum(str, enum.Enum):

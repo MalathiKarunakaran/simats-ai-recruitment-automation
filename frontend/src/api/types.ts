@@ -7,7 +7,8 @@ export type UserRole =
   | "CAMPUS_HOD"
   | "INTERVIEW_PANEL_MEMBER"
   | "MANAGEMENT"
-  | "CANDIDATE";
+  | "CANDIDATE"
+  | "RECRUITMENT_COORDINATOR";
 
 // Mirrors app/models/enums.py::GLOBAL_SCOPE_ROLES -- roles that see all
 // campuses and can narrow via a campus_code query param.
@@ -16,6 +17,7 @@ export const GLOBAL_SCOPE_ROLES: readonly UserRole[] = [
   "HR_ADMIN",
   "ASSOCIATE_DEAN_RECRUITMENT",
   "MANAGEMENT",
+  "RECRUITMENT_COORDINATOR",
 ];
 
 // Mirrors app/models/enums.py::SINGLE_CAMPUS_SCOPE_ROLES -- roles that must
@@ -46,6 +48,7 @@ export const ASSIGNABLE_STAFF_ROLES: readonly UserRole[] = [
   "CAMPUS_HOD",
   "INTERVIEW_PANEL_MEMBER",
   "MANAGEMENT",
+  "RECRUITMENT_COORDINATOR",
 ];
 
 // Mirrors app/models/enums.py::CAMPUS_CODES exactly -- institutional codes,
@@ -874,4 +877,36 @@ export interface ADBriefingResponse {
   period_label: string;
   kpi_headline: Record<string, number>;
   campus_role_breakdown: CampusRoleBreakdownRow[];
+}
+
+// Mirrors app/schemas/reporting.py::WeeklyStatusRow -- upcoming_join/joined
+// are always null on teaching_rows (campus-wise) and always populated on
+// non_teaching_rows (position-wise), matching the real hand-built weekly
+// PPTX's two-table layout.
+export interface WeeklyStatusRow {
+  group_label: string;
+  attended: number;
+  selected: number;
+  waiting: number;
+  rejected: number;
+  upcoming_join: number | null;
+  joined: number | null;
+}
+
+// Mirrors app/schemas/reporting.py::WeeklyRecruitmentStatusResponse.
+export interface WeeklyRecruitmentStatusResponse {
+  scope_note: string;
+  generated_at: string;
+  period_label: string;
+  start_date: string;
+  end_date: string;
+  total_interviewed: number;
+  total_selected: number;
+  total_waiting: number;
+  total_rejected: number;
+  total_joined: number;
+  selection_rate_pct: number | null;
+  joined_by_category: Record<string, number>;
+  teaching_rows: WeeklyStatusRow[];
+  non_teaching_rows: WeeklyStatusRow[];
 }

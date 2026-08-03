@@ -32,6 +32,7 @@ const ACTIONABLE_STATUSES_BY_ROLE: Record<string, VacancyRequestStatus[]> = {
   ASSOCIATE_DEAN_RECRUITMENT: ["SUBMITTED"],
   HR_ADMIN: ["DEAN_APPROVED", "APPROVED"],
   SUPER_ADMIN: ["SUBMITTED", "DEAN_APPROVED", "APPROVED"],
+  RECRUITMENT_COORDINATOR: ["DEAN_APPROVED", "APPROVED"],
 };
 
 const STATUS_ACTION_LABEL: Record<VacancyRequestStatus, string> = {
@@ -178,11 +179,16 @@ export function VacancyApprovalsPage() {
               const campus = campuses?.find((c) => c.id === vr.campus_id);
               const canDeanApprove = (role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "SUPER_ADMIN") && vr.status === "SUBMITTED";
               const canHrApprove =
-                (role === "HR_ADMIN" || role === "SUPER_ADMIN") &&
+                (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
                 (vr.status === "DEAN_APPROVED" || (vr.status === "SUBMITTED" && role === "SUPER_ADMIN"));
-              const canPublish = (role === "HR_ADMIN" || role === "SUPER_ADMIN") && vr.status === "APPROVED";
+              const canPublish =
+                (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
+                vr.status === "APPROVED";
               const canReject =
-                (role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "HR_ADMIN" || role === "SUPER_ADMIN") &&
+                (role === "ASSOCIATE_DEAN_RECRUITMENT" ||
+                  role === "HR_ADMIN" ||
+                  role === "SUPER_ADMIN" ||
+                  role === "RECRUITMENT_COORDINATOR") &&
                 (vr.status === "SUBMITTED" || vr.status === "DEAN_APPROVED");
               return (
                 <tr key={vr.id} className="border-b border-border last:border-0 hover:bg-accent/50">

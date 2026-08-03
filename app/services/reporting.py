@@ -55,6 +55,35 @@ Metric definitions (documented since none of these are literal DB fields):
   VacancyRequest.created_at, time_to_hire_report -> JoiningRecord.
   actual_joining_date (scopes to hires that *completed* within the range).
   Omitting both preserves the exact prior all-time behavior for every report.
+
+Weekly Recruitment Status (build_weekly_recruitment_status) -- mirrors a real
+hand-built weekly PPTX for the Director/AD/PD meeting. None of its columns
+are literal schema fields; they're all inferred from the source file's own
+internal arithmetic:
+- panel_result bucketing: Application.panel_result is free text
+  (app/models/application.py) that recruitment staff type by hand after each
+  interview. Matched case-insensitively and trimmed: "selected" -> selected
+  bucket, "waiting"/"waiting list" -> waiting bucket, "rejected" -> rejected
+  bucket. Anything else (null, blank, other text) is excluded from all three
+  buckets for that row -- there is no "unclassified" bucket.
+- "Attended" convention: a row's attended count is defined as
+  selected + waiting + rejected for that row, NOT an independent count of
+  everyone with an interview_scheduled_date in the week. This guarantees
+  Attended always reconciles exactly with the visible breakdown, matching
+  the source file's own arithmetic (its TS/NTS total rows are exact sums of
+  their Selected/Waiting/Rejected columns).
+- Weekly cohort = Application.interview_scheduled_date within
+  [start_date, end_date] inclusive. Teaching Staff rows are grouped by
+  Campus.code and have no upcoming_join/joined columns (intentional
+  asymmetry with the NTS table, matching the source file). Non-Teaching
+  Staff rows cover role_category in (NON_TEACHING, HOUSEKEEPING) --
+  "NTS" in the source file means both -- grouped by
+  VacancyRequest.position_title (a job/position title like "Electrician",
+  not this app's formal Department entity).
+- Upcoming Join / Joined (NTS rows, the 3 category tiles, and the top-level
+  KPIs) are each independent queries, NOT restricted to the weekly interview
+  cohort, since joining is a later pipeline stage that can happen in any
+  week regardless of when the interview happened.
 """
 
 from collections.abc import Callable
@@ -701,4 +730,167 @@ def build_ad_briefing_summary(
         "period_label": period_label,
         "kpi_headline": kpi_headline,
         "campus_role_breakdown": campus_role_breakdown,
+    }
+
+
+_JOINED_OR_LATER_STATUSES = {
+    ApplicationStatusEnum.JOINED,
+    ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
+    ApplicationStatusEnum.ORIENTATION_COMPLETE,
+    ApplicationStatusEnum.HANDED_OVER_TO_HOD,
+}
+_NTS_ROLE_CATEGORIES = (StaffRoleCategoryEnum.NON_TEACHING, StaffRoleCategoryEnum.HOUSEKEEPING)
+
+
+def _classify_panel_result(panel_result: str | None) -> str | None:
+    """Case-insensitive, trimmed bucket match on Application.panel_result --
+    see the "Weekly Recruitment Status" docstring section above for why this
+    isn't a literal enum field. Anything that doesn't match one of the three
+    labels (null, blank, other free text) is excluded from every bucket."""
+    if panel_result is None:
+        return None
+    normalized = panel_result.strip().lower()
+    if normalized == "selected":
+        return "selected"
+    if normalized in ("waiting", "waiting list"):
+        return "waiting"
+    if normalized == "rejected":
+        return "rejected"
+    return None
+
+
+def build_weekly_recruitment_status(
+    db: Session,
+    scope: CampusScope,
+    start_date: date,
+    end_date: date,
+    campus_code: str | None = None,
+) -> dict:
+    campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
+
+    cohort_query = (
+        db.query(Application, VacancyRequest.role_category, VacancyRequest.position_title, Campus.code)
+        .join(JobPosting, Application.job_posting_id == JobPosting.id)
+        .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
+        .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
+        .join(Campus, Application.campus_id == Campus.id)
+        .filter(
+            Application.interview_scheduled_date.isnot(None),
+            Application.interview_scheduled_date >= start_date,
+            Application.interview_scheduled_date <= end_date,
+        )
+    )
+    if campus_id_filter is not None:
+        cohort_query = cohort_query.filter(Application.campus_id == campus_id_filter)
+
+    teaching_buckets: dict[str, dict[str, int]] = {}
+    non_teaching_buckets: dict[str, dict[str, int]] = {}
+    for application, role_category, position_title, campus_code_value in cohort_query.all():
+        bucket = _classify_panel_result(application.panel_result)
+        if bucket is None:
+            continue
+        if role_category == StaffRoleCategoryEnum.TEACHING:
+            counts = teaching_buckets.setdefault(campus_code_value, {"selected": 0, "waiting": 0, "rejected": 0})
+        elif role_category in _NTS_ROLE_CATEGORIES:
+            counts = non_teaching_buckets.setdefault(position_title, {"selected": 0, "waiting": 0, "rejected": 0})
+        else:
+            continue
+        counts[bucket] += 1
+
+    teaching_rows = [
+        {
+            "group_label": label,
+            "attended": counts["selected"] + counts["waiting"] + counts["rejected"],
+            "selected": counts["selected"],
+            "waiting": counts["waiting"],
+            "rejected": counts["rejected"],
+            "upcoming_join": None,
+            "joined": None,
+        }
+        for label, counts in sorted(teaching_buckets.items())
+    ]
+
+    # Upcoming Join (NTS rows only) -- a point-in-time snapshot, not
+    # restricted to the weekly interview cohort.
+    excluded_statuses = _JOINED_OR_LATER_STATUSES | APPLICATION_TERMINAL_STATUSES
+    upcoming_query = (
+        db.query(VacancyRequest.position_title, func.count(Application.id))
+        .select_from(Application)
+        .join(JobPosting, Application.job_posting_id == JobPosting.id)
+        .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
+        .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
+        .filter(
+            VacancyRequest.role_category.in_(_NTS_ROLE_CATEGORIES),
+            Application.expected_joining_date.isnot(None),
+            ~Application.status.in_(excluded_statuses),
+        )
+    )
+    if campus_id_filter is not None:
+        upcoming_query = upcoming_query.filter(Application.campus_id == campus_id_filter)
+    upcoming_map = dict(upcoming_query.group_by(VacancyRequest.position_title).all())
+
+    # Joined (NTS rows, the 3 category tiles, and the top-level KPI) -- also
+    # not restricted to the weekly interview cohort, since joining is a
+    # separate, later pipeline stage.
+    joined_query = (
+        db.query(VacancyRequest.role_category, VacancyRequest.position_title, func.count(Application.id))
+        .select_from(Application)
+        .join(JobPosting, Application.job_posting_id == JobPosting.id)
+        .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
+        .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
+        .filter(
+            Application.actual_joining_date.isnot(None),
+            Application.actual_joining_date >= start_date,
+            Application.actual_joining_date <= end_date,
+        )
+    )
+    if campus_id_filter is not None:
+        joined_query = joined_query.filter(Application.campus_id == campus_id_filter)
+    joined_query = joined_query.group_by(VacancyRequest.role_category, VacancyRequest.position_title)
+
+    joined_by_category: dict[str, int] = {rc.value: 0 for rc in StaffRoleCategoryEnum}
+    joined_by_position: dict[str, int] = {}
+    for role_category, position_title, count in joined_query.all():
+        joined_by_category[role_category.value] = joined_by_category.get(role_category.value, 0) + count
+        if role_category in _NTS_ROLE_CATEGORIES:
+            joined_by_position[position_title] = joined_by_position.get(position_title, 0) + count
+
+    nts_labels = set(non_teaching_buckets) | set(upcoming_map) | set(joined_by_position)
+    non_teaching_rows = []
+    for label in sorted(nts_labels):
+        counts = non_teaching_buckets.get(label, {"selected": 0, "waiting": 0, "rejected": 0})
+        non_teaching_rows.append(
+            {
+                "group_label": label,
+                "attended": counts["selected"] + counts["waiting"] + counts["rejected"],
+                "selected": counts["selected"],
+                "waiting": counts["waiting"],
+                "rejected": counts["rejected"],
+                "upcoming_join": upcoming_map.get(label, 0),
+                "joined": joined_by_position.get(label, 0),
+            }
+        )
+
+    total_interviewed = sum(r["attended"] for r in teaching_rows) + sum(r["attended"] for r in non_teaching_rows)
+    total_selected = sum(r["selected"] for r in teaching_rows) + sum(r["selected"] for r in non_teaching_rows)
+    total_waiting = sum(r["waiting"] for r in teaching_rows) + sum(r["waiting"] for r in non_teaching_rows)
+    total_rejected = sum(r["rejected"] for r in teaching_rows) + sum(r["rejected"] for r in non_teaching_rows)
+    total_joined = sum(joined_by_category.values())
+    selection_rate_pct = round(total_selected / total_interviewed * 100) if total_interviewed > 0 else None
+
+    return {
+        "scope_note": scope_note,
+        "generated_at": datetime.now(timezone.utc),
+        "period_label": f"{start_date:%d-%m-%Y} to {end_date:%d-%m-%Y}",
+        "start_date": start_date,
+        "end_date": end_date,
+        "total_interviewed": total_interviewed,
+        "total_selected": total_selected,
+        "total_waiting": total_waiting,
+        "total_rejected": total_rejected,
+        "total_joined": total_joined,
+        "selection_rate_pct": selection_rate_pct,
+        "joined_by_category": joined_by_category,
+        "teaching_rows": teaching_rows,
+        "non_teaching_rows": non_teaching_rows,
     }

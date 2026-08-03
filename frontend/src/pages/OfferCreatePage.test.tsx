@@ -99,7 +99,7 @@ describe("OfferCreatePage", () => {
     mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
 
     renderPage();
-    expect(screen.getByText(/Only HR Admin or Super Admin/)).toBeInTheDocument();
+    expect(screen.getByText(/Only HR Admin, Super Admin, or Recruitment Coordinator/)).toBeInTheDocument();
   });
 
   it("pre-fills the application from the query param and requires salary and joining date", async () => {

@@ -14,8 +14,8 @@ interface CategoryBarChartProps {
   color?: string;
 }
 
-const ROW_HEIGHT = 36;
-const MIN_HEIGHT = 96;
+const ROW_HEIGHT = 22;
+const MIN_HEIGHT = 56;
 
 /**
  * Horizontal bar chart for a single series of labeled categories (source-wise
@@ -29,18 +29,18 @@ export function CategoryBarChart({ data, ariaLabel, color = "var(--color-chart-1
   return (
     <div data-testid="category-bar-chart" aria-label={ariaLabel} style={{ width: "100%", height }}>
       <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 400, height }}>
-        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 32, bottom: 4, left: 4 }}>
+        <BarChart data={data} layout="vertical" margin={{ top: 2, right: 28, bottom: 2, left: 2 }}>
           <CartesianGrid horizontal={false} stroke="var(--color-border)" />
           <XAxis type="number" hide />
           <YAxis
             type="category"
             dataKey="label"
-            width={112}
+            width={96}
             tickLine={false}
             axisLine={false}
-            tick={{ fontSize: 12, fill: "var(--color-muted-foreground)" }}
+            tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
           />
-          <Bar dataKey="value" fill={color} radius={[0, 4, 4, 0]} barSize={18} isAnimationActive={false}>
+          <Bar dataKey="value" fill={color} radius={[0, 4, 4, 0]} barSize={13} isAnimationActive={false}>
             <LabelList dataKey="value" position="right" className="fill-foreground text-xs" />
           </Bar>
         </BarChart>

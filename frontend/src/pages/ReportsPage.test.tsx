@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as reportsApi from "@/api/reports";
-import type { ADBriefingResponse, ReportResponse } from "@/api/types";
+import type { ADBriefingResponse, ReportResponse, WeeklyRecruitmentStatusResponse } from "@/api/types";
 import { CampusProvider } from "@/campus/CampusContext";
 import { ReportsPage } from "@/pages/ReportsPage";
 
@@ -13,6 +13,8 @@ vi.mock("@/api/reports");
 
 const mockedGetReport = vi.mocked(reportsApi.getReport);
 const mockedGetAdBriefing = vi.mocked(reportsApi.getAdBriefing);
+const mockedGetWeeklyStatus = vi.mocked(reportsApi.getWeeklyStatus);
+const mockedDownloadWeeklyStatusExport = vi.mocked(reportsApi.downloadWeeklyStatusExport);
 
 const EMPTY_REPORT: ReportResponse = {
   scope_note: "Global access: results span all campuses.",
@@ -40,6 +42,27 @@ const BRIEFING: ADBriefingResponse = {
   },
   campus_role_breakdown: [
     { campus_code: "SSE", role_category: "TEACHING", open_positions: 1, in_pipeline: 2, hired: 1 },
+  ],
+};
+
+const WEEKLY_STATUS: WeeklyRecruitmentStatusResponse = {
+  scope_note: "Global access: results span all campuses.",
+  generated_at: "2026-01-01T00:00:00Z",
+  period_label: "This week",
+  start_date: "2026-01-05",
+  end_date: "2026-01-09",
+  total_interviewed: 20,
+  total_selected: 8,
+  total_waiting: 3,
+  total_rejected: 9,
+  total_joined: 5,
+  selection_rate_pct: 40,
+  joined_by_category: { TEACHING: 3, NON_TEACHING: 2, HOUSEKEEPING: 0 },
+  teaching_rows: [
+    { group_label: "SSE", attended: 10, selected: 4, waiting: 1, rejected: 5, upcoming_join: null, joined: null },
+  ],
+  non_teaching_rows: [
+    { group_label: "Librarian", attended: 10, selected: 4, waiting: 2, rejected: 4, upcoming_join: 2, joined: 2 },
   ],
 };
 
@@ -153,6 +176,62 @@ describe("ReportsPage", () => {
         "recruitment-funnel",
         expect.objectContaining({ startDate: expect.any(String), endDate: expect.any(String) }),
       ),
+    );
+  });
+
+  it("renders Weekly Recruitment Status KPIs and both breakdown tables", async () => {
+    mockedGetReport.mockResolvedValue(FUNNEL_REPORT);
+    mockedGetAdBriefing.mockResolvedValue(BRIEFING);
+    mockedGetWeeklyStatus.mockResolvedValue(WEEKLY_STATUS);
+
+    renderPage();
+
+    expect(await screen.findByText("Weekly Recruitment Status")).toBeInTheDocument();
+    await waitFor(() => expect(mockedGetWeeklyStatus).toHaveBeenCalled());
+
+    // KPI tiles. "Selected"/"Rejected" also appear as table column headers
+    // below, so assert presence via getAllByText rather than getByText.
+    expect(await screen.findByText("Total Interviewed")).toBeInTheDocument();
+    expect(screen.getByText("20")).toBeInTheDocument();
+    expect(screen.getAllByText("Selected").length).toBeGreaterThan(0);
+    expect(screen.getByText("Waiting List")).toBeInTheDocument();
+    expect(screen.getAllByText("Rejected").length).toBeGreaterThan(0);
+    expect(screen.getByText("Joined This Week")).toBeInTheDocument();
+
+    // Teaching Staff table (campus-wise) -- upcoming_join/joined are null on
+    // these rows and must render as a blank/dash, never the string "null".
+    expect(screen.getByText("Teaching Staff — Campus-wise")).toBeInTheDocument();
+    expect(screen.getAllByText("SSE").length).toBeGreaterThan(0);
+    expect(screen.queryByText("null")).not.toBeInTheDocument();
+
+    // Non-Teaching Staff table (position-wise) -- header stays "Department".
+    expect(screen.getByText("Non-Teaching Staff — Position-wise")).toBeInTheDocument();
+    expect(screen.getByText("Librarian")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Department" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Position" })).not.toBeInTheDocument();
+
+    // Category-wise joined tiles.
+    expect(screen.getByText("Non-Teaching")).toBeInTheDocument();
+    expect(screen.getByText("Housekeeping")).toBeInTheDocument();
+
+    // Footer.
+    expect(screen.getByText(/Overall selection rate: 40% \| Prepared by the Recruitment Office/)).toBeInTheDocument();
+  });
+
+  it("calls downloadWeeklyStatusExport with the current date range when Download PowerPoint is clicked", async () => {
+    mockedGetReport.mockResolvedValue(FUNNEL_REPORT);
+    mockedGetAdBriefing.mockResolvedValue(BRIEFING);
+    mockedGetWeeklyStatus.mockResolvedValue(WEEKLY_STATUS);
+    mockedDownloadWeeklyStatusExport.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => expect(mockedGetWeeklyStatus).toHaveBeenCalled());
+    const { campusCode, startDate, endDate } = mockedGetWeeklyStatus.mock.calls[0][0];
+
+    await userEvent.click(screen.getByRole("button", { name: "Download PowerPoint" }));
+
+    await waitFor(() =>
+      expect(mockedDownloadWeeklyStatusExport).toHaveBeenCalledWith({ campusCode, startDate, endDate }),
     );
   });
 });

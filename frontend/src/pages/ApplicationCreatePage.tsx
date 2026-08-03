@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
-const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 export function ApplicationCreatePage() {
   const { user } = useAuth();
@@ -39,7 +39,7 @@ export function ApplicationCreatePage() {
   if (!user || !CAN_CREATE_ROLES.includes(user.role)) {
     return (
       <p className="text-sm text-muted-foreground">
-        Only a Recruitment Officer, HR Admin, or Super Admin can record a new application.
+        Only a Recruitment Officer, HR Admin, Super Admin, or Recruitment Coordinator can record a new application.
       </p>
     );
   }

@@ -149,19 +149,25 @@ export function VacancyRequestDetailPage() {
   const canDelete = canSubmit;
   const canDeanApprove = (role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "SUPER_ADMIN") && vr.status === "SUBMITTED";
   const canReject =
-    (role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "HR_ADMIN" || role === "SUPER_ADMIN") &&
+    (role === "ASSOCIATE_DEAN_RECRUITMENT" ||
+      role === "HR_ADMIN" ||
+      role === "SUPER_ADMIN" ||
+      role === "RECRUITMENT_COORDINATOR") &&
     (vr.status === "SUBMITTED" || vr.status === "DEAN_APPROVED");
   const canHrApprove =
-    (role === "HR_ADMIN" || role === "SUPER_ADMIN") &&
+    (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
     (vr.status === "DEAN_APPROVED" || (vr.status === "SUBMITTED" && role === "SUPER_ADMIN"));
   const canPublish =
-    (role === "HR_ADMIN" || role === "RECRUITMENT_OFFICER" || role === "SUPER_ADMIN") && vr.status === "APPROVED";
-  const canClose = (role === "HR_ADMIN" || role === "SUPER_ADMIN") && vr.status === "PUBLISHED";
+    (role === "HR_ADMIN" || role === "RECRUITMENT_OFFICER" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
+    vr.status === "APPROVED";
+  const canClose =
+    (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") && vr.status === "PUBLISHED";
   const canCancel =
-    (role === "HR_ADMIN" || role === "SUPER_ADMIN") &&
+    (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
     ["SUBMITTED", "DEAN_APPROVED", "APPROVED", "PUBLISHED"].includes(vr.status);
   const canAdjustSlotCount =
-    (role === "HR_ADMIN" || role === "SUPER_ADMIN") && (vr.status === "APPROVED" || vr.status === "PUBLISHED");
+    (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
+    (vr.status === "APPROVED" || vr.status === "PUBLISHED");
 
   const canGenerateJd = canSubmit;
 

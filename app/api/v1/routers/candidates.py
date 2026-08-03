@@ -25,7 +25,12 @@ _MAX_RESUME_BYTES = 10 * 1024 * 1024  # 10 MB
 # Candidates aren't campus-owned (a person isn't tied to one campus), so
 # there's no campus scoping here -- just a staff-role gate, mirroring how
 # Phase 1 handled /campuses (global read for any authenticated staff role).
-_WRITE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+_WRITE_ROLES = (
+    UserRoleEnum.RECRUITMENT_OFFICER,
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+)
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:

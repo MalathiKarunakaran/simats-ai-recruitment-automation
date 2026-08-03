@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
-const CAN_CREATE_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
+const CAN_CREATE_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 export function OfferCreatePage() {
   const { user } = useAuth();
@@ -62,7 +62,11 @@ export function OfferCreatePage() {
   });
 
   if (!user || !CAN_CREATE_ROLES.includes(user.role)) {
-    return <p className="text-sm text-muted-foreground">Only HR Admin or Super Admin can make an offer.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        Only HR Admin, Super Admin, or Recruitment Coordinator can make an offer.
+      </p>
+    );
   }
 
   const candidateLabel = selectedApplication ? getCandidateLabel(selectedApplication.candidate_id) : undefined;

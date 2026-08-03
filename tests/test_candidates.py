@@ -105,6 +105,26 @@ def test_withdraw_candidate_empty_reason_returns_422(client, user_factory, candi
     assert response.status_code == 422
 
 
+def test_recruitment_coordinator_can_create_and_withdraw_candidate(client, user_factory):
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+
+    create = client.post(
+        "/api/v1/candidates",
+        headers=auth_headers(client, coordinator),
+        json={"full_name": "Coordinator Created Candidate", "email": "coord.created@example.com"},
+    )
+    assert create.status_code == 201
+    candidate_id = create.json()["id"]
+
+    withdraw = client.post(
+        f"/api/v1/candidates/{candidate_id}/withdraw",
+        headers=auth_headers(client, coordinator),
+        json={"reason": "Created by coordinator RBAC test"},
+    )
+    assert withdraw.status_code == 200
+    assert withdraw.json()["is_withdrawn"] is True
+
+
 def test_withdraw_candidate_forbidden_for_non_write_role(client, user_factory, candidate_factory):
     hod = user_factory(UserRoleEnum.CAMPUS_HOD)
     candidate = candidate_factory()

@@ -118,6 +118,28 @@ def test_offboard_rejects_active_as_separation_type(client, published_vacancy_fa
     assert response.status_code == 422
 
 
+def test_recruitment_coordinator_forbidden_on_offboard(
+    client, user_factory, published_vacancy_factory, hired_employee_factory
+):
+    # Employee offboarding is deliberately excluded from the
+    # RECRUITMENT_COORDINATOR grant -- employees._HR_ONLY_ROLES was not
+    # touched, so this role must still be blocked here.
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired = hired_employee_factory(vacancy)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+
+    response = client.post(
+        f"/api/v1/employees/{hired.employee.id}/offboard",
+        headers=auth_headers(client, coordinator),
+        json={
+            "separation_type": "RESIGNED",
+            "separation_date": date.today().isoformat(),
+            "reason": "Should be forbidden",
+        },
+    )
+    assert response.status_code == 403
+
+
 def test_non_hr_staff_role_forbidden_on_offboard_but_can_get(
     client, published_vacancy_factory, hired_employee_factory
 ):

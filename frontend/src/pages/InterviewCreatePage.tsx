@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
-const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 const INTERVIEW_TYPES: InterviewType[] = ["TECHNICAL", "HR", "TEACHING_DEMO", "GENERAL"];
 
 export function InterviewCreatePage() {
@@ -77,7 +77,7 @@ export function InterviewCreatePage() {
   if (!user || !CAN_CREATE_ROLES.includes(user.role)) {
     return (
       <p className="text-sm text-muted-foreground">
-        Only a Recruitment Officer, HR Admin, or Super Admin can schedule an interview.
+        Only a Recruitment Officer, HR Admin, Super Admin, or Recruitment Coordinator can schedule an interview.
       </p>
     );
   }

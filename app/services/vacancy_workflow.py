@@ -97,7 +97,7 @@ def dean_approve(
     )
     notifications.notify_role(
         db,
-        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN},
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR},
         notification_type="VACANCY_REQUEST_DEAN_APPROVED",
         subject=f"Vacancy request awaiting HR approval: {vacancy_request.position_title}",
         body=f"A vacancy request for {vacancy_request.position_title} at {vacancy_request.campus.code} has been Dean-approved and awaits HR approval.",
@@ -541,7 +541,7 @@ def adjust_slot_count(
     )
     notifications.notify_role(
         db,
-        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT},
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT, UserRoleEnum.RECRUITMENT_COORDINATOR},
         campus_id=vacancy_request.campus_id,
         notification_type="VACANCY_AUTO_CLOSE",
         subject=f"Vacancy auto-closed: {vacancy_request.position_title}",

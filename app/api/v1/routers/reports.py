@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db
 from app.models.enums import UserRoleEnum
 from app.models.user import User
-from app.schemas.reporting import ADBriefingResponse, ReportResponse
+from app.schemas.reporting import ADBriefingResponse, ReportResponse, WeeklyRecruitmentStatusResponse
 from app.services import exports, reporting
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -88,6 +88,49 @@ def export_ad_briefing(
     )
     pptx_bytes = exports.build_ad_briefing_pptx(summary)
     filename = f"simats-ad-briefing-{datetime.now(timezone.utc):%Y%m%d}.pptx"
+    return StreamingResponse(
+        io.BytesIO(pptx_bytes),
+        media_type=_PPTX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# NOTE: these two /weekly-status routes must stay registered before the
+# generic /{report_type} routes below, for the same reason as /ad-briefing
+# above.
+@router.get("/weekly-status", response_model=WeeklyRecruitmentStatusResponse)
+def get_weekly_recruitment_status(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    campus_code: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> WeeklyRecruitmentStatusResponse:
+    validated_campus_code = reporting.validate_campus_code(campus_code)
+    reporting.validate_date_range(start_date, end_date)
+    summary = reporting.build_weekly_recruitment_status(
+        db, scope, start_date=start_date, end_date=end_date, campus_code=validated_campus_code
+    )
+    return WeeklyRecruitmentStatusResponse(**summary)
+
+
+@router.get("/weekly-status/export")
+def export_weekly_recruitment_status(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    campus_code: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> StreamingResponse:
+    validated_campus_code = reporting.validate_campus_code(campus_code)
+    reporting.validate_date_range(start_date, end_date)
+    summary = reporting.build_weekly_recruitment_status(
+        db, scope, start_date=start_date, end_date=end_date, campus_code=validated_campus_code
+    )
+    pptx_bytes = exports.build_weekly_status_pptx(summary)
+    filename = f"simats-weekly-status-{start_date:%Y%m%d}-{end_date:%Y%m%d}.pptx"
     return StreamingResponse(
         io.BytesIO(pptx_bytes),
         media_type=_PPTX_MEDIA_TYPE,

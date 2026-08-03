@@ -14,8 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
-const CAN_VIEW_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT"];
-const CAN_CREATE_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
+const CAN_VIEW_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT", "RECRUITMENT_COORDINATOR"];
+const CAN_CREATE_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 const STATUSES: OfferStatus[] = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "EXPIRED", "WITHDRAWN"];
 
 export function OffersListPage() {
@@ -61,7 +61,7 @@ export function OffersListPage() {
   if (!canView) {
     return (
       <p className="text-sm text-muted-foreground">
-        Only HR Admin, Super Admin, or Management can view offers.
+        Only HR Admin, Super Admin, Management, or Recruitment Coordinator can view offers.
       </p>
     );
   }

@@ -111,7 +111,7 @@ def complete_onboarding(
 
     notifications.notify_role(
         db,
-        roles={UserRoleEnum.HR_ADMIN},
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR},
         campus_id=application.campus_id,
         notification_type="ONBOARDING_COMPLETE",
         subject=f"Onboarding complete: {application.candidate.full_name}",
@@ -233,7 +233,7 @@ def create_employee(
     )
     notifications.notify_role(
         db,
-        roles={UserRoleEnum.HR_ADMIN},
+        roles={UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR},
         campus_id=campus.id,
         notification_type="EMPLOYEE_CREATED",
         subject=f"Employee record created: {employee.employee_code}",

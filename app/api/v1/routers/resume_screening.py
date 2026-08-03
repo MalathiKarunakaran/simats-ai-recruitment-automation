@@ -19,7 +19,12 @@ from app.services.vector_store import get_chroma_collection
 
 router = APIRouter(prefix="/applications", tags=["resume-screening"])
 
-_WRITE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+_WRITE_ROLES = (
+    UserRoleEnum.RECRUITMENT_OFFICER,
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+)
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:

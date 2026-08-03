@@ -1,3 +1,5 @@
+from app.models.enums import UserRoleEnum
+
 from tests.conftest import auth_headers
 
 
@@ -161,6 +163,57 @@ def test_full_joining_flow_creates_employee_and_sets_status(
     assert app_detail["room_allotted"] == "R-204"
     assert app_detail["orientation_date"] == "2026-09-05"
     assert app_detail["hod_assigned"] == "Dr. Test HOD"
+
+
+def test_recruitment_coordinator_can_read_and_drive_full_joining_flow(
+    client, user_factory, published_vacancy_factory, application_factory
+):
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    vacancy = published_vacancy_factory(slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    _drive_to_joining_confirmed(client, vacancy, application)
+
+    joining_record = client.get(
+        f"/api/v1/applications/{application.id}/joining-record", headers=auth_headers(client, coordinator)
+    )
+    assert joining_record.status_code == 200
+
+    joined = client.post(
+        f"/api/v1/applications/{application.id}/joining/mark-joined", headers=auth_headers(client, coordinator)
+    )
+    assert joined.status_code == 200
+
+    documents = client.get(
+        f"/api/v1/applications/{application.id}/joining-documents", headers=auth_headers(client, coordinator)
+    ).json()["items"]
+    for doc in documents:
+        update = client.patch(
+            f"/api/v1/joining-documents/{doc['id']}",
+            headers=auth_headers(client, coordinator),
+            json={"status": "RECEIVED"},
+        )
+        assert update.status_code == 200
+
+    allotment = client.post(
+        f"/api/v1/applications/{application.id}/joining/allot-department-room",
+        headers=auth_headers(client, coordinator),
+        json={"department_id": str(vacancy.department.id)},
+    )
+    assert allotment.status_code == 200
+
+    orientation = client.post(
+        f"/api/v1/applications/{application.id}/joining/complete-orientation",
+        headers=auth_headers(client, coordinator),
+        json={},
+    )
+    assert orientation.status_code == 200
+
+    employee = client.post(
+        f"/api/v1/applications/{application.id}/joining/hand-over-to-hod",
+        headers=auth_headers(client, coordinator),
+        json={"hod_assigned": "Dr. Test HOD"},
+    )
+    assert employee.status_code == 200
 
 
 def test_employee_codes_are_sequential_per_campus(client, published_vacancy_factory, application_factory):

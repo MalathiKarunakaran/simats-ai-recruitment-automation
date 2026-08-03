@@ -76,12 +76,12 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="font-display text-xl font-bold tracking-tight">Executive Dashboard</h1>
-          <div className="gear-edge mt-2 w-24" />
-          <p className="mt-2 text-sm text-muted-foreground">{isLoading ? "Loading…" : data?.scope_note}</p>
+          <h1 className="font-display text-lg font-bold tracking-tight">Executive Dashboard</h1>
+          <div className="gear-edge mt-1 w-20" />
+          <p className="mt-1 text-xs text-muted-foreground">{isLoading ? "Loading…" : data?.scope_note}</p>
         </div>
         <div className="flex items-center gap-2">
           <DateRangeControl value={dateRange} onChange={setDateRange} />
@@ -92,7 +92,7 @@ export function DashboardPage() {
       </div>
       {exportError ? <p className="text-sm text-destructive">{exportError}</p> : null}
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
         {KPI_CARDS.map(({ key, label, accent }) => (
           <StatTile
             key={key}
@@ -105,16 +105,16 @@ export function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <Card>
-          <CardHeader>
-            <CardTitle>Source-wise split</CardTitle>
+          <CardHeader className="p-3 pb-1">
+            <CardTitle className="text-xs">Source-wise split</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-3 pt-0">
             {isLoading ? (
-              <div role="status" aria-label="Loading source split" className="h-16 animate-pulse rounded bg-muted" />
+              <div role="status" aria-label="Loading source split" className="h-14 animate-pulse rounded bg-muted" />
             ) : !data || data.source_wise_breakdown.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No applications in this scope yet.</p>
+              <p className="text-xs text-muted-foreground">No applications in this scope yet.</p>
             ) : (
               <CategoryBarChart
                 ariaLabel="Source-wise split"
@@ -125,12 +125,12 @@ export function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Category-wise split</CardTitle>
+          <CardHeader className="p-3 pb-1">
+            <CardTitle className="text-xs">Category-wise split</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-3 pt-0">
             {categoryQueries.some((q) => q.isLoading) ? (
-              <div role="status" aria-label="Loading category split" className="h-16 animate-pulse rounded bg-muted" />
+              <div role="status" aria-label="Loading category split" className="h-14 animate-pulse rounded bg-muted" />
             ) : (
               <CategoryBarChart
                 ariaLabel="Category-wise split"
@@ -145,12 +145,12 @@ export function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle>Rejected vs withdrawn</CardTitle>
+          <CardHeader className="p-3 pb-1">
+            <CardTitle className="text-xs">Rejected vs withdrawn</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-3 pt-0">
             {isLoading ? (
-              <div role="status" aria-label="Loading rejected vs withdrawn" className="h-16 animate-pulse rounded bg-muted" />
+              <div role="status" aria-label="Loading rejected vs withdrawn" className="h-14 animate-pulse rounded bg-muted" />
             ) : (
               <CategoryBarChart
                 ariaLabel="Rejected vs withdrawn"
@@ -166,14 +166,14 @@ export function DashboardPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Campus-wise hiring</CardTitle>
+        <CardHeader className="p-3 pb-1">
+          <CardTitle className="text-xs">Campus-wise hiring</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 pt-0">
           {isLoading ? (
             <div role="status" aria-label="Loading campus-wise hiring" className="h-24 animate-pulse rounded bg-muted" />
           ) : !data || data.campus_wise_hiring.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hires recorded in this scope yet.</p>
+            <p className="text-xs text-muted-foreground">No hires recorded in this scope yet.</p>
           ) : (
             <CampusHiringChart data={data.campus_wise_hiring} />
           )}

@@ -26,22 +26,22 @@ export function StatTile({ label, value, isLoading = false, accent = "none", zer
 
   return (
     <Card className={cn(accent !== "none" && "border-l-4", ACCENT_BORDER[accent])}>
-      <CardHeader className="pb-2">
-        <CardTitle>{label}</CardTitle>
+      <CardHeader className="p-3 pb-1">
+        <CardTitle className="text-[11px] leading-tight">{label}</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-3 pt-0">
         {isLoading ? (
           <div
             role="status"
             aria-label={`Loading ${label}`}
-            className="h-8 w-16 animate-pulse rounded bg-muted"
+            className="h-6 w-12 animate-pulse rounded bg-muted"
           />
         ) : isEmpty ? (
-          <span className="font-display text-3xl font-bold text-muted-foreground">—</span>
+          <span className="font-display text-xl font-bold text-muted-foreground">—</span>
         ) : (
           <>
-            <span className="font-display text-3xl font-bold tabular-nums">{value}</span>
-            {isZero && zeroCaption ? <p className="mt-1 text-xs text-muted-foreground">{zeroCaption}</p> : null}
+            <span className="font-display text-xl font-bold tabular-nums">{value}</span>
+            {isZero && zeroCaption ? <p className="mt-0.5 text-[10px] text-muted-foreground">{zeroCaption}</p> : null}
           </>
         )}
       </CardContent>

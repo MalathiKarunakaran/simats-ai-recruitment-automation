@@ -32,7 +32,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
-const WRITE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+const WRITE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 const RECOMMENDATIONS: InterviewRecommendation[] = ["STRONG_HIRE", "HIRE", "NO_HIRE", "STRONG_NO_HIRE"];
 
 function toDatetimeLocal(iso: string): string {

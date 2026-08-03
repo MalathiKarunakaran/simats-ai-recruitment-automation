@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { combine, email as emailValidator, required, useFieldValidation } from "@/hooks/useFieldValidation";
 
-const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 // Mirrors the 4 real sourcing channels (app/schemas/candidate.py::CandidateSource)
 // -- sourcing/shortlisting is manual today, these are the only channels used.
 const SOURCE_OPTIONS: CandidateSource[] = ["Reference", "Job Portal", "FacultyPlus", "Walk-in"];
@@ -46,7 +46,7 @@ export function CandidateCreatePage() {
   if (!user || !CAN_CREATE_ROLES.includes(user.role)) {
     return (
       <p className="text-sm text-muted-foreground">
-        Only a Recruitment Officer, HR Admin, or Super Admin can add a new candidate.
+        Only a Recruitment Officer, HR Admin, Super Admin, or Recruitment Coordinator can add a new candidate.
       </p>
     );
   }

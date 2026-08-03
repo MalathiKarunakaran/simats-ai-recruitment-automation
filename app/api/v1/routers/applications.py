@@ -29,7 +29,12 @@ from app.services.audit import log_create, log_update
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
-_WRITE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+_WRITE_ROLES = (
+    UserRoleEnum.RECRUITMENT_OFFICER,
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+)
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:

@@ -1,5 +1,5 @@
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from app.models.enums import UserRoleEnum
 
@@ -84,7 +84,11 @@ def test_end_date_filter_is_inclusive_of_the_whole_day(client, user_factory):
     # date-range filters, which treat end_date as inclusive of the full day.
     admin = user_factory(UserRoleEnum.SUPER_ADMIN)
     headers = auth_headers(client, admin)
-    today = date.today()
+    # AuditLog.created_at is stamped in UTC and the endpoint's start_date/
+    # end_date are UTC calendar-day boundaries (audit_logs.py) -- using the
+    # local system date here would spuriously fail during the ~5.5h window
+    # (IST is UTC+5:30) where local "today" has already ticked over past UTC.
+    today = datetime.now(timezone.utc).date()
 
     client.patch(f"/api/v1/users/{admin.id}", headers=headers, json={"phone_number": "9999999999"})
 
