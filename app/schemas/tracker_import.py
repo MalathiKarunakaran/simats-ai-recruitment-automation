@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class TrackerVacancyRowResult(BaseModel):
     row_number: int
-    status: Literal["imported", "flagged"]
+    status: Literal["imported", "imported_with_warning", "flagged"]
     errors: list[str]
     vacancy_request_id: uuid.UUID | None = None
 

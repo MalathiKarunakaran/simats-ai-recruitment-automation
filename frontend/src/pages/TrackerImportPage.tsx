@@ -144,10 +144,19 @@ export function TrackerImportPage() {
                           <RowStatusBadge status={row.status} />
                         </td>
                         <td className="py-2">
-                          {row.status === "imported" && row.vacancy_request_id ? (
-                            <Link to={`/vacancy-requests/${row.vacancy_request_id}`} className="hover:underline">
-                              View vacancy
-                            </Link>
+                          {row.status !== "flagged" && row.vacancy_request_id ? (
+                            <div className="flex flex-col gap-1">
+                              <Link to={`/vacancy-requests/${row.vacancy_request_id}`} className="hover:underline">
+                                View vacancy
+                              </Link>
+                              {row.status === "imported_with_warning" && row.errors.length > 0 ? (
+                                <ul className="list-disc pl-4 text-brand-warning">
+                                  {row.errors.map((e, i) => (
+                                    <li key={i}>{e}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </div>
                           ) : (
                             <ul className="list-disc pl-4 text-destructive">
                               {row.errors.map((e, i) => (

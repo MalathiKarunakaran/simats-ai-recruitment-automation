@@ -72,6 +72,9 @@ class EmploymentTypeEnum(str, enum.Enum):
     PART_TIME = "PART_TIME"
     CONTRACT = "CONTRACT"
     VISITING = "VISITING"
+    # Added for the Designation Master rollout (Phase 10) -- see
+    # alembic/versions/56d04b40220a_phase10_designation_master.py.
+    ADJUNCT = "ADJUNCT"
 
 
 class EmploymentStatusEnum(str, enum.Enum):
@@ -221,6 +224,14 @@ RECRUITMENT_WRITE_ROLES = {
 }
 HR_WRITE_ROLES = {
     UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+}
+
+# Designation Master write access -- a new, deliberately narrower pairing
+# than HR_WRITE_ROLES/RECRUITMENT_WRITE_ROLES above (does NOT include
+# HR_ADMIN or RECRUITMENT_OFFICER).
+DESIGNATION_WRITE_ROLES = {
     UserRoleEnum.SUPER_ADMIN,
     UserRoleEnum.RECRUITMENT_COORDINATOR,
 }

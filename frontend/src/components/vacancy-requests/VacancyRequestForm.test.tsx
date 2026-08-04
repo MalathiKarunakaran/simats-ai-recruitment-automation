@@ -29,8 +29,28 @@ const CAMPUSES = [
 ];
 
 const DEPARTMENTS = [
-  { id: "d-sse-1", campus_id: "c-sse", name: "Computer Science", is_active: true, created_at: "", updated_at: "" },
-  { id: "d-scad-1", campus_id: "c-scad", name: "Architecture", is_active: true, created_at: "", updated_at: "" },
+  {
+    id: "d-sse-1",
+    campus_id: "c-sse",
+    name: "Computer Science",
+    code: null,
+    category: null,
+    parent_group: null,
+    is_active: true,
+    created_at: "",
+    updated_at: "",
+  },
+  {
+    id: "d-scad-1",
+    campus_id: "c-scad",
+    name: "Architecture",
+    code: null,
+    category: null,
+    parent_group: null,
+    is_active: true,
+    created_at: "",
+    updated_at: "",
+  },
 ];
 
 function renderForm() {

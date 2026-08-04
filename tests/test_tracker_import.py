@@ -242,6 +242,60 @@ def test_reimport_upserts_without_duplicating(client, campus_factory, department
     assert application.status == ApplicationStatusEnum.SCREENING
 
 
+def test_import_flags_unresolved_designation_but_still_imports(
+    client, campus_factory, department_factory, user_factory, db_session
+):
+    campus_factory("SSE")
+    department_factory("SSE", "Computer Science")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _upload(client, hr_admin, _workbook_bytes([_vacancy_row()], []))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["vacancy_imported_count"] == 1
+    assert body["vacancy_flagged_count"] == 0
+    row = body["vacancy_rows"][0]
+    assert row["status"] == "imported_with_warning"
+    assert any("Designation" in e and "not found" in e for e in row["errors"])
+
+    vr = db_session.query(VacancyRequest).filter(VacancyRequest.external_ref == "REQ-TEST-001").one()
+    assert vr.designation_id is None
+    assert vr.position_title == "Assistant Professor"
+
+
+def test_import_resolves_designation_when_it_matches_master_data(
+    client, campus_factory, department_factory, user_factory, db_session
+):
+    from app.models.designation import Designation
+    from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum
+
+    campus_factory("SSE")
+    department_factory("SSE", "Computer Science")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    designation = Designation(
+        name="Assistant Professor",
+        category=StaffRoleCategoryEnum.TEACHING,
+        qualification="PhD",
+        min_experience="3+ years",
+        employment_type=EmploymentTypeEnum.FULL_TIME,
+    )
+    db_session.add(designation)
+    db_session.flush()
+
+    response = _upload(client, hr_admin, _workbook_bytes([_vacancy_row()], []))
+
+    assert response.status_code == 200
+    body = response.json()
+    row = body["vacancy_rows"][0]
+    assert row["status"] == "imported"
+    assert row["errors"] == []
+
+    vr = db_session.query(VacancyRequest).filter(VacancyRequest.external_ref == "REQ-TEST-001").one()
+    assert vr.designation_id == designation.id
+
+
 def test_import_flags_unknown_campus_without_failing_whole_request(client, user_factory):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 

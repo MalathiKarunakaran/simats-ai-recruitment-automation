@@ -37,6 +37,7 @@ from app.models.approved_vacancy import ApprovedVacancy
 from app.models.campus import Campus
 from app.models.candidate import Candidate
 from app.models.department import Department
+from app.models.designation import Designation
 from app.models.enums import (
     APPLICATION_STATUS_ORDER,
     CAMPUS_CODES,
@@ -66,6 +67,22 @@ VALID_APPLICATION_STATUSES = {s.value for s in APPLICATION_STATUS_ORDER} | {"REJ
 # app/services/pipeline.py::advance_if_behind.
 _SELECTED_INDEX = APPLICATION_STATUS_ORDER.index(ApplicationStatusEnum.SELECTED)
 _JOINED_INDEX = APPLICATION_STATUS_ORDER.index(ApplicationStatusEnum.JOINED)
+
+
+def _resolve_designation(db: Session, position_title: str) -> Designation | None:
+    """Best-effort, case-insensitive match of the sheet's Position text
+    against the Designation Master. No match is NOT a hard failure -- the
+    row still imports on position_title alone (designation_id stays null);
+    the caller surfaces a warning so a coordinator can fix master data or
+    the sheet, matching this file's established flagged-not-dropped pattern
+    for every other soft-validation case."""
+    if not position_title:
+        return None
+    return (
+        db.query(Designation)
+        .filter(Designation.name.ilike(position_title))
+        .one_or_none()
+    )
 
 
 def _get_or_create_department(db: Session, campus: Campus, name: str) -> Department:
@@ -128,6 +145,12 @@ def _read_sheet_rows(workbook, sheet_name: str) -> list[dict]:
 
 
 def _import_vacancy_row(db: Session, row: dict, row_number: int, actor: User) -> tuple[VacancyRequest | None, list[str]]:
+    """Returns (VacancyRequest, warnings) on success -- warnings is empty
+    unless the Position text couldn't be matched to Designation Master, in
+    which case the row still imports and the caller marks it
+    "imported_with_warning" (see _import_candidate_row for the identical
+    convention already used for candidate rows). Returns (None, errors) on
+    hard validation failure."""
     errors: list[str] = []
     request_id = _cell(row, "Request ID")
     if not request_id:
@@ -193,6 +216,14 @@ def _import_vacancy_row(db: Session, row: dict, row_number: int, actor: User) ->
 
     department = _get_or_create_department(db, campus, department_name)
 
+    designation = _resolve_designation(db, position_title)
+    warnings: list[str] = []
+    if designation is None:
+        warnings.append(
+            f"Designation '{position_title}' was not found in Designation Master -- imported using "
+            "free-text Position only; add it to master data or fix the sheet"
+        )
+
     requested_by_name = _cell(row, "Requested By")
     requested_by = None
     if requested_by_name:
@@ -209,6 +240,8 @@ def _import_vacancy_row(db: Session, row: dict, row_number: int, actor: User) ->
     if existing is not None:
         existing.position_title = position_title
         existing.priority = priority
+        if designation is not None:
+            existing.designation_id = designation.id
         vacancy_request = existing
         # Slot count changes on re-import are a manual admin action, not
         # something this importer resizes automatically -- shrinking a
@@ -227,11 +260,12 @@ def _import_vacancy_row(db: Session, row: dict, row_number: int, actor: User) ->
                 )
             vacancy_request.approved_vacancy.total_positions = requested_count
         db.flush()
-        return vacancy_request, []
+        return vacancy_request, warnings
 
     vacancy_request = VacancyRequest(
         campus_id=campus.id,
         department_id=department.id,
+        designation_id=designation.id if designation is not None else None,
         role_category=role_category,
         position_title=position_title,
         employment_type=EmploymentTypeEnum.FULL_TIME,
@@ -272,7 +306,7 @@ def _import_vacancy_row(db: Session, row: dict, row_number: int, actor: User) ->
     db.add(job_posting)
     db.flush()
 
-    return vacancy_request, []
+    return vacancy_request, warnings
 
 
 def _sync_hiring_slot(
@@ -492,13 +526,18 @@ def import_tracker_workbook(
     for row_number, row in enumerate(vacancy_rows, start=2):
         if not include_sample and _cell(row, "Request ID") == SAMPLE_REQUEST_ID:
             continue
-        vacancy_request, errors = _import_vacancy_row(db, row, row_number, actor)
-        if errors:
-            vacancy_results.append({"row_number": row_number, "status": "flagged", "errors": errors})
+        vacancy_request, warnings = _import_vacancy_row(db, row, row_number, actor)
+        if vacancy_request is None:
+            vacancy_results.append({"row_number": row_number, "status": "flagged", "errors": warnings})
             continue
         vacancy_created_or_updated += 1
         vacancy_results.append(
-            {"row_number": row_number, "status": "imported", "errors": [], "vacancy_request_id": vacancy_request.id}
+            {
+                "row_number": row_number,
+                "status": "imported" if not warnings else "imported_with_warning",
+                "errors": warnings,
+                "vacancy_request_id": vacancy_request.id,
+            }
         )
 
     candidate_results: list[dict] = []

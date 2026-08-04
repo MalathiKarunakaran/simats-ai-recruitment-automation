@@ -34,6 +34,13 @@ class VacancyRequest(Base):
     department_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("departments.id", ondelete="RESTRICT"), nullable=False
     )
+    # Nullable, purely additive Designation Master reference alongside the
+    # existing free-text position_title (76 real pre-existing rows have no
+    # designation_id). When set on create, the service layer auto-populates
+    # position_title from Designation.name -- see vacancy_requests.py.
+    designation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("designations.id", ondelete="RESTRICT"), nullable=True
+    )
 
     role_category: Mapped[StaffRoleCategoryEnum] = mapped_column(
         Enum(StaffRoleCategoryEnum, name="staff_role_category_enum"), nullable=False
@@ -48,6 +55,13 @@ class VacancyRequest(Base):
     salary_band_min: Mapped[float | None] = mapped_column(Numeric(12, 2, asdecimal=False), nullable=True)
     salary_band_max: Mapped[float | None] = mapped_column(Numeric(12, 2, asdecimal=False), nullable=True)
     jd_draft: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Free-text notes from whoever raised the request (e.g. "urgent
+    # replacement for retiring faculty") -- deliberately separate from
+    # jd_draft, which is the actual job-description text shown on the
+    # detail page's "Job Description" card and overwritten by AI JD
+    # generation; conflating the two would silently destroy remarks the
+    # next time someone generates a JD.
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
     skills: Mapped[list[str] | None] = mapped_column(ARRAY(String(100)), nullable=True)
     priority: Mapped[VacancyPriorityEnum] = mapped_column(
         Enum(VacancyPriorityEnum, name="vacancy_priority_enum"),
@@ -100,6 +114,7 @@ class VacancyRequest(Base):
 
     campus: Mapped["Campus"] = relationship()
     department: Mapped["Department"] = relationship()
+    designation: Mapped["Designation"] = relationship()
     requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_id])
     approved_vacancy: Mapped["ApprovedVacancy"] = relationship(back_populates="vacancy_request", uselist=False)
 

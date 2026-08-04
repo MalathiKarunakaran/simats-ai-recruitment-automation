@@ -9,7 +9,13 @@ from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, VacancyP
 class VacancyRequestCreate(BaseModel):
     campus_id: uuid.UUID
     department_id: uuid.UUID
+    designation_id: uuid.UUID | None = None
     role_category: StaffRoleCategoryEnum
+    # Still required even when designation_id is set -- the caller may pass
+    # any placeholder value here since the service layer overwrites it from
+    # Designation.name when a designation_id is provided (kept required,
+    # not optional, so every other existing consumer of position_title needs
+    # no changes).
     position_title: str
     employment_type: EmploymentTypeEnum
     requested_count: int = Field(gt=0)
@@ -18,6 +24,7 @@ class VacancyRequestCreate(BaseModel):
     salary_band_min: float | None = None
     salary_band_max: float | None = None
     jd_draft: str | None = None
+    remarks: str | None = None
     skills: list[str] | None = None
     priority: VacancyPriorityEnum = VacancyPriorityEnum.NORMAL
 
@@ -31,6 +38,7 @@ class VacancyRequestUpdate(BaseModel):
     salary_band_min: float | None = None
     salary_band_max: float | None = None
     jd_draft: str | None = None
+    remarks: str | None = None
     skills: list[str] | None = None
     priority: VacancyPriorityEnum | None = None
 
@@ -57,6 +65,7 @@ class VacancyRequestRead(BaseModel):
     id: uuid.UUID
     campus_id: uuid.UUID
     department_id: uuid.UUID
+    designation_id: uuid.UUID | None
     role_category: StaffRoleCategoryEnum
     position_title: str
     employment_type: EmploymentTypeEnum
@@ -66,6 +75,7 @@ class VacancyRequestRead(BaseModel):
     salary_band_min: float | None
     salary_band_max: float | None
     jd_draft: str | None
+    remarks: str | None
     skills: list[str] | None
     priority: VacancyPriorityEnum
     status: VacancyRequestStatusEnum

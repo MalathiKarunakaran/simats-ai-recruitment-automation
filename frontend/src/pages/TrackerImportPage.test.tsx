@@ -121,6 +121,50 @@ describe("TrackerImportPage", () => {
     await waitFor(() => expect(screen.getByText("Import failed")).toBeInTheDocument());
   });
 
+  it("renders a warning-colored badge (not destructive) for imported_with_warning rows, distinct from flagged", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedImportTrackerWorkbook.mockResolvedValue({
+      vacancy_total_rows: 3,
+      vacancy_imported_count: 2,
+      vacancy_flagged_count: 1,
+      vacancy_rows: [
+        { row_number: 2, status: "imported", errors: [], vacancy_request_id: "vr-1" },
+        {
+          row_number: 3,
+          status: "imported_with_warning",
+          errors: ["Designation 'Asst Prof' did not match Designation Master"],
+          vacancy_request_id: "vr-2",
+        },
+        { row_number: 4, status: "flagged", errors: ["Unknown Campus 'ZZZ'"], vacancy_request_id: null },
+      ],
+      candidate_total_rows: 0,
+      candidate_imported_count: 0,
+      candidate_flagged_count: 0,
+      candidate_rows: [],
+    });
+
+    renderPage();
+
+    const file = new File(["dummy"], "tracker.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(fileInput, file);
+
+    expect(await screen.findByText("imported (warning)")).toBeInTheDocument();
+    expect(screen.getByText("flagged")).toBeInTheDocument();
+    // The warning row still links to its created vacancy (unlike the hard-flagged row).
+    const links = screen.getAllByText("View vacancy");
+    expect(links).toHaveLength(2);
+    expect(screen.getByText("Designation 'Asst Prof' did not match Designation Master")).toBeInTheDocument();
+    expect(screen.getByText("Unknown Campus 'ZZZ'")).toBeInTheDocument();
+  });
+
   it("downloads the workbook template", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

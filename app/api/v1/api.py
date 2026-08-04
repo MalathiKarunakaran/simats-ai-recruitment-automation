@@ -10,6 +10,7 @@ from app.api.v1.routers import (
     candidates,
     dashboard,
     departments,
+    designations,
     eligibility_rules,
     employees,
     interviews,
@@ -30,6 +31,7 @@ api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(campuses.router)
 api_router.include_router(departments.router)
+api_router.include_router(designations.router)
 api_router.include_router(eligibility_rules.router)
 api_router.include_router(audit_logs.router)
 

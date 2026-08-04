@@ -244,6 +244,12 @@ export function VacancyRequestDetailPage() {
               <div>{vr.skills.join(", ")}</div>
             </div>
           ) : null}
+          {vr.remarks ? (
+            <div className="col-span-2">
+              <div className="text-muted-foreground">Remarks</div>
+              <div>{vr.remarks}</div>
+            </div>
+          ) : null}
           {vr.status === "REJECTED" && vr.rejection_reason ? (
             <div className="col-span-2">
               <div className="text-muted-foreground">Rejection reason</div>

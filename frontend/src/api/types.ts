@@ -205,6 +205,38 @@ export interface DepartmentUpdatePayload {
 // (HR_ADMIN deliberately keeps it).
 export const DEPARTMENT_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
 
+// Mirrors app/models/enums.py::DESIGNATION_WRITE_ROLES -- deliberately
+// narrower than DEPARTMENT_MANAGEMENT_ROLES (no HR_ADMIN).
+export const DESIGNATION_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
+
+// Mirrors app/schemas/designation.py::DesignationRead.
+export interface DesignationRead {
+  id: string;
+  name: string;
+  category: StaffRoleCategory;
+  qualification: string;
+  min_experience: string;
+  employment_type: EmploymentType;
+  is_active: boolean;
+  department_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/designation.py::DesignationCreate.
+export interface DesignationCreatePayload {
+  name: string;
+  category: StaffRoleCategory;
+  qualification: string;
+  min_experience: string;
+  employment_type: EmploymentType;
+  is_active?: boolean;
+  department_ids?: string[];
+}
+
+// Mirrors app/schemas/designation.py::DesignationUpdate.
+export type DesignationUpdatePayload = Partial<DesignationCreatePayload>;
+
 // Mirrors app/models/enums.py::CoordinatorCapabilityEnum -- the 4 gated
 // action groups a RECRUITMENT_COORDINATOR can be individually granted, via
 // app.core.deps.require_roles_or_coordinator_capability. Every other role
@@ -267,8 +299,9 @@ export type VacancyRequestStatus =
   | "REJECTED"
   | "CANCELLED";
 
-// Mirrors app/models/enums.py::EmploymentTypeEnum.
-export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACT" | "VISITING";
+// Mirrors app/models/enums.py::EmploymentTypeEnum. ADJUNCT was added for the
+// Designation Master rollout (Phase 10).
+export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACT" | "VISITING" | "ADJUNCT";
 
 // Mirrors app/models/enums.py::VacancyPriorityEnum.
 export type VacancyPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
@@ -281,6 +314,7 @@ export interface VacancyRequestRead {
   id: string;
   campus_id: string;
   department_id: string;
+  designation_id: string | null;
   role_category: StaffRoleCategory;
   position_title: string;
   employment_type: EmploymentType;
@@ -290,6 +324,7 @@ export interface VacancyRequestRead {
   salary_band_min: number | null;
   salary_band_max: number | null;
   jd_draft: string | null;
+  remarks: string | null;
   skills: string[] | null;
   priority: VacancyPriority;
   status: VacancyRequestStatus;
@@ -314,6 +349,9 @@ export interface VacancyRequestRead {
 export interface VacancyRequestCreatePayload {
   campus_id: string;
   department_id: string;
+  // Backend auto-overwrites position_title from Designation.name when set,
+  // but position_title is still required client-side -- always send both.
+  designation_id?: string | null;
   role_category: StaffRoleCategory;
   position_title: string;
   employment_type: EmploymentType;
@@ -322,6 +360,11 @@ export interface VacancyRequestCreatePayload {
   experience_required: string;
   salary_band_min?: number | null;
   salary_band_max?: number | null;
+  jd_draft?: string | null;
+  // Free-text notes from whoever raised the request -- separate from
+  // jd_draft (the actual job-description text, shown on the detail page's
+  // "Job Description" card and overwritten by AI JD generation).
+  remarks?: string | null;
   skills?: string[] | null;
   priority?: VacancyPriority;
 }
@@ -395,9 +438,13 @@ export interface MigrationImportResponse {
 }
 
 // Mirrors app/schemas/tracker_import.py::TrackerVacancyRowResult.
+// imported_with_warning: row still imported (designation_id left null,
+// falling back to free-text position_title) but its sheet position/designation
+// text didn't match Designation Master by name -- flagged for visibility,
+// not a hard failure like "flagged".
 export interface TrackerVacancyRowResult {
   row_number: number;
-  status: "imported" | "flagged";
+  status: "imported" | "imported_with_warning" | "flagged";
   errors: string[];
   vacancy_request_id: string | null;
 }

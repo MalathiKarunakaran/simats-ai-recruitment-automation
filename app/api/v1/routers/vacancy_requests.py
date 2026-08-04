@@ -17,6 +17,7 @@ from app.core.deps import (
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.campus import Campus
 from app.models.department import Department
+from app.models.designation import Designation
 from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum, VacancyRequestStatusEnum
 from app.models.job_posting import JobPosting
 from app.models.user import User
@@ -62,6 +63,7 @@ def _snapshot(vr: VacancyRequest) -> dict:
         "salary_band_min": vr.salary_band_min,
         "salary_band_max": vr.salary_band_max,
         "jd_draft": vr.jd_draft,
+        "remarks": vr.remarks,
         "skills": vr.skills,
         "priority": vr.priority.value,
         "status": vr.status.value,
@@ -88,6 +90,20 @@ def create_vacancy_request(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Campus HODs may only raise vacancy requests for their own campus",
         )
+    # Additive, non-breaking tightening: a CAMPUS_HOD with a department_id set
+    # on their own user record ("Department Users" from the spec -- there is
+    # no dedicated role, just CAMPUS_HOD + User.department_id) may only raise
+    # vacancy requests for that same department. HODs with no department_id
+    # (the common case today) are unaffected -- campus-scoped only, as before.
+    if (
+        current_user.role == UserRoleEnum.CAMPUS_HOD
+        and current_user.department_id is not None
+        and payload.department_id != current_user.department_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Campus HODs with an assigned department may only raise vacancy requests for their own department",
+        )
     if db.get(Campus, payload.campus_id) is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown campus_id")
     department = db.get(Department, payload.department_id)
@@ -96,11 +112,22 @@ def create_vacancy_request(
             status_code=status.HTTP_400_BAD_REQUEST, detail="department_id must belong to campus_id"
         )
 
+    position_title = payload.position_title
+    if payload.designation_id is not None:
+        designation = db.get(Designation, payload.designation_id)
+        if designation is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown designation_id")
+        # Auto-populate position_title from Designation Master so every
+        # existing consumer of position_title (reports, exports, the
+        # frontend) keeps working unchanged.
+        position_title = designation.name
+
     vr = VacancyRequest(
         campus_id=payload.campus_id,
         department_id=payload.department_id,
+        designation_id=payload.designation_id,
         role_category=payload.role_category,
-        position_title=payload.position_title,
+        position_title=position_title,
         employment_type=payload.employment_type,
         requested_count=payload.requested_count,
         qualification=payload.qualification,
@@ -108,6 +135,7 @@ def create_vacancy_request(
         salary_band_min=payload.salary_band_min,
         salary_band_max=payload.salary_band_max,
         jd_draft=payload.jd_draft,
+        remarks=payload.remarks,
         skills=payload.skills,
         priority=payload.priority,
         requested_by_id=current_user.id,
@@ -182,6 +210,7 @@ def update_vacancy_request(
         "salary_band_min",
         "salary_band_max",
         "jd_draft",
+        "remarks",
         "skills",
         "priority",
     ):
