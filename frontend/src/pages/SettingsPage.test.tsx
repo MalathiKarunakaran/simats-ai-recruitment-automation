@@ -81,6 +81,9 @@ const DEPARTMENT: DepartmentRead = {
   id: "d-1",
   campus_id: "c-sse",
   name: "Computer Science",
+  code: null,
+  category: null,
+  parent_group: null,
   is_active: true,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
@@ -213,26 +216,45 @@ describe("SettingsPage", () => {
     );
   });
 
-  it("locks the campus to a Campus HOD's own campus when creating a department", async () => {
+  it("hides the Organization section entirely for a Campus HOD (write access removed with the Designation Master rollout)", async () => {
     mockUser("CAMPUS_HOD", "c-sse");
     mockedGetOwnProfile.mockResolvedValue({ ...PROFILE, role: "CAMPUS_HOD", campus_id: "c-sse" });
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByDisplayValue("Jane Doe")).toBeInTheDocument());
+    expect(screen.queryByText("Organization")).not.toBeInTheDocument();
+    expect(screen.queryByText("Departments")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New department" })).not.toBeInTheDocument();
+  });
+
+  it("creates a department with the new code/category/parent_group master-data fields for an HR Admin", async () => {
+    mockUser("HR_ADMIN");
+    mockedGetOwnProfile.mockResolvedValue({ ...PROFILE, role: "HR_ADMIN" });
     mockedListCampuses.mockResolvedValue([SSE]);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedCreateDepartment.mockResolvedValue({ ...DEPARTMENT, id: "d-2", name: "Physics" });
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Departments")).toBeInTheDocument());
-    expect(screen.queryByText("Campuses")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "New department" }));
-    // Only the Active combobox should render -- no campus-picker combobox
-    // for a locked HOD, just the fixed campus code text.
-    expect(screen.getAllByRole("combobox")).toHaveLength(1);
+    await userEvent.click(screen.getAllByRole("combobox")[0]);
+    await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
     await userEvent.type(screen.getByLabelText("Name"), "Physics");
     await userEvent.click(screen.getByRole("button", { name: "Create department" }));
 
     await waitFor(() =>
-      expect(mockedCreateDepartment).toHaveBeenCalledWith({ campus_id: "c-sse", name: "Physics", is_active: true }),
+      expect(mockedCreateDepartment).toHaveBeenCalledWith({
+        campus_id: "c-sse",
+        name: "Physics",
+        code: null,
+        category: null,
+        parent_group: null,
+        is_active: true,
+      }),
     );
   });
 });

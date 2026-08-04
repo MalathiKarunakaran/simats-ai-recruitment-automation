@@ -166,11 +166,16 @@ export interface DashboardKpis {
   withdrawn_count: number;
 }
 
-// Mirrors app/schemas/department.py::DepartmentRead.
+// Mirrors app/schemas/department.py::DepartmentRead. code/category/parent_group
+// are new, optional master-data fields (Phase 10 Designation Master rollout)
+// -- most of the 50+ pre-existing departments won't have them populated yet.
 export interface DepartmentRead {
   id: string;
   campus_id: string;
   name: string;
+  code: string | null;
+  category: StaffRoleCategory | null;
+  parent_group: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -180,17 +185,25 @@ export interface DepartmentRead {
 export interface DepartmentCreatePayload {
   campus_id: string;
   name: string;
+  code?: string | null;
+  category?: StaffRoleCategory | null;
+  parent_group?: string | null;
   is_active?: boolean;
 }
 
 // Mirrors app/schemas/department.py::DepartmentUpdate.
 export interface DepartmentUpdatePayload {
   name?: string;
+  code?: string | null;
+  category?: StaffRoleCategory | null;
+  parent_group?: string | null;
   is_active?: boolean;
 }
 
-// Mirrors app/api/v1/routers/departments.py::_WRITE_ROLES.
-export const DEPARTMENT_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN", "CAMPUS_HOD"];
+// Mirrors app/api/v1/routers/departments.py::_WRITE_ROLES -- CAMPUS_HOD lost
+// department-write access with the Department/Designation Master rollout
+// (HR_ADMIN deliberately keeps it).
+export const DEPARTMENT_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
 
 // Mirrors app/models/enums.py::CoordinatorCapabilityEnum -- the 4 gated
 // action groups a RECRUITMENT_COORDINATOR can be individually granted, via

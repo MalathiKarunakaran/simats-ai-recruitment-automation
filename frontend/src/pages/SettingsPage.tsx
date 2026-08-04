@@ -5,7 +5,14 @@ import type { FormEvent } from "react";
 import { createCampus, listCampuses, updateCampus } from "@/api/campuses";
 import { ApiError } from "@/api/client";
 import { createDepartment, listDepartments, updateDepartment } from "@/api/departments";
-import { CAMPUS_CODES, DEPARTMENT_MANAGEMENT_ROLES, type CampusCode, type CampusRead, type DepartmentRead } from "@/api/types";
+import {
+  CAMPUS_CODES,
+  DEPARTMENT_MANAGEMENT_ROLES,
+  type CampusCode,
+  type CampusRead,
+  type DepartmentRead,
+  type StaffRoleCategory,
+} from "@/api/types";
 import { getOwnProfile, updateOwnProfile } from "@/api/users";
 import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -191,21 +198,20 @@ function CampusManagementCard() {
   );
 }
 
+const DEPARTMENT_CATEGORIES: StaffRoleCategory[] = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
+
 function DepartmentManagementCard() {
-  const { user } = useAuth();
   const queryClient = useQueryClient();
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
-
-  // A Campus HOD may only create/edit departments within their own campus
-  // (app/api/v1/routers/departments.py rejects any other campus_id with a
-  // 403 on create, and scopes edits to a 404 outside their own campus).
-  const lockedCampusId = user?.role === "CAMPUS_HOD" ? user.campus_id : null;
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [campusId, setCampusId] = useState("");
   const name = useFieldValidation("", required("Name is required"));
+  const [code, setCode] = useState("");
+  const [category, setCategory] = useState<StaffRoleCategory | "">("");
+  const [parentGroup, setParentGroup] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -215,22 +221,35 @@ function DepartmentManagementCard() {
     void queryClient.invalidateQueries({ queryKey: ["departments"] });
   }
 
+  function buildPayload() {
+    return {
+      name: name.value,
+      code: code.trim() || null,
+      category: category || null,
+      parent_group: parentGroup.trim() || null,
+      is_active: isActive,
+    };
+  }
+
   const createMutation = useMutation({
-    mutationFn: () => createDepartment({ campus_id: campusId, name: name.value, is_active: isActive }),
+    mutationFn: () => createDepartment({ campus_id: campusId, ...buildPayload() }),
     onSuccess: afterSave,
     onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to create department"),
   });
 
   const updateMutation = useMutation({
-    mutationFn: () => updateDepartment(editingId!, { name: name.value, is_active: isActive }),
+    mutationFn: () => updateDepartment(editingId!, buildPayload()),
     onSuccess: afterSave,
     onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to update department"),
   });
 
   function openCreateDialog() {
     setEditingId(null);
-    setCampusId(lockedCampusId ?? "");
+    setCampusId("");
     name.onChange("");
+    setCode("");
+    setCategory("");
+    setParentGroup("");
     setIsActive(true);
     setError(null);
     setDialogOpen(true);
@@ -240,6 +259,9 @@ function DepartmentManagementCard() {
     setEditingId(department.id);
     setCampusId(department.campus_id);
     name.onChange(department.name);
+    setCode(department.code ?? "");
+    setCategory(department.category ?? "");
+    setParentGroup(department.parent_group ?? "");
     setIsActive(department.is_active);
     setError(null);
     setDialogOpen(true);
@@ -273,7 +295,7 @@ function DepartmentManagementCard() {
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
                 <Label>Campus</Label>
-                {editingId || lockedCampusId ? (
+                {editingId ? (
                   <p className="text-sm font-mono text-muted-foreground">
                     {campuses?.find((c) => c.id === campusId)?.code ?? "—"}
                   </p>
@@ -302,6 +324,40 @@ function DepartmentManagementCard() {
                   aria-invalid={Boolean(name.error)}
                 />
                 {name.error ? <p className="text-xs text-destructive">{name.error}</p> : null}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="department_code">Code (optional)</Label>
+                  <Input id="department_code" value={code} onChange={(e) => setCode(e.target.value)} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Teaching / Non-Teaching (optional)</Label>
+                  <Select
+                    value={category || "NONE"}
+                    onValueChange={(v) => setCategory(v === "NONE" ? "" : (v as StaffRoleCategory))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Not set" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NONE">Not set</SelectItem>
+                      {DEPARTMENT_CATEGORIES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c.replace(/_/g, " ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="department_parent_group">Parent group (optional)</Label>
+                <Input
+                  id="department_parent_group"
+                  placeholder="e.g. School of Engineering"
+                  value={parentGroup}
+                  onChange={(e) => setParentGroup(e.target.value)}
+                />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Active</Label>
@@ -334,6 +390,9 @@ function DepartmentManagementCard() {
               <tr className="border-b border-border text-left text-muted-foreground">
                 <th className="py-2 font-medium">Campus</th>
                 <th className="py-2 font-medium">Name</th>
+                <th className="py-2 font-medium">Code</th>
+                <th className="py-2 font-medium">Category</th>
+                <th className="py-2 font-medium">Parent group</th>
                 <th className="py-2 font-medium">Active</th>
                 <th className="py-2 font-medium">Actions</th>
               </tr>
@@ -345,6 +404,9 @@ function DepartmentManagementCard() {
                   <tr key={department.id} className="border-b border-border last:border-0">
                     <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
                     <td className="py-2">{department.name}</td>
+                    <td className="py-2">{department.code ?? "—"}</td>
+                    <td className="py-2">{department.category ? department.category.replace(/_/g, " ") : "—"}</td>
+                    <td className="py-2">{department.parent_group ?? "—"}</td>
                     <td className="py-2">
                       <Badge variant={department.is_active ? "success" : "destructive"}>
                         {department.is_active ? "Active" : "Inactive"}
@@ -469,7 +531,7 @@ export function SettingsPage() {
             </div>
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            {success ? <p className="text-sm text-brand-green">Saved.</p> : null}
+            {success ? <p className="text-sm text-brand-success">Saved.</p> : null}
 
             <Button type="submit" className="w-fit" disabled={mutation.isPending}>
               {mutation.isPending ? "Saving…" : "Save changes"}

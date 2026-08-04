@@ -14,11 +14,21 @@ from app.services.audit import log_create, log_update
 
 router = APIRouter(prefix="/departments", tags=["departments"])
 
-_WRITE_ROLES = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN, UserRoleEnum.CAMPUS_HOD)
+# Campus HOD lost department-write access with the Department/Designation
+# Master rollout (confirmed decision) -- HR Admin deliberately keeps it,
+# broader than the literal "Super Admin only" spec text.
+_WRITE_ROLES = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN)
 
 
 def _department_snapshot(department: Department) -> dict:
-    return {"campus_id": department.campus_id, "name": department.name, "is_active": department.is_active}
+    return {
+        "campus_id": department.campus_id,
+        "name": department.name,
+        "code": department.code,
+        "category": department.category.value if department.category else None,
+        "parent_group": department.parent_group,
+        "is_active": department.is_active,
+    }
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -50,17 +60,17 @@ def create_department(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(*_WRITE_ROLES)),
 ) -> Department:
-    if current_user.role == UserRoleEnum.CAMPUS_HOD and payload.campus_id != current_user.campus_id:
-        # Deliberately rejected, not silently corrected to the HOD's own campus.
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Campus HODs may only create departments within their own campus",
-        )
-
     if db.get(Campus, payload.campus_id) is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown campus_id")
 
-    department = Department(campus_id=payload.campus_id, name=payload.name, is_active=payload.is_active)
+    department = Department(
+        campus_id=payload.campus_id,
+        name=payload.name,
+        code=payload.code,
+        category=payload.category,
+        parent_group=payload.parent_group,
+        is_active=payload.is_active,
+    )
     db.add(department)
     db.flush()
 
@@ -90,12 +100,15 @@ def update_department(
     if department is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
-    if current_user.role == UserRoleEnum.CAMPUS_HOD and department.campus_id != current_user.campus_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
     before = _department_snapshot(department)
     if payload.name is not None:
         department.name = payload.name
+    if payload.code is not None:
+        department.code = payload.code
+    if payload.category is not None:
+        department.category = payload.category
+    if payload.parent_group is not None:
+        department.parent_group = payload.parent_group
     if payload.is_active is not None:
         department.is_active = payload.is_active
 

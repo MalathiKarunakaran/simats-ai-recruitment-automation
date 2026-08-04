@@ -3,7 +3,10 @@ from app.models.enums import UserRoleEnum
 from tests.conftest import auth_headers
 
 
-def test_hod_can_create_department_in_own_campus(client, user_factory, campus_factory):
+def test_hod_cannot_create_department_anymore(client, user_factory, campus_factory):
+    # Campus HOD lost department-write access with the Department/Designation
+    # Master rollout (confirmed decision) -- only SUPER_ADMIN/HR_ADMIN can
+    # write departments now.
     sse = campus_factory("SSE")
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
 
@@ -12,18 +15,64 @@ def test_hod_can_create_department_in_own_campus(client, user_factory, campus_fa
         headers=auth_headers(client, hod),
         json={"campus_id": str(sse.id), "name": "Computer Science"},
     )
-    assert response.status_code == 201
-    assert response.json()["campus_id"] == str(sse.id)
+    assert response.status_code == 403
 
 
-def test_hod_cannot_create_department_in_other_campus(client, user_factory, campus_factory):
-    scad = campus_factory("SCAD")
-    hod_sse = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+def test_hr_admin_can_create_department_with_master_fields(client, user_factory, campus_factory):
+    sse = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 
     response = client.post(
         "/api/v1/departments",
-        headers=auth_headers(client, hod_sse),
-        json={"campus_id": str(scad.id), "name": "Dentistry"},
+        headers=auth_headers(client, hr_admin),
+        json={
+            "campus_id": str(sse.id),
+            "name": "Computer Science",
+            "code": "CSE",
+            "category": "TEACHING",
+            "parent_group": "Engineering",
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["campus_id"] == str(sse.id)
+    assert body["code"] == "CSE"
+    assert body["category"] == "TEACHING"
+    assert body["parent_group"] == "Engineering"
+
+
+def test_super_admin_can_patch_department_master_fields(client, user_factory, campus_factory):
+    sse = campus_factory("SSE")
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    create_response = client.post(
+        "/api/v1/departments",
+        headers=auth_headers(client, super_admin),
+        json={"campus_id": str(sse.id), "name": "Mechanical Engineering"},
+    )
+    assert create_response.status_code == 201
+    department_id = create_response.json()["id"]
+
+    patch_response = client.patch(
+        f"/api/v1/departments/{department_id}",
+        headers=auth_headers(client, super_admin),
+        json={"code": "MECH", "category": "NON_TEACHING", "parent_group": "Engineering"},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    body = patch_response.json()
+    assert body["code"] == "MECH"
+    assert body["category"] == "NON_TEACHING"
+    assert body["parent_group"] == "Engineering"
+
+
+def test_hod_cannot_patch_department_anymore(client, user_factory, campus_factory, department_factory):
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    response = client.patch(
+        f"/api/v1/departments/{department.id}",
+        headers=auth_headers(client, hod),
+        json={"code": "X"},
     )
     assert response.status_code == 403
 
