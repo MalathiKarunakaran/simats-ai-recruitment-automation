@@ -1,4 +1,4 @@
-from app.models.enums import ApplicationStatusEnum, HiringSlotStatusEnum, UserRoleEnum
+from app.models.enums import ApplicationStatusEnum, CoordinatorCapabilityEnum, HiringSlotStatusEnum, UserRoleEnum
 from app.models.hiring_slot import HiringSlot
 
 from tests.conftest import auth_headers, build_test_pdf
@@ -105,8 +105,22 @@ def test_withdraw_candidate_empty_reason_returns_422(client, user_factory, candi
     assert response.status_code == 422
 
 
-def test_recruitment_coordinator_can_create_and_withdraw_candidate(client, user_factory):
+def test_recruitment_coordinator_without_grant_forbidden_to_create_candidate(client, user_factory):
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+
+    create = client.post(
+        "/api/v1/candidates",
+        headers=auth_headers(client, coordinator),
+        json={"full_name": "Coordinator Created Candidate", "email": "coord.created@example.com"},
+    )
+    assert create.status_code == 403
+
+
+def test_recruitment_coordinator_with_grant_can_create_and_withdraw_candidate(
+    client, user_factory, grant_coordinator_capability
+):
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.CANDIDATES_APPLICATIONS)
 
     create = client.post(
         "/api/v1/candidates",

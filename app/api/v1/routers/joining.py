@@ -25,13 +25,11 @@ from app.services.audit import log_update
 
 router = APIRouter(tags=["joining"])
 
-_READ_ROLES = (
-    UserRoleEnum.HR_ADMIN,
-    UserRoleEnum.RECRUITMENT_OFFICER,
-    UserRoleEnum.SUPER_ADMIN,
-    UserRoleEnum.RECRUITMENT_COORDINATOR,
-)
-_HR_ONLY_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR)
+# RECRUITMENT_COORDINATOR access to Joining/Onboarding was removed entirely
+# (a deliberate permission reduction, not gated by a capability grant like
+# the other four action groups -- see CoordinatorCapabilityEnum).
+_READ_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.SUPER_ADMIN)
+_HR_ONLY_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
 
 
 def _get_application_or_404_scoped(db: Session, application_id: uuid.UUID, scope: CampusScope) -> Application:

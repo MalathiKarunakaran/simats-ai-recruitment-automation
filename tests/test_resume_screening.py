@@ -1,4 +1,4 @@
-from app.models.enums import UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
 
 from tests.conftest import auth_headers, build_test_pdf
 
@@ -145,13 +145,29 @@ def test_screen_application_ai_error_maps_to_503_on_rate_limit(
     assert response.status_code == 503
 
 
-def test_recruitment_coordinator_can_screen_application(
+def test_recruitment_coordinator_without_grant_forbidden_to_screen_application(
     client, published_vacancy_factory, application_factory, candidate_factory, user_factory
 ):
     vacancy = published_vacancy_factory(slot_count=1)
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     candidate = candidate_factory(phone_number="+91 9876543210")
-    _upload_resume(client, candidate.id, coordinator)
+    _upload_resume(client, candidate.id, vacancy.hr_admin)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin, candidate=candidate)
+
+    response = client.post(
+        f"/api/v1/applications/{application.id}/screen", headers=auth_headers(client, coordinator)
+    )
+    assert response.status_code == 403
+
+
+def test_recruitment_coordinator_with_grant_can_screen_application(
+    client, published_vacancy_factory, application_factory, candidate_factory, user_factory, grant_coordinator_capability
+):
+    vacancy = published_vacancy_factory(slot_count=1)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.JOB_DISTRIBUTION_SCREENING)
+    candidate = candidate_factory(phone_number="+91 9876543210")
+    _upload_resume(client, candidate.id, vacancy.hr_admin)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin, candidate=candidate)
 
     response = client.post(

@@ -4,9 +4,17 @@ import openai
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db, require_roles
+from app.core.deps import (
+    CampusScope,
+    enforce_campus_match,
+    get_campus_scope,
+    get_current_active_user,
+    get_db,
+    require_roles,
+    require_roles_or_coordinator_capability,
+)
 from app.models.application import Application
-from app.models.enums import InterviewScheduleStatusEnum, UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, InterviewScheduleStatusEnum, UserRoleEnum
 from app.models.interview import InterviewFeedback, InterviewSchedule
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
@@ -23,12 +31,27 @@ from app.services.ai_client import get_openai_client
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
 
-_WRITE_ROLES = (
-    UserRoleEnum.HR_ADMIN,
-    UserRoleEnum.RECRUITMENT_OFFICER,
-    UserRoleEnum.SUPER_ADMIN,
-    UserRoleEnum.RECRUITMENT_COORDINATOR,
-)
+# RECRUITMENT_COORDINATOR's membership is additionally conditional on an
+# INTERVIEWS capability grant -- see require_roles_or_coordinator_capability.
+_WRITE_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.SUPER_ADMIN)
+
+
+def _write_gate(
+    current_user: User = Depends(
+        require_roles_or_coordinator_capability(CoordinatorCapabilityEnum.INTERVIEWS, *_WRITE_ROLES)
+    ),
+) -> User:
+    return current_user
+
+
+def _questions_gate(
+    current_user: User = Depends(
+        require_roles_or_coordinator_capability(
+            CoordinatorCapabilityEnum.INTERVIEWS, *_WRITE_ROLES, UserRoleEnum.INTERVIEW_PANEL_MEMBER
+        )
+    ),
+) -> User:
+    return current_user
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -50,7 +73,7 @@ def create_interview(
     payload: InterviewScheduleCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> InterviewSchedule:
     application = db.get(Application, payload.application_id)
@@ -114,7 +137,7 @@ def update_interview(
     payload: InterviewScheduleUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> InterviewSchedule:
     schedule = _get_schedule_or_404_scoped(db, interview_id, scope)
@@ -170,9 +193,7 @@ def list_interview_feedback(
 def generate_interview_questions(
     interview_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(*_WRITE_ROLES, UserRoleEnum.INTERVIEW_PANEL_MEMBER)
-    ),
+    current_user: User = Depends(_questions_gate),
     scope: CampusScope = Depends(get_campus_scope),
     ai: openai.OpenAI = Depends(get_openai_client),
 ) -> InterviewQuestionsResponse:

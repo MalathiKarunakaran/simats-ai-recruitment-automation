@@ -226,6 +226,22 @@ HR_WRITE_ROLES = {
 }
 
 
+class CoordinatorCapabilityEnum(str, enum.Enum):
+    """Per-user, Super-Admin-granted capabilities for RECRUITMENT_COORDINATOR
+    only. Unlike every other role's access (a fixed set of endpoints gated by
+    role membership alone), a coordinator's write access to these four action
+    groups is additionally conditional on a CoordinatorCapabilityGrant row
+    existing for (user, capability) -- see
+    app.core.deps.require_roles_or_coordinator_capability. Deliberately not a
+    generic multi-role permission system: every other role keeps unconditional
+    role-based access to these same endpoints."""
+
+    VACANCY_APPROVAL = "VACANCY_APPROVAL"
+    CANDIDATES_APPLICATIONS = "CANDIDATES_APPLICATIONS"
+    INTERVIEWS = "INTERVIEWS"
+    JOB_DISTRIBUTION_SCREENING = "JOB_DISTRIBUTION_SCREENING"
+
+
 class InterviewTypeEnum(str, enum.Enum):
     TECHNICAL = "TECHNICAL"
     HR = "HR"

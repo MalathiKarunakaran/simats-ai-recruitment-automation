@@ -1,5 +1,13 @@
 import { apiFetch } from "@/api/client";
-import type { PaginatedResponse, UserCreatePayload, UserRead, UserSelfUpdatePayload, UserUpdatePayload } from "@/api/types";
+import type {
+  CoordinatorCapabilitiesRead,
+  CoordinatorCapability,
+  PaginatedResponse,
+  UserCreatePayload,
+  UserRead,
+  UserSelfUpdatePayload,
+  UserUpdatePayload,
+} from "@/api/types";
 
 export async function listUsers(): Promise<UserRead[]> {
   const response = await apiFetch<PaginatedResponse<UserRead>>("/users?limit=200");
@@ -28,4 +36,18 @@ export async function updateUser(id: string, payload: UserUpdatePayload): Promis
 
 export async function deactivateUser(id: string): Promise<void> {
   await apiFetch<void>(`/users/${id}`, { method: "DELETE" });
+}
+
+export async function getUserCapabilities(id: string): Promise<CoordinatorCapabilitiesRead> {
+  return apiFetch<CoordinatorCapabilitiesRead>(`/users/${id}/capabilities`);
+}
+
+export async function setUserCapabilities(
+  id: string,
+  capabilities: CoordinatorCapability[],
+): Promise<CoordinatorCapabilitiesRead> {
+  return apiFetch<CoordinatorCapabilitiesRead>(`/users/${id}/capabilities`, {
+    method: "PUT",
+    body: JSON.stringify({ capabilities }),
+  });
 }

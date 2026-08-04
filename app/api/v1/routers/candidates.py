@@ -7,9 +7,9 @@ from minio import Minio
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_active_user, get_db, require_roles
+from app.core.deps import get_current_active_user, get_db, require_roles, require_roles_or_coordinator_capability
 from app.models.candidate import Candidate
-from app.models.enums import UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
 from app.models.user import User
 from app.schemas.candidate import CandidateCreate, CandidateRead, CandidateWithdrawRequest
 from app.schemas.common import PaginatedResponse
@@ -25,12 +25,17 @@ _MAX_RESUME_BYTES = 10 * 1024 * 1024  # 10 MB
 # Candidates aren't campus-owned (a person isn't tied to one campus), so
 # there's no campus scoping here -- just a staff-role gate, mirroring how
 # Phase 1 handled /campuses (global read for any authenticated staff role).
-_WRITE_ROLES = (
-    UserRoleEnum.RECRUITMENT_OFFICER,
-    UserRoleEnum.HR_ADMIN,
-    UserRoleEnum.SUPER_ADMIN,
-    UserRoleEnum.RECRUITMENT_COORDINATOR,
-)
+# RECRUITMENT_COORDINATOR's membership is additionally conditional on a
+# CANDIDATES_APPLICATIONS capability grant -- see require_roles_or_coordinator_capability.
+_WRITE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+
+
+def _write_gate(
+    current_user: User = Depends(
+        require_roles_or_coordinator_capability(CoordinatorCapabilityEnum.CANDIDATES_APPLICATIONS, *_WRITE_ROLES)
+    ),
+) -> User:
+    return current_user
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -44,7 +49,7 @@ def create_candidate(
     payload: CandidateCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
 ) -> Candidate:
     if db.query(Candidate).filter(Candidate.email == payload.email).one_or_none() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A candidate with this email already exists")
@@ -109,7 +114,7 @@ def withdraw_candidate(
     payload: CandidateWithdrawRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
 ) -> Candidate:
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
@@ -133,7 +138,7 @@ def upload_resume(
     request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
     minio_client: Minio = Depends(get_minio_client),
 ) -> Candidate:
     candidate = db.get(Candidate, candidate_id)

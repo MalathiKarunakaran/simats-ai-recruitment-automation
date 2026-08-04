@@ -7,7 +7,8 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.models.enums import GLOBAL_SCOPE_ROLES, UserRoleEnum
+from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
+from app.models.enums import GLOBAL_SCOPE_ROLES, CoordinatorCapabilityEnum, UserRoleEnum
 from app.models.user import User
 
 __all__ = ["get_db"]
@@ -60,6 +61,36 @@ def require_roles(*allowed_roles: UserRoleEnum):
                 detail="You do not have permission to perform this action",
             )
         return current_user
+
+    return _checker
+
+
+def require_roles_or_coordinator_capability(capability: CoordinatorCapabilityEnum, *other_allowed_roles: UserRoleEnum):
+    """Like require_roles, but a RECRUITMENT_COORDINATOR is additionally
+    allowed through if (and only if) they hold a CoordinatorCapabilityGrant
+    for `capability` -- every other role in `other_allowed_roles` keeps plain
+    unconditional access, unchanged from require_roles. Specific to
+    RECRUITMENT_COORDINATOR by design; not a generic multi-role grant system."""
+
+    def _checker(
+        current_user: User = Depends(get_current_active_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if current_user.role in other_allowed_roles:
+            return current_user
+        if current_user.role == UserRoleEnum.RECRUITMENT_COORDINATOR:
+            has_grant = (
+                db.query(CoordinatorCapabilityGrant)
+                .filter_by(user_id=current_user.id, capability=capability)
+                .first()
+                is not None
+            )
+            if has_grant:
+                return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
 
     return _checker
 

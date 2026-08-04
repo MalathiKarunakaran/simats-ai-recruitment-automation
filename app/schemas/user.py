@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.enums import UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
 
 
 class UserCreate(BaseModel):
@@ -46,3 +46,16 @@ class UserRead(BaseModel):
     last_login_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class CoordinatorCapabilitiesRead(BaseModel):
+    capabilities: list[CoordinatorCapabilityEnum]
+
+
+class CoordinatorCapabilitiesUpdate(BaseModel):
+    """Full-replace request: the caller sends the complete desired set of
+    granted capabilities in one call -- the server diffs against the
+    current grants and adds/removes rows accordingly (one call = one
+    deterministic end state, not a series of individual toggle calls)."""
+
+    capabilities: list[CoordinatorCapabilityEnum]

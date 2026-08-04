@@ -116,29 +116,36 @@ def test_mark_offer_expired(client, published_vacancy_factory, application_facto
     assert expired.json()["status"] == "EXPIRED"
 
 
-def test_recruitment_coordinator_can_create_send_and_accept_offer(
+def test_recruitment_coordinator_forbidden_from_offers_entirely(
     client, user_factory, published_vacancy_factory, application_factory
 ):
+    # Offers access was removed entirely for RECRUITMENT_COORDINATOR (a
+    # deliberate permission reduction) -- unlike the other four action
+    # groups, this is not gated by a capability grant at all, so the
+    # coordinator must be forbidden here regardless of any grant.
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     vacancy = published_vacancy_factory(slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
     _select(client, application.id, vacancy.hr_admin)
 
-    offer = client.post(
+    create_response = client.post(
         "/api/v1/offers",
         headers=auth_headers(client, coordinator),
         json={"application_id": str(application.id), "salary_amount": 60000, "joining_date": "2026-09-01"},
     )
-    assert offer.status_code == 201
-    offer_id = offer.json()["id"]
+    assert create_response.status_code == 403
 
-    send = client.post(f"/api/v1/offers/{offer_id}/send", headers=auth_headers(client, coordinator))
-    assert send.status_code == 200
-    assert send.json()["status"] == "SENT"
+    # Also forbidden to act on an offer someone else created.
+    offer = client.post(
+        "/api/v1/offers",
+        headers=auth_headers(client, vacancy.hr_admin),
+        json={"application_id": str(application.id), "salary_amount": 60000, "joining_date": "2026-09-01"},
+    ).json()
 
-    accept = client.post(f"/api/v1/offers/{offer_id}/accept", headers=auth_headers(client, coordinator))
-    assert accept.status_code == 200
-    assert accept.json()["status"] == "ACCEPTED"
+    send_response = client.post(
+        f"/api/v1/offers/{offer['id']}/send", headers=auth_headers(client, coordinator)
+    )
+    assert send_response.status_code == 403
 
 
 def test_recruitment_officer_cannot_create_offer(client, published_vacancy_factory, application_factory):

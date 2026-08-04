@@ -192,6 +192,31 @@ export interface DepartmentUpdatePayload {
 // Mirrors app/api/v1/routers/departments.py::_WRITE_ROLES.
 export const DEPARTMENT_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN", "CAMPUS_HOD"];
 
+// Mirrors app/models/enums.py::CoordinatorCapabilityEnum -- the 4 gated
+// action groups a RECRUITMENT_COORDINATOR can be individually granted, via
+// app.core.deps.require_roles_or_coordinator_capability. Every other role
+// keeps unconditional access to these same endpoints; this list only ever
+// applies to RECRUITMENT_COORDINATOR users.
+export const COORDINATOR_CAPABILITIES = [
+  "VACANCY_APPROVAL",
+  "CANDIDATES_APPLICATIONS",
+  "INTERVIEWS",
+  "JOB_DISTRIBUTION_SCREENING",
+] as const;
+export type CoordinatorCapability = (typeof COORDINATOR_CAPABILITIES)[number];
+
+export const COORDINATOR_CAPABILITY_LABELS: Record<CoordinatorCapability, string> = {
+  VACANCY_APPROVAL: "Vacancy approval (reject / HR-approve / publish / close / cancel)",
+  CANDIDATES_APPLICATIONS: "Candidates & applications (write access, any campus)",
+  INTERVIEWS: "Interviews (schedule / reschedule / cancel / mark completed)",
+  JOB_DISTRIBUTION_SCREENING: "Job distribution & resume screening",
+};
+
+// Mirrors app/api/v1/routers/users.py::CoordinatorCapabilitiesRead.
+export interface CoordinatorCapabilitiesRead {
+  capabilities: CoordinatorCapability[];
+}
+
 // Mirrors app/schemas/eligibility_rule.py::EligibilityRuleRead.
 export interface EligibilityRule {
   id: string;

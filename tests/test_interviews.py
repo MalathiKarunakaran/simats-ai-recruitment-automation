@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from app.models.enums import UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
 
 from tests.conftest import auth_headers
 
@@ -45,13 +45,36 @@ def test_schedule_interview_advances_application_status(
     assert app_detail["status"] == "CALLED_FOR_INTERVIEW"
 
 
-def test_recruitment_coordinator_can_schedule_interview(
+def test_recruitment_coordinator_without_grant_forbidden_to_schedule_interview(
     client, published_vacancy_factory, application_factory, user_factory
 ):
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
     panel_member = user_factory(UserRoleEnum.INTERVIEW_PANEL_MEMBER, campus_code="SSE")
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+
+    response = client.post(
+        "/api/v1/interviews",
+        headers=auth_headers(client, coordinator),
+        json={
+            "application_id": str(application.id),
+            "interview_type": "TECHNICAL",
+            "scheduled_at": _iso_future(),
+            "meeting_link": "https://meet.example.com/abc",
+            "panel_member_ids": [str(panel_member.id)],
+        },
+    )
+    assert response.status_code == 403
+
+
+def test_recruitment_coordinator_with_interviews_grant_can_schedule_interview(
+    client, published_vacancy_factory, application_factory, user_factory, grant_coordinator_capability
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    panel_member = user_factory(UserRoleEnum.INTERVIEW_PANEL_MEMBER, campus_code="SSE")
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.INTERVIEWS)
 
     response = client.post(
         "/api/v1/interviews",

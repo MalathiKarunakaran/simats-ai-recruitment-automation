@@ -6,9 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from minio import Minio
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db, require_roles
+from app.core.deps import (
+    CampusScope,
+    enforce_campus_match,
+    get_campus_scope,
+    get_current_active_user,
+    get_db,
+    require_roles,
+    require_roles_or_coordinator_capability,
+)
 from app.models.application import Application
-from app.models.enums import UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
 from app.models.resume_score import ResumeScore
 from app.models.user import User
 from app.schemas.resume_score import ResumeScoreRead
@@ -19,12 +27,18 @@ from app.services.vector_store import get_chroma_collection
 
 router = APIRouter(prefix="/applications", tags=["resume-screening"])
 
-_WRITE_ROLES = (
-    UserRoleEnum.RECRUITMENT_OFFICER,
-    UserRoleEnum.HR_ADMIN,
-    UserRoleEnum.SUPER_ADMIN,
-    UserRoleEnum.RECRUITMENT_COORDINATOR,
-)
+# RECRUITMENT_COORDINATOR's membership is additionally conditional on a
+# JOB_DISTRIBUTION_SCREENING capability grant -- see
+# require_roles_or_coordinator_capability.
+_WRITE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+
+
+def _write_gate(
+    current_user: User = Depends(
+        require_roles_or_coordinator_capability(CoordinatorCapabilityEnum.JOB_DISTRIBUTION_SCREENING, *_WRITE_ROLES)
+    ),
+) -> User:
+    return current_user
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -46,7 +60,7 @@ def screen_application(
     application_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
     scope: CampusScope = Depends(get_campus_scope),
     minio_client: Minio = Depends(get_minio_client),
     chroma_collection: Collection = Depends(get_chroma_collection),

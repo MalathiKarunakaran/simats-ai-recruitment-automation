@@ -13,11 +13,19 @@ from app.core.deps import (
     require_roles,
 )
 from app.models.campus import Campus
+from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
 from app.models.department import Department
-from app.models.enums import USER_MANAGEMENT_ROLES, UserRoleEnum
+from app.models.enums import USER_MANAGEMENT_ROLES, CoordinatorCapabilityEnum, UserRoleEnum
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
-from app.schemas.user import UserCreate, UserRead, UserSelfUpdate, UserUpdate
+from app.schemas.user import (
+    CoordinatorCapabilitiesRead,
+    CoordinatorCapabilitiesUpdate,
+    UserCreate,
+    UserRead,
+    UserSelfUpdate,
+    UserUpdate,
+)
 from app.services.audit import log_create, log_delete, log_update
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -221,3 +229,87 @@ def deactivate_user(
         request=request,
     )
     db.commit()
+
+
+def _capabilities_of(db: Session, user_id: uuid.UUID) -> list[CoordinatorCapabilityEnum]:
+    rows = db.query(CoordinatorCapabilityGrant).filter(CoordinatorCapabilityGrant.user_id == user_id).all()
+    return [row.capability for row in rows]
+
+
+@router.get("/{user_id}/capabilities", response_model=CoordinatorCapabilitiesRead)
+def get_user_capabilities(
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> CoordinatorCapabilitiesRead:
+    """Readable by SUPER_ADMIN (any user) or by the user themselves (their
+    own record only) -- deliberately narrower than get_user's broader
+    campus-scoped staff read, since this exposes what a coordinator is
+    allowed to do, not just their profile."""
+    if user_id != current_user.id and current_user.role != UserRoleEnum.SUPER_ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted")
+
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    return CoordinatorCapabilitiesRead(capabilities=_capabilities_of(db, target.id))
+
+
+@router.put("/{user_id}/capabilities", response_model=CoordinatorCapabilitiesRead)
+def set_user_capabilities(
+    user_id: uuid.UUID,
+    payload: CoordinatorCapabilitiesUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+) -> CoordinatorCapabilitiesRead:
+    """Full replace: the caller sends the complete desired capability set for
+    the target RECRUITMENT_COORDINATOR; the server diffs against current
+    grants and adds/removes rows to reach that exact end state in one call."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if target.role != UserRoleEnum.RECRUITMENT_COORDINATOR:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Capability grants only apply to RECRUITMENT_COORDINATOR users",
+        )
+
+    existing = (
+        db.query(CoordinatorCapabilityGrant).filter(CoordinatorCapabilityGrant.user_id == target.id).all()
+    )
+    existing_by_capability = {row.capability: row for row in existing}
+    desired = set(payload.capabilities)
+
+    before = sorted(cap.value for cap in existing_by_capability)
+
+    for capability, row in existing_by_capability.items():
+        if capability not in desired:
+            db.delete(row)
+
+    for capability in desired:
+        if capability not in existing_by_capability:
+            db.add(
+                CoordinatorCapabilityGrant(
+                    user_id=target.id,
+                    capability=capability,
+                    granted_by_id=current_user.id,
+                )
+            )
+
+    after = sorted(cap.value for cap in desired)
+
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="User",
+        entity=target,
+        campus_context_id=target.campus_id,
+        before_state={"capabilities": before},
+        after_state={"capabilities": after},
+        request=request,
+    )
+    db.commit()
+
+    return CoordinatorCapabilitiesRead(capabilities=_capabilities_of(db, target.id))

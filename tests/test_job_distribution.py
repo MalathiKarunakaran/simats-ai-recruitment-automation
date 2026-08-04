@@ -3,7 +3,7 @@ import io
 from PIL import Image
 
 from app.models.audit_log import AuditLog
-from app.models.enums import UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
 from app.services.n8n_client import get_n8n_client_or_503
 
 from tests.conftest import FakeN8nClient, auth_headers
@@ -88,11 +88,34 @@ def test_distribute_rejects_unsupported_portal(client, published_vacancy_factory
     assert response.status_code == 400
 
 
-def test_recruitment_coordinator_can_distribute(client, published_vacancy_factory, user_factory):
+def test_recruitment_coordinator_without_grant_forbidden_to_distribute(
+    client, published_vacancy_factory, user_factory
+):
     from app.main import app
 
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    app.dependency_overrides[get_n8n_client_or_503] = lambda: FakeN8nClient()
+    try:
+        response = client.post(
+            f"/api/v1/job-postings/{vacancy.job_posting.id}/distribute",
+            headers=auth_headers(client, coordinator),
+            json={"portals": ["LINKEDIN"]},
+        )
+    finally:
+        del app.dependency_overrides[get_n8n_client_or_503]
+
+    assert response.status_code == 403
+
+
+def test_recruitment_coordinator_with_grant_can_distribute(
+    client, published_vacancy_factory, user_factory, grant_coordinator_capability
+):
+    from app.main import app
+
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.JOB_DISTRIBUTION_SCREENING)
     app.dependency_overrides[get_n8n_client_or_503] = lambda: FakeN8nClient()
     try:
         response = client.post(

@@ -32,9 +32,11 @@ from app.models.application import Application
 from app.models.auth_token import PasswordResetToken
 from app.models.campus import Campus
 from app.models.candidate import Candidate
+from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
 from app.models.department import Department
 from app.models.enums import (
     ApplicationStatusEnum,
+    CoordinatorCapabilityEnum,
     EmploymentTypeEnum,
     JoiningDocumentStatusEnum,
     OfferStatusEnum,
@@ -452,6 +454,27 @@ def user_factory(db_session, campus_factory):
         return user
 
     return _make
+
+
+@pytest.fixture()
+def grant_coordinator_capability(db_session):
+    """Directly inserts a CoordinatorCapabilityGrant row -- the RBAC tests
+    that exercise the gated action groups need a coordinator who already
+    holds the relevant grant, without going through the
+    PUT /users/{id}/capabilities endpoint (that endpoint has its own
+    dedicated tests in test_users_rbac.py)."""
+
+    def _grant(user: User, capability: CoordinatorCapabilityEnum, granted_by: User | None = None) -> None:
+        db_session.add(
+            CoordinatorCapabilityGrant(
+                user_id=user.id,
+                capability=capability,
+                granted_by_id=granted_by.id if granted_by else None,
+            )
+        )
+        db_session.flush()
+
+    return _grant
 
 
 def auth_headers(client: TestClient, user: User) -> dict[str, str]:

@@ -5,8 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_roles
-from app.models.enums import UserRoleEnum
+from app.core.deps import (
+    CampusScope,
+    enforce_campus_match,
+    get_campus_scope,
+    get_db,
+    require_roles,
+    require_roles_or_coordinator_capability,
+)
+from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.schemas.job_distribution import DistributeRequest, DistributeResponse, JobAdRead
@@ -15,12 +22,20 @@ from app.services.n8n_client import N8nClient, get_n8n_client_or_503
 
 router = APIRouter(prefix="/job-postings", tags=["job-distribution"])
 
-_DISTRIBUTE_ROLES = (
-    UserRoleEnum.RECRUITMENT_OFFICER,
-    UserRoleEnum.HR_ADMIN,
-    UserRoleEnum.SUPER_ADMIN,
-    UserRoleEnum.RECRUITMENT_COORDINATOR,
-)
+# RECRUITMENT_COORDINATOR's membership is additionally conditional on a
+# JOB_DISTRIBUTION_SCREENING capability grant -- see
+# require_roles_or_coordinator_capability.
+_DISTRIBUTE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+
+
+def _distribute_gate(
+    current_user: User = Depends(
+        require_roles_or_coordinator_capability(
+            CoordinatorCapabilityEnum.JOB_DISTRIBUTION_SCREENING, *_DISTRIBUTE_ROLES
+        )
+    ),
+) -> User:
+    return current_user
 
 
 def _get_posting_or_404_scoped(db: Session, job_posting_id: uuid.UUID, scope: CampusScope) -> JobPosting:
@@ -35,7 +50,7 @@ def _get_posting_or_404_scoped(db: Session, job_posting_id: uuid.UUID, scope: Ca
 def get_job_ad(
     job_posting_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_DISTRIBUTE_ROLES)),
+    current_user: User = Depends(_distribute_gate),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> dict:
     posting = _get_posting_or_404_scoped(db, job_posting_id, scope)
@@ -46,7 +61,7 @@ def get_job_ad(
 def get_qr_code(
     job_posting_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_DISTRIBUTE_ROLES)),
+    current_user: User = Depends(_distribute_gate),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> StreamingResponse:
     posting = _get_posting_or_404_scoped(db, job_posting_id, scope)
@@ -60,7 +75,7 @@ def distribute_job_posting(
     payload: DistributeRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_DISTRIBUTE_ROLES)),
+    current_user: User = Depends(_distribute_gate),
     scope: CampusScope = Depends(get_campus_scope),
     n8n_client: N8nClient = Depends(get_n8n_client_or_503),
 ) -> dict:

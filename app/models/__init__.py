@@ -7,6 +7,7 @@ from app.models.auth_token import PasswordResetToken, RefreshToken  # noqa: F401
 from app.models.campus import Campus  # noqa: F401
 from app.models.department import Department  # noqa: F401
 from app.models.user import User  # noqa: F401
+from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant  # noqa: F401
 
 from app.models.vacancy_request import VacancyRequest  # noqa: F401
 from app.models.approved_vacancy import ApprovedVacancy  # noqa: F401

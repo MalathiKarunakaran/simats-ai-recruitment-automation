@@ -11,10 +11,11 @@ from app.core.deps import (
     get_current_active_user,
     get_db,
     require_roles,
+    require_roles_or_coordinator_capability,
 )
 from app.models.application import Application
 from app.models.candidate import Candidate
-from app.models.enums import ApplicationStatusEnum, UserRoleEnum
+from app.models.enums import ApplicationStatusEnum, CoordinatorCapabilityEnum, UserRoleEnum
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.schemas.application import (
@@ -29,12 +30,20 @@ from app.services.audit import log_create, log_update
 
 router = APIRouter(prefix="/applications", tags=["applications"])
 
-_WRITE_ROLES = (
-    UserRoleEnum.RECRUITMENT_OFFICER,
-    UserRoleEnum.HR_ADMIN,
-    UserRoleEnum.SUPER_ADMIN,
-    UserRoleEnum.RECRUITMENT_COORDINATOR,
-)
+# RECRUITMENT_COORDINATOR's membership is additionally conditional on a
+# CANDIDATES_APPLICATIONS capability grant -- see require_roles_or_coordinator_capability.
+# This also gates the cross-campus application-recording carve-out below
+# (only RECRUITMENT_OFFICER is campus-restricted; a coordinator without the
+# grant is rejected here before that check is ever reached).
+_WRITE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+
+
+def _write_gate(
+    current_user: User = Depends(
+        require_roles_or_coordinator_capability(CoordinatorCapabilityEnum.CANDIDATES_APPLICATIONS, *_WRITE_ROLES)
+    ),
+) -> User:
+    return current_user
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -56,7 +65,7 @@ def create_application(
     payload: ApplicationCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
 ) -> Application:
     candidate = db.get(Candidate, payload.candidate_id)
     if candidate is None:
@@ -166,7 +175,7 @@ def update_pipeline_details(
     payload: ApplicationPipelineDetailsUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Application:
     """Record-keeping fields for the real manual workflow (panel members/
@@ -199,7 +208,7 @@ def transition_application_status(
     payload: ApplicationStatusTransitionRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Application:
     application = _get_or_404_scoped(db, application_id, scope)
