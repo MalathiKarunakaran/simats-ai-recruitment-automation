@@ -52,12 +52,28 @@ export function DesignationsPage() {
   const minExperience = useFieldValidation("", required("Minimum experience is required"));
   const [error, setError] = useState<string | null>(null);
 
-  const { data: designations, isLoading } = useQuery({ queryKey: ["designations"], queryFn: () => listDesignations() });
+  const [categoryFilter, setCategoryFilter] = useState<StaffRoleCategory | "ALL">("ALL");
+  const [activeFilter, setActiveFilter] = useState<"ALL" | "true" | "false">("ALL");
+  const [search, setSearch] = useState("");
+
+  const { data: designations, isLoading } = useQuery({
+    queryKey: ["designations", categoryFilter, activeFilter],
+    queryFn: () =>
+      listDesignations({
+        category: categoryFilter === "ALL" ? undefined : categoryFilter,
+        isActive: activeFilter === "ALL" ? undefined : activeFilter === "true",
+      }),
+  });
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
 
   const canManage = Boolean(user && DESIGNATION_WRITE_ROLES.includes(user.role));
 
   const departmentNameById = new Map((departments ?? []).map((d) => [d.id, d.name]));
+
+  const filtersActive = categoryFilter !== "ALL" || activeFilter !== "ALL" || search.trim() !== "";
+  const visibleDesignations = (designations ?? []).filter((d) =>
+    d.name.toLowerCase().includes(search.trim().toLowerCase()),
+  );
 
   function afterSave() {
     setError(null);
@@ -306,10 +322,45 @@ export function DesignationsPage() {
         }
       />
 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name"
+          aria-label="Search designations"
+          className="sm:max-w-xs"
+        />
+        <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as StaffRoleCategory | "ALL")}>
+          <SelectTrigger aria-label="Category filter" className="sm:w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All categories</SelectItem>
+            {CATEGORIES.map((category) => (
+              <SelectItem key={category} value={category}>
+                {category.replace(/_/g, " ")}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={activeFilter} onValueChange={(v) => setActiveFilter(v as "ALL" | "true" | "false")}>
+          <SelectTrigger aria-label="Active filter" className="sm:w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All statuses</SelectItem>
+            <SelectItem value="true">Active</SelectItem>
+            <SelectItem value="false">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !designations || designations.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No designations found.</p>
+      ) : visibleDesignations.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {filtersActive ? "No designations match the current filters." : "No designations found."}
+        </p>
       ) : (
         <table className="w-full text-sm">
           <thead>
@@ -325,7 +376,7 @@ export function DesignationsPage() {
             </tr>
           </thead>
           <tbody>
-            {designations.map((designation) => (
+            {visibleDesignations.map((designation) => (
               <tr key={designation.id} className="border-b border-border last:border-0 hover:bg-accent/50">
                 <td className="py-2 font-medium text-foreground">{designation.name}</td>
                 <td className="py-2">{designation.category.replace(/_/g, " ")}</td>

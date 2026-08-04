@@ -56,6 +56,19 @@ const DESIGNATION: DesignationRead = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
+const OTHER_DESIGNATION: DesignationRead = {
+  id: "des-2",
+  name: "Lab Assistant",
+  category: "NON_TEACHING",
+  qualification: "BSc",
+  min_experience: "1+ years",
+  employment_type: "FULL_TIME",
+  is_active: false,
+  department_ids: ["d-1"],
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -161,4 +174,50 @@ describe("DesignationsPage", () => {
       }),
     );
   }, 15000);
+
+  it("narrows by name search client-side without an extra fetch", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignations.mockResolvedValue([DESIGNATION, OTHER_DESIGNATION]);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Lab Assistant")).toBeInTheDocument());
+    const callsBefore = mockedListDesignations.mock.calls.length;
+
+    await userEvent.type(screen.getByLabelText("Search designations"), "assistant prof");
+
+    expect(screen.getByText("Assistant Professor")).toBeInTheDocument();
+    expect(screen.queryByText("Lab Assistant")).not.toBeInTheDocument();
+    expect(mockedListDesignations.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("re-fetches server-side when the category filter changes", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignations.mockResolvedValue([DESIGNATION]);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Category filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "NON TEACHING" }));
+
+    await waitFor(() =>
+      expect(mockedListDesignations).toHaveBeenLastCalledWith({ category: "NON_TEACHING", isActive: undefined }),
+    );
+  });
+
+  it("shows a distinct message when filters narrow a non-empty list to zero", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignations.mockResolvedValue([DESIGNATION]);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByLabelText("Search designations"), "no such designation");
+
+    expect(screen.getByText("No designations match the current filters.")).toBeInTheDocument();
+    expect(screen.queryByText("No designations found.")).not.toBeInTheDocument();
+  });
 });
