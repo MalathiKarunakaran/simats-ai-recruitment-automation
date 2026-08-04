@@ -2,21 +2,25 @@ import {
   BarChart3,
   Briefcase,
   CalendarClock,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
+  Contact,
   FileCheck,
   History,
   IdCard,
   LayoutDashboard,
   ListChecks,
   Newspaper,
+  Plus,
   Settings,
   Upload,
   UserCog,
   UserPlus,
   Users,
 } from "lucide-react";
-import type { ReactNode } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { type ReactNode, useState } from "react";
+import { Link, NavLink, Outlet } from "react-router-dom";
 
 import simatsSeal from "@/assets/simats-seal.png";
 import { useAuth } from "@/auth/AuthContext";
@@ -25,150 +29,249 @@ import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
   to: string;
   label: string;
-  icon?: typeof LayoutDashboard;
-  enabled: boolean;
+  icon: typeof LayoutDashboard;
   /** Roles that may see this link at all; undefined means every staff role. */
   visibleForRoles?: string[];
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, enabled: true },
-  { to: "/vacancy-requests", label: "Vacancy Requests", icon: Briefcase, enabled: true },
+interface NavGroup {
+  label: string | null;
+  items: NavItem[];
+}
+
+// Grouped per the design spec (Recruitment / Candidates / Interviews /
+// Administration / Reports / Settings); Dashboard sits ungrouped above all
+// sections as the app's landing point. Every visibleForRoles value below is
+// unchanged from before this redesign -- only the grouping/visuals moved.
+const NAV_GROUPS: NavGroup[] = [
   {
-    to: "/vacancy-approvals",
-    label: "Vacancy Approvals",
-    icon: ClipboardCheck,
-    enabled: true,
-    // Mirrors VacancyApprovalsPage's own ACTIONABLE_STATUSES_BY_ROLE -- only
-    // roles that actually take part in the approval chain see this link.
-    visibleForRoles: ["ASSOCIATE_DEAN_RECRUITMENT", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
-  },
-  { to: "/job-postings", label: "Job Postings", icon: Newspaper, enabled: true },
-  { to: "/candidates", label: "Candidates", icon: Users, enabled: true },
-  { to: "/applications", label: "Applications", icon: Briefcase, enabled: true },
-  { to: "/interviews", label: "Interviews", icon: CalendarClock, enabled: true },
-  {
-    to: "/offers",
-    label: "Offers",
-    icon: FileCheck,
-    enabled: true,
-    // Offers visibility mirrors the backend's own gate on GET /offers
-    // (offers.py: HR_ADMIN/SUPER_ADMIN/MANAGEMENT/RECRUITMENT_COORDINATOR
-    // only) -- other staff roles would just hit a 403, so the nav link is
-    // hidden for them.
-    visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT", "RECRUITMENT_COORDINATOR"],
+    label: null,
+    items: [{ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard }],
   },
   {
-    to: "/onboarding",
-    label: "Onboarding",
-    icon: UserPlus,
-    enabled: true,
-    // Mirrors OnboardingListPage's own CAN_VIEW_ROLES (JoiningCard's own
-    // view gate, one level broader than its write gate).
-    visibleForRoles: ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
-  },
-  { to: "/reports", label: "Reports", icon: BarChart3, enabled: true },
-  { to: "/employees", label: "Employees", icon: IdCard, enabled: true },
-  {
-    to: "/import-tracker",
-    label: "Import Data",
-    icon: Upload,
-    enabled: true,
-    // Mirrors the backend's own gate on POST /migration/import-tracker-workbook
-    // (HR_ADMIN/SUPER_ADMIN only).
-    visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN"],
+    label: "Recruitment",
+    items: [
+      { to: "/vacancy-requests", label: "Vacancy Requests", icon: Briefcase },
+      {
+        to: "/vacancy-approvals",
+        label: "Vacancy Approvals",
+        icon: ClipboardCheck,
+        // Mirrors VacancyApprovalsPage's own ACTIONABLE_STATUSES_BY_ROLE --
+        // only roles that actually take part in the approval chain see this.
+        visibleForRoles: ["ASSOCIATE_DEAN_RECRUITMENT", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
+      },
+      { to: "/job-postings", label: "Job Postings", icon: Newspaper },
+    ],
   },
   {
-    to: "/users",
-    label: "Users",
-    icon: UserCog,
-    enabled: true,
-    // Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES -- only these roles
-    // can actually create/edit users, so only they see the nav link.
+    label: "Candidates",
+    items: [
+      { to: "/candidates", label: "Candidates", icon: Users },
+      { to: "/applications", label: "Applications", icon: Briefcase },
+    ],
+  },
+  {
+    label: "Interviews",
+    items: [
+      { to: "/interviews", label: "Interviews", icon: CalendarClock },
+      {
+        to: "/offers",
+        label: "Offers",
+        icon: FileCheck,
+        // Mirrors offers.py: HR_ADMIN/SUPER_ADMIN/MANAGEMENT/RECRUITMENT_COORDINATOR only.
+        visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT", "RECRUITMENT_COORDINATOR"],
+      },
+      {
+        to: "/onboarding",
+        label: "Onboarding",
+        icon: UserPlus,
+        // Mirrors OnboardingListPage's own CAN_VIEW_ROLES.
+        visibleForRoles: ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
+      },
+    ],
+  },
+  {
+    label: "Administration",
+    items: [
+      { to: "/employees", label: "Employees", icon: IdCard },
+      {
+        to: "/import-tracker",
+        label: "Import Data",
+        icon: Upload,
+        // Mirrors POST /migration/import-tracker-workbook (HR_ADMIN/SUPER_ADMIN only).
+        visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN"],
+      },
+      {
+        to: "/users",
+        label: "Users",
+        icon: UserCog,
+        // Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES.
+        visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN"],
+      },
+      {
+        to: "/eligibility-rules",
+        label: "Eligibility Rules",
+        icon: ListChecks,
+        // Mirrors eligibility_rules.py's own read gate (_staff_only).
+      },
+      {
+        to: "/designations",
+        label: "Designations",
+        icon: Contact,
+        // Mirrors designations.py's own read gate (_staff_only) -- broad
+        // read, same pattern as Eligibility Rules above; write controls
+        // inside the page itself check DESIGNATION_WRITE_ROLES.
+      },
+      {
+        to: "/activity-log",
+        label: "Activity Log",
+        icon: History,
+        // Mirrors audit_logs.py::_READ_ROLES exactly.
+        visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN", "ASSOCIATE_DEAN_RECRUITMENT", "CAMPUS_HOD"],
+      },
+    ],
+  },
+  {
+    label: "Reports",
+    items: [{ to: "/reports", label: "Reports", icon: BarChart3 }],
+  },
+  {
+    label: "Settings",
+    items: [{ to: "/settings", label: "Settings", icon: Settings }],
+  },
+];
+
+// A small set of the most common "create" destinations, surfaced from the
+// navbar's Quick Actions button so a frequent action never needs a sidebar
+// hunt. Deliberately short -- this is a shortcut, not a duplicate nav.
+const QUICK_ACTIONS: { label: string; to: string; visibleForRoles?: string[] }[] = [
+  { to: "/vacancy-requests/new", label: "New vacancy request" },
+  { to: "/candidates/new", label: "New candidate" },
+  {
+    to: "/users/new",
+    label: "New user",
     visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN"],
   },
-  {
-    to: "/eligibility-rules",
-    label: "Eligibility Rules",
-    icon: ListChecks,
-    enabled: true,
-    // Mirrors app/api/v1/routers/eligibility_rules.py's own read gate
-    // (_staff_only, any non-CANDIDATE role) -- create/edit/toggle-active
-    // stay restricted to SUPER_ADMIN/HR_ADMIN inside EligibilityRulesPage
-    // itself, matching the backend's separate _WRITE_ROLES gate.
-  },
-  {
-    to: "/activity-log",
-    label: "Activity Log",
-    icon: History,
-    enabled: true,
-    // Mirrors the backend's own audit-log read-role gate exactly
-    // (app/api/v1/routers/audit_logs.py::_READ_ROLES).
-    visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN", "ASSOCIATE_DEAN_RECRUITMENT", "CAMPUS_HOD"],
-  },
-  { to: "/settings", label: "Settings", icon: Settings, enabled: true },
 ];
 
 export function AppShell({ children }: { children?: ReactNode }) {
   const { user, logout } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
 
-  const visibleNavItems = NAV_ITEMS.filter(
-    (item) => !item.visibleForRoles || (user && item.visibleForRoles.includes(user.role)),
+  const visibleGroups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !item.visibleForRoles || (user && item.visibleForRoles.includes(user.role))),
+  })).filter((group) => group.items.length > 0);
+
+  const visibleQuickActions = QUICK_ACTIONS.filter(
+    (action) => !action.visibleForRoles || (user && action.visibleForRoles.includes(user.role)),
   );
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-card">
+    <div className="flex h-screen overflow-hidden bg-background p-3">
+      <aside
+        className={cn(
+          "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-[width] duration-300 ease-out",
+          collapsed ? "w-[76px]" : "w-64",
+        )}
+      >
         <div className="gear-edge" />
-        <div className="flex items-center gap-2.5 px-4 py-4">
+        <div className={cn("flex items-center gap-2.5 px-4 py-4", collapsed && "justify-center px-0")}>
           <img src={simatsSeal} alt="SIMATS" className="h-9 w-9 shrink-0 object-contain" />
-          <div className="leading-tight">
-            <div className="font-display text-sm font-bold tracking-tight">SIMATS</div>
-            <div className="text-[11px] text-muted-foreground">Recruitment</div>
-          </div>
+          {!collapsed ? (
+            <div className="leading-tight">
+              <div className="font-display text-sm font-bold tracking-normal">SIMATS</div>
+              <div className="text-[11px] text-muted-foreground">Recruitment</div>
+            </div>
+          ) : null}
         </div>
-        <nav className="flex flex-col gap-0.5 px-3 pb-4">
-          {visibleNavItems.map((item) =>
-            item.enabled ? (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground/75 transition-colors hover:bg-accent hover:text-accent-foreground",
-                    isActive && "bg-primary text-primary-foreground font-medium shadow-sm hover:bg-primary hover:text-primary-foreground",
-                  )
-                }
-              >
-                {item.icon ? <item.icon className="h-4 w-4 shrink-0" /> : null}
-                {item.label}
-              </NavLink>
-            ) : (
-              <span
-                key={item.to}
-                className="flex items-center justify-between rounded-lg px-3 py-2 text-sm text-muted-foreground opacity-60"
-              >
-                {item.label}
-                <span className="text-xs">soon</span>
-              </span>
-            ),
-          )}
+
+        <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3">
+          {visibleGroups.map((group) => (
+            <div key={group.label ?? "top"} className="flex flex-col gap-0.5">
+              {group.label && !collapsed ? (
+                <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                  {group.label}
+                </div>
+              ) : null}
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  title={collapsed ? item.label : undefined}
+                  className={({ isActive }) =>
+                    cn(
+                      "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm text-foreground/70 transition-colors duration-200 hover:bg-brand-primary-light hover:text-primary",
+                      collapsed && "justify-center px-0",
+                      isActive &&
+                        "bg-gradient-to-r from-primary to-brand-secondary font-medium text-primary-foreground shadow-sm hover:from-primary hover:to-brand-secondary hover:text-primary-foreground",
+                    )
+                  }
+                >
+                  <item.icon className="h-[18px] w-[18px] shrink-0" />
+                  {!collapsed ? item.label : null}
+                </NavLink>
+              ))}
+            </div>
+          ))}
         </nav>
+
+        <div className="border-t border-border p-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("w-full", collapsed && "px-0")}
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            {!collapsed ? "Collapse" : null}
+          </Button>
+        </div>
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex shrink-0 items-center gap-4 border-b border-border bg-card px-6 py-3">
+      <div className="flex flex-1 flex-col overflow-hidden pl-3">
+        <header className="flex h-[72px] shrink-0 items-center gap-4 rounded-2xl border border-border bg-card/70 px-6 shadow-sm backdrop-blur-xl">
           <CampusSwitcher />
           <div className="flex flex-1 justify-center px-4">
             <GlobalSearch />
           </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right text-sm">
+          <div className="flex items-center gap-2">
+            {visibleQuickActions.length > 0 ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button size="sm" className="gap-1.5">
+                    <Plus className="h-4 w-4" />
+                    Quick actions
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-56 p-1">
+                  <ul className="flex flex-col">
+                    {visibleQuickActions.map((action) => (
+                      <li key={action.to}>
+                        <Link
+                          to={action.to}
+                          className="block rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                        >
+                          {action.label}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </PopoverContent>
+              </Popover>
+            ) : null}
+            <div className="mx-1 hidden text-right text-sm sm:block">
               <div className="font-medium">{user?.full_name}</div>
               <div className="text-xs text-muted-foreground">{user?.role.replace(/_/g, " ")}</div>
             </div>
@@ -180,7 +283,9 @@ export function AppShell({ children }: { children?: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6">{children ?? <Outlet />}</main>
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1600px] p-8">{children ?? <Outlet />}</div>
+        </main>
       </div>
     </div>
   );

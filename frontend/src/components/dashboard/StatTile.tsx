@@ -3,10 +3,13 @@ import { cn } from "@/lib/utils";
 
 export type StatAccent = "gold" | "green" | "orange" | "none";
 
+// "gold" is kept as a StatAccent name for call-site backward compatibility
+// (DashboardPage picks accents by this string) but now renders the brand's
+// secondary teal, since the redesigned palette has no gold accent.
 const ACCENT_BORDER: Record<StatAccent, string> = {
-  gold: "border-l-brand-gold",
-  green: "border-l-brand-green",
-  orange: "border-l-brand-orange",
+  gold: "border-l-brand-secondary",
+  green: "border-l-brand-success",
+  orange: "border-l-brand-warning",
   none: "",
 };
 

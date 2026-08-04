@@ -327,7 +327,7 @@ export function ApplicationDetailPage() {
       ) : null}
 
       {application.qualification_mismatch ? (
-        <div className="flex flex-col gap-1 rounded-lg border border-brand-orange/30 bg-brand-orange/10 p-4 text-sm">
+        <div className="flex flex-col gap-1 rounded-lg border border-brand-warning/30 bg-brand-warning/10 p-4 text-sm">
           <div className="flex items-center gap-2">
             <Badge variant="warning">Qualification Mismatch</Badge>
           </div>
@@ -600,7 +600,7 @@ export function ApplicationDetailPage() {
                 <DialogTitle>Reject application</DialogTitle>
               </DialogHeader>
               {application.qualification_mismatch ? (
-                <div className="mb-4 flex flex-col gap-1 rounded-lg border border-brand-orange/30 bg-brand-orange/10 p-3 text-sm">
+                <div className="mb-4 flex flex-col gap-1 rounded-lg border border-brand-warning/30 bg-brand-warning/10 p-3 text-sm">
                   <Badge variant="warning" className="w-fit">
                     Qualification Mismatch
                   </Badge>
