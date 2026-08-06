@@ -96,6 +96,30 @@ def test_vacancy_closure_rate_pct_exact(client, published_vacancy_factory, db_se
     assert response.json()["vacancy_closure_rate_pct"] == 50.0
 
 
+def test_vacancy_closure_rate_pct_none_when_nothing_approved(client, user_factory):
+    """None (not 0.0) when there's no APPROVED-or-beyond vacancy request in
+    scope to compute a rate from -- 0.0 used to misleadingly read as
+    "confirmed zero closure rate" (CLAUDE.md B1)."""
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    response = _kpis(client, hr_admin)
+    assert response.json()["vacancy_closure_rate_pct"] is None
+
+
+def test_campus_wise_hiring_includes_a_zero_activity_campus(client, campus_factory, user_factory):
+    """A campus with zero hires/open-slots/in-progress-applications used to
+    vanish from this table entirely rather than show a zero-filled row
+    (CLAUDE.md B3) -- campus_id is NOT NULL on VacancyRequest, so nothing was
+    ever actually nullable here; the disappearing-row symptom was real."""
+    campus_factory("SPIER")  # exists, but genuinely has no activity at all
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _kpis(client, hr_admin)
+    body = response.json()
+    row = next((r for r in body["campus_wise_hiring"] if r["campus_code"] == "SPIER"), None)
+    assert row is not None
+    assert row == {"campus_code": "SPIER", "hired_count": 0, "open_count": 0, "in_progress_count": 0}
+
+
 def test_invalid_campus_code_returns_422(client, published_vacancy_factory):
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     response = _kpis(client, vacancy.hr_admin, campus_code="ZZZZ")

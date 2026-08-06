@@ -87,10 +87,16 @@ def build_ad_briefing_pptx(summary: dict) -> bytes:
 
     kpi = summary["kpi_headline"]
     period_label = summary["period_label"]
+    # vacancy_closure_rate_pct is None (not 0.0) when there's nothing
+    # APPROVED-or-beyond to compute it from -- render that as prose, not a
+    # literal "None%" (CLAUDE.md B1).
+    closure_rate_text = (
+        f"{kpi['vacancy_closure_rate_pct']}%" if kpi["vacancy_closure_rate_pct"] is not None else "Not enough data yet"
+    )
     kpi_text = (
         f"Applications: {kpi['total_applications']}  |  Open positions: {kpi['open_positions']}  |  "
         f"Interviews ({period_label}): {kpi['interviews_today']}  |  Joinings ({period_label}): {kpi['joinings_today']}  |  "
-        f"Offers pending: {kpi['offers_pending']}  |  Closure rate: {kpi['vacancy_closure_rate_pct']}%"
+        f"Offers pending: {kpi['offers_pending']}  |  Closure rate: {closure_rate_text}"
     )
     kpi_box = slide.shapes.add_textbox(Inches(0.5), Inches(1.7), Inches(12.3), Inches(0.6))
     kpi_frame = kpi_box.text_frame

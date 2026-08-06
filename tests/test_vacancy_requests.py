@@ -418,6 +418,53 @@ def test_cancel_blocked_from_closed_status(client, user_factory, published_vacan
     assert response.status_code == 409
 
 
+def test_close_deletes_stale_open_hiring_slots(client, user_factory, published_vacancy_factory, db_session):
+    """A force-close (HR deciding these posts are no longer needed) used to
+    leave every still-OPEN HiringSlot dangling forever, silently inflating
+    the dashboard's open_positions/closure-rate numbers for a vacancy that's
+    no longer actually recruiting -- see close()'s own comment."""
+    from app.models.hiring_slot import HiringSlot
+
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    vacancy = published_vacancy_factory(slot_count=3)
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vacancy.vacancy_request.id}/close", headers=auth_headers(client, hr_admin)
+    )
+    assert response.status_code == 200
+
+    remaining = (
+        db_session.query(HiringSlot).filter(HiringSlot.approved_vacancy_id == vacancy.approved_vacancy.id).all()
+    )
+    assert remaining == []
+
+
+def test_close_preserves_reserved_hiring_slots(
+    client, user_factory, published_vacancy_factory, application_factory, db_session
+):
+    """A RESERVED slot has a real candidate mid-pipeline -- close() must not
+    silently delete it out from under them, only the still-untouched OPEN
+    ones."""
+    from app.models.hiring_slot import HiringSlot
+    from app.models.enums import HiringSlotStatusEnum
+
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    vacancy = published_vacancy_factory(slot_count=2)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    assert _transition_application(client, application.id, vacancy.hr_admin, "SELECTED").status_code == 200
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vacancy.vacancy_request.id}/close", headers=auth_headers(client, hr_admin)
+    )
+    assert response.status_code == 200
+
+    remaining = (
+        db_session.query(HiringSlot).filter(HiringSlot.approved_vacancy_id == vacancy.approved_vacancy.id).all()
+    )
+    assert len(remaining) == 1
+    assert remaining[0].status == HiringSlotStatusEnum.RESERVED
+
+
 def test_cancel_blocked_from_rejected_status(client, user_factory, department_factory):
     department = department_factory("SSE")
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")

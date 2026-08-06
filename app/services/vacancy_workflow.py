@@ -319,6 +319,28 @@ def close(
     vacancy_request.status = VacancyRequestStatusEnum.CLOSED
     if approved_vacancy is not None:
         approved_vacancy.closed_at = now
+        # A manual/force close can happen with slots still unreserved (e.g.
+        # the department no longer needs all sanctioned posts). Those OPEN
+        # slots would otherwise dangle forever and keep counting as "open
+        # positions" on the dashboard even though this vacancy is no longer
+        # actively recruiting -- same slot-row-deletion precedent already
+        # used by adjust_slot_count()'s shrink branch above. RESERVED/FILLED
+        # slots are left untouched: a RESERVED slot has a real candidate
+        # mid-pipeline (offer/joining) and must not be silently orphaned by
+        # a close action -- that candidate's application should be
+        # rejected/withdrawn through its own flow first.
+        stale_open_slots = (
+            db.execute(
+                select(HiringSlot).where(
+                    HiringSlot.approved_vacancy_id == approved_vacancy.id,
+                    HiringSlot.status == HiringSlotStatusEnum.OPEN,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for slot in stale_open_slots:
+            db.delete(slot)
     if job_posting is not None:
         job_posting.closed_at = now
         job_posting.is_active = False

@@ -379,7 +379,20 @@ def get_dashboard_kpis(
         in_progress_by_campus_query = in_progress_by_campus_query.filter(Application.campus_id == campus_id_filter)
     in_progress_by_campus = dict(in_progress_by_campus_query.group_by(Campus.code).all())
 
-    all_campus_codes = set(hired_by_campus) | set(open_by_campus) | set(in_progress_by_campus)
+    # Campuses with zero activity across all three metrics used to silently
+    # disappear from this table entirely -- a genuinely-empty campus and a
+    # bug that dropped it were indistinguishable to the viewer. Always start
+    # from the resolved scope's own campus code(s) -- either the single
+    # selected campus or every active campus -- so a real zero-everywhere
+    # campus still gets a zero-filled row instead of vanishing (CLAUDE.md
+    # B3; campus_id is NOT NULL on VacancyRequest, so nothing is actually
+    # nullable here -- the disappearing-row symptom was real, the ticket's
+    # "nullable campus" diagnosis wasn't).
+    if campus_id_filter is not None:
+        scoped_campus_codes = {code for (code,) in db.query(Campus.code).filter(Campus.id == campus_id_filter).all()}
+    else:
+        scoped_campus_codes = {code for (code,) in db.query(Campus.code).filter(Campus.is_active.is_(True)).all()}
+    all_campus_codes = scoped_campus_codes | set(hired_by_campus) | set(open_by_campus) | set(in_progress_by_campus)
     campus_wise_hiring = [
         {
             "campus_code": code,
@@ -402,7 +415,12 @@ def get_dashboard_kpis(
         vr_base_query = vr_base_query.filter(VacancyRequest.role_category == role_category)
     ever_approved = vr_base_query.count()
     closed = vr_base_query.filter(VacancyRequest.status == VacancyRequestStatusEnum.CLOSED).count()
-    vacancy_closure_rate_pct = round(closed / ever_approved * 100, 1) if ever_approved else 0.0
+    # None (not 0.0) with nothing to compute from -- 0.0 previously read as
+    # "confirmed zero closure rate" even when there was no APPROVED-or-beyond
+    # request in scope at all (CLAUDE.md B1). DRAFT/CANCELLED/REJECTED are
+    # already excluded from both closed and ever_approved -- neither is in
+    # _APPROVED_OR_BEYOND_STATUSES.
+    vacancy_closure_rate_pct = round(closed / ever_approved * 100, 1) if ever_approved else None
 
     return {
         "scope_note": scope_note,

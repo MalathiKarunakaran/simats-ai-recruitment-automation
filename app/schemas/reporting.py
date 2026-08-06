@@ -13,7 +13,10 @@ class DashboardKPIResponse(BaseModel):
     offers_pending: int
     campus_wise_hiring: list[dict[str, Any]]
     average_time_to_hire_days: float | None
-    vacancy_closure_rate_pct: float
+    # None (not 0.0) when there's no APPROVED-or-beyond vacancy request in
+    # scope to compute a rate from -- 0.0 would misleadingly read as "zero
+    # closure rate" rather than "not enough data yet" (CLAUDE.md B1).
+    vacancy_closure_rate_pct: float | None
     source_wise_breakdown: list[dict[str, Any]]
     rejected_count: int
     withdrawn_count: int

@@ -160,7 +160,9 @@ export interface DashboardKpis {
   offers_pending: number;
   campus_wise_hiring: CampusHiringRow[];
   average_time_to_hire_days: number | null;
-  vacancy_closure_rate_pct: number;
+  // null when there's no APPROVED-or-beyond vacancy request in scope to
+  // compute a rate from -- rendered as "Not enough data yet", not 0%.
+  vacancy_closure_rate_pct: number | null;
   source_wise_breakdown: SourceBreakdownRow[];
   rejected_count: number;
   withdrawn_count: number;

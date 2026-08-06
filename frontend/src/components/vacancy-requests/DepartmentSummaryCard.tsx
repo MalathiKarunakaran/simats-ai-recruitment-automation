@@ -27,10 +27,13 @@ interface DepartmentSummaryCardProps {
   className?: string;
 }
 
-// Completion % is filled / required across every vacancy request in this
-// department -- required is the sum of requested_count, not just approved
-// ones, so a department with a lot of still-DRAFT/pending demand correctly
-// shows a low percentage rather than dividing by a smaller approved-only base.
+// "Filled / Sanctioned" is filled / required across every vacancy request in
+// this department -- required is the sum of requested_count, not just
+// approved ones, so a department with a lot of still-DRAFT/pending demand
+// correctly shows a low percentage rather than dividing by a smaller
+// approved-only base. Raw counts are shown alongside the percentage (e.g.
+// "0 / 1 (0%)") since "Completion 0%" alone doesn't say whether that's 0 of
+// 1 or 0 of 100 -- see CLAUDE.md A7.
 export function DepartmentSummaryCard({ summary, onClick, selected, className }: DepartmentSummaryCardProps) {
   const completionPct = summary.required > 0 ? Math.round((summary.filled / summary.required) * 100) : 0;
   const showExtendedStats = summary.urgent !== undefined || summary.lastRequestDate !== undefined;
@@ -64,8 +67,10 @@ export function DepartmentSummaryCard({ summary, onClick, selected, className }:
         </dl>
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Completion</span>
-            <span className="font-semibold text-primary">{completionPct}%</span>
+            <span className="text-muted-foreground">Filled / Sanctioned</span>
+            <span className="font-semibold text-primary tabular-nums">
+              {summary.filled} / {summary.required} ({completionPct}%)
+            </span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div

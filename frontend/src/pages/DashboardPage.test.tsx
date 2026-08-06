@@ -103,4 +103,71 @@ describe("DashboardPage", () => {
 
     await waitFor(() => expect(screen.getByText("Failed to load")).toBeInTheDocument());
   });
+
+  it("shows 'Not enough data yet' for a null closure rate, not a literal 0% or bare dash", async () => {
+    mockedGetDashboardKpis.mockImplementation(async (_campusCode, _dateRange, roleCategory) => ({
+      scope_note: "Global access: results span all campuses.",
+      total_applications: roleCategory ? 0 : 0,
+      open_positions: 0,
+      interviews_today: 0,
+      joinings_today: 0,
+      offers_pending: 0,
+      campus_wise_hiring: [],
+      average_time_to_hire_days: null,
+      vacancy_closure_rate_pct: null,
+      source_wise_breakdown: [],
+      rejected_count: 0,
+      withdrawn_count: 0,
+    }));
+
+    renderWithProviders();
+
+    // Two tiles are null here (avg time to hire, closure rate) -- both real.
+    expect(await screen.findAllByText("Not enough data yet")).toHaveLength(2);
+  });
+
+  it("labels Interviews/Joinings as literally 'today' when no date range is selected", async () => {
+    mockKpis();
+    renderWithProviders();
+
+    expect(await screen.findByText("Interviews today")).toBeInTheDocument();
+    expect(screen.getByText("Joinings today")).toBeInTheDocument();
+  });
+
+  it("shows the Open positions tooltip's precise definition on focus", async () => {
+    mockKpis();
+    renderWithProviders();
+
+    await waitFor(() => expect(screen.getByText("Open positions")).toBeInTheDocument());
+    // Text is present twice by design: a visually-hidden sr-only span (for
+    // screen readers, always in the DOM) and the visible hover/focus bubble
+    // (role="tooltip") -- both carry the same definition.
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/Open HiringSlot posts in scope \(not requests\)/);
+  });
+
+  it("shows one reusable empty state for category-wise split and rejected-vs-withdrawn when every bucket is genuinely zero", async () => {
+    mockedGetDashboardKpis.mockImplementation(async () => ({
+      scope_note: "Global access: results span all campuses.",
+      total_applications: 0,
+      open_positions: 0,
+      interviews_today: 0,
+      joinings_today: 0,
+      offers_pending: 0,
+      campus_wise_hiring: [],
+      average_time_to_hire_days: null,
+      vacancy_closure_rate_pct: null,
+      source_wise_breakdown: [],
+      rejected_count: 0,
+      withdrawn_count: 0,
+    }));
+
+    renderWithProviders();
+
+    // Both Source-wise split (empty array) and Category-wise split (3 rows,
+    // all zero -- can't use a `.length === 0` check like the widget beside
+    // it) show the same reusable empty-state message here.
+    expect(await screen.findAllByText("No applications in this scope yet.")).toHaveLength(2);
+    expect(screen.getByText("No rejections or withdrawals in this scope yet.")).toBeInTheDocument();
+    expect(screen.queryAllByTestId("category-bar-chart")).toHaveLength(0);
+  });
 });

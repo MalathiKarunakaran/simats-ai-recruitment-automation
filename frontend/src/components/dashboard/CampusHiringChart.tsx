@@ -7,6 +7,11 @@ interface CampusHiringChartProps {
 }
 
 const CHART_HEIGHT = 140;
+// A single-campus (or few-campus) scope would otherwise let recharts stretch
+// each bar to fill the available category width, rendering as a giant block
+// rather than a normal bar (CLAUDE.md B6) -- caps regardless of how few
+// categories are in scope.
+const MAX_BAR_SIZE = 56;
 
 /**
  * Grouped vertical bar chart -- 3 series (hired/open/in-progress) per campus.
@@ -42,14 +47,29 @@ export function CampusHiringChart({ data }: CampusHiringChartProps) {
             />
             <Tooltip />
             <Legend wrapperStyle={{ fontSize: 11 }} height={20} />
-            <Bar dataKey="hired_count" name="Hired" fill="var(--color-chart-1)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
-            <Bar dataKey="open_count" name="Open" fill="var(--color-chart-2)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
+            <Bar
+              dataKey="hired_count"
+              name="Hired"
+              fill="var(--color-chart-1)"
+              radius={[3, 3, 0, 0]}
+              isAnimationActive={false}
+              maxBarSize={MAX_BAR_SIZE}
+            />
+            <Bar
+              dataKey="open_count"
+              name="Open"
+              fill="var(--color-chart-2)"
+              radius={[3, 3, 0, 0]}
+              isAnimationActive={false}
+              maxBarSize={MAX_BAR_SIZE}
+            />
             <Bar
               dataKey="in_progress_count"
               name="In progress"
               fill="var(--color-chart-3)"
               radius={[3, 3, 0, 0]}
               isAnimationActive={false}
+              maxBarSize={MAX_BAR_SIZE}
             />
           </BarChart>
         </ResponsiveContainer>

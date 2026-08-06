@@ -8,7 +8,13 @@ import { listAuditLogs } from "@/api/auditLogs";
 import { listCampuses } from "@/api/campuses";
 import { listDepartments } from "@/api/departments";
 import { listJobPostings } from "@/api/jobPostings";
-import type { EmploymentType, StaffRoleCategory, VacancyPriority, VacancyRequestStatus } from "@/api/types";
+import type {
+  EmploymentType,
+  StaffRoleCategory,
+  VacancyPriority,
+  VacancyRequestRead,
+  VacancyRequestStatus,
+} from "@/api/types";
 import { USER_MANAGEMENT_ROLES } from "@/api/types";
 import { listUsers } from "@/api/users";
 import { listVacancyRequests } from "@/api/vacancyRequests";
@@ -24,6 +30,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { DepartmentSummaryCard, type DepartmentSummary } from "@/components/vacancy-requests/DepartmentSummaryCard";
 import { DepartmentVacancyDetailTable, type FillStats } from "@/components/vacancy-requests/DepartmentVacancyDetailTable";
 import { StatTile } from "@/components/dashboard/StatTile";
+import { summarizeVacancyRequestStatuses } from "@/lib/vacancyRequestStats";
 
 const UNGROUPED_LABEL = "Ungrouped";
 
@@ -44,8 +51,7 @@ const STATUSES: VacancyRequestStatus[] = [
   "CANCELLED",
 ];
 const PRIORITIES: VacancyPriority[] = ["LOW", "NORMAL", "HIGH", "URGENT"];
-const EMPLOYMENT_TYPES: EmploymentType[] = ["FULL_TIME", "PART_TIME", "CONTRACT", "VISITING", "ADJUNCT"];
-const PENDING_STATUSES: VacancyRequestStatus[] = ["SUBMITTED", "DEAN_APPROVED"];
+const EMPLOYMENT_TYPES: EmploymentType[] = ["FULL_TIME", "PART_TIME", "CONTRACT", "VISITING", "ADJUNCT", "TRA", "JRF"];
 // One audit action per bulk-import call (not per row) -- see
 // app/services/tracker_import.py / migration.py's log_event calls.
 const BULK_IMPORT_ACTIONS = ["TRACKER_WORKBOOK_IMPORTED", "LEGACY_VACANCIES_IMPORTED"];
@@ -115,19 +121,6 @@ export function VacancyRequestsListPage() {
     return map;
   }, [requesters]);
 
-  // Filled = required_count - available_count per posting (available is
-  // OPEN+RESERVED slots; see JobPostingRead's own field comment), summed by
-  // department -- only PUBLISHED vacancies have a JobPosting at all, so
-  // anything earlier in the pipeline correctly contributes 0 here.
-  const filledByDepartment = useMemo(() => {
-    const map = new Map<string, number>();
-    jobPostings?.forEach((jp) => {
-      const filled = jp.required_count - jp.available_count;
-      map.set(jp.department_id, (map.get(jp.department_id) ?? 0) + Math.max(filled, 0));
-    });
-    return map;
-  }, [jobPostings]);
-
   const campusById = useMemo(() => new Map((campuses ?? []).map((c) => [c.id, c])), [campuses]);
 
   // Bridges VacancyRequest -> ApprovedVacancy -> JobPosting (no direct FK on
@@ -151,37 +144,40 @@ export function VacancyRequestsListPage() {
     [todaysAuditLogs],
   );
 
-  const kpis = useMemo(() => {
-    const rows = vacancyRequests ?? [];
-    return {
-      total: rows.length,
-      pending: rows.filter((r) => PENDING_STATUSES.includes(r.status)).length,
-      approved: rows.filter((r) => r.status === "APPROVED").length,
-      draft: rows.filter((r) => r.status === "DRAFT").length,
-      rejected: rows.filter((r) => r.status === "REJECTED").length,
-    };
-  }, [vacancyRequests]);
-
-  const departmentSummaries: DepartmentSummary[] = useMemo(() => {
-    if (!departments || !vacancyRequests) return [];
-    return departments
-      .map((dept) => {
-        const rows = vacancyRequests.filter((r) => r.department_id === dept.id);
-        return {
-          departmentId: dept.id,
-          departmentName: dept.name,
-          total: rows.length,
-          pending: rows.filter((r) => PENDING_STATUSES.includes(r.status)).length,
-          approved: rows.filter((r) => r.status === "APPROVED" || r.status === "PUBLISHED").length,
-          filled: filledByDepartment.get(dept.id) ?? 0,
-          required: rows.reduce((sum, r) => sum + r.requested_count, 0),
-        };
-      })
-      .filter((summary) => summary.total > 0)
-      .sort((a, b) => b.total - a.total);
-  }, [departments, vacancyRequests, filledByDepartment]);
+  // Single source of truth for every status-bucket count on this screen --
+  // see lib/vacancyRequestStats.ts. The top KPI strip intentionally stays
+  // scoped to the *whole* unfiltered set (not the active category tab),
+  // matching this row's existing "always reflects the whole scope" design.
+  const kpis = useMemo(() => summarizeVacancyRequestStatuses(vacancyRequests ?? []), [vacancyRequests]);
 
   const departmentById = useMemo(() => new Map((departments ?? []).map((d) => [d.id, d])), [departments]);
+
+  // The one place that turns a department's own slice of (already
+  // tab+filter-narrowed) requests into a DepartmentSummary -- used for both
+  // the top horizontal-scroll card strip and the grouped accordion cards
+  // below, so the two can never again show contradictory counts for the
+  // same department (see CLAUDE.md A2/A5: they used to be two independent
+  // computations with different "approved" definitions and different
+  // "filled" sources -- one summed jobPostings by department, the other
+  // summed the approvedVacancy->jobPosting bridge per request).
+  function buildDepartmentSummary(departmentId: string, requests: VacancyRequestRead[]): DepartmentSummary {
+    const buckets = summarizeVacancyRequestStatuses(requests);
+    const lastRequestDate = requests.reduce<string | null>(
+      (latest, r) => (!latest || r.created_at > latest ? r.created_at : latest),
+      null,
+    );
+    return {
+      departmentId,
+      departmentName: departmentById.get(departmentId)?.name ?? "Unknown department",
+      total: buckets.total,
+      pending: buckets.pending,
+      approved: buckets.approved,
+      filled: requests.reduce((sum, r) => sum + (fillStatsByRequestId.get(r.id)?.filled ?? 0), 0),
+      required: requests.reduce((sum, r) => sum + r.requested_count, 0),
+      urgent: requests.filter((r) => r.priority === "URGENT").length,
+      lastRequestDate,
+    };
+  }
 
   // Every distinct parent_group value present on any department, plus a
   // fixed "Ungrouped" bucket for the (currently most) departments that don't
@@ -216,7 +212,14 @@ export function VacancyRequestsListPage() {
 
   // Requests for the active tab/filters, bucketed by department -- feeds
   // both each DepartmentCard's own stats and (once a card is clicked) the
-  // detailed vacancy table below the grid.
+  // detailed vacancy table below the grid. Also the shared upstream source
+  // for the top summary-card strip below -- both now read from this exact
+  // same tab+filter-narrowed map, so a department can never show one total
+  // in the strip and a different total in the grouped accordion again (see
+  // CLAUDE.md A4/A5: the strip used to be built from the raw, entirely
+  // unfiltered list, ignoring both the active category tab and every other
+  // filter, which is why its counts silently disagreed with the section
+  // below it).
   const requestsByDepartment = useMemo(() => {
     const map = new Map<string, typeof filteredVacancyRequests>();
     for (const vr of filteredVacancyRequests) {
@@ -226,6 +229,16 @@ export function VacancyRequestsListPage() {
     return map;
   }, [filteredVacancyRequests]);
 
+  const departmentSummaries: DepartmentSummary[] = useMemo(
+    () =>
+      Array.from(requestsByDepartment.entries())
+        .map(([departmentId, requests]) => buildDepartmentSummary(departmentId, requests))
+        .sort((a, b) => b.total - a.total),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildDepartmentSummary closes over
+    // departmentById/fillStatsByRequestId, both already in this deps list.
+    [requestsByDepartment, departmentById, fillStatsByRequestId],
+  );
+
   // Parent Group (accordion) -> Department (card grid) hierarchy, one level
   // above the existing Department -> role/designation/campus grouping.
   const parentGroupSections = useMemo(() => {
@@ -233,21 +246,7 @@ export function VacancyRequestsListPage() {
     for (const [departmentId, requests] of requestsByDepartment.entries()) {
       const department = departmentById.get(departmentId);
       const groupLabel = department?.parent_group?.trim() || UNGROUPED_LABEL;
-      const lastRequestDate = requests.reduce<string | null>(
-        (latest, r) => (!latest || r.created_at > latest ? r.created_at : latest),
-        null,
-      );
-      const summary: DepartmentSummary = {
-        departmentId,
-        departmentName: department?.name ?? "Unknown department",
-        total: requests.length,
-        pending: requests.filter((r) => PENDING_STATUSES.includes(r.status)).length,
-        approved: requests.filter((r) => r.status === "APPROVED" || r.status === "PUBLISHED").length,
-        filled: requests.reduce((sum, r) => sum + (fillStatsByRequestId.get(r.id)?.filled ?? 0), 0),
-        required: requests.reduce((sum, r) => sum + r.requested_count, 0),
-        urgent: requests.filter((r) => r.priority === "URGENT").length,
-        lastRequestDate,
-      };
+      const summary = buildDepartmentSummary(departmentId, requests);
       if (!sections.has(groupLabel)) sections.set(groupLabel, []);
       sections.get(groupLabel)!.push(summary);
     }
@@ -257,6 +256,8 @@ export function VacancyRequestsListPage() {
       if (b === UNGROUPED_LABEL) return -1;
       return a.localeCompare(b);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildDepartmentSummary closes over
+    // departmentById/fillStatsByRequestId, both already in this deps list.
   }, [requestsByDepartment, departmentById, fillStatsByRequestId]);
 
   function toggleParentGroup(groupLabel: string) {
@@ -341,12 +342,20 @@ export function VacancyRequestsListPage() {
         }
       />
 
+      {/* Every VacancyRequestStatus gets its own tile below (see
+          lib/vacancyRequestStats.ts) -- draft+pending+approved+published+
+          closed+rejected+cancelled always sums to Total requests, so this
+          row can never again silently drop a request into no bucket at all
+          (CLAUDE.md A1). */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         <StatTile label="Total requests" value={kpis.total} isLoading={isLoading} />
+        <StatTile label="Draft" value={kpis.draft} isLoading={isLoading} />
         <StatTile label="Pending approval" value={kpis.pending} isLoading={isLoading} accent="gold" />
         <StatTile label="Approved" value={kpis.approved} isLoading={isLoading} accent="green" />
-        <StatTile label="Draft" value={kpis.draft} isLoading={isLoading} />
+        <StatTile label="Published" value={kpis.published} isLoading={isLoading} accent="green" />
+        <StatTile label="Closed" value={kpis.closed} isLoading={isLoading} />
         <StatTile label="Rejected" value={kpis.rejected} isLoading={isLoading} accent="orange" />
+        <StatTile label="Cancelled" value={kpis.cancelled} isLoading={isLoading} accent="orange" />
         <StatTile label="Departments" value={departments?.length ?? 0} isLoading={!departments} />
         {canReadAuditLogs ? (
           <StatTile label="Bulk uploads today" value={bulkUploadsToday} isLoading={!todaysAuditLogs} />
