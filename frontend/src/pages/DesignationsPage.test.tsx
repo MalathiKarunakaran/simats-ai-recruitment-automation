@@ -101,7 +101,7 @@ describe("DesignationsPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
-    expect(screen.getByText("Computer Science")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1 department" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New designation" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
@@ -115,10 +115,15 @@ describe("DesignationsPage", () => {
 
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
     expect(screen.getByText("TEACHING")).toBeInTheDocument();
-    expect(screen.getByText("Computer Science")).toBeInTheDocument();
     expect(screen.getByText("PhD")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+
+    // Department names are hidden behind a popover, not inlined into the
+    // table row, so a designation linked to dozens of departments doesn't
+    // turn every row into a giant wall of comma-separated text.
+    await userEvent.click(screen.getByRole("button", { name: "1 department" }));
+    expect(await screen.findByText("Computer Science")).toBeInTheDocument();
   });
 
   it("hides write controls for HR_ADMIN (DESIGNATION_WRITE_ROLES deliberately excludes HR_ADMIN)", async () => {

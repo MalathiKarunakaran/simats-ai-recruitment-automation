@@ -381,9 +381,25 @@ export function DesignationsPage() {
                 <td className="py-2 font-medium text-foreground">{designation.name}</td>
                 <td className="py-2">{designation.category.replace(/_/g, " ")}</td>
                 <td className="py-2">
-                  {designation.department_ids.length === 0
-                    ? "—"
-                    : designation.department_ids.map((id) => departmentNameById.get(id) ?? "Unknown").join(", ")}
+                  {designation.department_ids.length === 0 ? (
+                    "—"
+                  ) : (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button type="button" className="text-primary underline-offset-2 hover:underline">
+                          {designation.department_ids.length} department
+                          {designation.department_ids.length === 1 ? "" : "s"}
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="max-h-64 w-72 overflow-y-auto">
+                        <ul className="flex flex-col gap-1 text-sm">
+                          {designation.department_ids.map((id) => (
+                            <li key={id}>{departmentNameById.get(id) ?? "Unknown"}</li>
+                          ))}
+                        </ul>
+                      </PopoverContent>
+                    </Popover>
+                  )}
                 </td>
                 <td className="py-2">{designation.qualification}</td>
                 <td className="py-2">{designation.min_experience}</td>
