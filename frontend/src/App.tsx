@@ -11,6 +11,7 @@ import { CandidateDetailPage } from "@/pages/CandidateDetailPage";
 import { CandidatesListPage } from "@/pages/CandidatesListPage";
 import { CampusesPage } from "@/pages/CampusesPage";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { DepartmentsPage } from "@/pages/DepartmentsPage";
 import { DesignationsPage } from "@/pages/DesignationsPage";
 import { EligibilityRulesPage } from "@/pages/EligibilityRulesPage";
 import { EmployeeDetailPage } from "@/pages/EmployeeDetailPage";
@@ -78,6 +79,7 @@ export function App() {
           <Route path="/eligibility-rules" element={<EligibilityRulesPage />} />
           <Route path="/designations" element={<DesignationsPage />} />
           <Route path="/campuses" element={<CampusesPage />} />
+          <Route path="/departments" element={<DepartmentsPage />} />
         </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

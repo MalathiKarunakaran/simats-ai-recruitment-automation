@@ -11,6 +11,7 @@ import {
   History,
   IdCard,
   LayoutDashboard,
+  LayoutGrid,
   ListChecks,
   Newspaper,
   Plus,
@@ -141,6 +142,16 @@ const NAV_GROUPS: NavGroup[] = [
         // broad read, same pattern as Designations/Eligibility Rules; write
         // controls inside the page itself check CAMPUS_WRITE_ROLES
         // (SUPER_ADMIN only, matching create_campus/update_campus exactly).
+      },
+      {
+        to: "/departments",
+        label: "Departments",
+        icon: LayoutGrid,
+        // Mirrors departments.py's own read gate (_staff_only, campus-scoped
+        // for non-global roles) -- write controls inside the page itself
+        // check DEPARTMENT_MANAGEMENT_ROLES (SUPER_ADMIN/HR_ADMIN). Replaces
+        // the inline Campus/Department cards that used to live in Settings
+        // -- now standalone pages, same as Designations always was.
       },
       {
         to: "/activity-log",
