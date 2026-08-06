@@ -38,13 +38,14 @@ const SSE: CampusRead = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-const ALL_EIGHT_CAMPUSES: CampusRead[] = [
+// SHOTS removed 2026-08-06 (confirmed a duplicate of SHIFT) -- still 7
+// codes, just a different 7 than the original seed set.
+const ALL_SEVEN_CAMPUSES: CampusRead[] = [
   "SSE",
   "SCLAS",
   "SCAD",
   "STUDIO",
   "SPIER",
-  "SHOTS",
   "SSPE",
   "SHIFT",
 ].map((code) => ({ ...SSE, id: `c-${code}`, code: code as CampusRead["code"] }));
@@ -84,9 +85,9 @@ describe("CampusesPage", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  it("disables New campus once all 8 institutional codes are already in use", async () => {
+  it("disables New campus once all 7 institutional codes are already in use", async () => {
     mockUser("SUPER_ADMIN");
-    mockedListCampuses.mockResolvedValue(ALL_EIGHT_CAMPUSES);
+    mockedListCampuses.mockResolvedValue(ALL_SEVEN_CAMPUSES);
 
     renderPage();
 

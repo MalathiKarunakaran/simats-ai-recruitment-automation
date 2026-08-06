@@ -32,7 +32,7 @@ export function CampusSwitcher() {
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="ALL">All campuses</SelectItem>
-        {campuses?.map((campus) => (
+        {campuses?.filter((campus) => campus.is_active).map((campus) => (
           <SelectItem key={campus.id} value={campus.code}>
             {campus.code}
           </SelectItem>

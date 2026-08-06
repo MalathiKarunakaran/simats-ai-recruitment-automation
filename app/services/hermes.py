@@ -311,7 +311,7 @@ HERMES_TOOL_DEFS = [
             "properties": {
                 "campus_code": {
                     "type": "string",
-                    "description": "Campus code to narrow to, e.g. SHOTS. Ignored for single-campus callers.",
+                    "description": "Campus code to narrow to, e.g. SSE. Ignored for single-campus callers.",
                 },
                 "role_category": {
                     "type": "string",

@@ -148,7 +148,7 @@ export function UserCreatePage() {
               <SelectValue placeholder="Select a campus" />
             </SelectTrigger>
             <SelectContent>
-              {campuses?.map((campus) => (
+              {campuses?.filter((campus) => campus.is_active).map((campus) => (
                 <SelectItem key={campus.id} value={campus.id}>
                   {campus.code}
                 </SelectItem>

@@ -45,17 +45,18 @@ USER_MANAGEMENT_ROLES = {
     UserRoleEnum.HR_ADMIN,
 }
 
-# The 8 institutional campus codes -- preserved exactly, never renamed/reformatted.
+# The 7 institutional campus codes -- preserved exactly, never renamed/reformatted.
 # SHIFT was added 2026-08-06, confirmed by the user as a real campus/college (not a
 # typo) -- this closes the "8 campuses, only 7 ever named" gap documented in
-# RTCFR Prompt.docx / CLAUDE.md's "Source spec" section.
+# RTCFR Prompt.docx / CLAUDE.md's "Source spec" section. SHOTS was removed the
+# same day -- the user confirmed it was a duplicate of SHIFT, not a distinct
+# campus (net still 7 codes, just a different 7 than the original seed set).
 CAMPUS_CODES: tuple[str, ...] = (
     "SSE",
     "SCLAS",
     "SCAD",
     "STUDIO",
     "SPIER",
-    "SHOTS",
     "SSPE",
     "SHIFT",
 )
