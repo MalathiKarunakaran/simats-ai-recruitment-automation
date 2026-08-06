@@ -13,3 +13,4 @@ requirements-lock.txt
 .db_backups/
 .uvicorn.*.log
 .vite.*.log
+reference/

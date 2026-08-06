@@ -4,11 +4,13 @@ Instructions for Claude Code when working in this repository.
 
 ## Source spec
 
-`RTCFR Prompt.docx` (repo root, deliberately untracked — a binary Word file,
-not code) is the original Role/Task/Context/Features/Result brief this system
-was built from, covering all 15 modules and the 7-phase build plan. Read it
-first if asked to check whether something is "in scope" or matches the
-original design intent. **Resolved 2026-08-06**: the doc's "8 campuses: SSE,
+`reference/RTCFR Prompt.docx` (deliberately untracked — a binary Word file,
+not code; moved out of the repo root into `reference/` 2026-08-06 alongside
+`reference/my rowugh prompt.txt` and `reference/skill.md`, the user's other
+untracked personal notes) is the original Role/Task/Context/Features/Result
+brief this system was built from, covering all 15 modules and the 7-phase
+build plan. Read it first if asked to check whether something is "in scope"
+or matches the original design intent. **Resolved 2026-08-06**: the doc's "8 campuses: SSE,
 SCLAS, SCAD, STUDIO, SPIER, SHOTS, SSPE, and others" line only ever named 7,
 leaving an implied 8th unspecified — the user has since confirmed the 8th is
 **SHIFT** ("a college and as well dept too"), now a real campus in

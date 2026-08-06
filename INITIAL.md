@@ -121,7 +121,7 @@ row lands as a DRAFT for human review, nothing auto-publishes).
 
 ## Source document
 
-This file summarizes the product; `RTCFR Prompt.docx` (repo root) is the
+This file summarizes the product; `reference/RTCFR Prompt.docx` is the
 original brief it's derived from — the full Role/Task/Context/Features/Result
 prompt that specified all 15 modules, the 7-phase build plan, and the
 non-negotiable preservation rules (campus codes and Teaching/Non-Teaching/
