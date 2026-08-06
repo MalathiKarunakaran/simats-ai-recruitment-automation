@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Briefcase,
+  Building2,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -131,6 +132,15 @@ const NAV_GROUPS: NavGroup[] = [
         // Mirrors designations.py's own read gate (_staff_only) -- broad
         // read, same pattern as Eligibility Rules above; write controls
         // inside the page itself check DESIGNATION_WRITE_ROLES.
+      },
+      {
+        to: "/campuses",
+        label: "Campuses",
+        icon: Building2,
+        // Mirrors campuses.py's own read gate (any authenticated staff) --
+        // broad read, same pattern as Designations/Eligibility Rules; write
+        // controls inside the page itself check CAMPUS_WRITE_ROLES
+        // (SUPER_ADMIN only, matching create_campus/update_campus exactly).
       },
       {
         to: "/activity-log",

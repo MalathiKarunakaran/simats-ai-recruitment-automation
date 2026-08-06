@@ -9,6 +9,7 @@ import { ApplicationsListPage } from "@/pages/ApplicationsListPage";
 import { CandidateCreatePage } from "@/pages/CandidateCreatePage";
 import { CandidateDetailPage } from "@/pages/CandidateDetailPage";
 import { CandidatesListPage } from "@/pages/CandidatesListPage";
+import { CampusesPage } from "@/pages/CampusesPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { DesignationsPage } from "@/pages/DesignationsPage";
 import { EligibilityRulesPage } from "@/pages/EligibilityRulesPage";
@@ -76,6 +77,7 @@ export function App() {
           <Route path="/users/:id" element={<UserDetailPage />} />
           <Route path="/eligibility-rules" element={<EligibilityRulesPage />} />
           <Route path="/designations" element={<DesignationsPage />} />
+          <Route path="/campuses" element={<CampusesPage />} />
         </Route>
       </Route>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
