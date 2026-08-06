@@ -75,6 +75,10 @@ class EmploymentTypeEnum(str, enum.Enum):
     # Added for the Designation Master rollout (Phase 10) -- see
     # alembic/versions/56d04b40220a_phase10_designation_master.py.
     ADJUNCT = "ADJUNCT"
+    # Teaching Research Assistant / Junior Research Fellow -- see
+    # alembic/versions/4a7c9e1f2b3d_add_tra_jrf_employment_types.py.
+    TRA = "TRA"
+    JRF = "JRF"
 
 
 class EmploymentStatusEnum(str, enum.Enum):

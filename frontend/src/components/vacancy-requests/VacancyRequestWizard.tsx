@@ -27,7 +27,7 @@ const ROLE_CATEGORIES: { value: StaffRoleCategory; label: string; hint: string }
   { value: "NON_TEACHING", label: "Non-Teaching", hint: "Administrative / support staff" },
   { value: "HOUSEKEEPING", label: "Housekeeping", hint: "Facilities / housekeeping staff" },
 ];
-const EMPLOYMENT_TYPES: EmploymentType[] = ["FULL_TIME", "PART_TIME", "CONTRACT", "VISITING", "ADJUNCT"];
+const EMPLOYMENT_TYPES: EmploymentType[] = ["FULL_TIME", "PART_TIME", "CONTRACT", "VISITING", "ADJUNCT", "TRA", "JRF"];
 const PRIORITIES: VacancyPriority[] = ["LOW", "NORMAL", "HIGH", "URGENT"];
 
 const STEP_TITLES = [

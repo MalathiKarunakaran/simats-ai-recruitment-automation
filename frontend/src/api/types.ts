@@ -301,7 +301,7 @@ export type VacancyRequestStatus =
 
 // Mirrors app/models/enums.py::EmploymentTypeEnum. ADJUNCT was added for the
 // Designation Master rollout (Phase 10).
-export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACT" | "VISITING" | "ADJUNCT";
+export type EmploymentType = "FULL_TIME" | "PART_TIME" | "CONTRACT" | "VISITING" | "ADJUNCT" | "TRA" | "JRF";
 
 // Mirrors app/models/enums.py::VacancyPriorityEnum.
 export type VacancyPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
