@@ -10,6 +10,20 @@ export async function login(email: string, password: string): Promise<TokenPair>
   });
 }
 
+export async function requestOtp(email: string): Promise<void> {
+  await publicFetch<{ detail: string }>("/auth/otp-request", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function verifyOtp(email: string, code: string): Promise<TokenPair> {
+  return publicFetch<TokenPair>("/auth/otp-verify", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  });
+}
+
 export async function refresh(refreshToken: string): Promise<TokenPair> {
   return publicFetch<TokenPair>("/auth/refresh", {
     method: "POST",

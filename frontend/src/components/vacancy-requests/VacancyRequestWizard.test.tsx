@@ -72,7 +72,7 @@ describe("VacancyRequestWizard", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD", campus_id: "c-sse", department_id: "d-1" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
@@ -135,7 +135,7 @@ describe("VacancyRequestWizard", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN", campus_id: null, department_id: null } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
@@ -182,7 +182,7 @@ describe("VacancyRequestWizard", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD", campus_id: "c-sse", department_id: "d-1" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);

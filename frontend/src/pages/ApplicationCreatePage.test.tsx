@@ -74,7 +74,7 @@ describe("ApplicationCreatePage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCandidates.mockResolvedValue([]);
@@ -89,7 +89,7 @@ describe("ApplicationCreatePage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCandidates.mockResolvedValue([CANDIDATE]);

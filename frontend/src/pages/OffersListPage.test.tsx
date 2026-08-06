@@ -109,7 +109,7 @@ describe("OffersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListOffers.mockResolvedValue([OFFER]);
@@ -133,7 +133,7 @@ describe("OffersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "MANAGEMENT" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListOffers.mockResolvedValue([OFFER]);
@@ -156,7 +156,7 @@ describe("OffersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
 
@@ -169,7 +169,7 @@ describe("OffersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const sentOffer: OfferRead = { ...OFFER, id: "offer-2", application_id: "app-2", status: "SENT" };
@@ -206,7 +206,7 @@ describe("OffersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const other: OfferRead = { ...OFFER, id: "offer-2", application_id: "app-2" };
@@ -244,7 +244,7 @@ describe("OffersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const other: OfferRead = { ...OFFER, id: "offer-2", application_id: "app-2" };
@@ -278,7 +278,7 @@ describe("OffersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListOffers.mockResolvedValue([OFFER]);

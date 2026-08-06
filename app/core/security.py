@@ -59,3 +59,16 @@ def refresh_token_expiry() -> datetime:
 
 def password_reset_expiry() -> datetime:
     return datetime.now(timezone.utc) + timedelta(minutes=30)
+
+
+def generate_otp_code() -> str:
+    """6-digit numeric login code -- secrets.randbelow, not random, since
+    this is a real auth credential even though it's short-lived."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def otp_expiry() -> datetime:
+    # Deliberately shorter than password_reset_expiry's 30 minutes -- an OTP
+    # is meant to be read and used within the same sitting, not saved for
+    # later like a reset link might be.
+    return datetime.now(timezone.utc) + timedelta(minutes=10)

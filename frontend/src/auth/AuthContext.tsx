@@ -11,6 +11,8 @@ interface AuthContextValue {
   user: UserRead | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  requestOtp: (email: string) => Promise<void>;
+  loginWithOtp: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -77,11 +79,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function login(email: string, password: string) {
-    const tokens = await authApi.login(email, password);
+  async function applyTokens(tokens: Awaited<ReturnType<typeof authApi.login>>) {
     accessTokenRef.current = tokens.access_token;
     localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refresh_token);
     setUser(await authApi.getMe());
+  }
+
+  async function login(email: string, password: string) {
+    await applyTokens(await authApi.login(email, password));
+  }
+
+  // Email one-time-passcode login, added 2026-08-06 -- kept alongside
+  // password auth as an alternative flow, not a replacement (see
+  // app/api/v1/routers/auth.py's own docstring). requestOtp is a
+  // fire-and-forget step (always resolves; the backend never reveals
+  // whether the email is registered) -- loginWithOtp is what actually
+  // establishes the session, same shape as password login.
+  async function requestOtp(email: string) {
+    await authApi.requestOtp(email);
+  }
+
+  async function loginWithOtp(email: string, code: string) {
+    await applyTokens(await authApi.verifyOtp(email, code));
   }
 
   async function logout() {
@@ -96,7 +115,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
   }
 
-  return <AuthContext.Provider value={{ user, isLoading, login, logout }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, isLoading, login, requestOtp, loginWithOtp, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthContextValue {

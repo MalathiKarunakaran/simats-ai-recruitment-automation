@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -7,10 +8,13 @@ from sqlalchemy.orm import Session
 from app.core import security
 from app.core.deps import get_current_active_user, get_db
 from app.core.rate_limit import RateLimiter
-from app.models.auth_token import PasswordResetToken, RefreshToken
+from app.models.auth_token import LoginOtp, PasswordResetToken, RefreshToken
 from app.models.user import User
 from app.schemas.token import (
     LogoutRequest,
+    OtpRequest,
+    OtpRequestResponse,
+    OtpVerify,
     PasswordResetConfirm,
     PasswordResetRequest,
     PasswordResetRequestResponse,
@@ -19,6 +23,7 @@ from app.schemas.token import (
 )
 from app.schemas.user import UserRead
 from app.services.audit import log_auth_event
+from app.services.n8n_client import get_n8n_client
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -31,6 +36,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # it stays tighter.
 _login_rate_limit = RateLimiter(max_requests=30, window_seconds=60, name="login")
 _password_reset_rate_limit = RateLimiter(max_requests=5, window_seconds=60, name="password-reset-request")
+# otp-request: no legitimate reason to request many codes rapidly, same
+# cadence as password-reset-request. otp-verify: tighter than login's 30/min
+# on purpose -- a 6-digit code is only ~1M possibilities, so guessing must
+# stay impractical even within its own 10-minute expiry window (10/min caps
+# a single window to 100 guesses, well under 0.01% coverage).
+_otp_request_rate_limit = RateLimiter(max_requests=5, window_seconds=60, name="otp-request")
+_otp_verify_rate_limit = RateLimiter(max_requests=10, window_seconds=60, name="otp-verify")
 
 
 def _issue_token_pair(db: Session, user: User, request: Request) -> TokenPair:
@@ -75,6 +87,101 @@ def login(
         db.commit()
         raise generic_error
 
+    user.last_login_at = datetime.now(timezone.utc)
+    tokens = _issue_token_pair(db, user, request)
+    log_auth_event(db, actor=user, action="LOGIN_SUCCESS", request=request, status_code=200)
+    db.commit()
+    return tokens
+
+
+def _send_otp_code(user: User, code: str) -> None:
+    """Attempts real delivery via the optional n8n integration (same
+    unconfigured-in-dev degradation as notifications.py); falls back to a
+    server-side log line so local dev/testing can still complete the OTP
+    flow without any email infra -- same "Phase 1 stub" precedent as
+    password_reset_request's own print() fallback below. Real email starts
+    working automatically the moment N8N_BASE_URL is ever set, no code
+    change needed here."""
+    client = get_n8n_client()
+    if client is not None:
+        try:
+            client.post_webhook(
+                "send-otp-email", {"to": user.email, "full_name": user.full_name, "code": code}
+            )
+            return
+        except httpx.HTTPError:
+            pass  # fall through to the dev-visible log below
+    print(f"[otp-login-stub] code for {user.email}: {code}")
+
+
+@router.post(
+    "/otp-request",
+    response_model=OtpRequestResponse,
+    dependencies=[Depends(_otp_request_rate_limit)],
+)
+def otp_request(
+    request: Request,
+    payload: OtpRequest,
+    db: Session = Depends(get_db),
+) -> OtpRequestResponse:
+    user = db.query(User).filter(User.email == payload.email).one_or_none()
+
+    if user is not None and user.is_active:
+        code = security.generate_otp_code()
+        db.add(
+            LoginOtp(
+                user_id=user.id,
+                code_hash=security.hash_password(code),
+                expires_at=security.otp_expiry(),
+            )
+        )
+        _send_otp_code(user, code)
+        log_auth_event(db, actor=user, action="OTP_REQUESTED", request=request, status_code=200)
+
+    # Same generic response whether or not the email exists, so this
+    # endpoint can't be used to enumerate registered accounts -- identical
+    # reasoning to password_reset_request below.
+    db.commit()
+    return OtpRequestResponse()
+
+
+@router.post(
+    "/otp-verify",
+    response_model=TokenPair,
+    dependencies=[Depends(_otp_verify_rate_limit)],
+)
+def otp_verify(
+    request: Request,
+    payload: OtpVerify,
+    db: Session = Depends(get_db),
+) -> TokenPair:
+    user = db.query(User).filter(User.email == payload.email).one_or_none()
+
+    generic_error = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or code"
+    )
+
+    if user is None or not user.is_active:
+        raise generic_error
+
+    # code_hash isn't uniquely indexed (see LoginOtp's docstring), so check
+    # every still-valid row for this user rather than an exact-match lookup.
+    candidates = (
+        db.query(LoginOtp)
+        .filter(LoginOtp.user_id == user.id, LoginOtp.used_at.is_(None))
+        .all()
+    )
+    matched = next(
+        (row for row in candidates if row.is_valid and security.verify_password(payload.code, row.code_hash)),
+        None,
+    )
+
+    if matched is None:
+        log_auth_event(db, actor=user, action="LOGIN_FAILED", request=request, status_code=401)
+        db.commit()
+        raise generic_error
+
+    matched.used_at = datetime.now(timezone.utc)
     user.last_login_at = datetime.now(timezone.utc)
     tokens = _issue_token_pair(db, user, request)
     log_auth_event(db, actor=user, action="LOGIN_SUCCESS", request=request, status_code=200)

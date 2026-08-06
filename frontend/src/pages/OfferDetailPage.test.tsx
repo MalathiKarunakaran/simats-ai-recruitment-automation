@@ -122,7 +122,7 @@ describe("OfferDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer());
@@ -139,7 +139,7 @@ describe("OfferDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer({ status: "SENT" }));
@@ -157,7 +157,7 @@ describe("OfferDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer({ status: "ACCEPTED" }));
@@ -174,7 +174,7 @@ describe("OfferDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "MANAGEMENT" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer({ status: "SENT" }));
@@ -190,7 +190,7 @@ describe("OfferDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer({ status: "SENT" }));

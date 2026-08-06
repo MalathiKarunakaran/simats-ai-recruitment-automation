@@ -89,7 +89,7 @@ describe("ApplicationsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([APPLICATION]);
@@ -111,7 +111,7 @@ describe("ApplicationsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([]);
@@ -132,7 +132,7 @@ describe("ApplicationsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([]);
@@ -149,7 +149,7 @@ describe("ApplicationsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const other: ApplicationRead = { ...APPLICATION, id: "app-2", candidate_id: "cand-2", campus_id: "c-scad" };
@@ -185,7 +185,7 @@ describe("ApplicationsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const other: ApplicationRead = { ...APPLICATION, id: "app-2", candidate_id: "cand-2", job_posting_id: "jp-2" };
@@ -218,7 +218,7 @@ describe("ApplicationsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([APPLICATION]);

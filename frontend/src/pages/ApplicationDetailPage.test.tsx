@@ -130,7 +130,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
@@ -147,7 +147,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
@@ -161,7 +161,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
@@ -177,7 +177,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication({ status: "REJECTED", rejection_reason: "No match" }));
@@ -193,7 +193,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
@@ -216,7 +216,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication({ status: "JOINING_CONFIRMED" }));
@@ -229,7 +229,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     renderPage();
@@ -241,7 +241,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication({ status: "SELECTED" }));
@@ -255,7 +255,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
@@ -271,7 +271,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(
@@ -299,7 +299,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication({ qualification_mismatch: false }));
@@ -314,7 +314,7 @@ describe("ApplicationDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetCandidate.mockResolvedValue({ ...CANDIDATE, resume_storage_key: "cand-1/resume.pdf" });

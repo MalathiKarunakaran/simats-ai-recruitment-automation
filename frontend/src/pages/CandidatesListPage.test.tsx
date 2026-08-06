@@ -49,7 +49,7 @@ describe("CandidatesListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCandidates.mockResolvedValue([CANDIDATE]);
@@ -66,7 +66,7 @@ describe("CandidatesListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const { unmount } = renderPage();
@@ -76,7 +76,7 @@ describe("CandidatesListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     renderPage();
@@ -88,7 +88,7 @@ describe("CandidatesListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCandidates.mockResolvedValue([
@@ -107,7 +107,7 @@ describe("CandidatesListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCandidates.mockResolvedValue([CANDIDATE]);
@@ -125,7 +125,7 @@ describe("CandidatesListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const other = { ...CANDIDATE, id: "cand-2", full_name: "John Smith", email: "john@example.com" };
@@ -147,7 +147,7 @@ describe("CandidatesListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const withResume = { ...CANDIDATE, id: "cand-2", full_name: "Has Resume", resume_storage_key: "resumes/cand-2.pdf" };
@@ -168,7 +168,7 @@ describe("CandidatesListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCandidates.mockResolvedValue([CANDIDATE]);

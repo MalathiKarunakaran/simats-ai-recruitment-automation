@@ -67,7 +67,7 @@ describe("VacancyRequestForm (create mode)", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN", campus_id: null } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
@@ -89,7 +89,7 @@ describe("VacancyRequestForm (create mode)", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     // Several sequential userEvent.type() calls -- slower than the default

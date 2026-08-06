@@ -117,7 +117,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
@@ -142,7 +142,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const { unmount } = renderPage();
@@ -152,7 +152,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     renderPage();
@@ -166,7 +166,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const submitted = { ...VR, id: "vr-2", status: "SUBMITTED" as const, position_title: "Lecturer" };
@@ -192,7 +192,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const cancelled = { ...VR, id: "vr-2", status: "CANCELLED" as const, position_title: "Cancelled Post" };
@@ -216,7 +216,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const other = { ...VR, id: "vr-2", campus_id: "c-scad", position_title: "Lab Assistant" };
@@ -246,7 +246,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const other = { ...VR, id: "vr-2", campus_id: "c-sse", position_title: "Lab Assistant" };
@@ -271,7 +271,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
@@ -293,7 +293,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const submitted = { ...VR, id: "vr-2", status: "SUBMITTED" as const, position_title: "Lecturer" };
@@ -320,7 +320,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
@@ -343,7 +343,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
@@ -362,7 +362,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const submitted = { ...VR, id: "vr-2", status: "SUBMITTED" as const, position_title: "Lecturer" };
@@ -428,7 +428,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
@@ -457,7 +457,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const nonTeaching = {
@@ -494,7 +494,7 @@ describe("VacancyRequestsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const mathsRequest = { ...VR, id: "vr-2", department_id: "d-2", position_title: "Lecturer in Mathematics" };

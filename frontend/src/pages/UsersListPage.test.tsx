@@ -61,7 +61,7 @@ describe("UsersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListUsers.mockResolvedValue([JANE]);
@@ -77,7 +77,7 @@ describe("UsersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListUsers.mockResolvedValue([]);
@@ -92,7 +92,7 @@ describe("UsersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListUsers.mockResolvedValue([
@@ -115,7 +115,7 @@ describe("UsersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListUsers.mockResolvedValue([
@@ -139,7 +139,7 @@ describe("UsersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListUsers.mockResolvedValue([
@@ -163,7 +163,7 @@ describe("UsersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListUsers.mockResolvedValue([
@@ -189,7 +189,7 @@ describe("UsersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListUsers.mockResolvedValue([
@@ -216,7 +216,7 @@ describe("UsersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListUsers.mockResolvedValue([JANE]);
@@ -234,7 +234,7 @@ describe("UsersListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListUsers.mockResolvedValue([JANE]);

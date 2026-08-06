@@ -25,7 +25,7 @@ function mockUser(role: UserRead["role"]) {
   mockedUseAuth.mockReturnValue({
     user: { role } as UserRead,
     isLoading: false,
-    login: vi.fn(),
+    login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(),
   });
 }

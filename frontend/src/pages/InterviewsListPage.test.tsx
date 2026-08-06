@@ -109,7 +109,7 @@ describe("InterviewsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListInterviews.mockResolvedValue([INTERVIEW]);
@@ -133,7 +133,7 @@ describe("InterviewsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListInterviews.mockResolvedValue([]);
@@ -151,7 +151,7 @@ describe("InterviewsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN", id: "u-1" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const other: InterviewScheduleRead = { ...INTERVIEW, id: "int-2", application_id: "app-2", campus_id: "c-scad" };
@@ -191,7 +191,7 @@ describe("InterviewsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN", id: "u-1" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const other: InterviewScheduleRead = { ...INTERVIEW, id: "int-2", application_id: "app-2" };
@@ -222,7 +222,7 @@ describe("InterviewsListPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "INTERVIEW_PANEL_MEMBER", id: "panel-1" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const notMine: InterviewScheduleRead = {

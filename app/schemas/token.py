@@ -26,3 +26,16 @@ class PasswordResetRequestResponse(BaseModel):
 class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str = Field(min_length=8)
+
+
+class OtpRequest(BaseModel):
+    email: EmailStr
+
+
+class OtpRequestResponse(BaseModel):
+    detail: str = "If that email is registered, a login code has been sent."
+
+
+class OtpVerify(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6)

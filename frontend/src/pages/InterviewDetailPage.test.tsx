@@ -149,7 +149,7 @@ describe("InterviewDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
@@ -165,7 +165,7 @@ describe("InterviewDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview({ status: "COMPLETED" }));
@@ -181,7 +181,7 @@ describe("InterviewDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { id: "panel-1", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
@@ -195,7 +195,7 @@ describe("InterviewDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { id: "panel-1", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
@@ -224,7 +224,7 @@ describe("InterviewDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { id: "other-panel", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
@@ -242,7 +242,7 @@ describe("InterviewDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { id: "panel-1", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());

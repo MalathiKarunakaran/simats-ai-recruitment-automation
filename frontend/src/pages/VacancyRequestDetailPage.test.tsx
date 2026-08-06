@@ -112,7 +112,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
@@ -131,7 +131,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const { unmount } = renderDetail();
@@ -142,7 +142,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     renderDetail();
@@ -155,7 +155,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "DRAFT" }));
@@ -175,7 +175,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "DRAFT", jd_draft: null }));
@@ -204,7 +204,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
@@ -222,7 +222,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     const { unmount } = renderDetail();
@@ -232,7 +232,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     renderDetail();
@@ -244,7 +244,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "PUBLISHED" }));
@@ -275,7 +275,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "APPROVED", requested_count: 5 }));
@@ -305,7 +305,7 @@ describe("VacancyRequestDetailPage", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "APPROVED" }));

@@ -15,7 +15,7 @@ within a test while nothing is ever persisted between tests.
 import json
 import os
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -24,12 +24,18 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
-from app.core.security import generate_opaque_token, hash_opaque_token, hash_password, password_reset_expiry
+from app.core.security import (
+    generate_opaque_token,
+    hash_opaque_token,
+    hash_password,
+    otp_expiry,
+    password_reset_expiry,
+)
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.application import Application
-from app.models.auth_token import PasswordResetToken
+from app.models.auth_token import LoginOtp, PasswordResetToken
 from app.models.campus import Campus
 from app.models.candidate import Candidate
 from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
@@ -499,6 +505,23 @@ def password_reset_token_factory(db_session):
         )
         db_session.flush()
         return raw_token
+
+    return _make
+
+
+@pytest.fixture()
+def login_otp_factory(db_session):
+    def _make(user: User, code: str = "123456", expired: bool = False) -> str:
+        row = LoginOtp(
+            user_id=user.id,
+            code_hash=hash_password(code),
+            expires_at=otp_expiry(),
+        )
+        if expired:
+            row.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        db_session.add(row)
+        db_session.flush()
+        return code
 
     return _make
 

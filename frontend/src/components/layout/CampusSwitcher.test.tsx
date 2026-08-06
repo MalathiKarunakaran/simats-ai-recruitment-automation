@@ -34,7 +34,7 @@ describe("CampusSwitcher", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
@@ -55,7 +55,7 @@ describe("CampusSwitcher", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN", campus_id: null } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);

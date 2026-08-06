@@ -28,7 +28,7 @@ function renderProtected() {
 
 describe("ProtectedRoute", () => {
   it("redirects to /login when not authenticated", () => {
-    mockedUseAuth.mockReturnValue({ user: null, isLoading: false, login: vi.fn(), logout: vi.fn() });
+    mockedUseAuth.mockReturnValue({ user: null, isLoading: false, login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(), logout: vi.fn() });
 
     renderProtected();
 
@@ -39,7 +39,7 @@ describe("ProtectedRoute", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
 
@@ -52,7 +52,7 @@ describe("ProtectedRoute", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CANDIDATE" } as UserRead,
       isLoading: false,
-      login: vi.fn(),
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
     });
 
