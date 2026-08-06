@@ -52,8 +52,8 @@ export const ASSIGNABLE_STAFF_ROLES: readonly UserRole[] = [
 ];
 
 // Mirrors app/models/enums.py::CAMPUS_CODES exactly -- institutional codes,
-// never renamed/reformatted.
-export const CAMPUS_CODES = ["SSE", "SCLAS", "SCAD", "STUDIO", "SPIER", "SHOTS", "SSPE"] as const;
+// never renamed/reformatted. SHIFT added 2026-08-06 (confirmed real, not a typo).
+export const CAMPUS_CODES = ["SSE", "SCLAS", "SCAD", "STUDIO", "SPIER", "SHOTS", "SSPE", "SHIFT"] as const;
 export type CampusCode = (typeof CAMPUS_CODES)[number];
 
 // Mirrors app/schemas/token.py::TokenPair.

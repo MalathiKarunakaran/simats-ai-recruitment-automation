@@ -67,7 +67,10 @@ const SSE: CampusRead = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-const ALL_SEVEN_CAMPUSES: CampusRead[] = [
+// SHIFT added 2026-08-06 as a real 8th institutional campus code (confirmed
+// by the user -- was previously an unresolved "8 campuses, only 7 named" gap,
+// see CLAUDE.md's "Source spec" section).
+const ALL_EIGHT_CAMPUSES: CampusRead[] = [
   "SSE",
   "SCLAS",
   "SCAD",
@@ -75,6 +78,7 @@ const ALL_SEVEN_CAMPUSES: CampusRead[] = [
   "SPIER",
   "SHOTS",
   "SSPE",
+  "SHIFT",
 ].map((code) => ({ ...SSE, id: `c-${code}`, code: code as CampusRead["code"] }));
 
 const DEPARTMENT: DepartmentRead = {
@@ -106,7 +110,7 @@ describe("SettingsPage", () => {
     mockUser("SUPER_ADMIN");
     mockedGetOwnProfile.mockResolvedValue(PROFILE);
     mockedUpdateOwnProfile.mockResolvedValue(PROFILE);
-    mockedListCampuses.mockResolvedValue(ALL_SEVEN_CAMPUSES);
+    mockedListCampuses.mockResolvedValue(ALL_EIGHT_CAMPUSES);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
@@ -123,7 +127,7 @@ describe("SettingsPage", () => {
   it("hides the Organization section entirely for a role with neither permission", async () => {
     mockUser("RECRUITMENT_OFFICER", "c-sse");
     mockedGetOwnProfile.mockResolvedValue({ ...PROFILE, role: "RECRUITMENT_OFFICER" });
-    mockedListCampuses.mockResolvedValue(ALL_SEVEN_CAMPUSES);
+    mockedListCampuses.mockResolvedValue(ALL_EIGHT_CAMPUSES);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
@@ -137,7 +141,7 @@ describe("SettingsPage", () => {
   it("shows only Departments (not Campuses) for HR Admin", async () => {
     mockUser("HR_ADMIN");
     mockedGetOwnProfile.mockResolvedValue({ ...PROFILE, role: "HR_ADMIN" });
-    mockedListCampuses.mockResolvedValue(ALL_SEVEN_CAMPUSES);
+    mockedListCampuses.mockResolvedValue(ALL_EIGHT_CAMPUSES);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
@@ -149,7 +153,7 @@ describe("SettingsPage", () => {
   it("shows both Campuses and Departments for Super Admin", async () => {
     mockUser("SUPER_ADMIN");
     mockedGetOwnProfile.mockResolvedValue(PROFILE);
-    mockedListCampuses.mockResolvedValue(ALL_SEVEN_CAMPUSES);
+    mockedListCampuses.mockResolvedValue(ALL_EIGHT_CAMPUSES);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
@@ -158,10 +162,10 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Departments")).toBeInTheDocument();
   });
 
-  it("disables New campus once all 7 institutional codes are already in use", async () => {
+  it("disables New campus once all 8 institutional codes are already in use", async () => {
     mockUser("SUPER_ADMIN");
     mockedGetOwnProfile.mockResolvedValue(PROFILE);
-    mockedListCampuses.mockResolvedValue(ALL_SEVEN_CAMPUSES);
+    mockedListCampuses.mockResolvedValue(ALL_EIGHT_CAMPUSES);
     mockedListDepartments.mockResolvedValue([]);
 
     renderPage();

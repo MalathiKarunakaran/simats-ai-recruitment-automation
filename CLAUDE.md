@@ -8,12 +8,12 @@ Instructions for Claude Code when working in this repository.
 not code) is the original Role/Task/Context/Features/Result brief this system
 was built from, covering all 15 modules and the 7-phase build plan. Read it
 first if asked to check whether something is "in scope" or matches the
-original design intent. One known spec-vs-build gap: the doc says "8 campuses:
-SSE, SCLAS, SCAD, STUDIO, SPIER, SHOTS, SSPE, and others" (only 7 named, an
-implied 8th never specified) — the actual system implements exactly those 7
-codes (`app/models/enums.py`'s `CAMPUS_CODES`). Don't "fix" this as a bug;
-it's an intentional built-vs-spec state, flag it to the user if it matters to
-a task instead of silently reconciling it either direction.
+original design intent. **Resolved 2026-08-06**: the doc's "8 campuses: SSE,
+SCLAS, SCAD, STUDIO, SPIER, SHOTS, SSPE, and others" line only ever named 7,
+leaving an implied 8th unspecified — the user has since confirmed the 8th is
+**SHIFT** ("a college and as well dept too"), now a real campus in
+`app/models/enums.py`'s `CAMPUS_CODES` (migration `7b2e4f9a1c3d`). This is no
+longer an open gap; don't re-flag it as one.
 
 ## What this is
 
