@@ -9,13 +9,52 @@ import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const CAN_IMPORT_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
+
+// Import runs can carry hundreds of rows -- a status filter on each result
+// table lets HR jump straight to what needs review (flagged/warning) rather
+// than scrolling past every already-clean imported row. Independent of the
+// header counts above each table, which always reflect the full run.
+type RowStatusFilter = "ALL" | "imported" | "imported_with_warning" | "flagged";
+
+const ROW_STATUS_FILTERS: { value: RowStatusFilter; label: string }[] = [
+  { value: "ALL", label: "All rows" },
+  { value: "imported", label: "Imported" },
+  { value: "imported_with_warning", label: "Imported (warning)" },
+  { value: "flagged", label: "Flagged" },
+];
 
 function RowStatusBadge({ status }: { status: string }) {
   if (status === "flagged") return <Badge variant="destructive">flagged</Badge>;
   if (status === "imported_with_warning") return <Badge variant="warning">imported (warning)</Badge>;
   return <Badge variant="success">imported</Badge>;
+}
+
+function RowStatusFilterSelect({
+  value,
+  onValueChange,
+  ariaLabel,
+}: {
+  value: RowStatusFilter;
+  onValueChange: (v: RowStatusFilter) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <Select value={value} onValueChange={(v) => onValueChange(v as RowStatusFilter)}>
+      <SelectTrigger aria-label={ariaLabel} className="w-48">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {ROW_STATUS_FILTERS.map((f) => (
+          <SelectItem key={f.value} value={f.value}>
+            {f.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 export function TrackerImportPage() {
@@ -24,6 +63,8 @@ export function TrackerImportPage() {
   const [result, setResult] = useState<TrackerImportResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [includeSample, setIncludeSample] = useState(false);
+  const [vacancyStatusFilter, setVacancyStatusFilter] = useState<RowStatusFilter>("ALL");
+  const [candidateStatusFilter, setCandidateStatusFilter] = useState<RowStatusFilter>("ALL");
 
   const downloadMutation = useMutation({
     mutationFn: downloadTrackerTemplate,
@@ -36,6 +77,8 @@ export function TrackerImportPage() {
     onSuccess: (data) => {
       setError(null);
       setResult(data);
+      setVacancyStatusFilter("ALL");
+      setCandidateStatusFilter("ALL");
     },
     onError: (err) => {
       setResult(null);
@@ -117,109 +160,144 @@ export function TrackerImportPage() {
 
       {result ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                Vacancy Tracker: {result.vacancy_imported_count} imported, {result.vacancy_flagged_count} flagged
-                (of {result.vacancy_total_rows} rows)
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {result.vacancy_rows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No rows to import.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-muted-foreground">
-                      <th className="py-2 font-medium">Row</th>
-                      <th className="py-2 font-medium">Status</th>
-                      <th className="py-2 font-medium">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.vacancy_rows.map((row) => (
-                      <tr key={row.row_number} className="border-b border-border last:border-0">
-                        <td className="py-2">{row.row_number}</td>
-                        <td className="py-2">
-                          <RowStatusBadge status={row.status} />
-                        </td>
-                        <td className="py-2">
-                          {row.status !== "flagged" && row.vacancy_request_id ? (
-                            <div className="flex flex-col gap-1">
-                              <Link to={`/vacancy-requests/${row.vacancy_request_id}`} className="hover:underline">
-                                View vacancy
-                              </Link>
-                              {row.status === "imported_with_warning" && row.errors.length > 0 ? (
-                                <ul className="list-disc pl-4 text-brand-warning">
-                                  {row.errors.map((e, i) => (
-                                    <li key={i}>{e}</li>
-                                  ))}
-                                </ul>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <ul className="list-disc pl-4 text-destructive">
-                              {row.errors.map((e, i) => (
-                                <li key={i}>{e}</li>
-                              ))}
-                            </ul>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </CardContent>
-          </Card>
+          {(() => {
+            const visibleVacancyRows =
+              vacancyStatusFilter === "ALL"
+                ? result.vacancy_rows
+                : result.vacancy_rows.filter((row) => row.status === vacancyStatusFilter);
+            const visibleCandidateRows =
+              candidateStatusFilter === "ALL"
+                ? result.candidate_rows
+                : result.candidate_rows.filter((row) => row.status === candidateStatusFilter);
+            return (
+              <>
+                <Card>
+                  <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle>
+                      Vacancy Tracker: {result.vacancy_imported_count} imported, {result.vacancy_flagged_count}{" "}
+                      flagged (of {result.vacancy_total_rows} rows)
+                    </CardTitle>
+                    {result.vacancy_rows.length > 0 ? (
+                      <RowStatusFilterSelect
+                        value={vacancyStatusFilter}
+                        onValueChange={setVacancyStatusFilter}
+                        ariaLabel="Vacancy Tracker status filter"
+                      />
+                    ) : null}
+                  </CardHeader>
+                  <CardContent>
+                    {result.vacancy_rows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No rows to import.</p>
+                    ) : visibleVacancyRows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No rows match this filter.</p>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-left text-muted-foreground">
+                            <th className="py-2 font-medium">Row</th>
+                            <th className="py-2 font-medium">Status</th>
+                            <th className="py-2 font-medium">Details</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleVacancyRows.map((row) => (
+                            <tr key={row.row_number} className="border-b border-border last:border-0">
+                              <td className="py-2">{row.row_number}</td>
+                              <td className="py-2">
+                                <RowStatusBadge status={row.status} />
+                              </td>
+                              <td className="py-2">
+                                {row.status !== "flagged" && row.vacancy_request_id ? (
+                                  <div className="flex flex-col gap-1">
+                                    <Link
+                                      to={`/vacancy-requests/${row.vacancy_request_id}`}
+                                      className="hover:underline"
+                                    >
+                                      View vacancy
+                                    </Link>
+                                    {row.status === "imported_with_warning" && row.errors.length > 0 ? (
+                                      <ul className="list-disc pl-4 text-brand-warning">
+                                        {row.errors.map((e, i) => (
+                                          <li key={i}>{e}</li>
+                                        ))}
+                                      </ul>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <ul className="list-disc pl-4 text-destructive">
+                                    {row.errors.map((e, i) => (
+                                      <li key={i}>{e}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </CardContent>
+                </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>
-                Candidate Pipeline: {result.candidate_imported_count} imported, {result.candidate_flagged_count}{" "}
-                flagged (of {result.candidate_total_rows} rows)
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {result.candidate_rows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No rows to import.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-muted-foreground">
-                      <th className="py-2 font-medium">Row</th>
-                      <th className="py-2 font-medium">Status</th>
-                      <th className="py-2 font-medium">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.candidate_rows.map((row) => (
-                      <tr key={row.row_number} className="border-b border-border last:border-0">
-                        <td className="py-2">{row.row_number}</td>
-                        <td className="py-2">
-                          <RowStatusBadge status={row.status} />
-                        </td>
-                        <td className="py-2">
-                          {row.status !== "flagged" && row.application_id ? (
-                            <Link to={`/applications/${row.application_id}`} className="hover:underline">
-                              View application
-                            </Link>
-                          ) : null}
-                          {row.errors.length > 0 ? (
-                            <ul className="list-disc pl-4 text-destructive">
-                              {row.errors.map((e, i) => (
-                                <li key={i}>{e}</li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </CardContent>
-          </Card>
+                <Card>
+                  <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle>
+                      Candidate Pipeline: {result.candidate_imported_count} imported,{" "}
+                      {result.candidate_flagged_count} flagged (of {result.candidate_total_rows} rows)
+                    </CardTitle>
+                    {result.candidate_rows.length > 0 ? (
+                      <RowStatusFilterSelect
+                        value={candidateStatusFilter}
+                        onValueChange={setCandidateStatusFilter}
+                        ariaLabel="Candidate Pipeline status filter"
+                      />
+                    ) : null}
+                  </CardHeader>
+                  <CardContent>
+                    {result.candidate_rows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No rows to import.</p>
+                    ) : visibleCandidateRows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No rows match this filter.</p>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-left text-muted-foreground">
+                            <th className="py-2 font-medium">Row</th>
+                            <th className="py-2 font-medium">Status</th>
+                            <th className="py-2 font-medium">Details</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleCandidateRows.map((row) => (
+                            <tr key={row.row_number} className="border-b border-border last:border-0">
+                              <td className="py-2">{row.row_number}</td>
+                              <td className="py-2">
+                                <RowStatusBadge status={row.status} />
+                              </td>
+                              <td className="py-2">
+                                {row.status !== "flagged" && row.application_id ? (
+                                  <Link to={`/applications/${row.application_id}`} className="hover:underline">
+                                    View application
+                                  </Link>
+                                ) : null}
+                                {row.errors.length > 0 ? (
+                                  <ul className="list-disc pl-4 text-destructive">
+                                    {row.errors.map((e, i) => (
+                                      <li key={i}>{e}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            );
+          })()}
         </>
       ) : null}
     </div>
