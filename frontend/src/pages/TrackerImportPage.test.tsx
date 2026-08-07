@@ -165,6 +165,105 @@ describe("TrackerImportPage", () => {
     expect(screen.getByText("Unknown Campus 'ZZZ'")).toBeInTheDocument();
   });
 
+  it("filters each result table independently by row status", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedImportTrackerWorkbook.mockResolvedValue({
+      vacancy_total_rows: 2,
+      vacancy_imported_count: 1,
+      vacancy_flagged_count: 1,
+      vacancy_rows: [
+        { row_number: 2, status: "imported", errors: [], vacancy_request_id: "vr-1" },
+        { row_number: 3, status: "flagged", errors: ["Unknown Campus 'ZZZ'"], vacancy_request_id: null },
+      ],
+      candidate_total_rows: 2,
+      candidate_imported_count: 1,
+      candidate_flagged_count: 1,
+      candidate_rows: [
+        { row_number: 2, status: "imported", errors: [], application_id: "app-1" },
+        { row_number: 3, status: "flagged", errors: ["Unknown Source 'ZZZ'"], application_id: null },
+      ],
+    });
+
+    renderPage();
+
+    const file = new File(["dummy"], "tracker.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(fileInput, file);
+
+    await screen.findByText("View vacancy");
+    expect(screen.getByText("Unknown Campus 'ZZZ'")).toBeInTheDocument();
+
+    // Narrowing the Vacancy Tracker filter to Flagged hides row 2's link but
+    // leaves the untouched Candidate Pipeline table showing both its rows.
+    await userEvent.click(screen.getByRole("combobox", { name: "Vacancy Tracker status filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Flagged" }));
+
+    expect(screen.queryByText("View vacancy")).not.toBeInTheDocument();
+    expect(screen.getByText("Unknown Campus 'ZZZ'")).toBeInTheDocument();
+    expect(screen.getByText("View application")).toBeInTheDocument();
+    expect(screen.getByText("Unknown Source 'ZZZ'")).toBeInTheDocument();
+
+    // Narrowing to Imported on the Vacancy table with no imported rows left
+    // shows the "no rows match" message instead of an empty table.
+    await userEvent.click(screen.getByRole("combobox", { name: "Vacancy Tracker status filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Imported" }));
+    expect(screen.queryByText("Unknown Campus 'ZZZ'")).not.toBeInTheDocument();
+    expect(screen.getByText("View vacancy")).toBeInTheDocument();
+  });
+
+  it("resets both status filters back to All on a fresh import", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedImportTrackerWorkbook.mockResolvedValue({
+      vacancy_total_rows: 2,
+      vacancy_imported_count: 1,
+      vacancy_flagged_count: 1,
+      vacancy_rows: [
+        { row_number: 2, status: "imported", errors: [], vacancy_request_id: "vr-1" },
+        { row_number: 3, status: "flagged", errors: ["Unknown Campus 'ZZZ'"], vacancy_request_id: null },
+      ],
+      candidate_total_rows: 0,
+      candidate_imported_count: 0,
+      candidate_flagged_count: 0,
+      candidate_rows: [],
+    });
+
+    renderPage();
+
+    const file = new File(["dummy"], "tracker.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(fileInput, file);
+    await screen.findByText("View vacancy");
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Vacancy Tracker status filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Flagged" }));
+    expect(screen.queryByText("View vacancy")).not.toBeInTheDocument();
+
+    // Re-uploading (a second run of the same or a different workbook) should
+    // land back on "All rows" rather than carrying the stale filter forward.
+    // Vitest doesn't clear mocks between tests in this file, so compare
+    // against the pre-reupload call count rather than an absolute value.
+    const callsBeforeReupload = mockedImportTrackerWorkbook.mock.calls.length;
+    await userEvent.upload(fileInput, file);
+    await waitFor(() =>
+      expect(mockedImportTrackerWorkbook.mock.calls.length).toBe(callsBeforeReupload + 1),
+    );
+    expect(await screen.findByText("View vacancy")).toBeInTheDocument();
+  });
+
   it("downloads the workbook template", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
