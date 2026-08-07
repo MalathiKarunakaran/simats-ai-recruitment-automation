@@ -16,10 +16,11 @@ class JobPostingRead(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    # Position-tracking fields (JobPosting model @properties) -- Available
-    # counts OPEN + RESERVED hiring slots, Required is the vacancy's
-    # approved total_positions.
+    # Position-tracking fields (JobPosting model @properties). requested_count
+    # is still-needed (OPEN + RESERVED hiring slots); available_count is
+    # already-filled/staffed (FILLED hiring slots) -- the two always sum to
+    # the vacancy's originally approved total_positions.
     position_title: str
     department_id: uuid.UUID
+    requested_count: int
     available_count: int
-    required_count: int

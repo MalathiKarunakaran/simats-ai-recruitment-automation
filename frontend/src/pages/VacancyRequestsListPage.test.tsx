@@ -421,7 +421,7 @@ describe("VacancyRequestsListPage", () => {
         updated_at: "2026-01-02T00:00:00Z",
         position_title: "Assistant Professor",
         department_id: "d-1",
-        required_count: 2,
+        requested_count: 1,
         available_count: 1,
       },
     ]);
@@ -444,7 +444,7 @@ describe("VacancyRequestsListPage", () => {
     // cell -- the row itself lives in the table nested under it.
     const designationGroup = (await screen.findByText("Assistant Professor")).closest("div");
     const row = designationGroup?.querySelector("table tbody tr");
-    // required=2, available=1 -> filled=1, remaining=1.
+    // requested=1 (still needed), available=1 (filled) -> filled=1, remaining=1.
     expect(row).toHaveTextContent(/2.*1.*1/);
   });
 

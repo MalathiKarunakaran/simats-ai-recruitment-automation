@@ -53,19 +53,27 @@ class JobPosting(Base):
         return self.approved_vacancy.vacancy_request.department_id
 
     @property
-    def required_count(self) -> int:
-        return self.approved_vacancy.total_positions
-
-    @property
-    def available_count(self) -> int:
-        # A slot only stops counting as available once someone has actually
-        # joined (FILLED) -- a RESERVED slot (candidate selected, still mid
-        # offer/joining) hasn't locked the seat yet, since offers can be
-        # declined or a selected candidate can withdraw before joining.
+    def requested_count(self) -> int:
+        # Still needed -- a slot only stops counting here once someone has
+        # actually joined (FILLED). A RESERVED slot (candidate selected,
+        # still mid offer/joining) still counts as requested/needed, since
+        # offers can be declined or a selected candidate can withdraw before
+        # joining -- the seat isn't locked in until FILLED.
         return sum(
             1
             for slot in self.approved_vacancy.hiring_slots
             if slot.status in (HiringSlotStatusEnum.OPEN, HiringSlotStatusEnum.RESERVED)
+        )
+
+    @property
+    def available_count(self) -> int:
+        # Already filled/staffed -- counts up from 0 as candidates actually
+        # join (HiringSlot reaches FILLED via pipeline.py's
+        # _fill_slot_and_maybe_autoclose). requested_count + available_count
+        # always sums to approved_vacancy.total_positions, the originally
+        # sanctioned target.
+        return sum(
+            1 for slot in self.approved_vacancy.hiring_slots if slot.status == HiringSlotStatusEnum.FILLED
         )
 
     def __repr__(self) -> str:

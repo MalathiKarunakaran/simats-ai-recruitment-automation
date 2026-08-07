@@ -133,8 +133,12 @@ export function VacancyRequestsListPage() {
     for (const av of approvedVacancies) {
       const jp = jobPostingByApprovedVacancyId.get(av.id);
       if (!jp) continue;
-      const filled = Math.max(jp.required_count - jp.available_count, 0);
-      map.set(av.vacancy_request_id, { filled, remaining: jp.available_count });
+      // available_count is already the filled/staffed count directly, and
+      // requested_count is already the still-needed count directly -- no
+      // subtraction needed (unlike before, when available_count meant
+      // "still open" and filled had to be derived by subtracting it from
+      // the fixed total).
+      map.set(av.vacancy_request_id, { filled: jp.available_count, remaining: jp.requested_count });
     }
     return map;
   }, [approvedVacancies, jobPostings]);

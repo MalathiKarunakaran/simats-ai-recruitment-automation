@@ -85,8 +85,8 @@ export function JobPostingsListPage() {
               <th className="py-2 font-medium">Job Position</th>
               <th className="py-2 font-medium">Department</th>
               <th className="py-2 font-medium">Campus</th>
+              <th className="py-2 font-medium">Requested</th>
               <th className="py-2 font-medium">Available</th>
-              <th className="py-2 font-medium">Required</th>
               <th className="py-2 font-medium">Status</th>
               <th className="py-2 font-medium">Published</th>
             </tr>
@@ -104,8 +104,8 @@ export function JobPostingsListPage() {
                   </td>
                   <td className="py-2">{department?.name ?? "—"}</td>
                   <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
+                  <td className="py-2">{jp.requested_count}</td>
                   <td className="py-2">{jp.available_count}</td>
-                  <td className="py-2">{jp.required_count}</td>
                   <td className="py-2">
                     <Badge variant={jp.is_active ? "success" : "outline"}>
                       {jp.is_active ? "Active" : "Closed"}
