@@ -13,4 +13,9 @@ requirements-lock.txt
 .db_backups/
 .uvicorn.*.log
 .vite.*.log
+.minio.*.log
+.chromadb.*.log
 reference/
+# Native (non-Docker) MinIO/ChromaDB data dirs, used since Docker Desktop
+# was uninstalled on this dev machine -- see CLAUDE.md/memory for context.
+.local_data/
