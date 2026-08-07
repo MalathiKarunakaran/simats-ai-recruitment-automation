@@ -17,8 +17,8 @@ from app.schemas.resume_score import RankedApplicationRead
 
 router = APIRouter(prefix="/job-postings", tags=["job-postings"])
 
-# Eager-loads for JobPosting's position_title/department_id/available_count/
-# required_count @properties -- without these, each row would lazy-load its
+# Eager-loads for JobPosting's position_title/department_id/requested_count/
+# available_count @properties -- without these, each row would lazy-load its
 # approved_vacancy, vacancy_request, and hiring_slots individually (N+1).
 _POSITION_TRACKING_LOADER_OPTIONS = (
     joinedload(JobPosting.approved_vacancy).joinedload(ApprovedVacancy.vacancy_request),

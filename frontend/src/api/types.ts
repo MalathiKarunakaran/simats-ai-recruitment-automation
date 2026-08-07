@@ -510,13 +510,14 @@ export interface JobPostingRead {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  // Position-tracking fields: available_count is OPEN + RESERVED hiring
-  // slots (a slot only stops counting as available once someone has
-  // actually joined), required_count is the approved total_positions.
+  // Position-tracking fields: requested_count is still-needed (OPEN +
+  // RESERVED hiring slots), available_count is already-filled/staffed
+  // (FILLED hiring slots) -- the two always sum to the vacancy's originally
+  // approved total_positions.
   position_title: string;
   department_id: string;
+  requested_count: number;
   available_count: number;
-  required_count: number;
 }
 
 // Mirrors app/services/job_distribution.py::SUPPORTED_PORTALS.

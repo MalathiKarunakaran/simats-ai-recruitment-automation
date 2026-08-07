@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -68,8 +68,8 @@ const ACTIVE_POSTING: JobPostingRead = {
   is_active: true,
   position_title: "Assistant Professor",
   department_id: "d-cse",
+  requested_count: 1,
   available_count: 1,
-  required_count: 2,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -84,8 +84,8 @@ const CLOSED_POSTING: JobPostingRead = {
   is_active: false,
   position_title: "Lab Technician",
   department_id: "d-mech",
-  available_count: 0,
-  required_count: 1,
+  requested_count: 0,
+  available_count: 1,
   created_at: "2026-01-02T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
 };
@@ -108,7 +108,7 @@ function renderPage() {
 }
 
 describe("JobPostingsListPage", () => {
-  it("renders job postings with position title, department, campus, and available/required counts", async () => {
+  it("renders job postings with position title, department, campus, and requested/available counts", async () => {
     mockData([ACTIVE_POSTING, CLOSED_POSTING]);
 
     renderPage();
@@ -119,6 +119,24 @@ describe("JobPostingsListPage", () => {
     expect(screen.getByText("Lab Technician")).toBeInTheDocument();
     expect(screen.getByText("Mechanical Engineering")).toBeInTheDocument();
     expect(screen.getByText("SCAD")).toBeInTheDocument();
+  });
+
+  it("shows Requested (still needed) and Available (already filled) as distinct, correctly-ordered columns", async () => {
+    // ACTIVE_POSTING: requested_count=1 (1 slot still open), available_count=1
+    // (1 candidate already joined) -- out of a 2-slot vacancy, matching what
+    // onboarding an employee is expected to do: requested goes down,
+    // available goes up.
+    mockData([ACTIVE_POSTING]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    const row = screen.getByText("Assistant Professor").closest("tr");
+    if (!row) throw new Error("row not found");
+    const cells = within(row).getAllByRole("cell");
+    // Job Position, Department, Campus, Requested, Available, Status, Published.
+    expect(cells[3]).toHaveTextContent("1");
+    expect(cells[4]).toHaveTextContent("1");
   });
 
   it("shows the empty-scope message when there are no postings at all", async () => {

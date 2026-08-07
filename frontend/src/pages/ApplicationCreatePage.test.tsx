@@ -52,8 +52,8 @@ const JOB_POSTING: JobPostingRead = {
   is_active: true,
   position_title: "Assistant Professor",
   department_id: "d-cse",
-  available_count: 2,
-  required_count: 2,
+  requested_count: 2,
+  available_count: 0,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };

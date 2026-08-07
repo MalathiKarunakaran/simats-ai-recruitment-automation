@@ -25,15 +25,18 @@ def test_list_job_postings_includes_position_and_department(client, published_va
     posting = next(p for p in response.json()["items"] if p["id"] == str(vacancy.job_posting.id))
     assert posting["position_title"] == vacancy.vacancy_request.position_title
     assert posting["department_id"] == str(vacancy.department.id)
-    assert posting["required_count"] == 2
-    assert posting["available_count"] == 2
+    # Before anyone's joined: both slots still needed, none filled yet.
+    assert posting["requested_count"] == 2
+    assert posting["available_count"] == 0
 
 
-def test_available_count_excludes_filled_but_includes_reserved(
+def test_available_count_only_counts_filled_not_reserved(
     client, published_vacancy_factory, candidate_factory
 ):
-    # Available = OPEN + RESERVED, only FILLED (an actual join) reduces it --
-    # a candidate merely SELECTED (mid offer/joining) hasn't locked the seat.
+    # available_count (already filled/staffed) only counts FILLED slots -- a
+    # candidate merely SELECTED (mid offer/joining, RESERVED) hasn't joined
+    # yet, so still counts toward requested_count (still needed), not
+    # available_count, until they actually reach JOINED.
     vacancy = published_vacancy_factory(slot_count=3)
 
     selected_app = _create_application(client, vacancy, candidate_factory()).json()
@@ -55,6 +58,7 @@ def test_available_count_excludes_filled_but_includes_reserved(
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["required_count"] == 3
-    # 1 slot still OPEN + 1 RESERVED (selected_app) = 2 available; the 3rd is FILLED.
-    assert body["available_count"] == 2
+    # 1 slot still OPEN + 1 RESERVED (selected_app) = 2 still requested/needed;
+    # the 3rd (joined_app) is FILLED, so 1 is now available/staffed.
+    assert body["requested_count"] == 2
+    assert body["available_count"] == 1
