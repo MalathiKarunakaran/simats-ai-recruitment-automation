@@ -76,17 +76,51 @@ function renderPage() {
 }
 
 describe("DepartmentsPage", () => {
-  it("lists departments with campus, code, category, and active status", async () => {
+  it("lists active departments with campus, code, and category", async () => {
     mockUser("HR_ADMIN");
     mockedListCampuses.mockResolvedValue([SSE, SCLAS]);
-    mockedListDepartments.mockResolvedValue([CSE, HR_OFFICE]);
+    mockedListDepartments.mockResolvedValue([CSE]);
 
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
-    expect(screen.getByText("HR OFFICE")).toBeInTheDocument();
+    expect(screen.getByText("SSE")).toBeInTheDocument();
+    expect(screen.getByText("CSE")).toBeInTheDocument();
     expect(screen.getAllByText("Active").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Inactive").length).toBeGreaterThan(0);
+  });
+
+  it("hides inactive departments by default, reachable via the Active filter", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartments.mockResolvedValue([CSE, HR_OFFICE]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+    expect(screen.queryByText("HR OFFICE")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Active filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Inactive" }));
+
+    expect(await screen.findByText("HR OFFICE")).toBeInTheDocument();
+    expect(screen.queryByText("Computer Science and Engineering")).not.toBeInTheDocument();
+  });
+
+  it("segregates departments into Teaching/Non-Teaching/Housekeeping tabs", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartments.mockResolvedValue([CSE, { ...HR_OFFICE, is_active: true }]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+    expect(screen.getByText("HR OFFICE")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Teaching" }));
+    expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument();
+    expect(screen.queryByText("HR OFFICE")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Non-Teaching" }));
+    expect(screen.getByText("HR OFFICE")).toBeInTheDocument();
+    expect(screen.queryByText("Computer Science and Engineering")).not.toBeInTheDocument();
   });
 
   it("hides New department and Edit for a role without DEPARTMENT_MANAGEMENT_ROLES", async () => {

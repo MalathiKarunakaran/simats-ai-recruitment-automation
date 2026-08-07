@@ -20,9 +20,20 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs } from "@/components/ui/tabs";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 const CATEGORIES: StaffRoleCategory[] = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
+
+// Segregated by employee type, not a flat list -- same Tabs pattern
+// VacancyRequestsListPage already uses for the same 3-category split.
+// "ALL" additionally includes departments with no category set yet.
+const CATEGORY_TABS: { value: StaffRoleCategory | "ALL"; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "TEACHING", label: "Teaching" },
+  { value: "NON_TEACHING", label: "Non-Teaching" },
+  { value: "HOUSEKEEPING", label: "Housekeeping" },
+];
 
 interface FormState {
   campusId: string;
@@ -45,8 +56,11 @@ export function DepartmentsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
-  const [categoryFilter, setCategoryFilter] = useState<StaffRoleCategory | "ALL">("ALL");
-  const [activeFilter, setActiveFilter] = useState<"ALL" | "true" | "false">("ALL");
+  const [categoryTab, setCategoryTab] = useState<StaffRoleCategory | "ALL">("ALL");
+  // Defaults to Active-only -- inactive/leftover departments shouldn't
+  // clutter the list while real data is still being entered; still
+  // reachable via this filter, just not shown by default.
+  const [activeFilter, setActiveFilter] = useState<"ALL" | "true" | "false">("true");
   const [search, setSearch] = useState("");
 
   const { data: departments, isLoading } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
@@ -57,10 +71,10 @@ export function DepartmentsPage() {
   const campusById = new Map((campuses ?? []).map((c) => [c.id, c]));
 
   const filtersActive =
-    campusFilter !== "ALL" || categoryFilter !== "ALL" || activeFilter !== "ALL" || search.trim() !== "";
+    campusFilter !== "ALL" || categoryTab !== "ALL" || activeFilter !== "true" || search.trim() !== "";
   const visibleDepartments = (departments ?? [])
     .filter((d) => campusFilter === "ALL" || d.campus_id === campusFilter)
-    .filter((d) => categoryFilter === "ALL" || d.category === categoryFilter)
+    .filter((d) => categoryTab === "ALL" || d.category === categoryTab)
     .filter((d) => activeFilter === "ALL" || (activeFilter === "true" ? d.is_active : !d.is_active))
     .filter((d) => d.name.toLowerCase().includes(search.trim().toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -259,6 +273,8 @@ export function DepartmentsPage() {
         }
       />
 
+      <Tabs value={categoryTab} onValueChange={setCategoryTab} tabs={CATEGORY_TABS} />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           value={search}
@@ -276,19 +292,6 @@ export function DepartmentsPage() {
             {(campuses ?? []).map((campus) => (
               <SelectItem key={campus.id} value={campus.id}>
                 {campus.code}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as StaffRoleCategory | "ALL")}>
-          <SelectTrigger aria-label="Category filter" className="sm:w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All categories</SelectItem>
-            {CATEGORIES.map((category) => (
-              <SelectItem key={category} value={category}>
-                {category.replace(/_/g, " ")}
               </SelectItem>
             ))}
           </SelectContent>
