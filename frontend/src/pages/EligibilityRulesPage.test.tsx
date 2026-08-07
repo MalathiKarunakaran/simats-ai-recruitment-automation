@@ -118,6 +118,70 @@ describe("EligibilityRulesPage", () => {
     await waitFor(() => expect(screen.getByText("No eligibility rules found.")).toBeInTheDocument());
   });
 
+  it("hides inactive rules by default, reachable via the Active filter", async () => {
+    mockUser("HR_ADMIN");
+    const inactiveRule: EligibilityRule = {
+      ...RULE,
+      id: "rule-2",
+      is_active: false,
+      required_qualification_keyword: "MASTERS",
+    };
+    mockedListEligibilityRules.mockResolvedValue([RULE, inactiveRule]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("PHD")).toBeInTheDocument());
+    expect(screen.queryByText("MASTERS")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Active filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Inactive" }));
+
+    expect(await screen.findByText("MASTERS")).toBeInTheDocument();
+    expect(screen.queryByText("PHD")).not.toBeInTheDocument();
+  });
+
+  it("narrows by campus and by staff category", async () => {
+    mockUser("HR_ADMIN");
+    const otherCampus: CampusRead = { ...CAMPUS, id: "c-sclas", code: "SCLAS", name: "SCLAS" };
+    const nonTeachingRule: EligibilityRule = {
+      ...RULE,
+      id: "rule-2",
+      campus_id: "c-sclas",
+      staff_category: "NON_TEACHING",
+      required_qualification_keyword: "MASTERS",
+    };
+    mockedListEligibilityRules.mockResolvedValue([RULE, nonTeachingRule]);
+    mockedListCampuses.mockResolvedValue([CAMPUS, otherCampus]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("PHD")).toBeInTheDocument());
+    expect(screen.getByText("MASTERS")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SCLAS" }));
+    expect(screen.queryByText("PHD")).not.toBeInTheDocument();
+    expect(screen.getByText("MASTERS")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "All campuses" }));
+    await userEvent.click(screen.getByRole("combobox", { name: "Category filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "TEACHING" }));
+    expect(screen.getByText("PHD")).toBeInTheDocument();
+    expect(screen.queryByText("MASTERS")).not.toBeInTheDocument();
+  });
+
+  it("distinguishes 'no rules at all' from 'filters narrowed to zero'", async () => {
+    mockUser("HR_ADMIN");
+    mockedListEligibilityRules.mockResolvedValue([RULE]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("PHD")).toBeInTheDocument());
+
+    await userEvent.type(screen.getByPlaceholderText("Search position, keyword, or notes"), "no such keyword");
+    expect(await screen.findByText("No eligibility rules match these filters.")).toBeInTheDocument();
+  });
+
   it("submits a new rule with the entered fields", async () => {
     mockUser("SUPER_ADMIN");
     mockedListEligibilityRules.mockResolvedValue([]);

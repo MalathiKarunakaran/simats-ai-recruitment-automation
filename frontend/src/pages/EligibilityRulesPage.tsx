@@ -49,10 +49,31 @@ export function EligibilityRulesPage() {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const [campusFilter, setCampusFilter] = useState<string>("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<StaffRoleCategory | "ALL">("ALL");
+  // Defaults to Active-only, same as Departments/Users -- a handful of
+  // deactivated rules (e.g. the retired Admission Officer keyword) shouldn't
+  // clutter the default view; still reachable via this filter.
+  const [activeFilter, setActiveFilter] = useState<"ALL" | "true" | "false">("true");
+  const [search, setSearch] = useState("");
+
   const { data: rules, isLoading } = useQuery({ queryKey: ["eligibility-rules"], queryFn: listEligibilityRules });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
 
   const canManage = Boolean(user && ELIGIBILITY_RULE_MANAGEMENT_ROLES.includes(user.role));
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredRules = rules?.filter((rule) => {
+    if (campusFilter !== "ALL" && rule.campus_id !== campusFilter) return false;
+    if (categoryFilter !== "ALL" && rule.staff_category !== categoryFilter) return false;
+    if (activeFilter !== "ALL" && rule.is_active !== (activeFilter === "true")) return false;
+    if (!normalizedSearch) return true;
+    return (
+      rule.required_qualification_keyword.toLowerCase().includes(normalizedSearch) ||
+      (rule.position_title?.toLowerCase().includes(normalizedSearch) ?? false) ||
+      (rule.notes?.toLowerCase().includes(normalizedSearch) ?? false)
+    );
+  });
 
   function afterSave() {
     setError(null);
@@ -237,10 +258,57 @@ export function EligibilityRulesPage() {
 
       {error && !dialogOpen ? <p className="text-sm text-destructive">{error}</p> : null}
 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search position, keyword, or notes"
+          className="sm:w-64"
+        />
+        <Select value={campusFilter} onValueChange={setCampusFilter}>
+          <SelectTrigger aria-label="Campus filter" className="sm:w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All campuses</SelectItem>
+            {campuses?.map((campus) => (
+              <SelectItem key={campus.id} value={campus.id}>
+                {campus.code}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as StaffRoleCategory | "ALL")}>
+          <SelectTrigger aria-label="Category filter" className="sm:w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All categories</SelectItem>
+            {STAFF_CATEGORIES.map((category) => (
+              <SelectItem key={category} value={category}>
+                {category.replace(/_/g, " ")}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={activeFilter} onValueChange={(v) => setActiveFilter(v as "ALL" | "true" | "false")}>
+          <SelectTrigger aria-label="Active filter" className="sm:w-40">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All statuses</SelectItem>
+            <SelectItem value="true">Active</SelectItem>
+            <SelectItem value="false">Inactive</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !rules || rules.length === 0 ? (
         <p className="text-sm text-muted-foreground">No eligibility rules found.</p>
+      ) : !filteredRules || filteredRules.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No eligibility rules match these filters.</p>
       ) : (
         <table className="w-full text-sm">
           <thead>
@@ -255,7 +323,7 @@ export function EligibilityRulesPage() {
             </tr>
           </thead>
           <tbody>
-            {rules.map((rule) => {
+            {filteredRules.map((rule) => {
               const campus = campuses?.find((c) => c.id === rule.campus_id);
               return (
                 <tr key={rule.id} className="border-b border-border last:border-0 hover:bg-accent/50">
