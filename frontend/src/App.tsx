@@ -34,6 +34,7 @@ import { UserDetailPage } from "@/pages/UserDetailPage";
 import { UsersListPage } from "@/pages/UsersListPage";
 import { VacancyApprovalsPage } from "@/pages/VacancyApprovalsPage";
 import { VacancyImportPage } from "@/pages/VacancyImportPage";
+import { VacancyRegisterPage } from "@/pages/VacancyRegisterPage";
 import { VacancyRequestCreatePage } from "@/pages/VacancyRequestCreatePage";
 import { VacancyRequestDetailPage } from "@/pages/VacancyRequestDetailPage";
 import { VacancyRequestEditPage } from "@/pages/VacancyRequestEditPage";
@@ -49,6 +50,9 @@ export function App() {
           <Route path="/vacancy-requests" element={<VacancyRequestsListPage />} />
           <Route path="/vacancy-approvals" element={<VacancyApprovalsPage />} />
           <Route path="/vacancy-requests/import" element={<VacancyImportPage />} />
+          {/* Wired into the sidebar nav (Administration group) as
+              "Vacancy Register" -- see AppShell.tsx's NAV_GROUPS. */}
+          <Route path="/vacancy-requests/register" element={<VacancyRegisterPage />} />
           <Route path="/vacancy-requests/new" element={<VacancyRequestCreatePage />} />
           <Route path="/vacancy-requests/:id" element={<VacancyRequestDetailPage />} />
           <Route path="/vacancy-requests/:id/edit" element={<VacancyRequestEditPage />} />

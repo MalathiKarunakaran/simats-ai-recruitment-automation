@@ -10,6 +10,10 @@ const badgeVariants = cva("inline-flex items-center rounded-full border px-2.5 p
       outline: "border-brand-plum/40 bg-brand-plum/5 text-brand-plum dark:border-brand-plum/50 dark:text-brand-plum-bright",
       success: "border-transparent bg-brand-success/15 text-brand-success dark:bg-brand-success/20 dark:text-[#7bd987]",
       warning: "border-transparent bg-brand-warning/15 text-brand-warning dark:bg-brand-warning/20 dark:text-[#ffcc80]",
+      // A genuinely distinct yellow from `warning`'s orange -- used for
+      // "Approval Pending" on the Vacancy Register (see index.css's
+      // --brand-caution token comment).
+      caution: "border-transparent bg-brand-caution/15 text-brand-caution dark:bg-brand-caution/20 dark:text-[#fde047]",
       destructive: "border-transparent bg-destructive text-destructive-foreground",
       info: "border-transparent bg-brand-info/15 text-brand-info dark:bg-brand-info/20 dark:text-[#93c5fd]",
     },

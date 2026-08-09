@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  ClipboardList,
   Contact,
   FileCheck,
   History,
@@ -152,6 +153,14 @@ const NAV_GROUPS: NavGroup[] = [
         // check DEPARTMENT_MANAGEMENT_ROLES (SUPER_ADMIN/HR_ADMIN). Replaces
         // the inline Campus/Department cards that used to live in Settings
         // -- now standalone pages, same as Designations always was.
+      },
+      {
+        to: "/vacancy-requests/register",
+        label: "Vacancy Register",
+        icon: ClipboardList,
+        // Mirrors vacancy_register.py's own read gate (_staff_only) -- broad
+        // read, same pattern as Eligibility Rules/Designations/Campuses/
+        // Departments above.
       },
       {
         to: "/activity-log",

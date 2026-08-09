@@ -14,6 +14,15 @@
   --brand-secondary: #14b8a6;
   --brand-success: #10b981;
   --brand-warning: #f59e0b;
+  /* Yellow-500 -- a genuinely distinct hue from --brand-warning's orange,
+     for the Vacancy Register's "Approval Pending" badge (badge.tsx's
+     `caution` variant), which needs to read as neither "success" nor the
+     already-used "warning" orange. Defined once (no separate `.dark`
+     override), matching --brand-success/-warning/-danger/-info's existing
+     pattern -- dark-mode legibility for badges comes from Tailwind's
+     `dark:bg-*/20 dark:text-[...]` utility overrides directly in badge.tsx,
+     not from the CSS variable itself changing. */
+  --brand-caution: #eab308;
   --brand-danger: #ef4444;
   --brand-info: #3b82f6;
   /* Kept for the outline-badge/tag accent introduced in the prior pass --
@@ -129,6 +138,7 @@
   --color-brand-secondary: var(--brand-secondary);
   --color-brand-success: var(--brand-success);
   --color-brand-warning: var(--brand-warning);
+  --color-brand-caution: var(--brand-caution);
   --color-brand-danger: var(--brand-danger);
   --color-brand-info: var(--brand-info);
   --color-brand-plum: var(--brand-plum);

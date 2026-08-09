@@ -999,3 +999,44 @@ export interface WeeklyRecruitmentStatusResponse {
   teaching_rows: WeeklyStatusRow[];
   non_teaching_rows: WeeklyStatusRow[];
 }
+
+// Mirrors app/services/vacancy_register.py's derived recruitment_status
+// values (staffing headcount vs. sanctioned strength) -- distinct from
+// ApprovalStatus below, which tracks the *request* approval chain, not
+// staffing levels.
+export type RecruitmentStatus = "FULLY_STAFFED" | "VACANCY_EXISTS" | "OVERSTAFFED" | "NO_ACTIVITY";
+
+// Mirrors app/services/vacancy_register.py's derived approval_status values.
+export type ApprovalStatus = "APPROVAL_PENDING" | "REJECTED" | "APPROVED" | "NO_REQUESTS";
+
+// Mirrors app/schemas/vacancy_register.py::VacancyRegisterRow. A
+// department-level aggregate row (Phase 3 "Vacancy Register" table) -- most
+// fields are computed, not literal columns; see that schema's docstring.
+export interface VacancyRegisterRow {
+  department_id: string;
+  department_name: string;
+  department_code: string | null;
+  category: StaffRoleCategory | null;
+  is_active: boolean;
+  campus_id: string;
+  campus_code: string;
+
+  working_count: number;
+  vacancy_count: number;
+  approved_count: number;
+  filled_pct: number | null;
+
+  requested_count: number;
+  approved_request_count: number;
+  jd_posted_count: number;
+  interviews_count: number;
+  offers_count: number;
+  joined_count: number;
+
+  recruitment_status: RecruitmentStatus;
+  approval_status: ApprovalStatus;
+
+  last_join: string | null;
+  last_resignation: string | null;
+  last_updated: string;
+}
