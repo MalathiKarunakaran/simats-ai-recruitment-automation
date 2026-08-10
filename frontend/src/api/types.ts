@@ -152,6 +152,19 @@ export interface SourceBreakdownRow {
   count: number;
 }
 
+// One row per StaffRoleCategoryEnum value, always exactly 3 (TEACHING/
+// NON_TEACHING/HOUSEKEEPING, zero-filled not omitted). Deliberately ignores
+// the /dashboard/kpis endpoint's own role_category query param -- see
+// app/services/reporting.py::get_dashboard_kpis's module docstring -- so this
+// array is the same regardless of what role_category the rest of the
+// response is scoped to.
+export interface CategoryBreakdownRow {
+  role_category: StaffRoleCategory;
+  applications: number;
+  open_positions: number;
+  hires: number;
+}
+
 export interface DashboardKpis {
   scope_note: string;
   total_applications: number;
@@ -160,6 +173,7 @@ export interface DashboardKpis {
   joinings_today: number;
   offers_pending: number;
   campus_wise_hiring: CampusHiringRow[];
+  category_wise_breakdown: CategoryBreakdownRow[];
   average_time_to_hire_days: number | null;
   // null when there's no APPROVED-or-beyond vacancy request in scope to
   // compute a rate from -- rendered as "Not enough data yet", not 0%.

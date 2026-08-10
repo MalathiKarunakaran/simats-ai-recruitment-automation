@@ -12,6 +12,13 @@ class DashboardKPIResponse(BaseModel):
     joinings_today: int
     offers_pending: int
     campus_wise_hiring: list[dict[str, Any]]
+    # One row per StaffRoleCategoryEnum value (always exactly 3), regardless
+    # of this response's own role_category filter -- see the docstring in
+    # app/services/reporting.py::get_dashboard_kpis for why this field is
+    # deliberately never narrowed by that param, unlike every other field
+    # here. Replaces the frontend's old workaround of calling this endpoint
+    # 3x (once per role_category) and only reading total_applications.
+    category_wise_breakdown: list[dict[str, Any]]
     average_time_to_hire_days: float | None
     # None (not 0.0) when there's no APPROVED-or-beyond vacancy request in
     # scope to compute a rate from -- 0.0 would misleadingly read as "zero
