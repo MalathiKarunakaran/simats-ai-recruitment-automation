@@ -1055,9 +1055,29 @@ export interface VacancyRegisterRow {
   joined_count: number;
 
   recruitment_status: RecruitmentStatus;
+  // Phase B (zany-snuggling-pie.md): count of VacancyRequests currently "in
+  // flight" (SUBMITTED/DEAN_APPROVED/APPROVED/PUBLISHED) for this
+  // department -- an adjacent figure, not literally "how many requests
+  // caused this status".
+  recruitment_status_request_count: number;
   approval_status: ApprovalStatus;
+  // Phase B: count of the VacancyRequests that produced whichever
+  // approval_status branch was chosen.
+  approval_status_request_count: number;
 
   last_join: string | null;
   last_resignation: string | null;
   last_updated: string;
+}
+
+// Mirrors app/schemas/sanctioned_strength.py::DepartmentDesignationBreakdownRow
+// -- one row per designation linked to a department, fetched only when that
+// department's row is expanded on the Sanctioned Strength page (see
+// api/sanctionedStrength.ts::getDepartmentSanctionedStrengthBreakdown).
+export interface DepartmentDesignationBreakdownRow {
+  designation_id: string;
+  designation_name: string;
+  approved: number;
+  working: number;
+  vacancy: number;
 }

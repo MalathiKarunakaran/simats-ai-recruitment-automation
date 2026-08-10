@@ -27,6 +27,7 @@ import { OfferDetailPage } from "@/pages/OfferDetailPage";
 import { OffersListPage } from "@/pages/OffersListPage";
 import { OnboardingListPage } from "@/pages/OnboardingListPage";
 import { ReportsPage } from "@/pages/ReportsPage";
+import { SanctionedStrengthPage } from "@/pages/SanctionedStrengthPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TrackerImportPage } from "@/pages/TrackerImportPage";
 import { UserCreatePage } from "@/pages/UserCreatePage";
@@ -34,7 +35,6 @@ import { UserDetailPage } from "@/pages/UserDetailPage";
 import { UsersListPage } from "@/pages/UsersListPage";
 import { VacancyApprovalsPage } from "@/pages/VacancyApprovalsPage";
 import { VacancyImportPage } from "@/pages/VacancyImportPage";
-import { VacancyRegisterPage } from "@/pages/VacancyRegisterPage";
 import { VacancyRequestCreatePage } from "@/pages/VacancyRequestCreatePage";
 import { VacancyRequestDetailPage } from "@/pages/VacancyRequestDetailPage";
 import { VacancyRequestEditPage } from "@/pages/VacancyRequestEditPage";
@@ -50,9 +50,12 @@ export function App() {
           <Route path="/vacancy-requests" element={<VacancyRequestsListPage />} />
           <Route path="/vacancy-approvals" element={<VacancyApprovalsPage />} />
           <Route path="/vacancy-requests/import" element={<VacancyImportPage />} />
-          {/* Wired into the sidebar nav (Administration group) as
-              "Vacancy Register" -- see AppShell.tsx's NAV_GROUPS. */}
-          <Route path="/vacancy-requests/register" element={<VacancyRegisterPage />} />
+          {/* Wired into the sidebar nav (top of the Recruitment group) as
+              "Sanctioned Strength" -- see AppShell.tsx's NAV_GROUPS. Renamed
+              from "Vacancy Register" (zany-snuggling-pie.md Phase C) -- the
+              old path below now redirects here rather than being removed. */}
+          <Route path="/sanctioned-strength" element={<SanctionedStrengthPage />} />
+          <Route path="/vacancy-requests/register" element={<Navigate to="/sanctioned-strength" replace />} />
           <Route path="/vacancy-requests/new" element={<VacancyRequestCreatePage />} />
           <Route path="/vacancy-requests/:id" element={<VacancyRequestDetailPage />} />
           <Route path="/vacancy-requests/:id/edit" element={<VacancyRequestEditPage />} />

@@ -1,11 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { Fragment, useState } from "react";
 
 import { listCampuses } from "@/api/campuses";
 import { ApiError } from "@/api/client";
+import {
+  getDepartmentSanctionedStrengthBreakdown,
+  listSanctionedStrengthRegister,
+  type SanctionedStrengthSortBy,
+  type SortDirection,
+} from "@/api/sanctionedStrength";
 import { GLOBAL_SCOPE_ROLES, type ApprovalStatus, type RecruitmentStatus } from "@/api/types";
-import { listVacancyRegister, type SortDirection, type VacancyRegisterSortBy } from "@/api/vacancyRegister";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -27,9 +32,10 @@ interface ColumnDef {
   // Only sortable columns carry a sort_by value -- the two status columns
   // aren't in the backend's SORT_FIELDS, so they render as plain (non-
   // clickable) headers.
-  sortBy?: VacancyRegisterSortBy;
+  sortBy?: SanctionedStrengthSortBy;
 }
 
+// +1 for the leading expand/chevron column, which carries no header label.
 const COLUMNS: ColumnDef[] = [
   { key: "department_name", label: "Department", sortBy: "department_name" },
   { key: "category", label: "Category", sortBy: "category" },
@@ -43,6 +49,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "last_resignation", label: "Last Resignation", sortBy: "last_resignation" },
   { key: "last_updated", label: "Last Updated", sortBy: "last_updated" },
 ];
+const TOTAL_COLUMN_COUNT = COLUMNS.length + 1;
 
 const RECRUITMENT_STATUS_DISPLAY: Record<RecruitmentStatus, { label: string; variant: BadgeProps["variant"] }> = {
   FULLY_STAFFED: { label: "Fully Staffed", variant: "success" },
@@ -62,10 +69,57 @@ function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : "—";
 }
 
-export function VacancyRegisterPage() {
+// Nested breakdown table for one expanded department row -- only mounted
+// (and so only fetched) while that department is expanded; collapsing
+// unmounts it rather than merely hiding it, so re-expanding the same
+// department later fires a fresh fetch (React Query's cache still saves a
+// round trip within its default staleTime).
+function DepartmentBreakdownRow({ departmentId }: { departmentId: string }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["sanctioned-strength-breakdown", departmentId],
+    queryFn: () => getDepartmentSanctionedStrengthBreakdown(departmentId),
+  });
+
+  return (
+    <tr className="bg-muted/40">
+      <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-3">
+        {isLoading ? (
+          <p className="px-3 py-2 text-sm text-muted-foreground">Loading designation breakdown…</p>
+        ) : isError ? (
+          <p className="px-3 py-2 text-sm text-destructive">Failed to load the designation breakdown.</p>
+        ) : !data || data.length === 0 ? (
+          <p className="px-3 py-2 text-sm text-muted-foreground">No designations linked to this department.</p>
+        ) : (
+          <table className="w-full max-w-2xl text-sm">
+            <thead>
+              <tr className="text-left text-muted-foreground">
+                <th className="px-3 py-1.5 text-table-header font-medium">Designation</th>
+                <th className="px-3 py-1.5 text-table-header font-medium">Approved</th>
+                <th className="px-3 py-1.5 text-table-header font-medium">Working</th>
+                <th className="px-3 py-1.5 text-table-header font-medium">Vacancy</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {data.map((row) => (
+                <tr key={row.designation_id}>
+                  <td className="px-3 py-1.5">{row.designation_name}</td>
+                  <td className="px-3 py-1.5 tabular-nums">{row.approved}</td>
+                  <td className="px-3 py-1.5 tabular-nums">{row.working}</td>
+                  <td className="px-3 py-1.5 tabular-nums">{row.vacancy}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+export function SanctionedStrengthPage() {
   const { user } = useAuth();
   const [page, setPage] = useState(0);
-  const [sortBy, setSortBy] = useState<VacancyRegisterSortBy>("department_name");
+  const [sortBy, setSortBy] = useState<SanctionedStrengthSortBy>("department_name");
   const [sortDir, setSortDir] = useState<SortDirection>("asc");
 
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
@@ -87,6 +141,10 @@ export function VacancyRegisterPage() {
   // etc.), so committing on every keystroke would fire a request per key.
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  // Which department rows currently show their designation-level breakdown
+  // -- a plain id set, not a single "expandedId" like VacancyRequestsListPage
+  // (there's no accordion-per-group nesting here to also collapse).
+  const [expandedDepartmentIds, setExpandedDepartmentIds] = useState<Set<string>>(new Set());
 
   // A single-campus role's campus_code is always ignored server-side (see
   // resolve_campus_filter) -- only global-scope roles get a working filter.
@@ -95,7 +153,7 @@ export function VacancyRegisterPage() {
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: [
-      "vacancy-register",
+      "sanctioned-strength-register",
       page,
       sortBy,
       sortDir,
@@ -107,7 +165,7 @@ export function VacancyRegisterPage() {
       search,
     ],
     queryFn: () =>
-      listVacancyRegister({
+      listSanctionedStrengthRegister({
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
         sort_by: sortBy,
@@ -137,6 +195,15 @@ export function VacancyRegisterPage() {
     setPage(0);
   }
 
+  function toggleExpandedDepartment(departmentId: string) {
+    setExpandedDepartmentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(departmentId)) next.delete(departmentId);
+      else next.add(departmentId);
+      return next;
+    });
+  }
+
   const hasAnyFilter =
     campusFilter !== "ALL" ||
     categoryFilter !== "ALL" ||
@@ -155,8 +222,8 @@ export function VacancyRegisterPage() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="Vacancy Register"
-        description="Department-level staffing and vacancy overview."
+        title="Sanctioned Strength"
+        description="Sanctioned vs working strength per department. This defines how many posts may be requested."
       />
 
       <CategoryTabs
@@ -251,6 +318,8 @@ export function VacancyRegisterPage() {
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-muted">
             <tr className="text-left text-muted-foreground">
+              {/* Leading, unlabeled expand/chevron column. */}
+              <th className="w-8 px-3 py-2" aria-hidden="true" />
               {COLUMNS.map((column) => {
                 const isSorted = column.sortBy && sortBy === column.sortBy;
                 const ariaSort: "ascending" | "descending" | "none" = isSorted
@@ -295,19 +364,19 @@ export function VacancyRegisterPage() {
           <tbody className="divide-y divide-border">
             {isLoading ? (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-4 text-sm text-muted-foreground">
+                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             ) : isError ? (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-4 text-sm text-destructive">
-                  {error instanceof ApiError ? error.message : "Failed to load the vacancy register."}
+                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-destructive">
+                  {error instanceof ApiError ? error.message : "Failed to load sanctioned strength."}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-4 text-sm text-muted-foreground">
+                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
                   {hasAnyFilter ? "No departments match these filters." : "No departments found."}
                 </td>
               </tr>
@@ -315,39 +384,62 @@ export function VacancyRegisterPage() {
               rows.map((row) => {
                 const recruitmentDisplay = RECRUITMENT_STATUS_DISPLAY[row.recruitment_status];
                 const approvalDisplay = APPROVAL_STATUS_DISPLAY[row.approval_status];
+                const isExpanded = expandedDepartmentIds.has(row.department_id);
                 return (
-                  <tr key={row.department_id} className="transition-colors hover:bg-accent/50">
-                    <td className="px-3 py-2 font-medium">
-                      <div className="flex items-center gap-2">
-                        {row.department_name}
-                        {!row.is_active ? <Badge variant="destructive">Inactive</Badge> : null}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">{row.category ? row.category.replace(/_/g, " ") : "—"}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.approved_count}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.working_count}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.vacancy_count}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-col gap-1">
-                        <span className="tabular-nums">{row.filled_pct !== null ? `${row.filled_pct}%` : "—"}</span>
-                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="h-full rounded-full bg-primary transition-[width] duration-300"
-                            style={{ width: `${Math.min(row.filled_pct ?? 0, 100)}%` }}
-                          />
+                  <Fragment key={row.department_id}>
+                    <tr className="transition-colors hover:bg-accent/50">
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpandedDepartment(row.department_id)}
+                          aria-expanded={isExpanded}
+                          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.department_name} designation breakdown`}
+                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                          )}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 font-medium">
+                        <button
+                          type="button"
+                          onClick={() => toggleExpandedDepartment(row.department_id)}
+                          className="flex items-center gap-2 text-left"
+                        >
+                          {row.department_name}
+                          {!row.is_active ? <Badge variant="destructive">Inactive</Badge> : null}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">{row.category ? row.category.replace(/_/g, " ") : "—"}</td>
+                      <td className="px-3 py-2 tabular-nums">{row.approved_count}</td>
+                      <td className="px-3 py-2 tabular-nums">{row.working_count}</td>
+                      <td className="px-3 py-2 tabular-nums">{row.vacancy_count}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-col gap-1">
+                          <span className="tabular-nums">{row.filled_pct !== null ? `${row.filled_pct}%` : "—"}</span>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full bg-primary transition-[width] duration-300"
+                              style={{ width: `${Math.min(row.filled_pct ?? 0, 100)}%` }}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Badge variant={recruitmentDisplay.variant}>{recruitmentDisplay.label}</Badge>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Badge variant={approvalDisplay.variant}>{approvalDisplay.label}</Badge>
-                    </td>
-                    <td className="px-3 py-2">{formatDate(row.last_join)}</td>
-                    <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
-                    <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
-                  </tr>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge variant={recruitmentDisplay.variant}>{recruitmentDisplay.label}</Badge>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge variant={approvalDisplay.variant}>{approvalDisplay.label}</Badge>
+                      </td>
+                      <td className="px-3 py-2">{formatDate(row.last_join)}</td>
+                      <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
+                      <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
+                    </tr>
+                    {isExpanded ? <DepartmentBreakdownRow departmentId={row.department_id} /> : null}
+                  </Fragment>
                 );
               })
             )}

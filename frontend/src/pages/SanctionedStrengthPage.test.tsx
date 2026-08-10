@@ -2,24 +2,25 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
 import { ApiError } from "@/api/client";
-import type { UserRead, UserRole, VacancyRegisterRow } from "@/api/types";
-import * as vacancyRegisterApi from "@/api/vacancyRegister";
-import type { VacancyRegisterListResponse } from "@/api/vacancyRegister";
+import * as sanctionedStrengthApi from "@/api/sanctionedStrength";
+import type { SanctionedStrengthListResponse } from "@/api/sanctionedStrength";
+import type { DepartmentDesignationBreakdownRow, UserRead, UserRole, VacancyRegisterRow } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
-import { VacancyRegisterPage } from "@/pages/VacancyRegisterPage";
+import { SanctionedStrengthPage } from "@/pages/SanctionedStrengthPage";
 
-vi.mock("@/api/vacancyRegister");
+vi.mock("@/api/sanctionedStrength");
 vi.mock("@/api/campuses");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
 });
 
-const mockedListVacancyRegister = vi.mocked(vacancyRegisterApi.listVacancyRegister);
+const mockedListSanctionedStrengthRegister = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthRegister);
+const mockedGetBreakdown = vi.mocked(sanctionedStrengthApi.getDepartmentSanctionedStrengthBreakdown);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 
@@ -42,7 +43,9 @@ const CSE_ROW: VacancyRegisterRow = {
   offers_count: 4,
   joined_count: 8,
   recruitment_status: "VACANCY_EXISTS",
+  recruitment_status_request_count: 2,
   approval_status: "APPROVED",
+  approval_status_request_count: 10,
   last_join: "2026-07-01",
   last_resignation: null,
   last_updated: "2026-08-01T10:00:00Z",
@@ -67,7 +70,9 @@ const MECH_ROW: VacancyRegisterRow = {
   offers_count: 0,
   joined_count: 0,
   recruitment_status: "NO_ACTIVITY",
+  recruitment_status_request_count: 0,
   approval_status: "NO_REQUESTS",
+  approval_status_request_count: 0,
   last_join: null,
   last_resignation: "2026-06-15",
   last_updated: "2026-07-15T09:00:00Z",
@@ -77,7 +82,7 @@ function paginated(
   items: VacancyRegisterRow[],
   total = items.length,
   categoryCounts?: Record<string, number>,
-): VacancyRegisterListResponse {
+): SanctionedStrengthListResponse {
   return {
     items,
     total,
@@ -115,17 +120,30 @@ function renderPage() {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <VacancyRegisterPage />
+        <SanctionedStrengthPage />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-describe("VacancyRegisterPage", () => {
+describe("SanctionedStrengthPage", () => {
+  it("renders the Sanctioned Strength title and subtitle", async () => {
+    mockAuth("HR_ADMIN");
+    mockCampuses();
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
+
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "Sanctioned Strength" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Sanctioned vs working strength per department. This defines how many posts may be requested."),
+    ).toBeInTheDocument();
+  });
+
   it("renders rows with column values and status badges for every enum value", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
 
     renderPage();
 
@@ -153,7 +171,7 @@ describe("VacancyRegisterPage", () => {
     const overstaffed: VacancyRegisterRow = { ...CSE_ROW, department_id: "d-b", recruitment_status: "OVERSTAFFED" };
     const pending: VacancyRegisterRow = { ...CSE_ROW, department_id: "d-c", approval_status: "APPROVAL_PENDING" };
     const rejected: VacancyRegisterRow = { ...CSE_ROW, department_id: "d-d", approval_status: "REJECTED" };
-    mockedListVacancyRegister.mockResolvedValue(paginated([fullyStaffed, overstaffed, pending, rejected]));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([fullyStaffed, overstaffed, pending, rejected]));
 
     renderPage();
 
@@ -166,7 +184,7 @@ describe("VacancyRegisterPage", () => {
   it("sorts by a clicked column ascending, then toggles to descending on a second click", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
@@ -177,7 +195,7 @@ describe("VacancyRegisterPage", () => {
     await userEvent.click(screen.getByRole("button", { name: /Approved/ }));
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
         expect.objectContaining({ sort_by: "approved_count", sort_dir: "asc", offset: 0 }),
       ),
     );
@@ -186,7 +204,7 @@ describe("VacancyRegisterPage", () => {
     await userEvent.click(screen.getByRole("button", { name: /Approved/ }));
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
         expect.objectContaining({ sort_by: "approved_count", sort_dir: "desc", offset: 0 }),
       ),
     );
@@ -196,7 +214,7 @@ describe("VacancyRegisterPage", () => {
   it("paginates with Previous/Next, calling the API with the right offset and disabling at the boundaries", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW], 120));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW], 120));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
@@ -210,21 +228,21 @@ describe("VacancyRegisterPage", () => {
     await userEvent.click(nextButton);
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
     );
     await waitFor(() => expect(previousButton).not.toBeDisabled());
 
     await userEvent.click(previousButton);
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 })),
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 })),
     );
   });
 
   it("disables Next on the last page", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW], 2));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW], 2));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
@@ -236,7 +254,7 @@ describe("VacancyRegisterPage", () => {
   it("shows a loading state", () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockReturnValue(new Promise(() => {}));
+    mockedListSanctionedStrengthRegister.mockReturnValue(new Promise(() => {}));
 
     renderPage();
 
@@ -246,7 +264,7 @@ describe("VacancyRegisterPage", () => {
   it("shows a genuine 'no departments at all' empty state when no filters are active", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([]));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([]));
 
     renderPage();
 
@@ -256,12 +274,12 @@ describe("VacancyRegisterPage", () => {
   it("shows a filters-narrowed empty state (distinct wording) when a filter is active and the result is empty", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW]));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
-    mockedListVacancyRegister.mockResolvedValue(paginated([]));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([]));
     await userEvent.click(screen.getByRole("tab", { name: /^Housekeeping/ }));
 
     expect(await screen.findByText("No departments match these filters.")).toBeInTheDocument();
@@ -271,7 +289,7 @@ describe("VacancyRegisterPage", () => {
   it("surfaces an ApiError message on failure", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockRejectedValue(new ApiError(500, "Server exploded"));
+    mockedListSanctionedStrengthRegister.mockRejectedValue(new ApiError(500, "Server exploded"));
 
     renderPage();
 
@@ -281,7 +299,7 @@ describe("VacancyRegisterPage", () => {
   it("shows the campus filter for a global-scope role but hides it for a single-campus role", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW]));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
     const { unmount } = renderPage();
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Campus filter" })).toBeInTheDocument());
     unmount();
@@ -295,7 +313,7 @@ describe("VacancyRegisterPage", () => {
   it("re-fetches with campus_code and resets pagination to page 0 when the campus filter changes", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW], 120));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW], 120));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
@@ -303,14 +321,14 @@ describe("VacancyRegisterPage", () => {
     // Move off page 0 first so the reset-to-0 assertion is meaningful.
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
     );
 
     await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
     await userEvent.click(await screen.findByRole("option", { name: "SCAD" }));
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
         expect.objectContaining({ campus_code: "SCAD", offset: 0 }),
       ),
     );
@@ -319,20 +337,20 @@ describe("VacancyRegisterPage", () => {
   it("re-fetches with category and resets pagination to page 0 when the category filter changes", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW], 120));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW], 120));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
     );
 
     await userEvent.click(screen.getByRole("tab", { name: /^Non-Teaching/ }));
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
         expect.objectContaining({ category: "NON_TEACHING", offset: 0 }),
       ),
     );
@@ -341,21 +359,21 @@ describe("VacancyRegisterPage", () => {
   it("re-fetches with approval_status and resets pagination to page 0 when the approval status filter changes", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW], 120));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW], 120));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
     );
 
     await userEvent.click(screen.getByRole("combobox", { name: "Approval status filter" }));
     await userEvent.click(await screen.findByRole("option", { name: "Approval Pending" }));
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
         expect.objectContaining({ approval_status: "APPROVAL_PENDING", offset: 0 }),
       ),
     );
@@ -364,21 +382,21 @@ describe("VacancyRegisterPage", () => {
   it("re-fetches with recruitment_status and resets pagination to page 0 when the recruitment status filter changes", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW], 120));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW], 120));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
     );
 
     await userEvent.click(screen.getByRole("combobox", { name: "Recruitment status filter" }));
     await userEvent.click(await screen.findByRole("option", { name: "Fully Staffed" }));
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
         expect.objectContaining({ recruitment_status: "FULLY_STAFFED", offset: 0 }),
       ),
     );
@@ -387,27 +405,27 @@ describe("VacancyRegisterPage", () => {
   it("commits the search box on Enter, re-fetching with the typed text and resetting to page 0", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW], 120));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW], 120));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
     );
-    const callCountBeforeSearch = mockedListVacancyRegister.mock.calls.length;
+    const callCountBeforeSearch = mockedListSanctionedStrengthRegister.mock.calls.length;
 
     const searchBox = screen.getByRole("textbox", { name: "Search" });
     await userEvent.type(searchBox, "computer");
     // Not committed to the query yet -- only every keystroke updates the
     // input's own value, not the server-side search param.
-    expect(mockedListVacancyRegister).toHaveBeenCalledTimes(callCountBeforeSearch);
+    expect(mockedListSanctionedStrengthRegister).toHaveBeenCalledTimes(callCountBeforeSearch);
 
     await userEvent.keyboard("{Enter}");
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
         expect.objectContaining({ search: "computer", offset: 0 }),
       ),
     );
@@ -416,7 +434,7 @@ describe("VacancyRegisterPage", () => {
   it("commits the search box on blur, re-fetching with the typed text", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW]));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
@@ -426,40 +444,95 @@ describe("VacancyRegisterPage", () => {
     await userEvent.tab();
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ search: "mech" })),
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ search: "mech" })),
     );
   });
 
   it("defaults to Active-only, sending is_active: true on first load", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
-    mockedListVacancyRegister.mockResolvedValue(paginated([CSE_ROW]));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
-    expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ is_active: true }));
+    expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ is_active: true }));
   });
 
   it("shows an Inactive badge for a deactivated department and widens to All statuses on request", async () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
     const inactiveRow: VacancyRegisterRow = { ...MECH_ROW, is_active: false };
-    mockedListVacancyRegister.mockResolvedValue(paginated([inactiveRow], 120));
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([inactiveRow], 120));
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Mechanical Engineering")).toBeInTheDocument());
     expect(screen.getByText("Inactive")).toBeInTheDocument();
 
-    const callCountBeforeToggle = mockedListVacancyRegister.mock.calls.length;
+    const callCountBeforeToggle = mockedListSanctionedStrengthRegister.mock.calls.length;
     await userEvent.click(screen.getByRole("combobox", { name: "Active filter" }));
     await userEvent.click(await screen.findByRole("option", { name: "All statuses" }));
 
     await waitFor(() =>
-      expect(mockedListVacancyRegister.mock.calls.length).toBeGreaterThan(callCountBeforeToggle),
+      expect(mockedListSanctionedStrengthRegister.mock.calls.length).toBeGreaterThan(callCountBeforeToggle),
     );
-    expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(
+    expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
       expect.objectContaining({ is_active: null, offset: 0 }),
     );
+  });
+
+  describe("expandable department row", () => {
+    const BREAKDOWN_ROWS: DepartmentDesignationBreakdownRow[] = [
+      { designation_id: "des-1", designation_name: "Assistant Professor", approved: 10, working: 7, vacancy: 3 },
+      { designation_id: "des-2", designation_name: "Professor", approved: 4, working: 4, vacancy: 0 },
+    ];
+
+    // vi.mock() call histories aren't cleared automatically between tests
+    // (no clearMocks in vite.config.ts) -- these two tests assert exact call
+    // *counts* on mockedGetBreakdown (unlike the rest of this file, which
+    // only ever checks the *last* call), so a fresh count per test is
+    // required here specifically.
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("fetches and shows a department's breakdown only once expanded, and hides it again on collapse", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+      mockedGetBreakdown.mockResolvedValue(BREAKDOWN_ROWS);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+      // Not fetched (or rendered) before any row is expanded.
+      expect(mockedGetBreakdown).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole("button", { name: /Expand Computer Science/ }));
+
+      await waitFor(() => expect(mockedGetBreakdown).toHaveBeenCalledWith("d-cse"));
+      expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+      expect(screen.getByText("Professor")).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: /Collapse Computer Science/ }));
+
+      await waitFor(() => expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument());
+    });
+
+    it("only fetches the breakdown for the expanded department, not every department in the list", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+      mockedGetBreakdown.mockResolvedValue(BREAKDOWN_ROWS);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: /Expand Computer Science/ }));
+      await waitFor(() => expect(mockedGetBreakdown).toHaveBeenCalledTimes(1));
+
+      expect(mockedGetBreakdown).toHaveBeenCalledWith("d-cse");
+      expect(mockedGetBreakdown).not.toHaveBeenCalledWith("d-mech");
+    });
   });
 });

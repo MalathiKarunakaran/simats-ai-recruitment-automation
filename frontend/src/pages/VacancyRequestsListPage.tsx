@@ -304,7 +304,7 @@ export function VacancyRequestsListPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Vacancy Requests"
-        description="Track manpower demand by department and move requests through the approval chain."
+        description="Requests to fill sanctioned vacant posts. Track approval and publishing."
         actions={
           (canCreate || canImport) && (
             <Popover>
@@ -356,6 +356,14 @@ export function VacancyRequestsListPage() {
           )
         }
       />
+
+      <p className="-mt-3 text-sm text-muted-foreground">
+        Posts available to request come from{" "}
+        <Link to="/sanctioned-strength" className="font-medium text-primary underline-offset-2 hover:underline">
+          Sanctioned Strength
+        </Link>
+        .
+      </p>
 
       {/* Every VacancyRequestStatus gets its own tile below (see
           lib/vacancyRequestStats.ts) -- draft+pending+approved+published+
