@@ -245,6 +245,29 @@ DESIGNATION_WRITE_ROLES = {
     UserRoleEnum.RECRUITMENT_COORDINATOR,
 }
 
+# Sanctioned Strength write access (zany-snuggling-pie.md Phase A) -- the
+# permanent establishment record is editable only by these two roles, unlike
+# the broader VacancyRequest workflow roles above. Same shape as
+# app/api/v1/routers/departments.py's own _WRITE_ROLES.
+SANCTIONED_STRENGTH_WRITE_ROLES = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN)
+
+
+class SanctionedStrengthChangeSourceEnum(str, enum.Enum):
+    """How a SanctionedStrengthHistory row came to exist -- MANUAL for the
+    Phase B CRUD endpoints, BULK_UPLOAD for Phase F's upload commit (which
+    additionally stamps SanctionedStrengthHistory.bulk_upload_log_id)."""
+
+    MANUAL = "MANUAL"
+    BULK_UPLOAD = "BULK_UPLOAD"
+
+
+class BulkUploadStatusEnum(str, enum.Enum):
+    """Lifecycle of a single Sanctioned Strength bulk-upload batch (Phase F)
+    -- COMPLETED until/unless undone within the 24h window."""
+
+    COMPLETED = "COMPLETED"
+    UNDONE = "UNDONE"
+
 
 class CoordinatorCapabilityEnum(str, enum.Enum):
     """Per-user, Super-Admin-granted capabilities for RECRUITMENT_COORDINATOR

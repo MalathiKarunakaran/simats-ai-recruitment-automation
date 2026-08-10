@@ -34,6 +34,17 @@ class Employee(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     designation: Mapped[str] = mapped_column(String(150), nullable=False)
+    # Nullable, purely additive Designation Master reference alongside the
+    # existing free-text `designation` column above -- same "FK alongside
+    # free-text" precedent as VacancyRequest.designation_id. Backfilled by a
+    # case-insensitive exact-name match migration; left NULL where no match
+    # is found (e.g. free-text designation strings that don't exist in the
+    # Designation master). Needed for accurate designation-level Working
+    # counts in the Sanctioned Strength breakdown (zany-snuggling-pie.md
+    # Phase A/B).
+    designation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("designations.id", ondelete="SET NULL"), nullable=True
+    )
     date_of_joining: Mapped[date] = mapped_column(Date, nullable=False)
     # Future login-linkage hook (Module 5+) -- unused/nullable in Phase 2.
     user_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -58,6 +69,7 @@ class Employee(Base):
     application: Mapped["Application"] = relationship()
     campus: Mapped["Campus"] = relationship()
     department: Mapped["Department"] = relationship()
+    designation_ref: Mapped["Designation"] = relationship()
 
     def __repr__(self) -> str:
         return f"<Employee {self.employee_code}>"
