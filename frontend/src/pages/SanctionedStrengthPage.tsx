@@ -1,18 +1,31 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { listCampuses } from "@/api/campuses";
 import { ApiError } from "@/api/client";
 import {
+  createSanctionedStrength,
   getDepartmentSanctionedStrengthBreakdown,
   listSanctionedStrengthRegister,
+  updateSanctionedStrength,
   type SanctionedStrengthSortBy,
   type SortDirection,
 } from "@/api/sanctionedStrength";
-import { GLOBAL_SCOPE_ROLES, type ApprovalStatus, type RecruitmentStatus } from "@/api/types";
+import {
+  GLOBAL_SCOPE_ROLES,
+  SANCTIONED_STRENGTH_WRITE_ROLES,
+  type ApprovalStatus,
+  type DepartmentDesignationBreakdownRow,
+  type RecruitmentStatus,
+  type StaffRoleCategory,
+} from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { AddDesignationRow } from "@/components/sanctionedStrength/AddDesignationRow";
+import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
+import { InlineNumberCell } from "@/components/sanctionedStrength/InlineNumberCell";
+import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength/SanctionedStrengthHistoryDrawer";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,16 +82,129 @@ function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : "—";
 }
 
+// One designation's row within an expanded department's breakdown table --
+// split out from DepartmentBreakdownRow so each row can own its own
+// create/update mutation + inline "did this specific save fail" error state
+// (a plain .map() body can't call hooks per iteration).
+function DesignationRow({
+  row,
+  departmentId,
+  campusId,
+  canManage,
+}: {
+  row: DepartmentDesignationBreakdownRow;
+  departmentId: string;
+  campusId: string;
+  canManage: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  function invalidateAfterSave() {
+    void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-breakdown", departmentId] });
+    void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-register"] });
+  }
+
+  // No existing SanctionedStrength row yet for this designation -- the
+  // first non-empty save is a POST (item 1's "editable-to-create" case),
+  // every save after that is a PATCH against the now-known id.
+  const createMutation = useMutation({
+    mutationFn: (nextValue: number) =>
+      createSanctionedStrength({
+        campus_id: campusId,
+        department_id: departmentId,
+        designation_id: row.designation_id,
+        approved_strength: nextValue,
+        effective_from: new Date().toISOString().slice(0, 10),
+      }),
+    onSuccess: invalidateAfterSave,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, nextValue }: { id: string; nextValue: number }) =>
+      updateSanctionedStrength(id, { approved_strength: nextValue }),
+    onSuccess: invalidateAfterSave,
+  });
+
+  async function handleSave(nextValue: number): Promise<boolean> {
+    setSaveError(null);
+    try {
+      if (row.sanctioned_strength_id) {
+        await updateMutation.mutateAsync({ id: row.sanctioned_strength_id, nextValue });
+      } else {
+        await createMutation.mutateAsync(nextValue);
+      }
+      return true;
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : "Failed to save");
+      return false;
+    }
+  }
+
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  return (
+    <tr>
+      <td className="px-3 py-1.5">{row.designation_name}</td>
+      <td className="px-3 py-1.5">
+        <InlineNumberCell
+          value={row.approved}
+          onSave={handleSave}
+          readOnly={!canManage}
+          isSaving={isSaving}
+          saveError={saveError}
+          aria-label={`Approved for ${row.designation_name}`}
+        />
+      </td>
+      <td className="px-3 py-1.5 tabular-nums">{row.working}</td>
+      <td className="px-3 py-1.5 tabular-nums">{row.vacancy}</td>
+      <td className="px-3 py-1.5">
+        <div className="flex items-center gap-1.5">
+          {row.sanctioned_strength_id ? (
+            <>
+              <SanctionedStrengthHistoryDrawer
+                sanctionedStrengthId={row.sanctioned_strength_id}
+                designationName={row.designation_name}
+              />
+              {canManage ? (
+                <DeleteSanctionedStrengthDialog
+                  sanctionedStrengthId={row.sanctioned_strength_id}
+                  designationName={row.designation_name}
+                  departmentId={departmentId}
+                />
+              ) : null}
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">Not yet sanctioned</span>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 // Nested breakdown table for one expanded department row -- only mounted
 // (and so only fetched) while that department is expanded; collapsing
 // unmounts it rather than merely hiding it, so re-expanding the same
 // department later fires a fresh fetch (React Query's cache still saves a
 // round trip within its default staleTime).
-function DepartmentBreakdownRow({ departmentId }: { departmentId: string }) {
+function DepartmentBreakdownRow({
+  departmentId,
+  campusId,
+  category,
+  canManage,
+}: {
+  departmentId: string;
+  campusId: string;
+  category: string | null;
+  canManage: boolean;
+}) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["sanctioned-strength-breakdown", departmentId],
     queryFn: () => getDepartmentSanctionedStrengthBreakdown(departmentId),
   });
+
+  const BREAKDOWN_COLUMN_COUNT = 5;
 
   return (
     <tr className="bg-muted/40">
@@ -90,24 +216,35 @@ function DepartmentBreakdownRow({ departmentId }: { departmentId: string }) {
         ) : !data || data.length === 0 ? (
           <p className="px-3 py-2 text-sm text-muted-foreground">No designations linked to this department.</p>
         ) : (
-          <table className="w-full max-w-2xl text-sm">
+          <table className="w-full max-w-3xl text-sm">
             <thead>
               <tr className="text-left text-muted-foreground">
                 <th className="px-3 py-1.5 text-table-header font-medium">Designation</th>
                 <th className="px-3 py-1.5 text-table-header font-medium">Approved</th>
                 <th className="px-3 py-1.5 text-table-header font-medium">Working</th>
                 <th className="px-3 py-1.5 text-table-header font-medium">Vacancy</th>
+                <th className="px-3 py-1.5 text-table-header font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {data.map((row) => (
-                <tr key={row.designation_id}>
-                  <td className="px-3 py-1.5">{row.designation_name}</td>
-                  <td className="px-3 py-1.5 tabular-nums">{row.approved}</td>
-                  <td className="px-3 py-1.5 tabular-nums">{row.working}</td>
-                  <td className="px-3 py-1.5 tabular-nums">{row.vacancy}</td>
-                </tr>
+                <DesignationRow
+                  key={row.designation_id}
+                  row={row}
+                  departmentId={departmentId}
+                  campusId={campusId}
+                  canManage={canManage}
+                />
               ))}
+              {canManage ? (
+                <AddDesignationRow
+                  departmentId={departmentId}
+                  campusId={campusId}
+                  category={category as StaffRoleCategory | null}
+                  excludeDesignationIds={data.map((row) => row.designation_id)}
+                  columnCount={BREAKDOWN_COLUMN_COUNT}
+                />
+              ) : null}
             </tbody>
           </table>
         )}
@@ -149,6 +286,12 @@ export function SanctionedStrengthPage() {
   // A single-campus role's campus_code is always ignored server-side (see
   // resolve_campus_filter) -- only global-scope roles get a working filter.
   const canFilterByCampus = Boolean(user && GLOBAL_SCOPE_ROLES.includes(user.role));
+  // Mirrors app/api/v1/routers/sanctioned_strength.py's write-role gate --
+  // gates the breakdown's inline edit / add designation / soft-delete
+  // affordances (Phase D). The history drawer trigger is deliberately not
+  // gated by this -- it's read-only, same as the backend's own history
+  // endpoint (staff-only, not write-role-only).
+  const canManage = Boolean(user && SANCTIONED_STRENGTH_WRITE_ROLES.includes(user.role));
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses, enabled: canFilterByCampus });
 
   const { data, isLoading, isError, error } = useQuery({
@@ -438,7 +581,14 @@ export function SanctionedStrengthPage() {
                       <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
                       <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
                     </tr>
-                    {isExpanded ? <DepartmentBreakdownRow departmentId={row.department_id} /> : null}
+                    {isExpanded ? (
+                      <DepartmentBreakdownRow
+                        departmentId={row.department_id}
+                        campusId={row.campus_id}
+                        category={row.category}
+                        canManage={canManage}
+                      />
+                    ) : null}
                   </Fragment>
                 );
               })

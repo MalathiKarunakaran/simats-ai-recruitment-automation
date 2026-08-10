@@ -86,10 +86,18 @@ class DepartmentDesignationBreakdownRow(BaseModel):
     (employment_status == ACTIVE, department_id + designation_id match --
     accurate via Employee.designation_id), `vacancy` is
     `max(approved - working, 0)`, same floor-at-zero convention as the
-    Vacancy Register's own vacancy_count."""
+    Vacancy Register's own vacancy_count.
+
+    `sanctioned_strength_id` is the current-effective SanctionedStrength
+    row's own id (None when this designation has never been sanctioned for
+    this department -- approved=0 by construction in that case). Phase D's
+    frontend needs this to know whether an inline edit/soft-delete/history
+    request should target an existing row (PATCH/DELETE/GET .../history) or
+    whether "Approved" is still editable-to-create via a fresh POST."""
 
     designation_id: uuid.UUID
     designation_name: str
+    sanctioned_strength_id: uuid.UUID | None
     approved: int
     working: int
     vacancy: int
