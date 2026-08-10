@@ -512,24 +512,28 @@ def recruitment_funnel_report(
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
     range_start, range_end = _optional_date_range(start_date, end_date)
-    query = db.query(Campus.code, Application.status, func.count(Application.id)).join(
-        Campus, Application.campus_id == Campus.id
-    )
+    # role_category grouping uses the denormalized Application.role_category
+    # column (Phase 1) rather than the JobPosting -> ApprovedVacancy ->
+    # VacancyRequest join chain -- Application is already the query's FROM
+    # (it's the only model appearing in the join onclause below), so this is
+    # a free column, not an extra join. The filter is likewise applied
+    # directly against it now instead of via the join chain.
+    query = db.query(
+        Campus.code, Application.role_category, Application.status, func.count(Application.id)
+    ).join(Campus, Application.campus_id == Campus.id)
     if role_category is not None:
-        query = (
-            query.join(JobPosting, Application.job_posting_id == JobPosting.id)
-            .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
-            .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
-            .filter(VacancyRequest.role_category == role_category)
-        )
+        query = query.filter(Application.role_category == role_category)
     if campus_id_filter is not None:
         query = query.filter(Application.campus_id == campus_id_filter)
     if range_start is not None:
         query = query.filter(Application.applied_at >= range_start)
     if range_end is not None:
         query = query.filter(Application.applied_at < range_end)
-    query = query.group_by(Campus.code, Application.status)
-    rows = [{"campus_code": code, "status": s.value, "count": count} for code, s, count in query.all()]
+    query = query.group_by(Campus.code, Application.role_category, Application.status)
+    rows = [
+        {"campus_code": code, "role_category": rc.value, "status": s.value, "count": count}
+        for code, rc, s, count in query.all()
+    ]
     return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
 
 
@@ -576,27 +580,37 @@ def interview_report(
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
     range_start, range_end = _optional_date_range(start_date, end_date)
-    query = db.query(
-        Campus.code, InterviewSchedule.status, InterviewSchedule.interview_type, func.count(InterviewSchedule.id)
-    ).join(Campus, InterviewSchedule.campus_id == Campus.id)
-    if role_category is not None:
-        query = (
-            query.join(Application, InterviewSchedule.application_id == Application.id)
-            .join(JobPosting, Application.job_posting_id == JobPosting.id)
-            .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
-            .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
-            .filter(VacancyRequest.role_category == role_category)
+    # role_category grouping reaches Application.role_category (denormalized,
+    # Phase 1) via a single unconditional join to Application, instead of the
+    # 3-hop JobPosting -> ApprovedVacancy -> VacancyRequest chain the old
+    # role_category-only filter used -- cheaper since we now always need
+    # Application joined anyway (for the group-by), and the filter reuses the
+    # same join.
+    query = (
+        db.query(
+            Campus.code,
+            Application.role_category,
+            InterviewSchedule.status,
+            InterviewSchedule.interview_type,
+            func.count(InterviewSchedule.id),
         )
+        .join(Campus, InterviewSchedule.campus_id == Campus.id)
+        .join(Application, InterviewSchedule.application_id == Application.id)
+    )
+    if role_category is not None:
+        query = query.filter(Application.role_category == role_category)
     if campus_id_filter is not None:
         query = query.filter(InterviewSchedule.campus_id == campus_id_filter)
     if range_start is not None:
         query = query.filter(InterviewSchedule.scheduled_at >= range_start)
     if range_end is not None:
         query = query.filter(InterviewSchedule.scheduled_at < range_end)
-    query = query.group_by(Campus.code, InterviewSchedule.status, InterviewSchedule.interview_type)
+    query = query.group_by(
+        Campus.code, Application.role_category, InterviewSchedule.status, InterviewSchedule.interview_type
+    )
     rows = [
-        {"campus_code": code, "status": s.value, "interview_type": it.value, "count": count}
-        for code, s, it, count in query.all()
+        {"campus_code": code, "role_category": rc.value, "status": s.value, "interview_type": it.value, "count": count}
+        for code, rc, s, it, count in query.all()
     ]
     return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
 
@@ -611,27 +625,30 @@ def offer_report(
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
     range_start, range_end = _optional_date_range(start_date, end_date)
+    # Application is already unconditionally joined here, so role_category
+    # grouping/filtering uses its denormalized role_category column
+    # (Phase 1) directly -- no extra join needed at all, unlike the old
+    # JobPosting -> ApprovedVacancy -> VacancyRequest chain the role_category
+    # filter used to add conditionally.
     query = (
-        db.query(Campus.code, Offer.status, func.count(Offer.id))
+        db.query(Campus.code, Application.role_category, Offer.status, func.count(Offer.id))
         .select_from(Offer)
         .join(Application, Offer.application_id == Application.id)
         .join(Campus, Application.campus_id == Campus.id)
     )
     if role_category is not None:
-        query = (
-            query.join(JobPosting, Application.job_posting_id == JobPosting.id)
-            .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
-            .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
-            .filter(VacancyRequest.role_category == role_category)
-        )
+        query = query.filter(Application.role_category == role_category)
     if campus_id_filter is not None:
         query = query.filter(Application.campus_id == campus_id_filter)
     if range_start is not None:
         query = query.filter(Offer.created_at >= range_start)
     if range_end is not None:
         query = query.filter(Offer.created_at < range_end)
-    query = query.group_by(Campus.code, Offer.status)
-    rows = [{"campus_code": code, "status": s.value, "count": count} for code, s, count in query.all()]
+    query = query.group_by(Campus.code, Application.role_category, Offer.status)
+    rows = [
+        {"campus_code": code, "role_category": rc.value, "status": s.value, "count": count}
+        for code, rc, s, count in query.all()
+    ]
     return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
 
 
@@ -645,19 +662,17 @@ def joining_report(
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
     range_start, range_end = _optional_date_range(start_date, end_date)
+    # Application is already unconditionally joined here, so role_category
+    # grouping/filtering uses its denormalized role_category column
+    # (Phase 1) directly, same rationale as offer_report above.
     query = (
-        db.query(Campus.code, JoiningRecord.onboarding_completed_at)
+        db.query(Campus.code, Application.role_category, JoiningRecord.onboarding_completed_at)
         .select_from(JoiningRecord)
         .join(Application, JoiningRecord.application_id == Application.id)
         .join(Campus, Application.campus_id == Campus.id)
     )
     if role_category is not None:
-        query = (
-            query.join(JobPosting, Application.job_posting_id == JobPosting.id)
-            .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
-            .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
-            .filter(VacancyRequest.role_category == role_category)
-        )
+        query = query.filter(Application.role_category == role_category)
     if campus_id_filter is not None:
         query = query.filter(Application.campus_id == campus_id_filter)
     if range_start is not None:
@@ -665,13 +680,13 @@ def joining_report(
     if range_end is not None:
         query = query.filter(JoiningRecord.created_at < range_end)
 
-    counts: dict[tuple[str, str], int] = {}
-    for code, completed_at in query.all():
-        key = (code, "COMPLETE" if completed_at is not None else "PENDING")
+    counts: dict[tuple[str, str, str], int] = {}
+    for code, rc, completed_at in query.all():
+        key = (code, rc.value, "COMPLETE" if completed_at is not None else "PENDING")
         counts[key] = counts.get(key, 0) + 1
     rows = [
-        {"campus_code": code, "onboarding_status": onboarding_status, "count": count}
-        for (code, onboarding_status), count in sorted(counts.items())
+        {"campus_code": code, "role_category": rc_value, "onboarding_status": onboarding_status, "count": count}
+        for (code, rc_value, onboarding_status), count in sorted(counts.items())
     ]
     return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
 

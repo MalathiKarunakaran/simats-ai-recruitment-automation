@@ -37,7 +37,26 @@ def test_recruitment_funnel_report_counts(client, published_vacancy_factory, app
     assert response.status_code == 200
     rows = response.json()["rows"]
     row = next(r for r in rows if r["campus_code"] == "SSE" and r["status"] == "APPLIED")
+    assert row["role_category"] == "TEACHING"
     assert row["count"] == 2
+
+
+def test_recruitment_funnel_report_role_category_filter(client, published_vacancy_factory, application_factory):
+    teaching_vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.TEACHING
+    )
+    non_teaching_vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.NON_TEACHING
+    )
+    application_factory(teaching_vacancy.job_posting, recorded_by=teaching_vacancy.hr_admin)
+    application_factory(non_teaching_vacancy.job_posting, recorded_by=non_teaching_vacancy.hr_admin)
+
+    response = _report(client, teaching_vacancy.hr_admin, "recruitment-funnel", role_category="TEACHING")
+    assert response.status_code == 200
+    rows = response.json()["rows"]
+    assert rows
+    assert {r["role_category"] for r in rows} == {"TEACHING"}
+    assert sum(r["count"] for r in rows if r["campus_code"] == "SSE") == 1
 
 
 def test_campus_role_hiring_report(client, published_vacancy_factory, hired_employee_factory):
@@ -58,12 +77,14 @@ def test_offer_and_joining_reports(client, published_vacancy_factory, hired_empl
     offers_resp = _report(client, vacancy.hr_admin, "offers")
     assert offers_resp.status_code == 200
     offer_row = next(r for r in offers_resp.json()["rows"] if r["campus_code"] == "SSE")
+    assert offer_row["role_category"] == "TEACHING"
     assert offer_row["status"] == "ACCEPTED"
     assert offer_row["count"] == 1
 
     joining_resp = _report(client, vacancy.hr_admin, "joining")
     assert joining_resp.status_code == 200
     joining_row = next(r for r in joining_resp.json()["rows"] if r["campus_code"] == "SSE")
+    assert joining_row["role_category"] == "TEACHING"
     assert joining_row["onboarding_status"] == "COMPLETE"
     assert joining_row["count"] == 1
 
@@ -89,6 +110,7 @@ def test_interview_report_counts(client, published_vacancy_factory, application_
     response = _report(client, vacancy.hr_admin, "interviews")
     assert response.status_code == 200
     row = next(r for r in response.json()["rows"] if r["campus_code"] == "SSE")
+    assert row["role_category"] == "TEACHING"
     assert row["status"] == "SCHEDULED"
     assert row["interview_type"] == "TECHNICAL"
     assert row["count"] == 1
@@ -154,6 +176,42 @@ def test_export_xlsx_is_valid_and_matches_headers(client, published_vacancy_fact
     sheet = workbook.active
     header_row = [cell.value for cell in sheet[4]]
     assert header_row == ["campus_code", "role_category", "status", "count"]
+
+
+def test_export_xlsx_headers_include_role_category_for_newly_grouped_reports(
+    client, published_vacancy_factory, application_factory
+):
+    """recruitment-funnel/interviews/offers/joining didn't group by
+    role_category before this phase -- confirm their xlsx export header rows
+    now include it too, alongside the export data cell in each row."""
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+
+    funnel_response = _export(client, vacancy.hr_admin, "recruitment-funnel")
+    assert funnel_response.status_code == 200
+    funnel_workbook = openpyxl.load_workbook(io.BytesIO(funnel_response.content))
+    funnel_header = [cell.value for cell in funnel_workbook.active[4]]
+    assert funnel_header == ["campus_code", "role_category", "status", "count"]
+    funnel_data_row = [cell.value for cell in funnel_workbook.active[5]]
+    assert "TEACHING" in funnel_data_row
+
+    interviews_response = _export(client, vacancy.hr_admin, "interviews")
+    assert interviews_response.status_code == 200
+    interviews_workbook = openpyxl.load_workbook(io.BytesIO(interviews_response.content))
+    interviews_header = [cell.value for cell in interviews_workbook.active[4]]
+    assert interviews_header == ["campus_code", "role_category", "status", "interview_type", "count"]
+
+    offers_response = _export(client, vacancy.hr_admin, "offers")
+    assert offers_response.status_code == 200
+    offers_workbook = openpyxl.load_workbook(io.BytesIO(offers_response.content))
+    offers_header = [cell.value for cell in offers_workbook.active[4]]
+    assert offers_header == ["campus_code", "role_category", "status", "count"]
+
+    joining_response = _export(client, vacancy.hr_admin, "joining")
+    assert joining_response.status_code == 200
+    joining_workbook = openpyxl.load_workbook(io.BytesIO(joining_response.content))
+    joining_header = [cell.value for cell in joining_workbook.active[4]]
+    assert joining_header == ["campus_code", "role_category", "onboarding_status", "count"]
 
 
 def test_ad_briefing_json_and_export(client, published_vacancy_factory, hired_employee_factory):
