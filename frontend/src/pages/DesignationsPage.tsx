@@ -362,7 +362,24 @@ export function DesignationsPage() {
           {filtersActive ? "No designations match the current filters." : "No designations found."}
         </p>
       ) : (
-        <table className="w-full text-sm">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            {/* Name/Departments/Employment type/Category/Active/Min. experience/Actions all get a
+                fixed rem-based width sized for their real content (see DesignationsPage.test.tsx and
+                the live dev DB check that motivated this) -- deliberately not percentages, so these
+                columns never shrink into overflow-collision territory on a narrower viewport.
+                Qualification is the one column left unsized, so it alone absorbs all remaining
+                table width (per the table-layout: fixed spec) and truncates instead of colliding
+                into "Min. experience" when the text is long. */}
+            <col className="w-44" />
+            <col className="w-32" />
+            <col className="w-32" />
+            <col />
+            <col className="w-40" />
+            <col className="w-32" />
+            <col className="w-24" />
+            {canManage ? <col className="w-20" /> : null}
+          </colgroup>
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
               <th className="py-2 font-medium">Name</th>
@@ -372,15 +389,17 @@ export function DesignationsPage() {
               <th className="py-2 font-medium">Min. experience</th>
               <th className="py-2 font-medium">Employment type</th>
               <th className="py-2 font-medium">Active</th>
-              {canManage ? <th className="py-2 font-medium">Actions</th> : null}
+              {canManage ? <th className="py-2 text-right font-medium">Actions</th> : null}
             </tr>
           </thead>
           <tbody>
             {visibleDesignations.map((designation) => (
               <tr key={designation.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                <td className="py-2 font-medium text-foreground">{designation.name}</td>
-                <td className="py-2">{designation.category.replace(/_/g, " ")}</td>
-                <td className="py-2">
+                <td className="truncate py-2 font-medium text-foreground" title={designation.name}>
+                  {designation.name}
+                </td>
+                <td className="whitespace-nowrap py-2">{designation.category.replace(/_/g, " ")}</td>
+                <td className="whitespace-nowrap py-2">
                   {designation.department_ids.length === 0 ? (
                     "—"
                   ) : (
@@ -401,16 +420,20 @@ export function DesignationsPage() {
                     </Popover>
                   )}
                 </td>
-                <td className="py-2">{designation.qualification}</td>
-                <td className="py-2">{designation.min_experience}</td>
-                <td className="py-2">{designation.employment_type.replace(/_/g, " ")}</td>
-                <td className="py-2">
+                <td className="truncate py-2" title={designation.qualification}>
+                  {designation.qualification}
+                </td>
+                <td className="truncate py-2" title={designation.min_experience}>
+                  {designation.min_experience}
+                </td>
+                <td className="whitespace-nowrap py-2">{designation.employment_type.replace(/_/g, " ")}</td>
+                <td className="whitespace-nowrap py-2">
                   <Badge variant={designation.is_active ? "success" : "destructive"}>
                     {designation.is_active ? "Active" : "Inactive"}
                   </Badge>
                 </td>
                 {canManage ? (
-                  <td className="py-2">
+                  <td className="py-2 text-right">
                     <Button variant="outline" size="sm" onClick={() => openEditDialog(designation)}>
                       Edit
                     </Button>
