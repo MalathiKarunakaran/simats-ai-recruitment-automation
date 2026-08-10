@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     ARRAY,
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -106,6 +107,14 @@ class VacancyRequest(Base):
     # -- lets a re-import upsert instead of duplicating rows. Unset for
     # everything created through the normal in-app requisition flow.
     external_ref: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+
+    # Sanctioned Strength enforcement (zany-snuggling-pie.md Phase E) --
+    # set only when a SUPER_ADMIN explicitly overrides the submit()-time
+    # available_to_request block; both stay false/NULL on every ordinary
+    # request. Added in Phase A (data-model-only) ahead of Phase E's
+    # actual enforcement logic in app/services/vacancy_workflow.py.
+    is_over_sanction: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    over_sanction_justification: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
