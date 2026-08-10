@@ -244,6 +244,41 @@ def test_category_filter(client, campus_factory, department_factory, user_factor
     assert names == {"Teaching Dept"}
 
 
+def test_category_counts_reflect_full_set_regardless_of_selected_category(
+    client, campus_factory, department_factory, user_factory, db_session
+):
+    campus_factory("SPIER")
+    teaching_dept = department_factory("SPIER", name="Counts Teaching Dept")
+    teaching_dept.category = StaffRoleCategoryEnum.TEACHING
+    non_teaching_dept_1 = department_factory("SPIER", name="Counts NonTeaching Dept 1")
+    non_teaching_dept_1.category = StaffRoleCategoryEnum.NON_TEACHING
+    non_teaching_dept_2 = department_factory("SPIER", name="Counts NonTeaching Dept 2")
+    non_teaching_dept_2.category = StaffRoleCategoryEnum.NON_TEACHING
+    housekeeping_dept = department_factory("SPIER", name="Counts Housekeeping Dept")
+    housekeeping_dept.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    db_session.flush()
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    unfiltered = _list(client, hr_admin, campus_code="SPIER", search="Counts").json()
+    expected_counts = {"TEACHING": 1, "NON_TEACHING": 2, "HOUSEKEEPING": 1, "ALL": 4}
+    assert unfiltered["category_counts"] == expected_counts
+    assert unfiltered["total"] == 4
+
+    # Narrowing items/total via the category filter must NOT change
+    # category_counts -- the whole point is that switching tabs doesn't make
+    # the other tabs' displayed counts collapse.
+    teaching_only = _list(client, hr_admin, campus_code="SPIER", search="Counts", category="TEACHING").json()
+    assert teaching_only["total"] == 1
+    assert {r["department_name"] for r in teaching_only["items"]} == {"Counts Teaching Dept"}
+    assert teaching_only["category_counts"] == expected_counts
+
+    housekeeping_only = _list(
+        client, hr_admin, campus_code="SPIER", search="Counts", category="HOUSEKEEPING"
+    ).json()
+    assert housekeeping_only["total"] == 1
+    assert housekeeping_only["category_counts"] == expected_counts
+
+
 def test_is_active_filter_defaults_to_no_filter_but_can_narrow_either_way(
     client, campus_factory, department_factory, user_factory, db_session
 ):

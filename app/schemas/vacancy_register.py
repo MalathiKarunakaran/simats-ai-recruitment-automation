@@ -13,6 +13,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.models.enums import StaffRoleCategoryEnum
+from app.schemas.common import PaginatedResponse
 
 
 class VacancyRegisterRow(BaseModel):
@@ -49,3 +50,15 @@ class VacancyRegisterRow(BaseModel):
     last_join: date | None
     last_resignation: date | None
     last_updated: datetime
+
+
+class VacancyRegisterListResponse(PaginatedResponse[VacancyRegisterRow]):
+    """Additive on top of PaginatedResponse -- `items`/`total`/`limit`/
+    `offset` are unchanged; `category_counts` is a snapshot of
+    `{"TEACHING": n, "NON_TEACHING": n, "HOUSEKEEPING": n, "ALL": n}` across
+    every active filter except `category` itself (see
+    app/services/vacancy_register.py::list_vacancy_register_rows), so a
+    CategoryTabs-style UI can show a live count per tab that doesn't change
+    when a different tab is selected."""
+
+    category_counts: dict[str, int]

@@ -6,8 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.user import User
-from app.schemas.common import PaginatedResponse
-from app.schemas.vacancy_register import VacancyRegisterRow
+from app.schemas.vacancy_register import VacancyRegisterListResponse
 from app.services import vacancy_register
 from app.services.reporting import validate_campus_code
 
@@ -20,7 +19,7 @@ def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
     return current_user
 
 
-@router.get("/vacancy-register", response_model=PaginatedResponse[VacancyRegisterRow])
+@router.get("/vacancy-register", response_model=VacancyRegisterListResponse)
 def list_vacancy_register(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -36,7 +35,7 @@ def list_vacancy_register(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
-) -> PaginatedResponse[VacancyRegisterRow]:
+) -> VacancyRegisterListResponse:
     if sort_by not in vacancy_register.SORT_FIELDS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -65,7 +64,7 @@ def list_vacancy_register(
         )
     validated_campus_code = validate_campus_code(campus_code)
 
-    rows, total = vacancy_register.list_vacancy_register_rows(
+    rows, total, category_counts = vacancy_register.list_vacancy_register_rows(
         db,
         scope,
         limit=limit,
@@ -80,4 +79,6 @@ def list_vacancy_register(
         recruitment_status=recruitment_status,
         is_active=is_active,
     )
-    return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
+    return VacancyRegisterListResponse(
+        items=rows, total=total, limit=limit, offset=offset, category_counts=category_counts
+    )
