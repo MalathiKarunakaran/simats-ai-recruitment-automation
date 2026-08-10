@@ -120,6 +120,106 @@ def test_campus_wise_hiring_includes_a_zero_activity_campus(client, campus_facto
     assert row == {"campus_code": "SPIER", "hired_count": 0, "open_count": 0, "in_progress_count": 0}
 
 
+def _breakdown_row(body, role_category: str) -> dict:
+    row = next(r for r in body["category_wise_breakdown"] if r["role_category"] == role_category)
+    return row
+
+
+def test_category_wise_breakdown_always_has_3_rows_with_correct_counts(
+    client, published_vacancy_factory, application_factory, hired_employee_factory
+):
+    teaching_vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=2, role_category=StaffRoleCategoryEnum.TEACHING
+    )
+    non_teaching_vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=3, role_category=StaffRoleCategoryEnum.NON_TEACHING
+    )
+    application_factory(teaching_vacancy.job_posting, recorded_by=teaching_vacancy.hr_admin)
+    application_factory(non_teaching_vacancy.job_posting, recorded_by=non_teaching_vacancy.hr_admin)
+    application_factory(non_teaching_vacancy.job_posting, recorded_by=non_teaching_vacancy.hr_admin)
+    hired_employee_factory(teaching_vacancy)
+
+    response = _kpis(client, teaching_vacancy.hr_admin)
+    assert response.status_code == 200
+    body = response.json()
+
+    role_categories = {row["role_category"] for row in body["category_wise_breakdown"]}
+    assert role_categories == {"TEACHING", "NON_TEACHING", "HOUSEKEEPING"}
+
+    teaching_row = _breakdown_row(body, "TEACHING")
+    # +1 application from application_factory, +1 from hired_employee_factory's
+    # own application -- both use the same teaching job posting.
+    assert teaching_row["applications"] == 2
+    # 2 slots requested, 1 filled by hired_employee_factory -> 1 still open.
+    assert teaching_row["open_positions"] == 1
+    assert teaching_row["hires"] == 1
+
+    non_teaching_row = _breakdown_row(body, "NON_TEACHING")
+    assert non_teaching_row["applications"] == 2
+    assert non_teaching_row["open_positions"] == 3
+    assert non_teaching_row["hires"] == 0
+
+    housekeeping_row = _breakdown_row(body, "HOUSEKEEPING")
+    assert housekeeping_row == {
+        "role_category": "HOUSEKEEPING",
+        "applications": 0,
+        "open_positions": 0,
+        "hires": 0,
+    }
+
+
+def test_category_wise_breakdown_ignores_the_endpoints_own_role_category_filter(
+    client, published_vacancy_factory, application_factory
+):
+    """The KPI strip's role_category param narrows every other field, but
+    category_wise_breakdown is meant to be an always-all-3-categories
+    at-a-glance card -- it must keep showing NON_TEACHING's real count even
+    when the caller narrowed the rest of the response to role_category=TEACHING."""
+    teaching_vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.TEACHING
+    )
+    non_teaching_vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.NON_TEACHING
+    )
+    application_factory(non_teaching_vacancy.job_posting, recorded_by=non_teaching_vacancy.hr_admin)
+
+    response = _kpis(client, teaching_vacancy.hr_admin, role_category="TEACHING")
+    assert response.status_code == 200
+    body = response.json()
+
+    # The top-line KPI strip is narrowed to TEACHING (0 applications).
+    assert body["total_applications"] == 0
+    # ...but the breakdown card still shows NON_TEACHING's real data.
+    non_teaching_row = _breakdown_row(body, "NON_TEACHING")
+    assert non_teaching_row["applications"] == 1
+    assert non_teaching_row["open_positions"] == 1
+
+
+def test_category_wise_breakdown_respects_campus_scope(
+    client, published_vacancy_factory, application_factory, hired_employee_factory
+):
+    sse_vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.TEACHING
+    )
+    scad_vacancy = published_vacancy_factory(
+        campus_code="SCAD", slot_count=1, role_category=StaffRoleCategoryEnum.TEACHING
+    )
+    application_factory(sse_vacancy.job_posting, recorded_by=sse_vacancy.hr_admin)
+    application_factory(scad_vacancy.job_posting, recorded_by=scad_vacancy.hr_admin)
+    application_factory(scad_vacancy.job_posting, recorded_by=scad_vacancy.hr_admin)
+    hired_employee_factory(scad_vacancy)
+
+    response = _kpis(client, sse_vacancy.hod)
+    assert response.status_code == 200
+    body = response.json()
+    assert "home campus" in body["scope_note"]
+
+    teaching_row = _breakdown_row(body, "TEACHING")
+    assert teaching_row["applications"] == 1
+    assert teaching_row["open_positions"] == 1
+    assert teaching_row["hires"] == 0
+
+
 def test_invalid_campus_code_returns_422(client, published_vacancy_factory):
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     response = _kpis(client, vacancy.hr_admin, campus_code="ZZZZ")

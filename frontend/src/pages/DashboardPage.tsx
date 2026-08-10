@@ -3,15 +3,17 @@ import { useState } from "react";
 
 import { getDashboardKpis } from "@/api/dashboard";
 import { downloadAdBriefingExport } from "@/api/reports";
-import type { DashboardKpis, StaffRoleCategory } from "@/api/types";
+import type { CategoryBreakdownRow, DashboardKpis, StaffRoleCategory } from "@/api/types";
 import { useCampus } from "@/campus/CampusContext";
 import { CampusHiringChart } from "@/components/dashboard/CampusHiringChart";
 import { CategoryBarChart } from "@/components/dashboard/CategoryBarChart";
 import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
 import { EmptyState } from "@/components/dashboard/EmptyState";
 import { StatTile, type StatAccent } from "@/components/dashboard/StatTile";
+import { CategoryTabs, type CategoryTabValue } from "@/components/domain/CategoryTabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 
 const KPI_CARDS: { key: keyof DashboardKpis; label: string; accent: StatAccent; tooltip?: string }[] = [
   { key: "total_applications", label: "Total applications", accent: "gold" },
@@ -49,46 +51,57 @@ function todayScopedLabel(base: string, range: DateRangeValue): string {
   return `${base} (${range.startDate ?? "…"} – ${range.endDate ?? "…"})`;
 }
 
-const ROLE_CATEGORIES: { key: StaffRoleCategory; label: string }[] = [
-  { key: "TEACHING", label: "Teaching" },
-  { key: "NON_TEACHING", label: "Non-Teaching" },
-  { key: "HOUSEKEEPING", label: "Housekeeping" },
+const ROLE_CATEGORY_LABELS: Record<StaffRoleCategory, string> = {
+  TEACHING: "Teaching",
+  NON_TEACHING: "Non-Teaching",
+  HOUSEKEEPING: "Housekeeping",
+};
+
+// category_wise_breakdown always has exactly 3 rows (one per
+// StaffRoleCategoryEnum value), so this fallback only matters before the
+// first successful fetch -- keeps the split card's row order/labels stable
+// even while data is undefined.
+const EMPTY_CATEGORY_BREAKDOWN: CategoryBreakdownRow[] = [
+  { role_category: "TEACHING", applications: 0, open_positions: 0, hires: 0 },
+  { role_category: "NON_TEACHING", applications: 0, open_positions: 0, hires: 0 },
+  { role_category: "HOUSEKEEPING", applications: 0, open_positions: 0, hires: 0 },
 ];
+
+function toRoleCategoryParam(tab: CategoryTabValue): StaffRoleCategory | undefined {
+  return tab === "ALL" ? undefined : tab;
+}
 
 export function DashboardPage() {
   const { selectedCampusCode } = useCampus();
   const [dateRange, setDateRange] = useState<DateRangeValue>({ startDate: null, endDate: null });
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [categoryTab, setCategoryTab] = useCategoryTabState();
 
+  // Single call to /dashboard/kpis serves both the top-line KPI strip (which
+  // *does* respect categoryTab, via the role_category param) and the
+  // category-wise split card below (whose category_wise_breakdown field the
+  // backend deliberately always returns unfiltered, regardless of this same
+  // param -- see api/types.ts's CategoryBreakdownRow doc comment). Replaces
+  // the old pattern of calling this endpoint 3x more (once per category)
+  // just to read total_applications out of each.
+  const roleCategoryParam = toRoleCategoryParam(categoryTab);
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["dashboard-kpis", selectedCampusCode, dateRange.startDate, dateRange.endDate],
-    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange),
+    queryKey: ["dashboard-kpis", selectedCampusCode, dateRange.startDate, dateRange.endDate, roleCategoryParam],
+    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, roleCategoryParam),
   });
 
-  // Category-wise split isn't a separate backend field -- it's the same
-  // /dashboard/kpis endpoint called once per role_category, reusing the
-  // filter the backend already supports rather than adding a new one.
-  // Unrolled explicitly (not ROLE_CATEGORIES.map(() => useQuery(...))) so
-  // hook calls stay static and easy to verify, per React's rules of hooks.
-  const dateKey = [selectedCampusCode, dateRange.startDate, dateRange.endDate] as const;
-  const teachingQuery = useQuery({
-    queryKey: ["dashboard-kpis", "category", "TEACHING", ...dateKey],
-    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, "TEACHING"),
-  });
-  const nonTeachingQuery = useQuery({
-    queryKey: ["dashboard-kpis", "category", "NON_TEACHING", ...dateKey],
-    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, "NON_TEACHING"),
-  });
-  const housekeepingQuery = useQuery({
-    queryKey: ["dashboard-kpis", "category", "HOUSEKEEPING", ...dateKey],
-    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, "HOUSEKEEPING"),
-  });
-  const categoryQueries = [teachingQuery, nonTeachingQuery, housekeepingQuery];
-  const categoryWiseData = ROLE_CATEGORIES.map(({ label }, i) => ({
-    label,
-    value: categoryQueries[i]?.data?.total_applications ?? 0,
-  }));
+  const categoryBreakdown = data?.category_wise_breakdown ?? EMPTY_CATEGORY_BREAKDOWN;
+  const categoryTabCounts = {
+    all: categoryBreakdown.reduce((sum, row) => sum + row.applications, 0),
+    teaching: categoryBreakdown.find((row) => row.role_category === "TEACHING")?.applications ?? 0,
+    nonTeaching: categoryBreakdown.find((row) => row.role_category === "NON_TEACHING")?.applications ?? 0,
+    housekeeping: categoryBreakdown.find((row) => row.role_category === "HOUSEKEEPING")?.applications ?? 0,
+  };
+  const categoryBreakdownIsEmpty = categoryBreakdown.every(
+    (row) => row.applications === 0 && row.open_positions === 0 && row.hires === 0,
+  );
+
   const rejectedWithdrawnData = [
     { label: "Rejected", value: data?.rejected_count ?? 0 },
     { label: "Withdrawn", value: data?.withdrawn_count ?? 0 },
@@ -127,6 +140,17 @@ export function DashboardPage() {
       </div>
       {exportError ? <p className="text-sm text-destructive">{exportError}</p> : null}
 
+      <div className="flex flex-wrap items-center gap-2">
+        <CategoryTabs
+          value={categoryTab}
+          onValueChange={setCategoryTab}
+          counts={categoryTabCounts}
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Scopes the KPI tiles below. The category-wise split card always shows all 3 categories.
+        </p>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
         {KPI_CARDS.map(({ key, label, accent, tooltip }) => (
           <StatTile
@@ -163,18 +187,46 @@ export function DashboardPage() {
         <Card>
           <CardHeader className="p-3 pb-1">
             <CardTitle className="text-xs">Category-wise split</CardTitle>
+            {/* Deliberately not scoped by the tabs above -- the backend's
+                category_wise_breakdown field always returns all 3 categories
+                regardless of the KPI strip's own role_category filter (see
+                api/types.ts's CategoryBreakdownRow doc comment), so this note
+                keeps that distinction visible instead of letting the card
+                silently look "filtered" like the strip above it. */}
+            <p className="text-[10px] font-normal text-muted-foreground">
+              Always all categories -- unaffected by the tabs above.
+            </p>
           </CardHeader>
           <CardContent className="p-3 pt-0">
-            {categoryQueries.some((q) => q.isLoading) ? (
-              <div role="status" aria-label="Loading category split" className="h-14 animate-pulse rounded bg-muted" />
-            ) : categoryWiseData.every((row) => row.value === 0) ? (
-              // categoryWiseData always has exactly 3 rows (one per fixed
-              // role category), so an empty-data check can't be `.length
-              // === 0` like the widget above -- this used to always render
-              // a chart of 3 zero-height bars instead (CLAUDE.md B5).
+            {isLoading ? (
+              <div role="status" aria-label="Loading category split" className="h-16 animate-pulse rounded bg-muted" />
+            ) : categoryBreakdownIsEmpty ? (
+              // category_wise_breakdown always has exactly 3 rows (one per
+              // fixed role category), so an empty-data check can't be
+              // `.length === 0` like the widget above -- this used to always
+              // render a chart of 3 zero-height bars instead (CLAUDE.md B5).
               <EmptyState message="No applications in this scope yet." />
             ) : (
-              <CategoryBarChart ariaLabel="Category-wise split" data={categoryWiseData} color="var(--color-chart-2)" />
+              <table className="w-full text-xs" aria-label="Category-wise split">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-1 font-medium">Category</th>
+                    <th className="py-1 text-right font-medium">Applications</th>
+                    <th className="py-1 text-right font-medium">Open positions</th>
+                    <th className="py-1 text-right font-medium">Hires</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoryBreakdown.map((row) => (
+                    <tr key={row.role_category} className="border-b border-border last:border-0">
+                      <td className="py-1 font-medium text-foreground">{ROLE_CATEGORY_LABELS[row.role_category]}</td>
+                      <td className="py-1 text-right tabular-nums">{row.applications}</td>
+                      <td className="py-1 text-right tabular-nums">{row.open_positions}</td>
+                      <td className="py-1 text-right tabular-nums">{row.hires}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </CardContent>
         </Card>

@@ -27,6 +27,26 @@ Metric definitions (documented since none of these are literal DB fields):
   rows) -- the open/in_progress pair mirrors the grouping already used by
   build_ad_briefing_summary's campus_role_breakdown, just collapsed to
   campus-only instead of campus x role_category.
+- category_wise_breakdown: the campus_wise_hiring idea, collapsed the other
+  way -- one row per StaffRoleCategoryEnum value (always exactly 3, in
+  TEACHING/NON_TEACHING/HOUSEKEEPING enum order, zero-filled rather than
+  omitted when a category has no rows yet, same "don't silently vanish"
+  reasoning as campus_wise_hiring's campus list). Each row has applications
+  (Application rows, via the denormalized Application.role_category column),
+  open_positions (open HiringSlot rows, via HiringSlot -> ApprovedVacancy ->
+  VacancyRequest.role_category, same join open_positions itself uses), and
+  hires (Employee rows, via Employee -> Application.role_category). Always
+  scoped by the endpoint's own campus_code/scope (a campus-scoped HOD only
+  ever sees their own campus's numbers here, like every other field), and
+  applications additionally respects start_date/end_date exactly like
+  total_applications does when a range is given. Deliberately does **not**
+  respect the endpoint's own role_category query param, unlike every other
+  field above -- this is meant to be an always-all-3-categories at-a-glance
+  breakdown card, replacing the frontend's old workaround of calling this
+  endpoint three times (once per role_category) and only reading
+  total_applications from each response. open_positions/hires are point-in-
+  time and were never date-filtered even for the single-category top-line
+  stats, so the breakdown doesn't date-filter them either, for consistency.
 - source_wise_breakdown: applications bucketed by Candidate.source via a
   case-insensitive substring match ("referr..." -> Reference, "...mail..."
   -> Mail, anything else -> Other). Candidate.source is deliberately free
@@ -403,6 +423,49 @@ def get_dashboard_kpis(
         for code in sorted(all_campus_codes)
     ]
 
+    # category_wise_breakdown -- always all 3 StaffRoleCategoryEnum values,
+    # regardless of this call's own role_category filter (see the module
+    # docstring). Respects campus scope like every other field; applications
+    # additionally respects start_date/end_date like total_applications does.
+    apps_by_category_query = db.query(Application.role_category, func.count(Application.id))
+    if campus_id_filter is not None:
+        apps_by_category_query = apps_by_category_query.filter(Application.campus_id == campus_id_filter)
+    if start_date is not None:
+        apps_by_category_query = apps_by_category_query.filter(Application.applied_at >= range_start)
+    if end_date is not None:
+        apps_by_category_query = apps_by_category_query.filter(Application.applied_at < range_end)
+    apps_by_category = dict(apps_by_category_query.group_by(Application.role_category).all())
+
+    open_by_category_query = (
+        db.query(VacancyRequest.role_category, func.count(HiringSlot.id))
+        .select_from(HiringSlot)
+        .join(ApprovedVacancy, HiringSlot.approved_vacancy_id == ApprovedVacancy.id)
+        .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
+        .filter(HiringSlot.status == HiringSlotStatusEnum.OPEN)
+    )
+    if campus_id_filter is not None:
+        open_by_category_query = open_by_category_query.filter(ApprovedVacancy.campus_id == campus_id_filter)
+    open_by_category = dict(open_by_category_query.group_by(VacancyRequest.role_category).all())
+
+    hires_by_category_query = (
+        db.query(Application.role_category, func.count(Employee.id))
+        .select_from(Employee)
+        .join(Application, Employee.application_id == Application.id)
+    )
+    if campus_id_filter is not None:
+        hires_by_category_query = hires_by_category_query.filter(Employee.campus_id == campus_id_filter)
+    hires_by_category = dict(hires_by_category_query.group_by(Application.role_category).all())
+
+    category_wise_breakdown = [
+        {
+            "role_category": category.value,
+            "applications": apps_by_category.get(category, 0),
+            "open_positions": open_by_category.get(category, 0),
+            "hires": hires_by_category.get(category, 0),
+        }
+        for category in StaffRoleCategoryEnum
+    ]
+
     ttf_entries = _time_to_hire_days(db, campus_id_filter, role_category)
     average_time_to_hire_days = (
         round(sum(e["days"] for e in ttf_entries) / len(ttf_entries), 1) if ttf_entries else None
@@ -430,6 +493,7 @@ def get_dashboard_kpis(
         "joinings_today": joinings_today,
         "offers_pending": offers_pending,
         "campus_wise_hiring": campus_wise_hiring,
+        "category_wise_breakdown": category_wise_breakdown,
         "average_time_to_hire_days": average_time_to_hire_days,
         "vacancy_closure_rate_pct": vacancy_closure_rate_pct,
         "source_wise_breakdown": source_wise_breakdown,
