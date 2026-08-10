@@ -1,7 +1,21 @@
 import { apiFetch } from "@/api/client";
-import type { ApprovalStatus, PaginatedResponse, RecruitmentStatus, VacancyRegisterRow } from "@/api/types";
+import type {
+  ApprovalStatus,
+  DepartmentDesignationBreakdownRow,
+  PaginatedResponse,
+  RecruitmentStatus,
+  VacancyRegisterRow,
+} from "@/api/types";
 
-export type VacancyRegisterSortBy =
+// Renamed from vacancyRegister.ts (zany-snuggling-pie.md Phase C) -- the
+// frontend page/nav/route are now "Sanctioned Strength", but the backend API
+// path deliberately stays /departments/vacancy-register (Phase C wasn't
+// asked to touch the API surface, only the frontend-facing name -- see the
+// plan's Context section, decision 3). VacancyRegisterRow itself is left
+// named as-is in api/types.ts since it mirrors
+// app/schemas/vacancy_register.py::VacancyRegisterRow verbatim.
+
+export type SanctionedStrengthSortBy =
   | "department_name"
   | "category"
   | "approved_count"
@@ -14,12 +28,12 @@ export type VacancyRegisterSortBy =
 
 export type SortDirection = "asc" | "desc";
 
-export interface ListVacancyRegisterParams {
+export interface ListSanctionedStrengthParams {
   limit?: number;
   offset?: number;
-  sort_by?: VacancyRegisterSortBy;
+  sort_by?: SanctionedStrengthSortBy;
   sort_dir?: SortDirection;
-  // Filter-bar params, wired up by VacancyRegisterPage's filter UI.
+  // Filter-bar params, wired up by SanctionedStrengthPage's filter UI.
   campus_code?: string | null;
   category?: string | null;
   department_id?: string | null;
@@ -37,17 +51,17 @@ export interface ListVacancyRegisterParams {
 // {"TEACHING": n, "NON_TEACHING": n, "HOUSEKEEPING": n, "ALL": n} across
 // every active filter *except* category itself, so a CategoryTabs tab's
 // count doesn't change when a different tab is selected.
-export interface VacancyRegisterListResponse extends PaginatedResponse<VacancyRegisterRow> {
+export interface SanctionedStrengthListResponse extends PaginatedResponse<VacancyRegisterRow> {
   category_counts: Record<string, number>;
 }
 
 // Returns the *full* response (not unwrapped to .items) -- unlike
-// listJobPostings()/listDepartments(), this page needs `total` (and now
+// listJobPostings()/listDepartments(), this page needs `total` (and
 // category_counts) for real server-side pagination, not a
 // fetch-everything-unfiltered list.
-export async function listVacancyRegister(
-  params: ListVacancyRegisterParams = {},
-): Promise<VacancyRegisterListResponse> {
+export async function listSanctionedStrengthRegister(
+  params: ListSanctionedStrengthParams = {},
+): Promise<SanctionedStrengthListResponse> {
   const query = new URLSearchParams();
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.offset !== undefined) query.set("offset", String(params.offset));
@@ -64,5 +78,19 @@ export async function listVacancyRegister(
   }
 
   const qs = query.toString();
-  return apiFetch<VacancyRegisterListResponse>(`/departments/vacancy-register${qs ? `?${qs}` : ""}`);
+  return apiFetch<SanctionedStrengthListResponse>(`/departments/vacancy-register${qs ? `?${qs}` : ""}`);
+}
+
+// Mirrors GET /departments/{department_id}/sanctioned-strength-breakdown
+// (app/api/v1/routers/vacancy_register.py) -- one row per designation
+// linked to the department, only fetched when that department's row is
+// expanded on SanctionedStrengthPage (never eagerly for every department in
+// the list).
+export async function getDepartmentSanctionedStrengthBreakdown(
+  departmentId: string,
+): Promise<DepartmentDesignationBreakdownRow[]> {
+  const response = await apiFetch<{ items: DepartmentDesignationBreakdownRow[] }>(
+    `/departments/${departmentId}/sanctioned-strength-breakdown`,
+  );
+  return response.items;
 }
