@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.models.enums import StaffRoleCategoryEnum
+
 
 class JobPostingRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -10,6 +12,7 @@ class JobPostingRead(BaseModel):
     id: uuid.UUID
     approved_vacancy_id: uuid.UUID
     campus_id: uuid.UUID
+    role_category: StaffRoleCategoryEnum
     public_apply_slug: str
     published_at: datetime
     closed_at: datetime | None

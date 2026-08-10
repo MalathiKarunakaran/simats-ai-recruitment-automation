@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
-from app.models.enums import ApplicationStatusEnum
+from app.models.enums import ApplicationStatusEnum, StaffRoleCategoryEnum
 
 
 class Application(Base):
@@ -26,6 +26,13 @@ class Application(Base):
     # same rationale as User.campus_id.
     campus_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("campuses.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # Denormalized from job_posting.role_category, same rationale as
+    # campus_id above -- cheap category filtering without a join. Set once
+    # at creation time (app/api/v1/routers/applications.py::create_application)
+    # and never changes afterwards.
+    role_category: Mapped[StaffRoleCategoryEnum] = mapped_column(
+        Enum(StaffRoleCategoryEnum, name="staff_role_category_enum"), nullable=False, index=True
     )
     status: Mapped[ApplicationStatusEnum] = mapped_column(
         Enum(ApplicationStatusEnum, name="application_status_enum"),

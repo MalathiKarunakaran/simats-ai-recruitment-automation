@@ -20,12 +20,22 @@ class Department(Base):
         UUID(as_uuid=True), ForeignKey("campuses.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(150), nullable=False)
-    # Department Master fields (nullable -- 50+ pre-existing rows have none of
-    # these set and there's no backfill requirement; they're populated going
-    # forward as master data is filled in).
+    # Department Master fields. `code`/`parent_group` stay nullable -- 50+
+    # pre-existing rows have none of these set and there's no backfill
+    # requirement; they're populated going forward as master data is filled
+    # in. `category` was nullable too until the Phase 1 staff-category
+    # migrations (see alembic/versions/*_backfill_department_category.py)
+    # backfilled every remaining NULL row and added a NOT NULL constraint --
+    # it's now a required, first-class dimension. The Python-side default
+    # mirrors that migration's own "ambiguous -> NON_TEACHING" heuristic, so
+    # any code path that constructs a Department without explicitly setting
+    # category (seed.py, tracker_import.py, migration.py, test fixtures)
+    # keeps working unchanged.
     code: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
-    category: Mapped[StaffRoleCategoryEnum | None] = mapped_column(
-        Enum(StaffRoleCategoryEnum, name="staff_role_category_enum"), nullable=True
+    category: Mapped[StaffRoleCategoryEnum] = mapped_column(
+        Enum(StaffRoleCategoryEnum, name="staff_role_category_enum"),
+        nullable=False,
+        default=StaffRoleCategoryEnum.NON_TEACHING,
     )
     # Free text, deliberately not a lookup table (e.g. "Engineering", "Science",
     # "Administration", "Operations", "Academic Support").

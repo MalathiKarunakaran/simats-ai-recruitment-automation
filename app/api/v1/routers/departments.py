@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db, require_roles
 from app.models.campus import Campus
 from app.models.department import Department
-from app.models.enums import UserRoleEnum
+from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.department import DepartmentCreate, DepartmentRead, DepartmentUpdate
@@ -67,7 +67,13 @@ def create_department(
         campus_id=payload.campus_id,
         name=payload.name,
         code=payload.code,
-        category=payload.category,
+        # category stays optional at the API level (existing RBAC test relies
+        # on a category-less payload still reaching the role check rather
+        # than 422ing first) -- but the column is NOT NULL, so an omitted
+        # category falls back to the same "ambiguous -> NON_TEACHING" default
+        # the Phase 1 backfill migration used, rather than passing an
+        # explicit None that would bypass the model's own Python-side default.
+        category=payload.category or StaffRoleCategoryEnum.NON_TEACHING,
         parent_group=payload.parent_group,
         is_active=payload.is_active,
     )

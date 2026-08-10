@@ -1,4 +1,4 @@
-from app.models.enums import UserRoleEnum
+from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 
 from tests.conftest import auth_headers
 
@@ -101,3 +101,30 @@ def test_candidate_cannot_list_departments(client, user_factory):
     candidate = user_factory(UserRoleEnum.CANDIDATE)
     response = client.get("/api/v1/departments", headers=auth_headers(client, candidate))
     assert response.status_code == 403
+
+
+def test_create_department_without_category_defaults_to_non_teaching(client, user_factory, campus_factory):
+    # Department.category became NOT NULL in the Phase 1 staff-category
+    # migrations (see alembic/versions/a1b2c3d4e5f7_..._backfill_department_category.py)
+    # -- the API still accepts an omitted category (mirroring that
+    # migration's own "ambiguous -> NON_TEACHING" default) rather than 422ing,
+    # since the RBAC test above relies on a category-less payload still
+    # reaching the role check.
+    sse = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.post(
+        "/api/v1/departments",
+        headers=auth_headers(client, hr_admin),
+        json={"campus_id": str(sse.id), "name": "New Dept Without Category"},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["category"] == StaffRoleCategoryEnum.NON_TEACHING.value
+
+
+def test_department_factory_departments_have_a_category(department_factory):
+    # Model-level Python default (StaffRoleCategoryEnum.NON_TEACHING) keeps
+    # every existing Department(...) construction site working now that the
+    # column is NOT NULL, without needing to touch every call site.
+    department = department_factory("SSE")
+    assert department.category == StaffRoleCategoryEnum.NON_TEACHING

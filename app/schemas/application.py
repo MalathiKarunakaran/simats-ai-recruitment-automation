@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import ApplicationStatusEnum
+from app.models.enums import ApplicationStatusEnum, StaffRoleCategoryEnum
 
 
 class ApplicationCreate(BaseModel):
@@ -39,6 +39,7 @@ class ApplicationRead(BaseModel):
     candidate_id: uuid.UUID
     job_posting_id: uuid.UUID
     campus_id: uuid.UUID
+    role_category: StaffRoleCategoryEnum
     status: ApplicationStatusEnum
     applied_at: datetime
     recorded_by_id: uuid.UUID

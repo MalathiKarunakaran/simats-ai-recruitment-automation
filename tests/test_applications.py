@@ -116,6 +116,23 @@ def test_inactive_rule_is_treated_as_absent(
     assert body["qualification_mismatch_reason"] is not None
 
 
+def test_application_role_category_denormalized_from_job_posting(
+    client, published_vacancy_factory, candidate_factory
+):
+    # create_application() sets Application.role_category =
+    # job_posting.role_category at creation time (Phase 1 staff-category
+    # migrations) -- verify it's both persisted and exposed on the read
+    # schema, for a non-default (HOUSEKEEPING) category.
+    vacancy = published_vacancy_factory(
+        campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.HOUSEKEEPING
+    )
+    candidate = candidate_factory()
+
+    response = _create_application(client, vacancy, candidate)
+    assert response.status_code == 201, response.text
+    assert response.json()["role_category"] == "HOUSEKEEPING"
+
+
 def test_pipeline_details_with_salary_fixed_round_trips_and_can_be_re_edited(
     client, published_vacancy_factory, candidate_factory
 ):

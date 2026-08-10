@@ -1,3 +1,5 @@
+from app.models.enums import StaffRoleCategoryEnum
+
 from tests.conftest import auth_headers
 
 
@@ -28,6 +30,21 @@ def test_list_job_postings_includes_position_and_department(client, published_va
     # Before anyone's joined: both slots still needed, none filled yet.
     assert posting["requested_count"] == 2
     assert posting["available_count"] == 0
+
+
+def test_job_posting_role_category_denormalized_from_vacancy_request(client, published_vacancy_factory):
+    # publish() sets JobPosting.role_category = vacancy_request.role_category
+    # at creation time (Phase 1 staff-category migrations) -- verify it's
+    # both persisted and exposed on the read schema, for a non-default
+    # (NON_TEACHING) category so this doesn't just accidentally pass on the
+    # published_vacancy_factory's own TEACHING default.
+    vacancy = published_vacancy_factory(slot_count=1, role_category=StaffRoleCategoryEnum.NON_TEACHING)
+
+    response = client.get(
+        f"/api/v1/job-postings/{vacancy.job_posting.id}", headers=auth_headers(client, vacancy.hr_admin)
+    )
+    assert response.status_code == 200
+    assert response.json()["role_category"] == "NON_TEACHING"
 
 
 def test_available_count_only_counts_filled_not_reserved(

@@ -207,6 +207,7 @@ def _seed_scenario_eligibility_mismatch_demo(db, *, campus, department, hod, dea
         candidate_id=candidate.id,
         job_posting_id=job_posting.id,
         campus_id=job_posting.campus_id,
+        role_category=job_posting.role_category,
         applied_at=datetime.now(timezone.utc),
         recorded_by_id=hr_admin.id,
         qualification_mismatch=qualification_mismatch,
@@ -256,6 +257,7 @@ def _seed_scenario_full_happy_path(db, *, campus, department, hod, dean, hr_admi
             candidate_id=candidate.id,
             job_posting_id=job_posting.id,
             campus_id=job_posting.campus_id,
+            role_category=job_posting.role_category,
             applied_at=now,
             recorded_by_id=recruitment_officer.id,
         )

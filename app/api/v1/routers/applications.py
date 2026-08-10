@@ -109,6 +109,7 @@ def create_application(
         candidate_id=candidate.id,
         job_posting_id=job_posting.id,
         campus_id=job_posting.campus_id,
+        role_category=job_posting.role_category,
         applied_at=datetime.now(timezone.utc),
         recorded_by_id=current_user.id,
         qualification_mismatch=qualification_mismatch,

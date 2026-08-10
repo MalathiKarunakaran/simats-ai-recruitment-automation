@@ -564,6 +564,7 @@ def application_factory(db_session, candidate_factory):
             candidate_id=candidate.id,
             job_posting_id=job_posting.id,
             campus_id=job_posting.campus_id,
+            role_category=job_posting.role_category,
             applied_at=datetime.now(timezone.utc),
             recorded_by_id=recorded_by.id,
         )
@@ -649,6 +650,7 @@ def hired_employee_factory(db_session, candidate_factory):
             candidate_id=candidate.id,
             job_posting_id=vacancy.job_posting.id,
             campus_id=vacancy.job_posting.campus_id,
+            role_category=vacancy.job_posting.role_category,
             applied_at=applied_at,
             recorded_by_id=vacancy.recruitment_officer.id,
         )
