@@ -23,6 +23,11 @@ def _rule_snapshot(rule: EligibilityRule) -> dict:
         "staff_category": rule.staff_category.value,
         "position_title": rule.position_title,
         "required_qualification_keyword": rule.required_qualification_keyword,
+        "net_set_required": rule.net_set_required,
+        "subject": rule.subject,
+        "skills_keyword": rule.skills_keyword,
+        "id_proof_required": rule.id_proof_required,
+        "shift_preference": rule.shift_preference,
         "is_active": rule.is_active,
         "notes": rule.notes,
     }
@@ -62,6 +67,11 @@ def create_eligibility_rule(
         staff_category=payload.staff_category,
         position_title=payload.position_title,
         required_qualification_keyword=payload.required_qualification_keyword,
+        net_set_required=payload.net_set_required,
+        subject=payload.subject,
+        skills_keyword=payload.skills_keyword,
+        id_proof_required=payload.id_proof_required,
+        shift_preference=payload.shift_preference,
         is_active=payload.is_active,
         notes=payload.notes,
     )

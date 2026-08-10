@@ -77,6 +77,117 @@ def test_non_teaching_phd_text_is_not_flagged(client, published_vacancy_factory,
     assert body["qualification_mismatch_reason"] is None
 
 
+def test_skills_mismatch_non_teaching_application_at_disallowed_campus_is_flagged(
+    client, published_vacancy_factory, candidate_factory
+):
+    # Mirrors test_phd_teaching_application_at_disallowed_campus_is_flagged
+    # for the NON_TEACHING branch of check_qualification_mismatch -- see
+    # app/services/eligibility.py::_check_non_teaching.
+    vacancy = published_vacancy_factory(
+        campus_code="SCAD",
+        slot_count=1,
+        role_category=StaffRoleCategoryEnum.NON_TEACHING,
+        qualification="Advanced Excel skills certification required",
+    )
+    candidate = candidate_factory()
+
+    response = _create_application(client, vacancy, candidate)
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["qualification_mismatch"] is True
+    assert body["qualification_mismatch_reason"] is not None
+    assert "SCAD" in body["qualification_mismatch_reason"]
+    assert "Non-Teaching" in body["qualification_mismatch_reason"]
+
+
+def test_skills_non_teaching_application_at_allowlisted_campus_is_not_flagged(
+    client, published_vacancy_factory, candidate_factory, user_factory, campus_factory
+):
+    sse = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    rule_response = client.post(
+        "/api/v1/eligibility-rules",
+        headers=auth_headers(client, hr_admin),
+        json={
+            "campus_id": str(sse.id),
+            "staff_category": "NON_TEACHING",
+            "required_qualification_keyword": "SKILLS",
+            "skills_keyword": "Excel",
+        },
+    )
+    assert rule_response.status_code == 201
+
+    vacancy = published_vacancy_factory(
+        campus_code="SSE",
+        slot_count=1,
+        role_category=StaffRoleCategoryEnum.NON_TEACHING,
+        qualification="Advanced Excel skills certification required",
+    )
+    candidate = candidate_factory()
+
+    response = _create_application(client, vacancy, candidate)
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["qualification_mismatch"] is False
+    assert body["qualification_mismatch_reason"] is None
+
+
+def test_id_proof_housekeeping_application_at_disallowed_campus_is_flagged(
+    client, published_vacancy_factory, candidate_factory
+):
+    # Mirrors test_phd_teaching_application_at_disallowed_campus_is_flagged
+    # for the HOUSEKEEPING branch of check_qualification_mismatch -- see
+    # app/services/eligibility.py::_check_housekeeping.
+    vacancy = published_vacancy_factory(
+        campus_code="SCAD",
+        slot_count=1,
+        role_category=StaffRoleCategoryEnum.HOUSEKEEPING,
+        qualification="Aadhaar ID proof verification required before joining",
+    )
+    candidate = candidate_factory()
+
+    response = _create_application(client, vacancy, candidate)
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["qualification_mismatch"] is True
+    assert body["qualification_mismatch_reason"] is not None
+    assert "SCAD" in body["qualification_mismatch_reason"]
+    assert "Housekeeping" in body["qualification_mismatch_reason"]
+
+
+def test_id_proof_housekeeping_application_at_allowlisted_campus_is_not_flagged(
+    client, published_vacancy_factory, candidate_factory, user_factory, campus_factory
+):
+    sse = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    rule_response = client.post(
+        "/api/v1/eligibility-rules",
+        headers=auth_headers(client, hr_admin),
+        json={
+            "campus_id": str(sse.id),
+            "staff_category": "HOUSEKEEPING",
+            "required_qualification_keyword": "ID_PROOF",
+            "id_proof_required": True,
+            "shift_preference": "Night",
+        },
+    )
+    assert rule_response.status_code == 201
+
+    vacancy = published_vacancy_factory(
+        campus_code="SSE",
+        slot_count=1,
+        role_category=StaffRoleCategoryEnum.HOUSEKEEPING,
+        qualification="Aadhaar ID proof verification required before joining",
+    )
+    candidate = candidate_factory()
+
+    response = _create_application(client, vacancy, candidate)
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["qualification_mismatch"] is False
+    assert body["qualification_mismatch_reason"] is None
+
+
 def test_inactive_rule_is_treated_as_absent(
     client, published_vacancy_factory, candidate_factory, user_factory, campus_factory
 ):
