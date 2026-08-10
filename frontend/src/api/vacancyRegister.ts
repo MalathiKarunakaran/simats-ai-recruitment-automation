@@ -32,12 +32,22 @@ export interface ListVacancyRegisterParams {
   is_active?: boolean | null;
 }
 
-// Returns the *full* PaginatedResponse (not unwrapped to .items) -- unlike
-// listJobPostings()/listDepartments(), this page needs `total` for real
-// server-side pagination, not a fetch-everything-unfiltered list.
+// Mirrors app/schemas/vacancy_register.py::VacancyRegisterListResponse --
+// additive on top of PaginatedResponse: category_counts is a snapshot of
+// {"TEACHING": n, "NON_TEACHING": n, "HOUSEKEEPING": n, "ALL": n} across
+// every active filter *except* category itself, so a CategoryTabs tab's
+// count doesn't change when a different tab is selected.
+export interface VacancyRegisterListResponse extends PaginatedResponse<VacancyRegisterRow> {
+  category_counts: Record<string, number>;
+}
+
+// Returns the *full* response (not unwrapped to .items) -- unlike
+// listJobPostings()/listDepartments(), this page needs `total` (and now
+// category_counts) for real server-side pagination, not a
+// fetch-everything-unfiltered list.
 export async function listVacancyRegister(
   params: ListVacancyRegisterParams = {},
-): Promise<PaginatedResponse<VacancyRegisterRow>> {
+): Promise<VacancyRegisterListResponse> {
   const query = new URLSearchParams();
   if (params.limit !== undefined) query.set("limit", String(params.limit));
   if (params.offset !== undefined) query.set("offset", String(params.offset));
@@ -54,5 +64,5 @@ export async function listVacancyRegister(
   }
 
   const qs = query.toString();
-  return apiFetch<PaginatedResponse<VacancyRegisterRow>>(`/departments/vacancy-register${qs ? `?${qs}` : ""}`);
+  return apiFetch<VacancyRegisterListResponse>(`/departments/vacancy-register${qs ? `?${qs}` : ""}`);
 }

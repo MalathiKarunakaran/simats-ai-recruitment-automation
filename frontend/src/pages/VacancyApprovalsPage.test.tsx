@@ -169,6 +169,7 @@ describe("VacancyApprovalsPage", () => {
       id: "jp-1",
       approved_vacancy_id: "av-1",
       campus_id: "c-sse",
+      role_category: "TEACHING",
       public_apply_slug: "sse-lecturer-abcd",
       published_at: "2026-07-30T00:00:00Z",
       closed_at: null,

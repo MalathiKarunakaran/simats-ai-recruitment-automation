@@ -10,7 +10,6 @@ import { listDepartments } from "@/api/departments";
 import { listJobPostings } from "@/api/jobPostings";
 import type {
   EmploymentType,
-  StaffRoleCategory,
   VacancyPriority,
   VacancyRequestRead,
   VacancyRequestStatus,
@@ -26,19 +25,14 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs } from "@/components/ui/tabs";
+import { CategoryTabs } from "@/components/domain/CategoryTabs";
 import { DepartmentSummaryCard, type DepartmentSummary } from "@/components/vacancy-requests/DepartmentSummaryCard";
 import { DepartmentVacancyDetailTable, type FillStats } from "@/components/vacancy-requests/DepartmentVacancyDetailTable";
 import { StatTile } from "@/components/dashboard/StatTile";
+import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { summarizeVacancyRequestStatuses } from "@/lib/vacancyRequestStats";
 
 const UNGROUPED_LABEL = "Ungrouped";
-
-const ROLE_CATEGORY_TABS: { value: StaffRoleCategory; label: string }[] = [
-  { value: "TEACHING", label: "Teaching" },
-  { value: "NON_TEACHING", label: "Non-Teaching" },
-  { value: "HOUSEKEEPING", label: "Housekeeping" },
-];
 
 const STATUSES: VacancyRequestStatus[] = [
   "DRAFT",
@@ -76,11 +70,13 @@ export function VacancyRequestsListPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [search, setSearch] = useState("");
-  // Top-level Teaching/Non-Teaching/Housekeeping split -- supersedes the old
-  // "Teaching & non-teaching" filter dropdown (that control is redundant
+  // Top-level All/Teaching/Non-Teaching/Housekeeping split -- supersedes the
+  // old "Teaching & non-teaching" filter dropdown (that control is redundant
   // once the same axis is a top-level Tab; removed rather than keeping two
-  // controls for one thing).
-  const [activeTab, setActiveTab] = useState<StaffRoleCategory>("TEACHING");
+  // controls for one thing). URL-persisted via ?category=... (see
+  // hooks/useCategoryTabState.ts) so the selection survives refresh/back-
+  // forward/shared links.
+  const [activeTab, setActiveTab] = useCategoryTabState();
   const [expandedParentGroups, setExpandedParentGroups] = useState<Set<string>>(new Set());
   const [expandedDepartmentId, setExpandedDepartmentId] = useState<string | null>(null);
 
@@ -196,8 +192,12 @@ export function VacancyRequestsListPage() {
   }, [departments]);
 
   const normalizedSearch = search.trim().toLowerCase();
-  const filteredVacancyRequests = (vacancyRequests ?? []).filter((vr) => {
-    if (vr.role_category !== activeTab) return false;
+  // Every filter except the category tab -- shared between the final
+  // filtered list and the CategoryTabs counts below, so each tab's count
+  // reflects "how many would show up in this category, given the *other*
+  // active filters", not the whole unfiltered set (same convention as
+  // VacancyRegister/Designation Master's server-computed category_counts).
+  function matchesNonCategoryFilters(vr: VacancyRequestRead): boolean {
     if (statusFilter !== "ALL" && vr.status !== statusFilter) return false;
     if (campusFilter !== "ALL" && vr.campus_id !== campusFilter) return false;
     if (departmentFilter !== "ALL" && vr.department_id !== departmentFilter) return false;
@@ -212,7 +212,18 @@ export function VacancyRequestsListPage() {
       if (groupLabel !== parentGroupFilter) return false;
     }
     return true;
-  });
+  }
+
+  const preCategoryFiltered = (vacancyRequests ?? []).filter(matchesNonCategoryFilters);
+  const categoryTabCounts = {
+    all: preCategoryFiltered.length,
+    teaching: preCategoryFiltered.filter((vr) => vr.role_category === "TEACHING").length,
+    nonTeaching: preCategoryFiltered.filter((vr) => vr.role_category === "NON_TEACHING").length,
+    housekeeping: preCategoryFiltered.filter((vr) => vr.role_category === "HOUSEKEEPING").length,
+  };
+  const filteredVacancyRequests = preCategoryFiltered.filter(
+    (vr) => activeTab === "ALL" || vr.role_category === activeTab,
+  );
 
   // Requests for the active tab/filters, bucketed by department -- feeds
   // both each DepartmentCard's own stats and (once a card is clicked) the
@@ -377,13 +388,13 @@ export function VacancyRequestsListPage() {
         </div>
       ) : null}
 
-      <Tabs
+      <CategoryTabs
         value={activeTab}
         onValueChange={(value) => {
           setActiveTab(value);
           setExpandedDepartmentId(null);
         }}
-        tabs={ROLE_CATEGORY_TABS}
+        counts={categoryTabCounts}
       />
 
       <Card className="flex flex-col gap-3 p-4">

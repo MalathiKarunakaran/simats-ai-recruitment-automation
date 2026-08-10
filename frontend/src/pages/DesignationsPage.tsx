@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { createDesignation, listDesignations, updateDesignation } from "@/api/designations";
+import { createDesignation, listDesignationsWithCounts, updateDesignation } from "@/api/designations";
 import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
 import { DESIGNATION_WRITE_ROLES, type DesignationRead, type EmploymentType, type StaffRoleCategory } from "@/api/types";
@@ -21,6 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CategoryTabs, mapServerCategoryCounts } from "@/components/domain/CategoryTabs";
+import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 const CATEGORIES: StaffRoleCategory[] = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
@@ -52,18 +54,21 @@ export function DesignationsPage() {
   const minExperience = useFieldValidation("", required("Minimum experience is required"));
   const [error, setError] = useState<string | null>(null);
 
-  const [categoryFilter, setCategoryFilter] = useState<StaffRoleCategory | "ALL">("ALL");
+  // URL-persisted via ?category=... (see hooks/useCategoryTabState.ts) so
+  // the selection survives refresh/back-forward/shared links.
+  const [categoryFilter, setCategoryFilter] = useCategoryTabState();
   const [activeFilter, setActiveFilter] = useState<"ALL" | "true" | "false">("ALL");
   const [search, setSearch] = useState("");
 
-  const { data: designations, isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["designations", categoryFilter, activeFilter],
     queryFn: () =>
-      listDesignations({
+      listDesignationsWithCounts({
         category: categoryFilter === "ALL" ? undefined : categoryFilter,
         isActive: activeFilter === "ALL" ? undefined : activeFilter === "true",
       }),
   });
+  const designations = data?.items;
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
 
   const canManage = Boolean(user && DESIGNATION_WRITE_ROLES.includes(user.role));
@@ -322,6 +327,12 @@ export function DesignationsPage() {
         }
       />
 
+      <CategoryTabs
+        value={categoryFilter}
+        onValueChange={setCategoryFilter}
+        counts={mapServerCategoryCounts(data?.category_counts)}
+      />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input
           value={search}
@@ -330,19 +341,6 @@ export function DesignationsPage() {
           aria-label="Search designations"
           className="sm:max-w-xs"
         />
-        <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as StaffRoleCategory | "ALL")}>
-          <SelectTrigger aria-label="Category filter" className="sm:w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All categories</SelectItem>
-            {CATEGORIES.map((category) => (
-              <SelectItem key={category} value={category}>
-                {category.replace(/_/g, " ")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Select value={activeFilter} onValueChange={(v) => setActiveFilter(v as "ALL" | "true" | "false")}>
           <SelectTrigger aria-label="Active filter" className="sm:w-40">
             <SelectValue />

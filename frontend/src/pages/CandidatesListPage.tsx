@@ -2,12 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
+import { listApplications } from "@/api/applications";
 import { listCandidates } from "@/api/candidates";
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/candidates/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CategoryTabs } from "@/components/domain/CategoryTabs";
+import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 
 // Mirrors the backend's RECRUITMENT_OFFICER/HR_ADMIN/SUPER_ADMIN/
 // RECRUITMENT_COORDINATOR gate on both candidate creation and
@@ -24,6 +27,17 @@ export function CandidatesListPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [resumeFilter, setResumeFilter] = useState<ResumeFilter>("ALL");
+  // URL-persisted via ?category=... (see hooks/useCategoryTabState.ts) so
+  // the selection survives refresh/back-forward/shared links. A candidate
+  // has no direct category column of its own -- one candidate can apply
+  // across multiple job postings, possibly in different categories -- so
+  // this tab's semantics are "has at least one application whose
+  // role_category matches the selected tab" (an "any", not "every", match;
+  // a candidate with both a Teaching and a Non-Teaching application shows
+  // up under both tabs). Requires fetching Applications alongside Candidates
+  // for this page specifically -- everywhere else on this page already
+  // fetches only Candidates.
+  const [categoryTab, setCategoryTab] = useCategoryTabState();
 
   const isWithdrawn = statusFilter === "ALL" ? undefined : statusFilter === "WITHDRAWN";
 
@@ -34,9 +48,29 @@ export function CandidatesListPage() {
     queryKey: ["candidates", isWithdrawn],
     queryFn: () => listCandidates(undefined, isWithdrawn),
   });
+  // Only fetched for the category tab's "any application in this category"
+  // check -- ≤200 rows, same fetch-everything-unfiltered convention as
+  // ApplicationsListPage/VacancyRequestsListPage use for client-side filters.
+  const { data: applications } = useQuery({
+    queryKey: ["applications", "for-category-tab"],
+    queryFn: () => listApplications(),
+  });
+
+  const categoriesByCandidateId = new Map<string, Set<string>>();
+  (applications ?? []).forEach((application) => {
+    if (!categoriesByCandidateId.has(application.candidate_id)) {
+      categoriesByCandidateId.set(application.candidate_id, new Set());
+    }
+    categoriesByCandidateId.get(application.candidate_id)!.add(application.role_category);
+  });
 
   const normalizedSearch = search.trim().toLowerCase();
-  const filteredCandidates = candidates?.filter((candidate) => {
+
+  // Every filter except the category tab -- shared between the final
+  // filtered list and the CategoryTabs counts, so each tab's count reflects
+  // "how many in this category, given the *other* active filters", not the
+  // whole unfiltered list.
+  function matchesNonCategoryFilters(candidate: NonNullable<typeof candidates>[number]): boolean {
     if (resumeFilter === "MISSING" && candidate.resume_storage_key) return false;
     if (resumeFilter === "UPLOADED" && !candidate.resume_storage_key) return false;
     if (!normalizedSearch) return true;
@@ -44,7 +78,21 @@ export function CandidatesListPage() {
       candidate.full_name.toLowerCase().includes(normalizedSearch) ||
       candidate.email.toLowerCase().includes(normalizedSearch)
     );
-  });
+  }
+
+  const preCategoryFiltered = (candidates ?? []).filter(matchesNonCategoryFilters);
+  function hasApplicationInCategory(candidateId: string, category: string): boolean {
+    return categoriesByCandidateId.get(candidateId)?.has(category) ?? false;
+  }
+  const categoryTabCounts = {
+    all: preCategoryFiltered.length,
+    teaching: preCategoryFiltered.filter((c) => hasApplicationInCategory(c.id, "TEACHING")).length,
+    nonTeaching: preCategoryFiltered.filter((c) => hasApplicationInCategory(c.id, "NON_TEACHING")).length,
+    housekeeping: preCategoryFiltered.filter((c) => hasApplicationInCategory(c.id, "HOUSEKEEPING")).length,
+  };
+  const filteredCandidates = candidates
+    ? preCategoryFiltered.filter((c) => categoryTab === "ALL" || hasApplicationInCategory(c.id, categoryTab))
+    : undefined;
 
   return (
     <div className="flex flex-col gap-6">
@@ -56,6 +104,8 @@ export function CandidatesListPage() {
           </Button>
         ) : null}
       </div>
+
+      <CategoryTabs value={categoryTab} onValueChange={setCategoryTab} counts={categoryTabCounts} />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-72">

@@ -6,12 +6,14 @@ import { listApplications } from "@/api/applications";
 import { listCampuses } from "@/api/campuses";
 import { listCandidates } from "@/api/candidates";
 import { APPLICATION_STATUS_ORDER } from "@/api/types";
-import type { ApplicationStatus } from "@/api/types";
+import type { ApplicationRead, ApplicationStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/applications/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CategoryTabs } from "@/components/domain/CategoryTabs";
+import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
 const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
@@ -21,6 +23,9 @@ export function ApplicationsListPage() {
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "ALL">("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
+  // URL-persisted via ?category=... (see hooks/useCategoryTabState.ts) so
+  // the selection survives refresh/back-forward/shared links.
+  const [categoryTab, setCategoryTab] = useCategoryTabState();
 
   const { data: applications, isLoading } = useQuery({
     queryKey: ["applications", { status: statusFilter }],
@@ -31,7 +36,12 @@ export function ApplicationsListPage() {
   const { getLabel } = useJobPostingLookup();
 
   const normalizedSearch = search.trim().toLowerCase();
-  const filteredApplications = applications?.filter((application) => {
+
+  // Every filter except the category tab (status is already server-side) --
+  // shared between the final filtered list and the CategoryTabs counts, so
+  // each tab's count reflects "how many in this category, given the *other*
+  // active filters", not the whole unfiltered list.
+  function matchesNonCategoryFilters(application: ApplicationRead): boolean {
     if (campusFilter !== "ALL" && application.campus_id !== campusFilter) return false;
     if (!normalizedSearch) return true;
     const candidate = candidates?.find((c) => c.id === application.candidate_id);
@@ -40,7 +50,18 @@ export function ApplicationsListPage() {
       (candidate?.full_name.toLowerCase().includes(normalizedSearch) ?? false) ||
       (label?.positionTitle.toLowerCase().includes(normalizedSearch) ?? false)
     );
-  });
+  }
+
+  const preCategoryFiltered = (applications ?? []).filter(matchesNonCategoryFilters);
+  const categoryTabCounts = {
+    all: preCategoryFiltered.length,
+    teaching: preCategoryFiltered.filter((a) => a.role_category === "TEACHING").length,
+    nonTeaching: preCategoryFiltered.filter((a) => a.role_category === "NON_TEACHING").length,
+    housekeeping: preCategoryFiltered.filter((a) => a.role_category === "HOUSEKEEPING").length,
+  };
+  const filteredApplications = applications
+    ? preCategoryFiltered.filter((a) => categoryTab === "ALL" || a.role_category === categoryTab)
+    : undefined;
 
   return (
     <div className="flex flex-col gap-6">
@@ -52,6 +73,8 @@ export function ApplicationsListPage() {
           </Button>
         ) : null}
       </div>
+
+      <CategoryTabs value={categoryTab} onValueChange={setCategoryTab} counts={categoryTabCounts} />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-72">

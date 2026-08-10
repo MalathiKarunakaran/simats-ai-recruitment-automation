@@ -5,9 +5,12 @@ import { Link } from "react-router-dom";
 import { listCampuses } from "@/api/campuses";
 import { listDepartments } from "@/api/departments";
 import { listJobPostings } from "@/api/jobPostings";
+import type { JobPostingRead } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CategoryTabs } from "@/components/domain/CategoryTabs";
+import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 
 type ActiveFilter = "ALL" | "ACTIVE" | "CLOSED";
 
@@ -19,19 +22,40 @@ export function JobPostingsListPage() {
   const [statusFilter, setStatusFilter] = useState<ActiveFilter>("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
+  // URL-persisted via ?category=... (see hooks/useCategoryTabState.ts) so
+  // the selection survives refresh/back-forward/shared links.
+  const [categoryTab, setCategoryTab] = useCategoryTabState();
 
   const normalizedSearch = search.trim().toLowerCase();
-  const filteredJobPostings = jobPostings?.filter((jp) => {
+
+  // Every filter except the category tab -- shared between the final
+  // filtered list and the CategoryTabs counts, so each tab's count reflects
+  // "how many in this category, given the *other* active filters", not the
+  // whole unfiltered list.
+  function matchesNonCategoryFilters(jp: JobPostingRead): boolean {
     if (statusFilter === "ACTIVE" && !jp.is_active) return false;
     if (statusFilter === "CLOSED" && jp.is_active) return false;
     if (campusFilter !== "ALL" && jp.campus_id !== campusFilter) return false;
     if (!normalizedSearch) return true;
     return jp.position_title.toLowerCase().includes(normalizedSearch);
-  });
+  }
+
+  const preCategoryFiltered = (jobPostings ?? []).filter(matchesNonCategoryFilters);
+  const categoryTabCounts = {
+    all: preCategoryFiltered.length,
+    teaching: preCategoryFiltered.filter((jp) => jp.role_category === "TEACHING").length,
+    nonTeaching: preCategoryFiltered.filter((jp) => jp.role_category === "NON_TEACHING").length,
+    housekeeping: preCategoryFiltered.filter((jp) => jp.role_category === "HOUSEKEEPING").length,
+  };
+  const filteredJobPostings = jobPostings
+    ? preCategoryFiltered.filter((jp) => categoryTab === "ALL" || jp.role_category === categoryTab)
+    : undefined;
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-lg font-semibold">Job Postings</h1>
+
+      <CategoryTabs value={categoryTab} onValueChange={setCategoryTab} counts={categoryTabCounts} />
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-72">

@@ -6,8 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
 import { ApiError } from "@/api/client";
-import type { PaginatedResponse, UserRead, UserRole, VacancyRegisterRow } from "@/api/types";
+import type { UserRead, UserRole, VacancyRegisterRow } from "@/api/types";
 import * as vacancyRegisterApi from "@/api/vacancyRegister";
+import type { VacancyRegisterListResponse } from "@/api/vacancyRegister";
 import * as authContext from "@/auth/AuthContext";
 import { VacancyRegisterPage } from "@/pages/VacancyRegisterPage";
 
@@ -72,8 +73,23 @@ const MECH_ROW: VacancyRegisterRow = {
   last_updated: "2026-07-15T09:00:00Z",
 };
 
-function paginated(items: VacancyRegisterRow[], total = items.length): PaginatedResponse<VacancyRegisterRow> {
-  return { items, total, limit: 50, offset: 0 };
+function paginated(
+  items: VacancyRegisterRow[],
+  total = items.length,
+  categoryCounts?: Record<string, number>,
+): VacancyRegisterListResponse {
+  return {
+    items,
+    total,
+    limit: 50,
+    offset: 0,
+    category_counts: categoryCounts ?? {
+      TEACHING: items.filter((r) => r.category === "TEACHING").length,
+      NON_TEACHING: items.filter((r) => r.category === "NON_TEACHING").length,
+      HOUSEKEEPING: items.filter((r) => r.category === "HOUSEKEEPING").length,
+      ALL: items.length,
+    },
+  };
 }
 
 function mockAuth(role: UserRole) {
@@ -246,8 +262,7 @@ describe("VacancyRegisterPage", () => {
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
     mockedListVacancyRegister.mockResolvedValue(paginated([]));
-    await userEvent.click(screen.getByRole("combobox", { name: "Category filter" }));
-    await userEvent.click(await screen.findByRole("option", { name: "HOUSEKEEPING" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Housekeeping/ }));
 
     expect(await screen.findByText("No departments match these filters.")).toBeInTheDocument();
     expect(screen.queryByText("No departments found.")).not.toBeInTheDocument();
@@ -314,8 +329,7 @@ describe("VacancyRegisterPage", () => {
       expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
     );
 
-    await userEvent.click(screen.getByRole("combobox", { name: "Category filter" }));
-    await userEvent.click(await screen.findByRole("option", { name: "NON TEACHING" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Non-Teaching/ }));
 
     await waitFor(() =>
       expect(mockedListVacancyRegister).toHaveBeenLastCalledWith(

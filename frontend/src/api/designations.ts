@@ -14,14 +14,42 @@ export interface ListDesignationsParams {
   limit?: number;
 }
 
-// Mirrors GET /designations -- open to any staff role except CANDIDATE.
-export async function listDesignations(params: ListDesignationsParams = {}): Promise<DesignationRead[]> {
+function buildListDesignationsQuery(params: ListDesignationsParams): URLSearchParams {
   const query = new URLSearchParams({ limit: String(params.limit ?? 200) });
   if (params.departmentId) query.set("department_id", params.departmentId);
   if (params.category) query.set("category", params.category);
   if (params.isActive !== undefined) query.set("is_active", String(params.isActive));
-  const response = await apiFetch<PaginatedResponse<DesignationRead>>(`/designations?${query.toString()}`);
+  return query;
+}
+
+// Mirrors GET /designations -- open to any staff role except CANDIDATE.
+// Unwrapped to the plain array, same convention as listJobPostings()/
+// listDepartments() -- most callers (e.g. VacancyRequestWizard) just need
+// the list. Use listDesignationsWithCounts() when category_counts is needed.
+export async function listDesignations(params: ListDesignationsParams = {}): Promise<DesignationRead[]> {
+  const response = await apiFetch<PaginatedResponse<DesignationRead>>(
+    `/designations?${buildListDesignationsQuery(params).toString()}`,
+  );
   return response.items;
+}
+
+// Mirrors app/schemas/designation.py::DesignationListResponse -- additive on
+// top of PaginatedResponse: category_counts is a snapshot of
+// {"TEACHING": n, "NON_TEACHING": n, "HOUSEKEEPING": n, "ALL": n} across
+// every active filter (department_id/is_active) except category itself, so
+// a CategoryTabs tab's count doesn't change when a different tab is
+// selected.
+export interface DesignationListResponse extends PaginatedResponse<DesignationRead> {
+  category_counts: Record<string, number>;
+}
+
+// Same query as listDesignations(), but returns the full response (incl.
+// category_counts) for pages that render a CategoryTabs strip -- currently
+// only DesignationsPage.
+export async function listDesignationsWithCounts(
+  params: ListDesignationsParams = {},
+): Promise<DesignationListResponse> {
+  return apiFetch<DesignationListResponse>(`/designations?${buildListDesignationsQuery(params).toString()}`);
 }
 
 // Mirrors POST /designations -- DESIGNATION_WRITE_ROLES only (backend re-checks).

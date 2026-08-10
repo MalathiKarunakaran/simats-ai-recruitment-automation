@@ -413,6 +413,7 @@ describe("VacancyRequestsListPage", () => {
         id: "jp-1",
         approved_vacancy_id: "av-1",
         campus_id: "c-sse",
+        role_category: "TEACHING",
         public_apply_slug: "assistant-professor",
         published_at: "2026-01-02T00:00:00Z",
         closed_at: null,
@@ -448,7 +449,7 @@ describe("VacancyRequestsListPage", () => {
     expect(row).toHaveTextContent(/2.*1.*1/);
   });
 
-  it("defaults to the Teaching tab and switches to Non-Teaching, showing only the matching role_category's departments", async () => {
+  it("defaults to the All tab, then narrows to Non-Teaching, showing only the matching role_category's departments", async () => {
     mockCommonApis();
     mockedListDepartments.mockResolvedValue([
       DEPARTMENT,
@@ -474,15 +475,55 @@ describe("VacancyRequestsListPage", () => {
 
     renderPage();
 
-    // TEACHING is the default tab -- only Computer Science (the TEACHING
-    // request's department) shows.
+    // "All" (the URL-absent default) shows both departments' cards.
     expect(await screen.findByRole("button", { name: /Computer Science/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Housekeeping Services/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Housekeeping Services/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "All (2)" })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("tab", { name: "Non-Teaching" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Non-Teaching/ }));
 
     expect(await screen.findByRole("button", { name: /Housekeeping Services/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Computer Science/ })).not.toBeInTheDocument();
+  });
+
+  it("combines the category tab with the campus filter (both apply, not just one)", async () => {
+    mockCommonApis();
+    mockedListDepartments.mockResolvedValue([
+      DEPARTMENT,
+      { ...DEPARTMENT, id: "d-2", name: "Physics", campus_id: "c-scad" },
+    ]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    // Both TEACHING -- one at SSE, one at SCAD.
+    const scadTeaching = {
+      ...VR,
+      id: "vr-2",
+      department_id: "d-2",
+      campus_id: "c-scad",
+      position_title: "Lecturer (SCAD)",
+    };
+    mockedListVacancyRequests.mockResolvedValue([VR, scadTeaching]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("tab", { name: /^Teaching/ }));
+    expect(await screen.findByRole("button", { name: /Computer Science/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Physics/ })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
+
+    // Teaching + campus=SSE applies both -- SCAD's TEACHING department drops out.
+    expect(screen.getByRole("button", { name: /Computer Science/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Physics/ })).not.toBeInTheDocument();
   });
 
   it("filters department cards by Parent Group, bucketing departments without one under 'Ungrouped'", async () => {

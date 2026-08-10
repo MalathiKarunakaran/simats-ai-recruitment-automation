@@ -20,20 +20,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs } from "@/components/ui/tabs";
+import { CategoryTabs } from "@/components/domain/CategoryTabs";
+import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 const CATEGORIES: StaffRoleCategory[] = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
-
-// Segregated by employee type, not a flat list -- same Tabs pattern
-// VacancyRequestsListPage already uses for the same 3-category split.
-// "ALL" additionally includes departments with no category set yet.
-const CATEGORY_TABS: { value: StaffRoleCategory | "ALL"; label: string }[] = [
-  { value: "ALL", label: "All" },
-  { value: "TEACHING", label: "Teaching" },
-  { value: "NON_TEACHING", label: "Non-Teaching" },
-  { value: "HOUSEKEEPING", label: "Housekeeping" },
-];
 
 interface FormState {
   campusId: string;
@@ -56,7 +47,9 @@ export function DepartmentsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
-  const [categoryTab, setCategoryTab] = useState<StaffRoleCategory | "ALL">("ALL");
+  // URL-persisted via ?category=... (see hooks/useCategoryTabState.ts) so
+  // the selection survives refresh/back-forward/shared links.
+  const [categoryTab, setCategoryTab] = useCategoryTabState();
   // Defaults to Active-only -- inactive/leftover departments shouldn't
   // clutter the list while real data is still being entered; still
   // reachable via this filter, just not shown by default.
@@ -72,11 +65,22 @@ export function DepartmentsPage() {
 
   const filtersActive =
     campusFilter !== "ALL" || categoryTab !== "ALL" || activeFilter !== "true" || search.trim() !== "";
-  const visibleDepartments = (departments ?? [])
+  // Every filter except the category tab -- shared between the visible list
+  // and the CategoryTabs counts, so each tab's count reflects "how many in
+  // this category, given the *other* active filters" (campus/active/search),
+  // not the whole unfiltered list.
+  const preCategoryFiltered = (departments ?? [])
     .filter((d) => campusFilter === "ALL" || d.campus_id === campusFilter)
-    .filter((d) => categoryTab === "ALL" || d.category === categoryTab)
     .filter((d) => activeFilter === "ALL" || (activeFilter === "true" ? d.is_active : !d.is_active))
-    .filter((d) => d.name.toLowerCase().includes(search.trim().toLowerCase()))
+    .filter((d) => d.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const categoryTabCounts = {
+    all: preCategoryFiltered.length,
+    teaching: preCategoryFiltered.filter((d) => d.category === "TEACHING").length,
+    nonTeaching: preCategoryFiltered.filter((d) => d.category === "NON_TEACHING").length,
+    housekeeping: preCategoryFiltered.filter((d) => d.category === "HOUSEKEEPING").length,
+  };
+  const visibleDepartments = preCategoryFiltered
+    .filter((d) => categoryTab === "ALL" || d.category === categoryTab)
     .sort((a, b) => a.name.localeCompare(b.name));
 
   function afterSave() {
@@ -273,7 +277,7 @@ export function DepartmentsPage() {
         }
       />
 
-      <Tabs value={categoryTab} onValueChange={setCategoryTab} tabs={CATEGORY_TABS} />
+      <CategoryTabs value={categoryTab} onValueChange={setCategoryTab} counts={categoryTabCounts} />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <Input

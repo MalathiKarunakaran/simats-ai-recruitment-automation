@@ -61,6 +61,7 @@ function makeApplication(overrides: Partial<ApplicationRead> = {}): ApplicationR
     candidate_id: "cand-1",
     job_posting_id: "jp-1",
     campus_id: "c-sse",
+    role_category: "TEACHING",
     status: "APPLIED",
     applied_at: "2026-01-02T00:00:00Z",
     recorded_by_id: "u-1",

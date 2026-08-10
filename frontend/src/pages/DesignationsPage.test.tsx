@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import * as departmentsApi from "@/api/departments";
 import * as designationsApi from "@/api/designations";
+import type { DesignationListResponse } from "@/api/designations";
 import type { DepartmentRead, DesignationRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import { DesignationsPage } from "@/pages/DesignationsPage";
@@ -18,7 +19,7 @@ vi.mock("@/auth/AuthContext", async () => {
 });
 
 const mockedUseAuth = vi.mocked(authContext.useAuth);
-const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
+const mockedListDesignationsWithCounts = vi.mocked(designationsApi.listDesignationsWithCounts);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedCreateDesignation = vi.mocked(designationsApi.createDesignation);
 
@@ -69,6 +70,25 @@ const OTHER_DESIGNATION: DesignationRead = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
+// Builds a DesignationListResponse from a plain array, deriving
+// category_counts the same way the real backend does (a per-category count
+// across whatever's in `items`), unless the test needs to assert a specific
+// count snapshot.
+function withCounts(items: DesignationRead[], categoryCounts?: Record<string, number>): DesignationListResponse {
+  return {
+    items,
+    total: items.length,
+    limit: 200,
+    offset: 0,
+    category_counts: categoryCounts ?? {
+      TEACHING: items.filter((d) => d.category === "TEACHING").length,
+      NON_TEACHING: items.filter((d) => d.category === "NON_TEACHING").length,
+      HOUSEKEEPING: items.filter((d) => d.category === "HOUSEKEEPING").length,
+      ALL: items.length,
+    },
+  };
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -83,7 +103,7 @@ function renderPage() {
 describe("DesignationsPage", () => {
   it("blocks a CANDIDATE-role account from viewing the page", async () => {
     mockUser("CANDIDATE");
-    mockedListDesignations.mockResolvedValue([DESIGNATION]);
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
@@ -95,7 +115,7 @@ describe("DesignationsPage", () => {
 
   it("lets a non-write staff role view designations read-only, with no write controls", async () => {
     mockUser("CAMPUS_HOD");
-    mockedListDesignations.mockResolvedValue([DESIGNATION]);
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
@@ -108,7 +128,7 @@ describe("DesignationsPage", () => {
 
   it("renders designations with resolved department names for a write-role (RECRUITMENT_COORDINATOR)", async () => {
     mockUser("RECRUITMENT_COORDINATOR");
-    mockedListDesignations.mockResolvedValue([DESIGNATION]);
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
@@ -128,7 +148,7 @@ describe("DesignationsPage", () => {
 
   it("hides write controls for HR_ADMIN (DESIGNATION_WRITE_ROLES deliberately excludes HR_ADMIN)", async () => {
     mockUser("HR_ADMIN");
-    mockedListDesignations.mockResolvedValue([DESIGNATION]);
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
@@ -139,7 +159,7 @@ describe("DesignationsPage", () => {
 
   it("shows the empty-state message when no designations exist", async () => {
     mockUser("SUPER_ADMIN");
-    mockedListDesignations.mockResolvedValue([]);
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
     mockedListDepartments.mockResolvedValue([]);
 
     renderPage();
@@ -149,7 +169,7 @@ describe("DesignationsPage", () => {
 
   it("submits a new designation with the entered fields, including a checked department", async () => {
     mockUser("SUPER_ADMIN");
-    mockedListDesignations.mockResolvedValue([]);
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedCreateDesignation.mockResolvedValue(DESIGNATION);
 
@@ -182,39 +202,66 @@ describe("DesignationsPage", () => {
 
   it("narrows by name search client-side without an extra fetch", async () => {
     mockUser("SUPER_ADMIN");
-    mockedListDesignations.mockResolvedValue([DESIGNATION, OTHER_DESIGNATION]);
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION, OTHER_DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Lab Assistant")).toBeInTheDocument());
-    const callsBefore = mockedListDesignations.mock.calls.length;
+    const callsBefore = mockedListDesignationsWithCounts.mock.calls.length;
 
     await userEvent.type(screen.getByLabelText("Search designations"), "assistant prof");
 
     expect(screen.getByText("Assistant Professor")).toBeInTheDocument();
     expect(screen.queryByText("Lab Assistant")).not.toBeInTheDocument();
-    expect(mockedListDesignations.mock.calls.length).toBe(callsBefore);
+    expect(mockedListDesignationsWithCounts.mock.calls.length).toBe(callsBefore);
   });
 
-  it("re-fetches server-side when the category filter changes", async () => {
+  it("re-fetches server-side when the category tab changes, combining with the active filter", async () => {
     mockUser("SUPER_ADMIN");
-    mockedListDesignations.mockResolvedValue([DESIGNATION]);
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
 
-    await userEvent.click(screen.getByRole("combobox", { name: "Category filter" }));
-    await userEvent.click(await screen.findByRole("option", { name: "NON TEACHING" }));
+    // Combine the category tab with the pre-existing Active filter (not
+    // reset by the tab change) -- selecting Teaching then filtering by
+    // Active applies both together, per this project's filter-combination
+    // requirement.
+    await userEvent.click(screen.getByRole("combobox", { name: "Active filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Active" }));
+    await waitFor(() =>
+      expect(mockedListDesignationsWithCounts).toHaveBeenLastCalledWith({ category: undefined, isActive: true }),
+    );
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Non-Teaching/ }));
 
     await waitFor(() =>
-      expect(mockedListDesignations).toHaveBeenLastCalledWith({ category: "NON_TEACHING", isActive: undefined }),
+      expect(mockedListDesignationsWithCounts).toHaveBeenLastCalledWith({
+        category: "NON_TEACHING",
+        isActive: true,
+      }),
     );
+  });
+
+  it("renders the CategoryTabs counts from the server's category_counts snapshot", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(
+      withCounts([DESIGNATION], { TEACHING: 12, NON_TEACHING: 3, HOUSEKEEPING: 1, ALL: 16 }),
+    );
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+
+    expect(await screen.findByRole("tab", { name: "All (16)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Teaching (12)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Non-Teaching (3)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Housekeeping (1)" })).toBeInTheDocument();
   });
 
   it("shows a distinct message when filters narrow a non-empty list to zero", async () => {
     mockUser("SUPER_ADMIN");
-    mockedListDesignations.mockResolvedValue([DESIGNATION]);
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
