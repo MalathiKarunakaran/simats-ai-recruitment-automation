@@ -226,6 +226,14 @@ export const DEPARTMENT_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", 
 // narrower than DEPARTMENT_MANAGEMENT_ROLES (no HR_ADMIN).
 export const DESIGNATION_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
+// Mirrors app/models/enums.py::SANCTIONED_STRENGTH_WRITE_ROLES -- gates the
+// Sanctioned Strength page's inline edit / add designation / soft-delete
+// affordances (zany-snuggling-pie.md Phase D). History reads stay open to
+// any staff role (mirrors app/api/v1/routers/sanctioned_strength.py's
+// `_staff_only` gate on GET .../history), so this constant is deliberately
+// only consulted for the write actions, never the "View history" trigger.
+export const SANCTIONED_STRENGTH_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
+
 // Mirrors app/schemas/designation.py::DesignationRead.
 export interface DesignationRead {
   id: string;
@@ -1077,7 +1085,66 @@ export interface VacancyRegisterRow {
 export interface DepartmentDesignationBreakdownRow {
   designation_id: string;
   designation_name: string;
+  // The current-effective SanctionedStrength row's own id -- null when this
+  // designation has never been sanctioned for this department (approved is
+  // then 0 by construction). Phase D's InlineNumberCell/AddDesignationRow/
+  // delete-confirm/history-drawer all key off this to decide POST-a-new-row
+  // vs. PATCH/DELETE/history-on-an-existing-row.
+  sanctioned_strength_id: string | null;
   approved: number;
   working: number;
   vacancy: number;
+}
+
+// Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthRead.
+export interface SanctionedStrengthRead {
+  id: string;
+  campus_id: string;
+  department_id: string;
+  designation_id: string;
+  category: StaffRoleCategory;
+  approved_strength: number;
+  effective_from: string;
+  remarks: string | null;
+  is_active: boolean;
+  created_by_id: string;
+  updated_by_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthCreate --
+// category is deliberately absent (server derives it from the designation,
+// item 6's mismatch check).
+export interface SanctionedStrengthCreatePayload {
+  campus_id: string;
+  department_id: string;
+  designation_id: string;
+  approved_strength: number;
+  effective_from: string;
+  remarks?: string | null;
+}
+
+// Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthUpdate --
+// the only 3 fields a revision can change; campus/department/designation/
+// category are immutable after creation.
+export interface SanctionedStrengthUpdatePayload {
+  approved_strength?: number;
+  effective_from?: string;
+  remarks?: string | null;
+}
+
+// Mirrors app/models/enums.py::SanctionedStrengthChangeSourceEnum.
+export type SanctionedStrengthChangeSource = "MANUAL" | "BULK_UPLOAD";
+
+// Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthHistoryRead.
+export interface SanctionedStrengthHistoryRead {
+  id: string;
+  sanctioned_strength_id: string;
+  old_value: number | null;
+  new_value: number;
+  changed_by_id: string;
+  changed_at: string;
+  source: SanctionedStrengthChangeSource;
+  bulk_upload_log_id: string | null;
 }

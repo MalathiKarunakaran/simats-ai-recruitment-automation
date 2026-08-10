@@ -4,6 +4,10 @@ import type {
   DepartmentDesignationBreakdownRow,
   PaginatedResponse,
   RecruitmentStatus,
+  SanctionedStrengthCreatePayload,
+  SanctionedStrengthHistoryRead,
+  SanctionedStrengthRead,
+  SanctionedStrengthUpdatePayload,
   VacancyRegisterRow,
 } from "@/api/types";
 
@@ -93,4 +97,58 @@ export async function getDepartmentSanctionedStrengthBreakdown(
     `/departments/${departmentId}/sanctioned-strength-breakdown`,
   );
   return response.items;
+}
+
+// --- CRUD + history (zany-snuggling-pie.md Phase D) -------------------------
+// Mirrors app/api/v1/routers/sanctioned_strength.py -- writes gated to
+// SANCTIONED_STRENGTH_WRITE_ROLES (api/types.ts), reads (history) staff-only.
+
+// Mirrors POST /sanctioned-strength -- used when a designation row in the
+// breakdown has no current-effective SanctionedStrength yet
+// (sanctioned_strength_id === null), i.e. "Approved" is being set for the
+// first time rather than revised.
+export async function createSanctionedStrength(
+  payload: SanctionedStrengthCreatePayload,
+): Promise<SanctionedStrengthRead> {
+  return apiFetch<SanctionedStrengthRead>("/sanctioned-strength", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Mirrors PATCH /sanctioned-strength/{id} -- only accepts
+// approved_strength/effective_from/remarks (see SanctionedStrengthUpdatePayload).
+export async function updateSanctionedStrength(
+  id: string,
+  payload: SanctionedStrengthUpdatePayload,
+): Promise<SanctionedStrengthRead> {
+  return apiFetch<SanctionedStrengthRead>(`/sanctioned-strength/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Mirrors DELETE /sanctioned-strength/{id} -- soft delete; the backend
+// returns 409 (surfaced via ApiError.message) when active employees still
+// occupy this (department, designation) key.
+export async function deleteSanctionedStrength(id: string): Promise<void> {
+  await apiFetch<void>(`/sanctioned-strength/${id}`, { method: "DELETE" });
+}
+
+export interface ListSanctionedStrengthHistoryParams {
+  limit?: number;
+  offset?: number;
+}
+
+// Mirrors GET /sanctioned-strength/{id}/history -- newest-first, paginated.
+export async function getSanctionedStrengthHistory(
+  id: string,
+  params: ListSanctionedStrengthHistoryParams = {},
+): Promise<PaginatedResponse<SanctionedStrengthHistoryRead>> {
+  const query = new URLSearchParams();
+  query.set("limit", String(params.limit ?? 50));
+  query.set("offset", String(params.offset ?? 0));
+  return apiFetch<PaginatedResponse<SanctionedStrengthHistoryRead>>(
+    `/sanctioned-strength/${id}/history?${query.toString()}`,
+  );
 }

@@ -617,7 +617,7 @@ def test_breakdown_returns_approved_working_vacancy_per_designation(
 
     designation_a = designation_factory(name="Professor", department=department)
     designation_b = designation_factory(name="Lab Assistant", department=department)
-    sanctioned_strength_factory(
+    strength_a = sanctioned_strength_factory(
         campus=campus, department=department, designation=designation_a, approved_strength=3, created_by=hr_admin
     )
     sanctioned_strength_factory(
@@ -630,6 +630,10 @@ def test_breakdown_returns_approved_working_vacancy_per_designation(
     assert items["Professor"]["approved"] == 3
     assert items["Professor"]["working"] == 0
     assert items["Professor"]["vacancy"] == 3
+    # Item 3's inline-edit/delete/history affordances all target this id --
+    # the breakdown must surface the underlying SanctionedStrength row's own
+    # id, not just its derived approved/working/vacancy figures.
+    assert items["Professor"]["sanctioned_strength_id"] == str(strength_a.id)
     assert items["Lab Assistant"]["approved"] == 1
     assert items["Lab Assistant"]["working"] == 0
     assert items["Lab Assistant"]["vacancy"] == 1
@@ -673,6 +677,68 @@ def test_breakdown_designation_with_no_sanctioned_row_shows_zero_approved(
     assert items[0]["approved"] == 0
     assert items[0]["working"] == 0
     assert items[0]["vacancy"] == 0
+    assert items[0]["sanctioned_strength_id"] is None
+
+
+def test_breakdown_includes_designation_not_m2m_linked_but_sanctioned(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory
+):
+    """The "Add designation" UI (AddDesignationRow.tsx) lets HR create a
+    sanctioned_strength row for any category-matching designation, not just
+    ones already M2M-linked to the department via designation_departments.
+    The breakdown must still surface that designation -- not just the ones
+    Designation Master itself has linked."""
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Unlinked Dept {uuid.uuid4().hex[:6]}")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    # Deliberately created with no `department=` -- not M2M-linked to
+    # `department` via designation_departments.
+    unlinked_designation = designation_factory(name="Unlinked Lecturer")
+    sanctioned_strength_factory(
+        campus=campus,
+        department=department,
+        designation=unlinked_designation,
+        approved_strength=4,
+        created_by=hr_admin,
+    )
+
+    response = _breakdown(client, hr_admin, department.id)
+    assert response.status_code == 200, response.text
+    items = {row["designation_name"]: row for row in response.json()["items"]}
+    assert "Unlinked Lecturer" in items
+    assert items["Unlinked Lecturer"]["approved"] == 4
+    assert items["Unlinked Lecturer"]["working"] == 0
+    assert items["Unlinked Lecturer"]["vacancy"] == 4
+
+
+def test_breakdown_includes_designation_with_only_inactive_sanctioned_row(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory
+):
+    """Even a designation whose only sanctioned_strength row for this
+    department is soft-deleted (is_active=False) must still surface in the
+    breakdown (approved=0, since there's no current-effective row) rather
+    than disappearing entirely."""
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Inactive Row Dept {uuid.uuid4().hex[:6]}")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    unlinked_designation = designation_factory(name="Soft Deleted Row Designation")
+    sanctioned_strength_factory(
+        campus=campus,
+        department=department,
+        designation=unlinked_designation,
+        approved_strength=2,
+        is_active=False,
+        created_by=hr_admin,
+    )
+
+    response = _breakdown(client, hr_admin, department.id)
+    assert response.status_code == 200, response.text
+    items = {row["designation_name"]: row for row in response.json()["items"]}
+    assert "Soft Deleted Row Designation" in items
+    assert items["Soft Deleted Row Designation"]["approved"] == 0
+    assert items["Soft Deleted Row Designation"]["sanctioned_strength_id"] is None
 
 
 def test_breakdown_unknown_department_is_404(client, user_factory):
