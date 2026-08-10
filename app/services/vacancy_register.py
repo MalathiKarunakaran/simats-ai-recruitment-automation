@@ -61,7 +61,12 @@ second pass, they (along with approval_status/recruitment_status filtering,
 sorting, and pagination) are computed/applied in Python after fetching every
 matching department row -- deliberately, per the "~500 departments" scale
 this table operates at (not deferred to a second per-page query, which would
-break derived-column sorting).
+break derived-column sorting). `category` filtering is deliberately applied
+in this same Python pass too (not pushed down to SQL), rather than the
+category=None-shaped whole-set query being a separate code path -- this is
+what lets `category_counts` be taken as a snapshot of the fully-filtered-
+minus-category result set just before the category cut, for free, without a
+second `GROUP BY category` round-trip.
 """
 
 import uuid
@@ -129,10 +134,18 @@ def list_vacancy_register_rows(
     approval_status: str | None = None,
     recruitment_status: str | None = None,
     is_active: bool | None = None,
-) -> tuple[list[dict], int]:
-    """Returns (page_rows, total) -- total is the count of departments
-    matching every filter (including the Python-computed approval_status/
-    recruitment_status filters), before offset/limit slicing."""
+) -> tuple[list[dict], int, dict[str, int]]:
+    """Returns (page_rows, total, category_counts).
+
+    total is the count of departments matching every filter (including the
+    Python-computed approval_status/recruitment_status filters and the
+    category filter itself), before offset/limit slicing.
+
+    category_counts is `{"TEACHING": n, "NON_TEACHING": n, "HOUSEKEEPING": n,
+    "ALL": n}` reflecting every filter (campus/is_active/department_id/
+    search/approval_status/recruitment_status) EXCEPT category -- so
+    switching between category tabs never changes another tab's displayed
+    count."""
 
     campus_id_filter, _scope_note = resolve_campus_filter(db, scope, campus_code)
 
@@ -302,8 +315,12 @@ def list_vacancy_register_rows(
         stmt = stmt.where(Department.campus_id == campus_id_filter)
     if is_active is not None:
         stmt = stmt.where(Department.is_active == is_active)
-    if category is not None:
-        stmt = stmt.where(Department.category == category)
+    # category is deliberately NOT applied at the SQL stage here -- it's
+    # applied in Python below, after every other filter, so that
+    # `category_counts` (computed just before the category cut) reflects the
+    # full filtered-minus-category set. This still reuses the exact same
+    # correlated-subquery fetch as the category=None case always has, not a
+    # second/duplicate query.
     if department_id is not None:
         stmt = stmt.where(Department.id == department_id)
     if search:
@@ -382,9 +399,21 @@ def list_vacancy_register_rows(
     if recruitment_status is not None:
         results = [r for r in results if r["recruitment_status"] == recruitment_status]
 
+    # Snapshot per-category counts here -- every filter except `category`
+    # itself has now been applied, so these counts are what each CategoryTabs
+    # tab should show regardless of which tab is currently selected.
+    category_counts: dict[str, int] = {member.value: 0 for member in StaffRoleCategoryEnum}
+    for r in results:
+        if r["category"] is not None:
+            category_counts[r["category"].value] += 1
+    category_counts["ALL"] = len(results)
+
+    if category is not None:
+        results = [r for r in results if r["category"] == category]
+
     reverse = sort_dir == "desc"
     results.sort(key=lambda r: _sort_key(r[sort_by], reverse), reverse=reverse)
 
     total = len(results)
     page = results[offset : offset + limit]
-    return page, total
+    return page, total, category_counts
