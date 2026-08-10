@@ -23,9 +23,13 @@ ORDER BY columns (required for correct DISTINCT ON semantics) followed by
 import uuid
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.department import Department
+from app.models.designation import Designation
+from app.models.employee import Employee
+from app.models.enums import EmploymentStatusEnum
 from app.models.sanctioned_strength import SanctionedStrength
 
 
@@ -108,3 +112,77 @@ def current_effective_row(
         as_of=as_of,
     )
     return rows[0] if rows else None
+
+
+def list_department_designation_breakdown(db: Session, department_id: uuid.UUID) -> list[dict]:
+    """One row per Designation currently linked (via the
+    `designation_departments` M2M table Designations already use) to
+    `department_id` -- the Vacancy Register's expandable-row breakdown
+    (Phase B/C). `approved` comes from `current_effective_rows` (this
+    module's own resolver, not reimplemented); `working` is a live
+    COUNT(Employee) scoped to (department_id, designation_id,
+    employment_status == ACTIVE) -- accurate now that Employee has a real
+    `designation_id` FK (Phase A backfill); `vacancy` is
+    `max(approved - working, 0)`, the same floor-at-zero convention as the
+    register's own vacancy_count.
+
+    Designations with no current-effective sanctioned row for this
+    department still appear (approved=0), so a department can see every
+    designation it's linked to, not just the ones already sanctioned.
+    """
+    designations = (
+        db.query(Designation)
+        .filter(Designation.departments.any(Department.id == department_id))
+        .order_by(Designation.name)
+        .all()
+    )
+    if not designations:
+        return []
+
+    approved_by_designation = {
+        row.designation_id: row.approved_strength
+        for row in current_effective_rows(db, department_id=department_id)
+    }
+
+    working_by_designation = dict(
+        db.query(Employee.designation_id, func.count(Employee.id))
+        .filter(
+            Employee.department_id == department_id,
+            Employee.designation_id.isnot(None),
+            Employee.employment_status == EmploymentStatusEnum.ACTIVE,
+        )
+        .group_by(Employee.designation_id)
+        .all()
+    )
+
+    rows: list[dict] = []
+    for designation in designations:
+        approved = approved_by_designation.get(designation.id, 0)
+        working = working_by_designation.get(designation.id, 0)
+        rows.append(
+            {
+                "designation_id": designation.id,
+                "designation_name": designation.name,
+                "approved": approved,
+                "working": working,
+                "vacancy": max(approved - working, 0),
+            }
+        )
+    return rows
+
+
+def working_count_for(db: Session, *, department_id: uuid.UUID, designation_id: uuid.UUID) -> int:
+    """Live COUNT(Employee) for one (department, designation) key -- shared by
+    the breakdown above and the sanctioned_strength router's soft-delete
+    block (item 7: "N active employees in this designation, cannot delete")
+    so the two never compute this figure differently."""
+    return (
+        db.query(func.count(Employee.id))
+        .filter(
+            Employee.department_id == department_id,
+            Employee.designation_id == designation_id,
+            Employee.employment_status == EmploymentStatusEnum.ACTIVE,
+        )
+        .scalar()
+        or 0
+    )

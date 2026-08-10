@@ -23,6 +23,7 @@ from app.api.v1.routers import (
     pipeline_stage_configs,
     reports,
     resume_screening,
+    sanctioned_strength,
     users,
     vacancy_register,
     vacancy_requests,
@@ -34,6 +35,7 @@ api_router.include_router(users.router)
 api_router.include_router(campuses.router)
 api_router.include_router(departments.router)
 api_router.include_router(vacancy_register.router)
+api_router.include_router(sanctioned_strength.router)
 api_router.include_router(designations.router)
 api_router.include_router(eligibility_rules.router)
 api_router.include_router(pipeline_stage_configs.router)
