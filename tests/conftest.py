@@ -40,6 +40,7 @@ from app.models.campus import Campus
 from app.models.candidate import Candidate
 from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
 from app.models.department import Department
+from app.models.designation import Designation
 from app.models.enums import (
     ApplicationStatusEnum,
     CoordinatorCapabilityEnum,
@@ -51,6 +52,7 @@ from app.models.enums import (
 )
 from app.models.joining import JoiningDocument
 from app.models.offer import Offer
+from app.models.sanctioned_strength import SanctionedStrength
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.services import joining as joining_service
@@ -534,6 +536,63 @@ def department_factory(db_session, campus_factory):
         db_session.add(department)
         db_session.flush()
         return department
+
+    return _make
+
+
+@pytest.fixture()
+def designation_factory(db_session):
+    counter = {"n": 0}
+
+    def _make(
+        category: StaffRoleCategoryEnum = StaffRoleCategoryEnum.TEACHING,
+        name: str | None = None,
+        department: Department | None = None,
+    ) -> Designation:
+        counter["n"] += 1
+        designation = Designation(
+            name=name or f"Designation-{counter['n']}-{uuid.uuid4().hex[:6]}",
+            category=category,
+            qualification="Test qualification",
+            min_experience="1 year",
+            employment_type=EmploymentTypeEnum.FULL_TIME,
+        )
+        if department is not None:
+            designation.departments = [department]
+        db_session.add(designation)
+        db_session.flush()
+        return designation
+
+    return _make
+
+
+@pytest.fixture()
+def sanctioned_strength_factory(db_session, campus_factory):
+    def _make(
+        *,
+        campus,
+        department: Department,
+        designation: Designation,
+        approved_strength: int = 5,
+        effective_from: date | None = None,
+        is_active: bool = True,
+        created_by: User,
+        remarks: str | None = None,
+    ) -> SanctionedStrength:
+        row = SanctionedStrength(
+            campus_id=campus.id,
+            department_id=department.id,
+            designation_id=designation.id,
+            category=designation.category,
+            approved_strength=approved_strength,
+            effective_from=effective_from or date.today(),
+            is_active=is_active,
+            remarks=remarks,
+            created_by_id=created_by.id,
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
 
     return _make
 

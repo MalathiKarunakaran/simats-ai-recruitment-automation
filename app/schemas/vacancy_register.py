@@ -28,9 +28,15 @@ class VacancyRegisterRow(BaseModel):
     campus_code: str
 
     working_count: int
+    # max(approved_count - working_count, 0) -- Phase B (zany-snuggling-pie.md):
+    # approved_count is now Sanctioned-Strength-backed, not
+    # working_count + vacancy_count, so this can differ from the old
+    # HiringSlot-derived figure.
     vacancy_count: int
-    # Derived (working_count + vacancy_count) -- NOT an independently stored
-    # "approved strength" figure; there is no such column anywhere.
+    # SUM(approved_strength) across every current-effective SanctionedStrength
+    # row for the department (app.services.sanctioned_strength.
+    # current_effective_rows) -- Phase B: a real, independently stored
+    # ceiling, no longer working_count + vacancy_count.
     approved_count: int
     # None (not 0.0) when approved_count == 0 -- there's nothing to compute a
     # percentage from, and 0.0 would misleadingly read as "confirmed zero
@@ -45,7 +51,16 @@ class VacancyRegisterRow(BaseModel):
     joined_count: int
 
     recruitment_status: str
+    # Phase B: count of VacancyRequests currently "in flight" (SUBMITTED/
+    # DEAN_APPROVED/APPROVED/PUBLISHED) for this department -- see
+    # app/services/vacancy_register.py's module docstring for why this is an
+    # adjacent figure, not a literal "contributed to recruitment_status" count.
+    recruitment_status_request_count: int
     approval_status: str
+    # Phase B: count of the VacancyRequests that produced whichever
+    # approval_status branch was chosen (pending count / all-time rejected
+    # count / approved_request_count / 0 for NO_REQUESTS).
+    approval_status_request_count: int
 
     last_join: date | None
     last_resignation: date | None

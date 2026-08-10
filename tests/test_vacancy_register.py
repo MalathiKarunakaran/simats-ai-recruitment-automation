@@ -37,7 +37,13 @@ def _make_vr(db_session, campus, department, hod, requested_count: int = 1, posi
 
 
 def test_active_employee_no_requests_is_fully_staffed(
-    client, published_vacancy_factory, hired_employee_factory, department_factory, db_session
+    client,
+    published_vacancy_factory,
+    hired_employee_factory,
+    department_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+    db_session,
 ):
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     hired = hired_employee_factory(vacancy)
@@ -49,6 +55,18 @@ def test_active_employee_no_requests_is_fully_staffed(
     hired.employee.department_id = other_dept.id
     db_session.flush()
 
+    # Phase B: approved_count is Sanctioned-Strength-backed, not derived from
+    # working_count -- a department needs a real sanctioned row to be
+    # FULLY_STAFFED rather than OVERSTAFFED.
+    designation = designation_factory(department=other_dept)
+    sanctioned_strength_factory(
+        campus=vacancy.campus,
+        department=other_dept,
+        designation=designation,
+        approved_strength=1,
+        created_by=vacancy.hr_admin,
+    )
+
     response = _list(client, vacancy.hr_admin, department_id=str(other_dept.id))
     assert response.status_code == 200, response.text
     row = response.json()["items"][0]
@@ -58,11 +76,18 @@ def test_active_employee_no_requests_is_fully_staffed(
     assert row["filled_pct"] == 100.0
     assert row["recruitment_status"] == "FULLY_STAFFED"
     assert row["approval_status"] == "NO_REQUESTS"
+    assert row["approval_status_request_count"] == 0
+    assert row["recruitment_status_request_count"] == 0
 
 
-def test_approved_not_published_vacancy_counts_full_positions(
+def test_approved_vacancy_request_alone_does_not_feed_approved_count(
     client, campus_factory, department_factory, user_factory, db_session
 ):
+    """Phase B: Sanctioned Strength and Vacancy Request are two distinct
+    concepts (zany-snuggling-pie.md's Context section) -- an HR-approved
+    VacancyRequest for N positions, with no SanctionedStrength row for this
+    department at all, contributes nothing to approved_count/vacancy_count
+    (both stay 0), even though the request itself is very much "approved"."""
     campus = campus_factory("SPIER")
     department = department_factory("SPIER", name=f"Approved-Unpublished {uuid.uuid4().hex[:6]}")
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SPIER")
@@ -80,19 +105,71 @@ def test_approved_not_published_vacancy_counts_full_positions(
     # (there's exactly one, requesting 2 positions) -- not the sum of their
     # requested_count fields.
     assert row["requested_count"] == 1
+    assert row["approved_count"] == 0
+    assert row["vacancy_count"] == 0
+    assert row["working_count"] == 0
+    assert row["filled_pct"] is None
+    assert row["recruitment_status"] == "NO_ACTIVITY"
+    assert row["approval_status"] == "APPROVED"
+    assert row["approval_status_request_count"] == 1
+    # APPROVED is still "in flight" per _IN_FLIGHT_STATUSES (not yet
+    # published/closed), so recruitment_status_request_count reflects it even
+    # though approved_count/vacancy_count don't.
+    assert row["recruitment_status_request_count"] == 1
+
+
+def test_sanctioned_strength_feeds_approved_count_regardless_of_request_publish_state(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory, db_session
+):
+    """The flip side of the above -- approved_count/vacancy_count come from
+    SanctionedStrength alone, independent of whether any VacancyRequest for
+    this department has been published yet."""
+    campus = campus_factory("SPIER")
+    department = department_factory("SPIER", name=f"Sanctioned-Unpublished {uuid.uuid4().hex[:6]}")
+    department.category = StaffRoleCategoryEnum.TEACHING
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SPIER")
+    dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation, approved_strength=2, created_by=hr_admin
+    )
+    db_session.flush()
+
+    vr = _make_vr(db_session, campus, department, hod, requested_count=2)
+    vacancy_workflow.submit(db_session, vr, hod, None)
+    vacancy_workflow.dean_approve(db_session, vr, dean, None)
+    vacancy_workflow.hr_approve(db_session, vr, hr_admin, None)
+
+    response = _list(client, hr_admin, department_id=str(department.id))
+    row = response.json()["items"][0]
+    assert row["approved_count"] == 2
     assert row["vacancy_count"] == 2
     assert row["working_count"] == 0
-    assert row["approved_count"] == 2
     assert row["filled_pct"] == 0.0
     assert row["recruitment_status"] == "VACANCY_EXISTS"
     assert row["approval_status"] == "APPROVED"
 
 
-def test_published_vacancy_partial_fill_vacancy_count_excludes_filled_slot(
-    client, published_vacancy_factory, hired_employee_factory
+def test_published_vacancy_partial_fill_vacancy_count_reflects_working_headcount(
+    client, published_vacancy_factory, hired_employee_factory, designation_factory, sanctioned_strength_factory
 ):
+    """Phase B: vacancy_count = approved_count - working_count is purely
+    headcount-based now (no HiringSlot involvement at all) -- a
+    SanctionedStrength row for 3 posts, with 1 already working, leaves 2
+    vacant, same numbers the old HiringSlot-based formula produced but via a
+    completely different (and now independently editable) mechanism."""
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=3)
     hired_employee_factory(vacancy)
+
+    designation = designation_factory(department=vacancy.department)
+    sanctioned_strength_factory(
+        campus=vacancy.campus,
+        department=vacancy.department,
+        designation=designation,
+        approved_strength=3,
+        created_by=vacancy.hr_admin,
+    )
 
     response = _list(client, vacancy.hr_admin, department_id=str(vacancy.department.id))
     row = response.json()["items"][0]
@@ -116,6 +193,7 @@ def test_submitted_vacancy_request_is_approval_pending(
     response = _list(client, hr_admin, department_id=str(department.id))
     row = response.json()["items"][0]
     assert row["approval_status"] == "APPROVAL_PENDING"
+    assert row["approval_status_request_count"] == 1
 
 
 def test_most_recent_rejected_vacancy_request_is_rejected(
@@ -134,6 +212,7 @@ def test_most_recent_rejected_vacancy_request_is_rejected(
     response = _list(client, hr_admin, department_id=str(department.id))
     row = response.json()["items"][0]
     assert row["approval_status"] == "REJECTED"
+    assert row["approval_status_request_count"] == 1
 
 
 def test_pipeline_counts_independent_no_fanout(
@@ -206,7 +285,7 @@ def test_pagination(client, campus_factory, department_factory, user_factory):
 
 
 def test_sort_by_vacancy_count_desc_reorders(
-    client, campus_factory, department_factory, user_factory, db_session
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory, db_session
 ):
     campus = campus_factory("SPIER")
     dept_low = department_factory("SPIER", name="Low Vacancy Dept")
@@ -219,6 +298,15 @@ def test_sort_by_vacancy_count_desc_reorders(
     vacancy_workflow.submit(db_session, vr, hod, None)
     vacancy_workflow.dean_approve(db_session, vr, dean, None)
     vacancy_workflow.hr_approve(db_session, vr, hr_admin, None)
+
+    # Phase B: vacancy_count is Sanctioned-Strength-backed, not the
+    # VacancyRequest's own requested_count -- give dept_high a real
+    # sanctioned ceiling so its vacancy_count actually differs from
+    # dept_low's (which stays 0, having no SanctionedStrength row at all).
+    designation = designation_factory(department=dept_high)
+    sanctioned_strength_factory(
+        campus=campus, department=dept_high, designation=designation, approved_strength=5, created_by=hr_admin
+    )
 
     asc = _list(client, hr_admin, campus_code="SPIER", sort_by="vacancy_count", sort_dir="asc")
     desc = _list(client, hr_admin, campus_code="SPIER", sort_by="vacancy_count", sort_dir="desc")
@@ -362,7 +450,9 @@ def test_approval_status_filter(client, campus_factory, department_factory, user
     assert dept_none.name  # keep reference alive / used
 
 
-def test_recruitment_status_filter(client, campus_factory, department_factory, user_factory, db_session):
+def test_recruitment_status_filter(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory, db_session
+):
     campus = campus_factory("SPIER")
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SPIER")
     dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
@@ -371,6 +461,13 @@ def test_recruitment_status_filter(client, campus_factory, department_factory, u
     department_factory("SPIER", name="No Activity Dept")
 
     dept_vacancy = department_factory("SPIER", name="Vacancy Exists Dept")
+    # Phase B: VACANCY_EXISTS now requires a real SanctionedStrength row --
+    # the VacancyRequest reaching HR approval alone no longer produces a
+    # vacancy_count > 0.
+    designation = designation_factory(department=dept_vacancy)
+    sanctioned_strength_factory(
+        campus=campus, department=dept_vacancy, designation=designation, approved_strength=1, created_by=hr_admin
+    )
     vr = _make_vr(db_session, campus, dept_vacancy, hod)
     vacancy_workflow.submit(db_session, vr, hod, None)
     vacancy_workflow.dean_approve(db_session, vr, dean, None)
@@ -440,3 +537,162 @@ def test_invalid_recruitment_status_is_422(client, user_factory):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     response = _list(client, hr_admin, recruitment_status="BOGUS")
     assert response.status_code == 422
+
+
+# --- Phase B regressions: OVERSTAFFED reachability, last_updated's 4th input ------------------------
+
+
+def test_overstaffed_is_reachable_when_working_exceeds_sanctioned_strength(
+    client, published_vacancy_factory, hired_employee_factory, designation_factory, sanctioned_strength_factory
+):
+    """Regression test: before Phase B, OVERSTAFFED was documented as
+    algebraically unreachable because approved_count was defined as
+    working_count + vacancy_count (so working_count could never exceed it).
+    Phase B's approved_count is an independent SanctionedStrength-derived
+    ceiling -- a department can now genuinely have more active employees
+    than it is sanctioned for."""
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=2)
+    hired_employee_factory(vacancy)
+    hired_employee_factory(vacancy)
+
+    designation = designation_factory(department=vacancy.department)
+    sanctioned_strength_factory(
+        campus=vacancy.campus,
+        department=vacancy.department,
+        designation=designation,
+        approved_strength=1,
+        created_by=vacancy.hr_admin,
+    )
+
+    response = _list(client, vacancy.hr_admin, department_id=str(vacancy.department.id))
+    row = response.json()["items"][0]
+    assert row["working_count"] == 2
+    assert row["approved_count"] == 1
+    assert row["vacancy_count"] == 0
+    assert row["recruitment_status"] == "OVERSTAFFED"
+
+
+def test_last_updated_reflects_sanctioned_strength_row_update(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory, db_session
+):
+    from datetime import datetime, timedelta, timezone
+
+    campus = campus_factory("SPIER")
+    department = department_factory("SPIER", name=f"LastUpdated {uuid.uuid4().hex[:6]}")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    designation = designation_factory(department=department)
+    ss = sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation, approved_strength=1, created_by=hr_admin
+    )
+
+    # Set the row's updated_at to something far in the future -- robust
+    # against the test-transaction's own now()-is-transaction-start-time
+    # semantics (comparing before/after "real" timestamps within the same
+    # outer test transaction is not reliable here).
+    far_future = datetime.now(timezone.utc) + timedelta(days=365)
+    ss.updated_at = far_future
+    db_session.flush()
+
+    row = _list(client, hr_admin, department_id=str(department.id)).json()["items"][0]
+    returned = datetime.fromisoformat(row["last_updated"])
+    assert returned >= far_future - timedelta(seconds=1)
+
+
+# --- GET /departments/{department_id}/sanctioned-strength-breakdown ------------------------
+
+
+def _breakdown(client, actor, department_id):
+    return client.get(
+        f"/api/v1/departments/{department_id}/sanctioned-strength-breakdown",
+        headers=auth_headers(client, actor),
+    )
+
+
+def test_breakdown_returns_approved_working_vacancy_per_designation(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory, db_session
+):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Breakdown Dept {uuid.uuid4().hex[:6]}")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    designation_a = designation_factory(name="Professor", department=department)
+    designation_b = designation_factory(name="Lab Assistant", department=department)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_a, approved_strength=3, created_by=hr_admin
+    )
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_b, approved_strength=1, created_by=hr_admin
+    )
+
+    response = _breakdown(client, hr_admin, department.id)
+    assert response.status_code == 200, response.text
+    items = {row["designation_name"]: row for row in response.json()["items"]}
+    assert items["Professor"]["approved"] == 3
+    assert items["Professor"]["working"] == 0
+    assert items["Professor"]["vacancy"] == 3
+    assert items["Lab Assistant"]["approved"] == 1
+    assert items["Lab Assistant"]["working"] == 0
+    assert items["Lab Assistant"]["vacancy"] == 1
+
+
+def test_breakdown_working_count_from_hired_employee(
+    client, published_vacancy_factory, hired_employee_factory, designation_factory, sanctioned_strength_factory, db_session
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired = hired_employee_factory(vacancy)
+
+    designation = designation_factory(department=vacancy.department)
+    hired.employee.designation_id = designation.id
+    db_session.flush()
+
+    sanctioned_strength_factory(
+        campus=vacancy.campus,
+        department=vacancy.department,
+        designation=designation,
+        approved_strength=2,
+        created_by=vacancy.hr_admin,
+    )
+
+    response = _breakdown(client, vacancy.hr_admin, vacancy.department.id)
+    items = {row["designation_name"]: row for row in response.json()["items"]}
+    assert items[designation.name]["approved"] == 2
+    assert items[designation.name]["working"] == 1
+    assert items[designation.name]["vacancy"] == 1
+
+
+def test_breakdown_designation_with_no_sanctioned_row_shows_zero_approved(
+    client, campus_factory, department_factory, designation_factory, user_factory
+):
+    department = department_factory("SSE", name=f"Unsanctioned Dept {uuid.uuid4().hex[:6]}")
+    designation_factory(department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _breakdown(client, hr_admin, department.id)
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["approved"] == 0
+    assert items[0]["working"] == 0
+    assert items[0]["vacancy"] == 0
+
+
+def test_breakdown_unknown_department_is_404(client, user_factory):
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    response = _breakdown(client, hr_admin, uuid.uuid4())
+    assert response.status_code == 404
+
+
+def test_breakdown_cross_campus_is_404_for_single_campus_role(client, campus_factory, department_factory, user_factory):
+    campus_factory("SSE")
+    campus_factory("SCAD")
+    other_campus_dept = department_factory("SCAD", name=f"Other Campus Dept {uuid.uuid4().hex[:6]}")
+    hod_sse = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    response = _breakdown(client, hod_sse, other_campus_dept.id)
+    assert response.status_code == 404
+
+
+def test_breakdown_candidate_forbidden(client, department_factory, user_factory):
+    department = department_factory("SSE", name=f"Forbidden Dept {uuid.uuid4().hex[:6]}")
+    candidate = user_factory(UserRoleEnum.CANDIDATE)
+    response = _breakdown(client, candidate, department.id)
+    assert response.status_code == 403

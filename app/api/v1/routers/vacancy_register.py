@@ -3,10 +3,13 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db
+from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db
+from app.models.department import Department
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.user import User
+from app.schemas.sanctioned_strength import DepartmentDesignationBreakdownResponse
 from app.schemas.vacancy_register import VacancyRegisterListResponse
+from app.services import sanctioned_strength as sanctioned_strength_service
 from app.services import vacancy_register
 from app.services.reporting import validate_campus_code
 
@@ -82,3 +85,22 @@ def list_vacancy_register(
     return VacancyRegisterListResponse(
         items=rows, total=total, limit=limit, offset=offset, category_counts=category_counts
     )
+
+
+@router.get(
+    "/{department_id}/sanctioned-strength-breakdown",
+    response_model=DepartmentDesignationBreakdownResponse,
+)
+def get_department_sanctioned_strength_breakdown(
+    department_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> DepartmentDesignationBreakdownResponse:
+    department = db.get(Department, department_id)
+    if department is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    enforce_campus_match(scope, department.campus_id)
+
+    rows = sanctioned_strength_service.list_department_designation_breakdown(db, department_id)
+    return DepartmentDesignationBreakdownResponse(items=rows)
