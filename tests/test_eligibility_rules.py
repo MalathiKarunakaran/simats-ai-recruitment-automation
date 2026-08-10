@@ -104,3 +104,45 @@ def test_any_staff_role_can_read_but_candidate_cannot(client, user_factory):
     candidate = user_factory(UserRoleEnum.CANDIDATE)
     candidate_response = client.get("/api/v1/eligibility-rules", headers=auth_headers(client, candidate))
     assert candidate_response.status_code == 403
+
+
+def test_category_specific_optional_fields_round_trip(client, user_factory, campus_factory):
+    # Phase 5 -- net_set_required/subject (Teaching), skills_keyword
+    # (Non-Teaching), id_proof_required/shift_preference (Housekeeping) are
+    # all optional and accepted/returned regardless of a row's own
+    # staff_category.
+    sse = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    create_response = client.post(
+        "/api/v1/eligibility-rules",
+        headers=auth_headers(client, hr_admin),
+        json={
+            "campus_id": str(sse.id),
+            "staff_category": "NON_TEACHING",
+            "required_qualification_keyword": "SKILLS",
+            "skills_keyword": "Excel",
+            "id_proof_required": True,
+            "shift_preference": "Night",
+        },
+    )
+    assert create_response.status_code == 201, create_response.text
+    body = create_response.json()
+    assert body["skills_keyword"] == "Excel"
+    assert body["id_proof_required"] is True
+    assert body["shift_preference"] == "Night"
+    assert body["net_set_required"] is None
+    assert body["subject"] is None
+
+    rule_id = body["id"]
+    patch_response = client.patch(
+        f"/api/v1/eligibility-rules/{rule_id}",
+        headers=auth_headers(client, hr_admin),
+        json={"net_set_required": True, "subject": "Physics"},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    patched = patch_response.json()
+    assert patched["net_set_required"] is True
+    assert patched["subject"] == "Physics"
+    # Fields set at creation stay intact after an unrelated patch.
+    assert patched["skills_keyword"] == "Excel"

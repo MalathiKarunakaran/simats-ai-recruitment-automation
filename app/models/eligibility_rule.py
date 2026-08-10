@@ -30,6 +30,19 @@ class EligibilityRule(Base):
     # Null means "applies to all positions in this category at this campus".
     position_title: Mapped[str | None] = mapped_column(String(150), nullable=True)
     required_qualification_keyword: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    # Category-specific optional columns (Phase 5 / staff-category-as-a-
+    # first-class-dimension). All nullable -- a row only populates the
+    # columns relevant to its own staff_category; see
+    # app/services/eligibility.py::check_qualification_mismatch for how each
+    # is consulted. Kept alongside required_qualification_keyword (still the
+    # field the existing TEACHING PhD check uses) rather than replacing it.
+    net_set_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # Teaching
+    subject: Mapped[str | None] = mapped_column(String(150), nullable=True)  # Teaching
+    skills_keyword: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Non-Teaching
+    id_proof_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # Housekeeping
+    shift_preference: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Housekeeping
+
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
