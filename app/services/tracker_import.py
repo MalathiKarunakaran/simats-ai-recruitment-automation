@@ -300,6 +300,7 @@ def _import_vacancy_row(db: Session, row: dict, row_number: int, actor: User) ->
     job_posting = JobPosting(
         approved_vacancy_id=approved_vacancy.id,
         campus_id=campus.id,
+        role_category=role_category,
         public_apply_slug=slug,
         published_at=now,
     )
@@ -477,6 +478,7 @@ def _import_candidate_row(
             candidate_id=candidate.id,
             job_posting_id=job_posting.id,
             campus_id=job_posting.campus_id,
+            role_category=job_posting.role_category,
             applied_at=applied_at_dt,
             recorded_by_id=actor.id,
             external_ref=candidate_ref,

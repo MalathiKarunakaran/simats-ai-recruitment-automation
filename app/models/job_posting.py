@@ -1,12 +1,12 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
-from app.models.enums import HiringSlotStatusEnum
+from app.models.enums import HiringSlotStatusEnum, StaffRoleCategoryEnum
 
 
 class JobPosting(Base):
@@ -23,6 +23,13 @@ class JobPosting(Base):
     )
     campus_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("campuses.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # Denormalized from approved_vacancy.vacancy_request.role_category, same
+    # rationale as campus_id above -- cheap category filtering without a
+    # 2-hop join. Set once at publish() time (app/services/vacancy_workflow.py)
+    # and never changes afterwards.
+    role_category: Mapped[StaffRoleCategoryEnum] = mapped_column(
+        Enum(StaffRoleCategoryEnum, name="staff_role_category_enum"), nullable=False, index=True
     )
     # Placeholder for a future public apply page (Module 5) -- no external
     # portal distribution logic here, that's Module 4 / Phase 6.

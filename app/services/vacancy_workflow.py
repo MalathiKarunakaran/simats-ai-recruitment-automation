@@ -259,6 +259,7 @@ def publish(
     job_posting = JobPosting(
         approved_vacancy_id=approved_vacancy.id,
         campus_id=vacancy_request.campus_id,
+        role_category=vacancy_request.role_category,
         public_apply_slug=slug,
         published_at=now,
     )
