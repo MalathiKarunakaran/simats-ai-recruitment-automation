@@ -504,6 +504,10 @@ export interface JobPostingRead {
   id: string;
   approved_vacancy_id: string;
   campus_id: string;
+  // Denormalized from approved_vacancy.vacancy_request.role_category
+  // (Phase 1 of the staff-category rollout) -- lets Job Postings/Applications
+  // filter by category directly instead of joining up to VacancyRequest.
+  role_category: StaffRoleCategory;
   public_apply_slug: string;
   published_at: string;
   closed_at: string | null;
@@ -610,6 +614,9 @@ export interface ApplicationRead {
   candidate_id: string;
   job_posting_id: string;
   campus_id: string;
+  // Denormalized from job_posting.role_category, same rationale as
+  // JobPostingRead.role_category above.
+  role_category: StaffRoleCategory;
   status: ApplicationStatus;
   applied_at: string;
   recorded_by_id: string;

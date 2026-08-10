@@ -114,13 +114,38 @@ describe("DepartmentsPage", () => {
     await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
     expect(screen.getByText("HR OFFICE")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("tab", { name: "Teaching" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Teaching/ }));
     expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument();
     expect(screen.queryByText("HR OFFICE")).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("tab", { name: "Non-Teaching" }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Non-Teaching/ }));
     expect(screen.getByText("HR OFFICE")).toBeInTheDocument();
     expect(screen.queryByText("Computer Science and Engineering")).not.toBeInTheDocument();
+  });
+
+  it("shows live counts on each CategoryTabs tab, reflecting the campus filter (not just category)", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE, SCLAS]);
+    mockedListDepartments.mockResolvedValue([
+      CSE,
+      { ...HR_OFFICE, is_active: true },
+      { ...CSE, id: "d-3", name: "Physics", campus_id: "c-sclas" },
+    ]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+
+    // Unfiltered: 2 TEACHING (CSE, Physics) + 1 NON_TEACHING (HR OFFICE) = 3 All.
+    expect(screen.getByRole("tab", { name: "All (3)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Teaching (2)" })).toBeInTheDocument();
+
+    // Combining Teaching with campus=SSE applies both -- Physics (SCLAS)
+    // drops out of the count even though it's still TEACHING.
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
+
+    expect(await screen.findByRole("tab", { name: "All (2)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Teaching (1)" })).toBeInTheDocument();
   });
 
   it("hides New department and Edit for a role without DEPARTMENT_MANAGEMENT_ROLES", async () => {

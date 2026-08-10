@@ -46,6 +46,7 @@ const JOB_POSTING: JobPostingRead = {
   id: "jp-1",
   approved_vacancy_id: "av-1",
   campus_id: "c-sse",
+  role_category: "TEACHING",
   public_apply_slug: "assistant-professor",
   published_at: "2026-01-01T00:00:00Z",
   closed_at: null,

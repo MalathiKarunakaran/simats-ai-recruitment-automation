@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { listCampuses } from "@/api/campuses";
 import { ApiError } from "@/api/client";
-import { GLOBAL_SCOPE_ROLES, type ApprovalStatus, type RecruitmentStatus, type StaffRoleCategory } from "@/api/types";
+import { GLOBAL_SCOPE_ROLES, type ApprovalStatus, type RecruitmentStatus } from "@/api/types";
 import { listVacancyRegister, type SortDirection, type VacancyRegisterSortBy } from "@/api/vacancyRegister";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -12,11 +12,12 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CategoryTabs, mapServerCategoryCounts } from "@/components/domain/CategoryTabs";
+import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
 
-const CATEGORIES: StaffRoleCategory[] = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
 const APPROVAL_STATUSES: ApprovalStatus[] = ["APPROVAL_PENDING", "REJECTED", "APPROVED", "NO_REQUESTS"];
 const RECRUITMENT_STATUSES: RecruitmentStatus[] = ["FULLY_STAFFED", "VACANCY_EXISTS", "OVERSTAFFED", "NO_ACTIVITY"];
 
@@ -68,7 +69,9 @@ export function VacancyRegisterPage() {
   const [sortDir, setSortDir] = useState<SortDirection>("asc");
 
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
-  const [categoryFilter, setCategoryFilter] = useState<StaffRoleCategory | "ALL">("ALL");
+  // URL-persisted via ?category=... (see hooks/useCategoryTabState.ts) so
+  // the selection survives refresh/back-forward/shared links.
+  const [categoryFilter, setCategoryFilter] = useCategoryTabState();
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<ApprovalStatus | "ALL">("ALL");
   const [recruitmentStatusFilter, setRecruitmentStatusFilter] = useState<RecruitmentStatus | "ALL">("ALL");
   // Defaults to Active-only -- inactive/deactivated departments shouldn't
@@ -156,6 +159,15 @@ export function VacancyRegisterPage() {
         description="Department-level staffing and vacancy overview."
       />
 
+      <CategoryTabs
+        value={categoryFilter}
+        onValueChange={(v) => {
+          setCategoryFilter(v);
+          setPage(0);
+        }}
+        counts={mapServerCategoryCounts(data?.category_counts)}
+      />
+
       <div className="flex flex-wrap items-center gap-3">
         <Input
           value={searchInput}
@@ -185,24 +197,6 @@ export function VacancyRegisterPage() {
             </Select>
           </div>
         ) : null}
-        <div className="w-48">
-          <Select
-            value={categoryFilter}
-            onValueChange={(v) => { setCategoryFilter(v as StaffRoleCategory | "ALL"); setPage(0); }}
-          >
-            <SelectTrigger aria-label="Category filter">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All categories</SelectItem>
-              {CATEGORIES.map((category) => (
-                <SelectItem key={category} value={category}>
-                  {category.replace(/_/g, " ")}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
         <div className="w-48">
           <Select
             value={approvalStatusFilter}
