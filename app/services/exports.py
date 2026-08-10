@@ -26,11 +26,11 @@ _GOLD = RGBColor(0xC9, 0xA2, 0x27)
 _WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 
 _REPORT_FIELDS: dict[str, list[str]] = {
-    "recruitment-funnel": ["campus_code", "status", "count"],
+    "recruitment-funnel": ["campus_code", "role_category", "status", "count"],
     "campus-role-hiring": ["campus_code", "role_category", "hired_count"],
-    "interviews": ["campus_code", "status", "interview_type", "count"],
-    "offers": ["campus_code", "status", "count"],
-    "joining": ["campus_code", "onboarding_status", "count"],
+    "interviews": ["campus_code", "role_category", "status", "interview_type", "count"],
+    "offers": ["campus_code", "role_category", "status", "count"],
+    "joining": ["campus_code", "role_category", "onboarding_status", "count"],
     "vacancies": ["campus_code", "role_category", "status", "count"],
     "time-to-hire": ["campus_code", "role_category", "avg_days", "hired_count"],
 }

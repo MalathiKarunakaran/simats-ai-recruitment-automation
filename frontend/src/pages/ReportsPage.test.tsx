@@ -14,6 +14,7 @@ vi.mock("@/api/reports");
 const mockedGetReport = vi.mocked(reportsApi.getReport);
 const mockedGetAdBriefing = vi.mocked(reportsApi.getAdBriefing);
 const mockedGetWeeklyStatus = vi.mocked(reportsApi.getWeeklyStatus);
+const mockedDownloadReportExport = vi.mocked(reportsApi.downloadReportExport);
 const mockedDownloadWeeklyStatusExport = vi.mocked(reportsApi.downloadWeeklyStatusExport);
 
 const EMPTY_REPORT: ReportResponse = {
@@ -140,7 +141,7 @@ describe("ReportsPage", () => {
       }),
     );
 
-    await userEvent.click(screen.getAllByRole("combobox")[0]);
+    await userEvent.click(screen.getByRole("combobox"));
     await userEvent.click(await screen.findByRole("option", { name: "Offers" }));
 
     await waitFor(() =>
@@ -150,6 +151,43 @@ describe("ReportsPage", () => {
         startDate: null,
         endDate: null,
       }),
+    );
+  });
+
+  it("renders CategoryTabs on the Report card and re-fetches (live query + export) with role_category when a tab is selected", async () => {
+    mockedGetReport.mockResolvedValue(FUNNEL_REPORT);
+    mockedGetAdBriefing.mockResolvedValue(BRIEFING);
+    mockedDownloadReportExport.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() =>
+      expect(mockedGetReport).toHaveBeenCalledWith(
+        "recruitment-funnel",
+        expect.objectContaining({ roleCategory: null }),
+      ),
+    );
+
+    expect(screen.getByRole("tab", { name: /^All/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Teaching/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Non-Teaching/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Housekeeping/ })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Teaching/ }));
+
+    await waitFor(() =>
+      expect(mockedGetReport).toHaveBeenCalledWith(
+        "recruitment-funnel",
+        expect.objectContaining({ roleCategory: "TEACHING" }),
+      ),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Export as Excel" }));
+
+    await waitFor(() =>
+      expect(mockedDownloadReportExport).toHaveBeenCalledWith(
+        "recruitment-funnel",
+        expect.objectContaining({ roleCategory: "TEACHING" }),
+      ),
     );
   });
 
