@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { Fragment, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { listCampuses } from "@/api/campuses";
 import { ApiError } from "@/api/client";
@@ -177,6 +178,18 @@ function DesignationRow({
           ) : (
             <span className="text-xs text-muted-foreground">Not yet sanctioned</span>
           )}
+          {/* Phase E item 30: only offered where there's actually something
+              vacant to request against -- `maxCount` is a client-side cap
+              only, the real ceiling is still enforced server-side by
+              submit()'s own "Only N posts available to request" 409. */}
+          {row.vacancy > 0 ? (
+            <Link
+              to={`/vacancy-requests/new?campus=${campusId}&department=${departmentId}&designation=${row.designation_id}&maxCount=${row.vacancy}`}
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Raise vacancy request
+            </Link>
+          ) : null}
         </div>
       </td>
     </tr>
@@ -255,6 +268,14 @@ function DepartmentBreakdownRow({
 
 export function SanctionedStrengthPage() {
   const { user } = useAuth();
+  // Phase E item 29's reverse link -- VacancyRequestDetailPage links here
+  // as ?department=X&designation=Y. Only the department id drives the
+  // expand-state addition below (designation isn't its own row/section to
+  // expand to, it's a row *within* the expanded breakdown table) -- read
+  // once on mount, same as this page's other URL-persisted state
+  // (useCategoryTabState) but a plain one-off read here, not a synced hook.
+  const [searchParams] = useSearchParams();
+  const deepLinkDepartmentId = searchParams.get("department");
   const [page, setPage] = useState(0);
   const [sortBy, setSortBy] = useState<SanctionedStrengthSortBy>("department_name");
   const [sortDir, setSortDir] = useState<SortDirection>("asc");
@@ -280,8 +301,12 @@ export function SanctionedStrengthPage() {
   const [search, setSearch] = useState("");
   // Which department rows currently show their designation-level breakdown
   // -- a plain id set, not a single "expandedId" like VacancyRequestsListPage
-  // (there's no accordion-per-group nesting here to also collapse).
-  const [expandedDepartmentIds, setExpandedDepartmentIds] = useState<Set<string>>(new Set());
+  // (there's no accordion-per-group nesting here to also collapse). Seeded
+  // with the deep-linked department (if any) so the reverse link from
+  // VacancyRequestDetailPage lands with that row already open.
+  const [expandedDepartmentIds, setExpandedDepartmentIds] = useState<Set<string>>(
+    () => new Set(deepLinkDepartmentId ? [deepLinkDepartmentId] : []),
+  );
 
   // A single-campus role's campus_code is always ignored server-side (see
   // resolve_campus_filter) -- only global-scope roles get a working filter.
@@ -572,10 +597,27 @@ export function SanctionedStrengthPage() {
                         </div>
                       </td>
                       <td className="px-3 py-2">
-                        <Badge variant={recruitmentDisplay.variant}>{recruitmentDisplay.label}</Badge>
+                        {/* Phase E item 28: clickable through to the requests
+                            that produced this status -- department-level
+                            only (no single designation to filter by here;
+                            that granularity is item 30's per-designation
+                            "Raise vacancy request" action above, and item
+                            29's reverse link, both of which do carry a
+                            designation param). Count is the same
+                            *_request_count field VacancyRegisterRow already
+                            carries (Phase B). */}
+                        <Link to={`/vacancy-requests?department=${row.department_id}`}>
+                          <Badge variant={recruitmentDisplay.variant}>
+                            {recruitmentDisplay.label} ({row.recruitment_status_request_count})
+                          </Badge>
+                        </Link>
                       </td>
                       <td className="px-3 py-2">
-                        <Badge variant={approvalDisplay.variant}>{approvalDisplay.label}</Badge>
+                        <Link to={`/vacancy-requests?department=${row.department_id}`}>
+                          <Badge variant={approvalDisplay.variant}>
+                            {approvalDisplay.label} ({row.approval_status_request_count})
+                          </Badge>
+                        </Link>
                       </td>
                       <td className="px-3 py-2">{formatDate(row.last_join)}</td>
                       <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>

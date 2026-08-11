@@ -7,6 +7,7 @@ import type {
   VacancyRequestGenerateJDPayload,
   VacancyRequestRead,
   VacancyRequestStatus,
+  VacancyRequestSubmitPayload,
   VacancyRequestUpdatePayload,
 } from "@/api/types";
 
@@ -36,8 +37,19 @@ export async function deleteVacancyRequest(id: string): Promise<void> {
   await apiFetch<void>(`/vacancy-requests/${id}`, { method: "DELETE" });
 }
 
-export async function submitVacancyRequest(id: string): Promise<VacancyRequestRead> {
-  return apiFetch<VacancyRequestRead>(`/vacancy-requests/${id}/submit`, { method: "POST" });
+// Phase E: `payload` is only ever passed by VacancyRequestDetailPage when a
+// SUPER_ADMIN has checked "Override sanction limit" after hitting the
+// backend's "Only N posts available to request" 409 -- every other caller
+// (and every pre-Phase-E test) submits with no body at all, so `payload` is
+// omitted from the request entirely rather than sent as an empty object.
+export async function submitVacancyRequest(
+  id: string,
+  payload?: VacancyRequestSubmitPayload,
+): Promise<VacancyRequestRead> {
+  return apiFetch<VacancyRequestRead>(`/vacancy-requests/${id}/submit`, {
+    method: "POST",
+    ...(payload ? { body: JSON.stringify(payload) } : {}),
+  });
 }
 
 export async function deanApproveVacancyRequest(id: string): Promise<VacancyRequestRead> {

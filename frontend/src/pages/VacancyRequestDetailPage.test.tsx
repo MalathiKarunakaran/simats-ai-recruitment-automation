@@ -57,6 +57,8 @@ function baseVr(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
     cancelled_by_id: null,
     cancelled_at: null,
     cancellation_reason: null,
+    is_over_sanction: false,
+    over_sanction_justification: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -299,6 +301,68 @@ describe("VacancyRequestDetailPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Update count" }));
 
     await waitFor(() => expect(mockedUpdateSlotCount).toHaveBeenCalledWith("vr-1", 3));
+  });
+
+  it("shows the Over-sanction badge when is_over_sanction is true", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(
+      baseVr({ status: "SUBMITTED", is_over_sanction: true, over_sanction_justification: "Urgent backfill" }),
+    );
+
+    renderDetail();
+
+    expect(await screen.findByText("Over-sanction")).toBeInTheDocument();
+    expect(screen.getByText("Urgent backfill")).toBeInTheDocument();
+  });
+
+  it("only offers the SUPER_ADMIN-only 'Override sanction limit' checkbox to a SUPER_ADMIN, requiring a justification before submitting with it", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "SUPER_ADMIN", campus_id: "c-sse" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "DRAFT", designation_id: "desg-1" }));
+    mockedSubmit.mockResolvedValue(baseVr({ status: "SUBMITTED", is_over_sanction: true }));
+    mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "SUBMITTED", is_over_sanction: true }));
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Override sanction limit")).toBeInTheDocument());
+
+    const submitButton = screen.getByRole("button", { name: "Submit" });
+    await userEvent.click(screen.getByLabelText("Override sanction limit"));
+    expect(submitButton).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText("Justification"), "Approved by management");
+    expect(submitButton).toBeEnabled();
+
+    await userEvent.click(submitButton);
+
+    await waitFor(() =>
+      expect(mockedSubmit).toHaveBeenCalledWith("vr-1", {
+        override_sanction: true,
+        override_justification: "Approved by management",
+      }),
+    );
+  });
+
+  it("does not show the override checkbox to a non-SUPER_ADMIN", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Submit")).toBeInTheDocument());
+    expect(screen.queryByText("Override sanction limit")).not.toBeInTheDocument();
   });
 
   it("does not show Cancel or Adjust count for a Recruitment Officer", async () => {

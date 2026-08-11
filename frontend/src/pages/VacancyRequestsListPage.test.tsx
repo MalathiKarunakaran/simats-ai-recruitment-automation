@@ -66,6 +66,8 @@ const VR: VacancyRequestRead = {
   cancelled_by_id: null,
   cancelled_at: null,
   cancellation_reason: null,
+  is_over_sanction: false,
+  over_sanction_justification: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -82,11 +84,11 @@ const DEPARTMENT: DepartmentRead = {
   updated_at: "",
 };
 
-function renderPage() {
+function renderPage(initialPath = "/") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialPath]}>
         <VacancyRequestsListPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -524,6 +526,34 @@ describe("VacancyRequestsListPage", () => {
     // Teaching + campus=SSE applies both -- SCAD's TEACHING department drops out.
     expect(screen.getByRole("button", { name: /Computer Science/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Physics/ })).not.toBeInTheDocument();
+  });
+
+  it("pre-filters by ?department=&designation= on mount (Phase E items 28/29 deep links from Sanctioned Strength)", async () => {
+    mockCommonApis();
+    mockedListDepartments.mockResolvedValue([
+      DEPARTMENT,
+      { ...DEPARTMENT, id: "d-2", name: "Physics" },
+    ]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    const physicsRequest = {
+      ...VR,
+      id: "vr-2",
+      department_id: "d-2",
+      designation_id: "desg-2",
+      position_title: "Lecturer in Physics",
+    };
+    mockedListVacancyRequests.mockResolvedValue([VR, physicsRequest]);
+    mockedListCampuses.mockResolvedValue([]);
+
+    renderPage("/?department=d-2&designation=desg-2");
+
+    expect(await screen.findByRole("button", { name: /Physics/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Computer Science/ })).not.toBeInTheDocument();
   });
 
   it("filters department cards by Parent Group, bucketing departments without one under 'Ungrouped'", async () => {

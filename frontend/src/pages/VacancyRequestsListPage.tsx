@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, FileSpreadsheet, FileUp, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { listApprovedVacancies } from "@/api/approvedVacancies";
 import { listAuditLogs } from "@/api/auditLogs";
@@ -60,9 +60,19 @@ function todayIso(): string {
 
 export function VacancyRequestsListPage() {
   const { user } = useAuth();
+  // Phase E item 28/29: SanctionedStrengthPage's clickable Recruitment/
+  // Approval Status badges and VacancyRequestDetailPage's reverse link both
+  // land here as ?department=X(&designation=Y) -- read once on mount, same
+  // idiom as InterviewCreatePage/OfferCreatePage's `searchParams.get(...)`
+  // reads (not re-synced if the URL changes after that, same as those two).
+  const [searchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState<VacancyRequestStatus | "ALL">("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
-  const [departmentFilter, setDepartmentFilter] = useState<string>("ALL");
+  const [departmentFilter, setDepartmentFilter] = useState<string>(() => searchParams.get("department") ?? "ALL");
+  // No visible Select for this one (nothing in this page's filter bar lets a
+  // user pick a single designation) -- it only ever comes from the deep
+  // link's own URL, so a derived constant is enough; no setter needed.
+  const designationFilter = searchParams.get("designation") ?? "ALL";
   const [parentGroupFilter, setParentGroupFilter] = useState<string>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<VacancyPriority | "ALL">("ALL");
   const [employmentTypeFilter, setEmploymentTypeFilter] = useState<EmploymentType | "ALL">("ALL");
@@ -201,6 +211,7 @@ export function VacancyRequestsListPage() {
     if (statusFilter !== "ALL" && vr.status !== statusFilter) return false;
     if (campusFilter !== "ALL" && vr.campus_id !== campusFilter) return false;
     if (departmentFilter !== "ALL" && vr.department_id !== departmentFilter) return false;
+    if (designationFilter !== "ALL" && vr.designation_id !== designationFilter) return false;
     if (priorityFilter !== "ALL" && vr.priority !== priorityFilter) return false;
     if (employmentTypeFilter !== "ALL" && vr.employment_type !== employmentTypeFilter) return false;
     if (requestedByFilter !== "ALL" && vr.requested_by_id !== requestedByFilter) return false;
@@ -292,6 +303,7 @@ export function VacancyRequestsListPage() {
     statusFilter !== "ALL" ||
     campusFilter !== "ALL" ||
     departmentFilter !== "ALL" ||
+    designationFilter !== "ALL" ||
     parentGroupFilter !== "ALL" ||
     priorityFilter !== "ALL" ||
     employmentTypeFilter !== "ALL" ||
