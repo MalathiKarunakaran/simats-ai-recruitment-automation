@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "simats_minio"
     MINIO_SECRET_KEY: str = "change_me_locally"
     MINIO_BUCKET_RESUMES: str = "resumes"
+    # --- MinIO (Phase F: Sanctioned Strength bulk-upload original files) ---
+    # Separate bucket from resumes -- see app/services/storage.py's
+    # upload_bulk_upload_file/download_bulk_upload_file_bytes trio.
+    MINIO_BUCKET_BULK_UPLOADS: str = "bulk-uploads"
     MINIO_USE_SSL: bool = False
 
     # --- ChromaDB (Phase 3: resume embeddings / semantic JD matching) ---
