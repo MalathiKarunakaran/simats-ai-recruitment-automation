@@ -35,6 +35,7 @@ const mockedCreateSanctionedStrength = vi.mocked(sanctionedStrengthApi.createSan
 const mockedUpdateSanctionedStrength = vi.mocked(sanctionedStrengthApi.updateSanctionedStrength);
 const mockedDeleteSanctionedStrength = vi.mocked(sanctionedStrengthApi.deleteSanctionedStrength);
 const mockedGetSanctionedStrengthHistory = vi.mocked(sanctionedStrengthApi.getSanctionedStrengthHistory);
+const mockedListBulkUploads = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthBulkUploads);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
@@ -871,6 +872,69 @@ describe("SanctionedStrengthPage", () => {
         expect(screen.getByText("Bulk Upload")).toBeInTheDocument();
         expect(screen.getByText("11111111")).toBeInTheDocument();
       });
+    });
+  });
+
+  describe("Bulk upload entry point and Upload history tab (Phase F)", () => {
+    it("shows the Bulk upload button and the section Tabs for a write-role user", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+      expect(screen.getByRole("button", { name: "Bulk upload" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Sanctioned Strength" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Upload history" })).toBeInTheDocument();
+    });
+
+    it("hides the Bulk upload button and section Tabs for a non-write role", async () => {
+      mockAuth("CAMPUS_HOD");
+      mockCampuses();
+      mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+      expect(screen.queryByRole("button", { name: "Bulk upload" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: "Upload history" })).not.toBeInTheDocument();
+    });
+
+    it("switches to the Upload history tab and renders past uploads, hiding the register table", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
+      mockedListBulkUploads.mockResolvedValue({
+        items: [
+          {
+            id: "bu-1",
+            filename: "sanctioned-strength-batch.xlsx",
+            uploaded_by_id: "11111111-2222-3333-4444-555555555555",
+            uploaded_at: "2026-08-10T10:00:00Z",
+            rows_total: 5,
+            rows_created: 3,
+            rows_updated: 2,
+            rows_rejected: 0,
+            stored_file_object_key: "bulk-uploads/bu-1/sanctioned-strength-batch.xlsx",
+            status: "COMPLETED",
+            undo_deadline: new Date(Date.now() + 60_000).toISOString(),
+            undone_at: null,
+            undone_by_id: null,
+          },
+        ],
+        total: 1,
+        limit: 20,
+        offset: 0,
+      });
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("tab", { name: "Upload history" }));
+
+      expect(await screen.findByText("sanctioned-strength-batch.xlsx")).toBeInTheDocument();
+      expect(screen.queryByText("Computer Science")).not.toBeInTheDocument();
     });
   });
 });
