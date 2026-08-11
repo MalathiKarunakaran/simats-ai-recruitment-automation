@@ -126,7 +126,12 @@ from app.models.approved_vacancy import ApprovedVacancy
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.employee import Employee
-from app.models.enums import EmploymentStatusEnum, StaffRoleCategoryEnum, VacancyRequestStatusEnum
+from app.models.enums import (
+    VACANCY_REQUEST_IN_FLIGHT_STATUSES,
+    EmploymentStatusEnum,
+    StaffRoleCategoryEnum,
+    VacancyRequestStatusEnum,
+)
 from app.models.interview import InterviewSchedule
 from app.models.job_posting import JobPosting
 from app.models.offer import Offer
@@ -153,15 +158,14 @@ RECRUITMENT_STATUS_VALUES: tuple[str, ...] = ("FULLY_STAFFED", "VACANCY_EXISTS",
 
 _PENDING_STATUSES = (VacancyRequestStatusEnum.SUBMITTED, VacancyRequestStatusEnum.DEAN_APPROVED)
 # The set of VacancyRequest statuses that reserve against SanctionedStrength
-# per zany-snuggling-pie.md's Context section (decision 2) -- reused here
-# (not reimplemented) for recruitment_status_request_count's "how many
-# requests are actively pursuing this vacancy right now" figure.
-_IN_FLIGHT_STATUSES = (
-    VacancyRequestStatusEnum.SUBMITTED,
-    VacancyRequestStatusEnum.DEAN_APPROVED,
-    VacancyRequestStatusEnum.APPROVED,
-    VacancyRequestStatusEnum.PUBLISHED,
-)
+# per zany-snuggling-pie.md's Context section (decision 2) -- now the single
+# shared definition in app/models/enums.py (VACANCY_REQUEST_IN_FLIGHT_STATUSES),
+# reused here (not reimplemented) for recruitment_status_request_count's "how
+# many requests are actively pursuing this vacancy right now" figure, and by
+# Phase E's available_to_request computation
+# (app/services/sanctioned_strength.py) / submit()-time enforcement
+# (app/services/vacancy_workflow.py).
+_IN_FLIGHT_STATUSES = VACANCY_REQUEST_IN_FLIGHT_STATUSES
 
 
 def _sort_key(value, reverse: bool):

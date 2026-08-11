@@ -31,6 +31,7 @@ from app.schemas.vacancy_request import (
     VacancyRequestGenerateJDRequest,
     VacancyRequestRead,
     VacancyRequestRejectRequest,
+    VacancyRequestSubmitRequest,
     VacancyRequestUpdate,
     VacancySlotCountUpdateRequest,
 )
@@ -294,12 +295,20 @@ def delete_vacancy_request(
 def submit_vacancy_request(
     vacancy_request_id: uuid.UUID,
     request: Request,
+    payload: VacancyRequestSubmitRequest = VacancyRequestSubmitRequest(),
     db: Session = Depends(get_db),
     current_user: User = Depends(_can_write),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> VacancyRequest:
     vr = _get_or_404_scoped(db, vacancy_request_id, scope)
-    vacancy_workflow.submit(db, vr, current_user, request)
+    vacancy_workflow.submit(
+        db,
+        vr,
+        current_user,
+        request,
+        override_sanction=payload.override_sanction,
+        override_justification=payload.override_justification,
+    )
     db.commit()
     db.refresh(vr)
     return vr

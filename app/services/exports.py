@@ -33,6 +33,16 @@ _REPORT_FIELDS: dict[str, list[str]] = {
     "joining": ["campus_code", "role_category", "onboarding_status", "count"],
     "vacancies": ["campus_code", "role_category", "status", "count"],
     "time-to-hire": ["campus_code", "role_category", "avg_days", "hired_count"],
+    "sanctioned-strength-reconciliation": [
+        "campus_code",
+        "department_name",
+        "designation_name",
+        "category",
+        "approved_strength",
+        "working_count",
+        "already_requested",
+        "over_by",
+    ],
 }
 
 

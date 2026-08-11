@@ -122,6 +122,27 @@ class VacancyRequestStatusEnum(str, enum.Enum):
     CANCELLED = "CANCELLED"
 
 
+# The VacancyRequest statuses that reserve against a (campus, department,
+# designation)'s Sanctioned Strength ceiling (zany-snuggling-pie.md's
+# Context section, decision 2 / Phase E's `available_to_request` formula):
+# `available_to_request = approved_strength - working_count -
+# SUM(requested_count WHERE status IN (...))`. DRAFT reserves nothing (the
+# block is enforced at submit(), not draft creation); CLOSED/REJECTED/
+# CANCELLED are terminal and drop out automatically the moment they're
+# reached, which is what makes "release on terminal" a live-query side
+# effect rather than a separate stored reservation to release. Shared by
+# app/services/vacancy_register.py's recruitment_status_request_count,
+# app/services/sanctioned_strength.py's availability computation, and
+# app/services/vacancy_workflow.py's submit()-time enforcement -- one
+# definition, reused everywhere, not reimplemented per call site.
+VACANCY_REQUEST_IN_FLIGHT_STATUSES = (
+    VacancyRequestStatusEnum.SUBMITTED,
+    VacancyRequestStatusEnum.DEAN_APPROVED,
+    VacancyRequestStatusEnum.APPROVED,
+    VacancyRequestStatusEnum.PUBLISHED,
+)
+
+
 class HiringSlotStatusEnum(str, enum.Enum):
     OPEN = "OPEN"
     RESERVED = "RESERVED"

@@ -18,18 +18,76 @@ from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.services import notifications
 from app.services.audit import log_event
+from app.services.sanctioned_strength import compute_availability_to_request
 
 
 def _snapshot(vacancy_request: VacancyRequest) -> dict:
     return {"status": vacancy_request.status.value}
 
 
-def submit(db: Session, vacancy_request: VacancyRequest, actor: User, request: Request | None) -> VacancyRequest:
+def submit(
+    db: Session,
+    vacancy_request: VacancyRequest,
+    actor: User,
+    request: Request | None,
+    *,
+    override_sanction: bool = False,
+    override_justification: str | None = None,
+) -> VacancyRequest:
+    """DRAFT -> SUBMITTED, gated by the Sanctioned Strength <->
+    VacancyRequest link (zany-snuggling-pie.md Phase E). `override_sanction`/
+    `override_justification` are the SUPER_ADMIN-only escape hatch for a
+    genuine over-sanction hire (e.g. an emergency replacement) -- anyone
+    else attempting to pass `override_sanction=True` gets a 403 regardless
+    of whether the block would actually have fired, and a SUPER_ADMIN
+    passing it without a non-empty justification gets a 400, matching the
+    "attempting it" gating this function's docstring/callers rely on.
+    """
     if vacancy_request.status != VacancyRequestStatusEnum.DRAFT:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot submit from status {vacancy_request.status.value}",
         )
+
+    if override_sanction:
+        if actor.role != UserRoleEnum.SUPER_ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only a Super Admin can override the sanctioned-strength block.",
+            )
+        if not override_justification or not override_justification.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="override_justification is required when overriding the sanction block.",
+            )
+
+    # Sanctioned Strength is keyed at designation granularity (campus,
+    # department, designation) -- see app/models/sanctioned_strength.py. A
+    # vacancy request raised without a designation_id (free-text
+    # position_title only) has no ceiling to check against, so the block is
+    # skipped entirely rather than silently comparing requested_count
+    # against a meaningless zero.
+    sanction_override_applied = False
+    if vacancy_request.designation_id is not None:
+        availability = compute_availability_to_request(
+            db,
+            campus_id=vacancy_request.campus_id,
+            department_id=vacancy_request.department_id,
+            designation_id=vacancy_request.designation_id,
+        )
+        available_to_request = availability["available_to_request"]
+        if vacancy_request.requested_count > available_to_request:
+            if not override_sanction:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Only {available_to_request} posts available to request for this designation. "
+                        "Raise a sanction revision first."
+                    ),
+                )
+            vacancy_request.is_over_sanction = True
+            vacancy_request.over_sanction_justification = override_justification
+            sanction_override_applied = True
 
     before = _snapshot(vacancy_request)
     vacancy_request.status = VacancyRequestStatusEnum.SUBMITTED
@@ -46,6 +104,23 @@ def submit(db: Session, vacancy_request: VacancyRequest, actor: User, request: R
         after_state=_snapshot(vacancy_request),
         request=request,
     )
+    if sanction_override_applied:
+        # Distinct action string (not reusing VACANCY_REQUEST_SUBMITTED) so a
+        # SUPER_ADMIN override is independently searchable in Activity Log.
+        log_event(
+            db,
+            actor=actor,
+            action="VACANCY_REQUEST_SANCTION_OVERRIDDEN",
+            campus_context_id=vacancy_request.campus_id,
+            entity_type="VacancyRequest",
+            entity_id=vacancy_request.id,
+            after_state={
+                "requested_count": vacancy_request.requested_count,
+                "available_to_request": available_to_request,
+                "over_sanction_justification": vacancy_request.over_sanction_justification,
+            },
+            request=request,
+        )
     notifications.notify_role(
         db,
         roles={UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT, UserRoleEnum.SUPER_ADMIN},

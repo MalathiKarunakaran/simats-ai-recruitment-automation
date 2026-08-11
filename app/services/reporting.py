@@ -122,6 +122,7 @@ from app.models.employee import Employee
 from app.models.enums import (
     APPLICATION_TERMINAL_STATUSES,
     CAMPUS_CODES,
+    VACANCY_REQUEST_IN_FLIGHT_STATUSES,
     ApplicationStatusEnum,
     HiringSlotStatusEnum,
     InterviewScheduleStatusEnum,
@@ -135,6 +136,7 @@ from app.models.job_posting import JobPosting
 from app.models.joining import JoiningRecord
 from app.models.offer import Offer
 from app.models.vacancy_request import VacancyRequest
+from app.services.sanctioned_strength import current_effective_rows, working_count_for
 from app.services.scoping import resolve_campus_filter
 
 _NON_TERMINAL_OFFER_STATUSES = (OfferStatusEnum.DRAFT, OfferStatusEnum.SENT)
@@ -742,6 +744,89 @@ def time_to_hire_report(
     return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
 
 
+def sanctioned_strength_reconciliation_report(
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict:
+    """Sanctioned Strength <-> Vacancy Request double-counting guard
+    (zany-snuggling-pie.md Phase E, item 32) -- one row per (campus,
+    department, designation) key where working_count + SUM(requested_count
+    across in-flight VacancyRequests -- VACANCY_REQUEST_IN_FLIGHT_STATUSES,
+    the same set app/services/sanctioned_strength.py's
+    compute_availability_to_request and submit()'s enforcement reserve
+    against) has crept past its current-effective approved_strength. This
+    should normally be empty; a non-empty row here means either a
+    SUPER_ADMIN used submit()'s sanction-override escape hatch, or a
+    sanction revision shrank the ceiling after requests were already in
+    flight.
+
+    Only evaluates keys that currently have a SanctionedStrength row at all
+    (via current_effective_rows, this module's shared resolver) -- a
+    designation nobody has ever sanctioned has no ceiling to reconcile
+    against, and isn't a "double-counting" case in the first place.
+
+    Point-in-time by construction (a live snapshot of "who's over their
+    sanction right now") -- unlike the other 7 REPORT_BUILDERS this one does
+    not apply start_date/end_date; both params are accepted only for call-
+    shape parity with `_build_report`'s uniform dispatch, same convention as
+    campus_wise_hiring's never-date-filtered hired_count.
+    """
+    campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
+
+    current_rows = current_effective_rows(db, campus_id=campus_id_filter)
+    if role_category is not None:
+        current_rows = [row for row in current_rows if row.category == role_category]
+    if not current_rows:
+        return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": []}
+
+    already_requested_query = db.query(
+        VacancyRequest.campus_id,
+        VacancyRequest.department_id,
+        VacancyRequest.designation_id,
+        func.coalesce(func.sum(VacancyRequest.requested_count), 0),
+    ).filter(
+        VacancyRequest.designation_id.isnot(None),
+        VacancyRequest.status.in_(VACANCY_REQUEST_IN_FLIGHT_STATUSES),
+    )
+    if campus_id_filter is not None:
+        already_requested_query = already_requested_query.filter(VacancyRequest.campus_id == campus_id_filter)
+    already_requested_query = already_requested_query.group_by(
+        VacancyRequest.campus_id, VacancyRequest.department_id, VacancyRequest.designation_id
+    )
+    already_requested_by_key = {
+        (campus_id, department_id, designation_id): int(count)
+        for campus_id, department_id, designation_id, count in already_requested_query.all()
+    }
+
+    rows: list[dict] = []
+    for ss_row in current_rows:
+        working = working_count_for(db, department_id=ss_row.department_id, designation_id=ss_row.designation_id)
+        already_requested = already_requested_by_key.get(
+            (ss_row.campus_id, ss_row.department_id, ss_row.designation_id), 0
+        )
+        total_commitment = working + already_requested
+        if total_commitment <= ss_row.approved_strength:
+            continue
+        rows.append(
+            {
+                "campus_code": ss_row.campus.code,
+                "department_name": ss_row.department.name,
+                "designation_name": ss_row.designation.name,
+                "category": ss_row.category.value,
+                "approved_strength": ss_row.approved_strength,
+                "working_count": working,
+                "already_requested": already_requested,
+                "over_by": total_commitment - ss_row.approved_strength,
+            }
+        )
+    rows.sort(key=lambda r: (r["campus_code"], r["department_name"], r["designation_name"]))
+    return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
+
+
 REPORT_BUILDERS: dict[str, Callable[..., dict]] = {
     "recruitment-funnel": recruitment_funnel_report,
     "campus-role-hiring": campus_role_hiring_report,
@@ -750,6 +835,7 @@ REPORT_BUILDERS: dict[str, Callable[..., dict]] = {
     "joining": joining_report,
     "vacancies": vacancy_report,
     "time-to-hire": time_to_hire_report,
+    "sanctioned-strength-reconciliation": sanctioned_strength_reconciliation_report,
 }
 
 
