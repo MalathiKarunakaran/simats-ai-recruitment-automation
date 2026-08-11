@@ -57,6 +57,8 @@ function makeVR(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
     cancelled_by_id: null,
     cancelled_at: null,
     cancellation_reason: null,
+    is_over_sanction: false,
+    over_sanction_justification: null,
     created_at: "2026-07-19T00:00:00Z",
     updated_at: "2026-07-19T00:00:00Z",
     ...overrides,
@@ -231,6 +233,22 @@ describe("VacancyApprovalsPage", () => {
     await userEvent.click(confirmButton);
 
     await waitFor(() => expect(mockedReject).toHaveBeenCalledWith("vr-1", "Position no longer needed"));
+  });
+
+  it("shows the Over-sanction badge next to a request's position title when is_over_sanction is true", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue([]);
+    mockQueue({ SUBMITTED: [makeVR({ is_over_sanction: true })] });
+
+    renderPage();
+
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+    expect(screen.getByText("Over-sanction")).toBeInTheDocument();
   });
 
   it("shows an error message when an approval action fails", async () => {

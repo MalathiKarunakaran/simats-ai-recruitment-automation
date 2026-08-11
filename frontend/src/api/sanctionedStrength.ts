@@ -4,6 +4,7 @@ import type {
   DepartmentDesignationBreakdownRow,
   PaginatedResponse,
   RecruitmentStatus,
+  SanctionedStrengthAvailabilityRead,
   SanctionedStrengthCreatePayload,
   SanctionedStrengthHistoryRead,
   SanctionedStrengthRead,
@@ -97,6 +98,28 @@ export async function getDepartmentSanctionedStrengthBreakdown(
     `/departments/${departmentId}/sanctioned-strength-breakdown`,
   );
   return response.items;
+}
+
+export interface SanctionedStrengthAvailabilityParams {
+  campusId: string;
+  departmentId: string;
+  designationId: string;
+}
+
+// Mirrors GET /sanctioned-strength/availability (zany-snuggling-pie.md Phase
+// E) -- the New Vacancy Request wizard's availability strip. Only ever
+// called once campus+department+designation are all picked (designation_id
+// is a required query param server-side, and Sanctioned Strength is keyed at
+// designation granularity, so there's nothing to show before that).
+export async function getSanctionedStrengthAvailability(
+  params: SanctionedStrengthAvailabilityParams,
+): Promise<SanctionedStrengthAvailabilityRead> {
+  const query = new URLSearchParams({
+    campus_id: params.campusId,
+    department_id: params.departmentId,
+    designation_id: params.designationId,
+  });
+  return apiFetch<SanctionedStrengthAvailabilityRead>(`/sanctioned-strength/availability?${query.toString()}`);
 }
 
 // --- CRUD + history (zany-snuggling-pie.md Phase D) -------------------------

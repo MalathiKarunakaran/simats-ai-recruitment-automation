@@ -27,6 +27,13 @@ const REPORT_TYPES: { value: ReportType; label: string }[] = [
   { value: "joining", label: "Joining" },
   { value: "vacancies", label: "Vacancies" },
   { value: "time-to-hire", label: "Time to hire" },
+  // Phase E item 32 -- app/services/reporting.py::sanctioned_strength_
+  // reconciliation_report, registered in REPORT_BUILDERS alongside the
+  // other 7. No new UI needed: this page's report card is already fully
+  // generic over `rows: Record<string, string | number>[]` (GenericReportTable
+  // just renders whatever columns a report returns), and export/date-range/
+  // campus-scope plumbing is shared by every report type.
+  { value: "sanctioned-strength-reconciliation", label: "Sanctioned strength reconciliation" },
 ];
 
 const KPI_HEADLINE_LABELS: Record<string, string> = {

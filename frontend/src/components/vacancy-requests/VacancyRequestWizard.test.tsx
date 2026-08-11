@@ -1,12 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
 import { ApiError } from "@/api/client";
 import * as departmentsApi from "@/api/departments";
 import * as designationsApi from "@/api/designations";
+import * as sanctionedStrengthApi from "@/api/sanctionedStrength";
 import type { UserRead } from "@/api/types";
 import * as vacancyRequestsApi from "@/api/vacancyRequests";
 import * as authContext from "@/auth/AuthContext";
@@ -15,6 +17,7 @@ import { VacancyRequestWizard } from "@/components/vacancy-requests/VacancyReque
 vi.mock("@/api/campuses");
 vi.mock("@/api/departments");
 vi.mock("@/api/designations");
+vi.mock("@/api/sanctionedStrength");
 vi.mock("@/api/vacancyRequests");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
@@ -25,6 +28,7 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
+const mockedGetAvailability = vi.mocked(sanctionedStrengthApi.getSanctionedStrengthAvailability);
 const mockedCreateVacancyRequest = vi.mocked(vacancyRequestsApi.createVacancyRequest);
 
 const CAMPUSES = [{ id: "c-sse", code: "SSE" as const, name: "SSE Campus", is_active: true, created_at: "", updated_at: "" }];
@@ -58,11 +62,13 @@ const DESIGNATIONS = [
   },
 ];
 
-function renderWizard() {
+function renderWizard(initialPath = "/") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <VacancyRequestWizard onSuccess={vi.fn()} />
+      <MemoryRouter initialEntries={[initialPath]}>
+        <VacancyRequestWizard onSuccess={vi.fn()} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -78,6 +84,13 @@ describe("VacancyRequestWizard", () => {
     mockedListCampuses.mockResolvedValue(CAMPUSES);
     mockedListDepartments.mockResolvedValue(DEPARTMENTS);
     mockedListDesignations.mockResolvedValue(DESIGNATIONS);
+    mockedGetAvailability.mockResolvedValue({
+      approved: 5,
+      working: 3,
+      vacant: 2,
+      already_requested: 1,
+      available_to_request: 1,
+    });
     mockedCreateVacancyRequest.mockResolvedValue({ id: "vr-new" } as never);
 
     renderWizard();
@@ -97,7 +110,10 @@ describe("VacancyRequestWizard", () => {
     await userEvent.click(screen.getByRole("button", { name: /^Assistant Professor/ }));
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
 
-    // Step 4: required count.
+    // Step 4: required count -- the availability strip shows now that a
+    // designation is picked (Phase E item 24).
+    expect(await screen.findByText(/Available to request/)).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument(); // approved
     const countInput = screen.getByLabelText("Required count");
     await userEvent.clear(countInput);
     await userEvent.type(countInput, "3");
@@ -188,6 +204,13 @@ describe("VacancyRequestWizard", () => {
     mockedListCampuses.mockResolvedValue(CAMPUSES);
     mockedListDepartments.mockResolvedValue(DEPARTMENTS);
     mockedListDesignations.mockResolvedValue(DESIGNATIONS);
+    mockedGetAvailability.mockResolvedValue({
+      approved: 5,
+      working: 3,
+      vacant: 2,
+      already_requested: 1,
+      available_to_request: 1,
+    });
     mockedCreateVacancyRequest.mockRejectedValue(new ApiError(400, "requested_count must be positive"));
 
     renderWizard();
@@ -203,5 +226,36 @@ describe("VacancyRequestWizard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Submit vacancy request" }));
 
     expect(await screen.findByText("requested_count must be positive")).toBeInTheDocument();
+  }, 15000);
+
+  it("prefills campus/department/designation from ?campus=&department=&designation= and caps requested count at ?maxCount= (Phase E item 30 deep link)", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "SUPER_ADMIN", campus_id: null, department_id: null } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListDepartments.mockResolvedValue([{ ...DEPARTMENTS[0], category: "TEACHING" as const }]);
+    mockedListDesignations.mockResolvedValue(DESIGNATIONS);
+    mockedGetAvailability.mockResolvedValue({
+      approved: 5,
+      working: 3,
+      vacant: 2,
+      already_requested: 0,
+      available_to_request: 2,
+    });
+
+    renderWizard("/?campus=c-sse&department=d-1&designation=desg-1&maxCount=2");
+
+    // The deep link jumps straight to the "Required count" step (Step 4)
+    // with all three pickers already resolved.
+    const countInput = await screen.findByLabelText("Required count");
+    expect(screen.getByText(/Capped at 2 available posts/)).toBeInTheDocument();
+    expect(await screen.findByText(/Available to request/)).toBeInTheDocument();
+
+    await userEvent.clear(countInput);
+    await userEvent.type(countInput, "9");
+    expect(countInput).toHaveValue(2); // clamped down to maxCount client-side
   }, 15000);
 });

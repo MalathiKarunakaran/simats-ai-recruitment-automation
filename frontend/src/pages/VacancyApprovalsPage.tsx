@@ -13,6 +13,7 @@ import {
   rejectVacancyRequest,
 } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -193,9 +194,14 @@ export function VacancyApprovalsPage() {
               return (
                 <tr key={vr.id} className="border-b border-border last:border-0 hover:bg-accent/50">
                   <td className="py-2">
-                    <Link to={`/vacancy-requests/${vr.id}`} className="font-medium hover:underline">
-                      {vr.position_title}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link to={`/vacancy-requests/${vr.id}`} className="font-medium hover:underline">
+                        {vr.position_title}
+                      </Link>
+                      {/* Phase E badge -- reuses the existing `destructive`
+                          variant, mirrors VacancyRequestDetailPage's. */}
+                      {vr.is_over_sanction ? <Badge variant="destructive">Over-sanction</Badge> : null}
+                    </div>
                   </td>
                   <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
                   <td className="py-2">{vr.priority}</td>

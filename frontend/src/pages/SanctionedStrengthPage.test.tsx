@@ -167,15 +167,18 @@ describe("SanctionedStrengthPage", () => {
 
     // CSE row: VACANCY_EXISTS / APPROVED. Scoped to a <span> (the Badge
     // element) since the sortable "Approved" column header is also a
-    // clickable <button> containing the plain text "Approved", and the
-    // Approval Status filter's Select also contains an "Approved" option.
-    expect(screen.getByText("Vacancy Exists")).toBeInTheDocument();
-    expect(screen.getByText("Approved", { selector: "span" })).toBeInTheDocument();
+    // clickable <button> containing the plain text "Approved", the Approval
+    // Status filter's Select also contains an "Approved" option, and (Phase
+    // E item 28) the badge itself is now wrapped in a <Link>, whose own
+    // textContent also matches. The label carries the *_request_count
+    // (Phase B/E) in parentheses.
+    expect(screen.getByText("Vacancy Exists (2)", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText("Approved (10)", { selector: "span" })).toBeInTheDocument();
     expect(screen.getByText("80%")).toBeInTheDocument();
 
     // MECH row: NO_ACTIVITY / NO_REQUESTS, null filled_pct.
-    expect(screen.getByText("No Activity")).toBeInTheDocument();
-    expect(screen.getByText("No Requests")).toBeInTheDocument();
+    expect(screen.getByText("No Activity (0)", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText("No Requests (0)", { selector: "span" })).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
@@ -190,10 +193,50 @@ describe("SanctionedStrengthPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Fully Staffed")).toBeInTheDocument());
-    expect(screen.getByText("Overstaffed")).toBeInTheDocument();
-    expect(screen.getByText("Approval Pending")).toBeInTheDocument();
-    expect(screen.getByText("Rejected")).toBeInTheDocument();
+    // Every row here spreads CSE_ROW, so all 4 carry its
+    // recruitment_status_request_count (2) / approval_status_request_count
+    // (10) unchanged.
+    await waitFor(() =>
+      expect(screen.getByText("Fully Staffed (2)", { selector: "span" })).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Overstaffed (2)", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText("Approval Pending (10)", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByText("Rejected (10)", { selector: "span" })).toBeInTheDocument();
+  });
+
+  it("makes the Recruitment/Approval Status badges clickable through to the Vacancy Requests list, scoped to this department (Phase E item 28)", async () => {
+    mockAuth("HR_ADMIN");
+    mockCampuses();
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+    const recruitmentLink = screen.getByText("Vacancy Exists (2)", { selector: "span" }).closest("a");
+    expect(recruitmentLink).toHaveAttribute("href", "/vacancy-requests?department=d-cse");
+
+    const approvalLink = screen.getByText("Approved (10)", { selector: "span" }).closest("a");
+    expect(approvalLink).toHaveAttribute("href", "/vacancy-requests?department=d-cse");
+  });
+
+  it("auto-expands the department named in ?department= on mount (Phase E item 29 reverse link)", async () => {
+    mockAuth("HR_ADMIN");
+    mockCampuses();
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+    mockedGetBreakdown.mockResolvedValue([]);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/sanctioned-strength?department=d-cse&designation=des-1"]}>
+          <SanctionedStrengthPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+    await waitFor(() => expect(mockedGetBreakdown).toHaveBeenCalledWith("d-cse"));
+    expect(screen.getByRole("button", { name: /Collapse Computer Science/ })).toBeInTheDocument();
   });
 
   it("sorts by a clicked column ascending, then toggles to descending on a second click", async () => {
@@ -546,6 +589,27 @@ describe("SanctionedStrengthPage", () => {
       await userEvent.click(screen.getByRole("button", { name: /Collapse Computer Science/ }));
 
       await waitFor(() => expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument());
+    });
+
+    it("offers 'Raise vacancy request' only for a designation row with vacancy > 0 (Phase E item 30)", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+      mockedGetBreakdown.mockResolvedValue(BREAKDOWN_ROWS);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: /Expand Computer Science/ }));
+      expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+
+      // Assistant Professor: vacancy=3 -> link shown, capped at that count.
+      const raiseLink = screen.getByRole("link", { name: "Raise vacancy request" });
+      expect(raiseLink).toHaveAttribute(
+        "href",
+        "/vacancy-requests/new?campus=c-sse&department=d-cse&designation=des-1&maxCount=3",
+      );
+      // Professor: vacancy=0 -> no link for that row. Only one link total.
+      expect(screen.getAllByRole("link", { name: "Raise vacancy request" })).toHaveLength(1);
     });
 
     it("only fetches the breakdown for the expanded department, not every department in the list", async () => {

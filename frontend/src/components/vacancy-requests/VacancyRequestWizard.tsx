@@ -1,10 +1,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import { listCampuses } from "@/api/campuses";
 import { listDepartments } from "@/api/departments";
 import { listDesignations } from "@/api/designations";
+import { getSanctionedStrengthAvailability } from "@/api/sanctionedStrength";
 import type {
   DesignationRead,
   EmploymentType,
@@ -60,11 +62,27 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
   // otherwise) -- lock Step 2 to it rather than letting them pick.
   const lockedDepartmentId = !isSuperAdmin ? (user?.department_id ?? null) : null;
 
-  const [currentStep, setCurrentStep] = useState(0);
+  // Phase E item 30 ("Raise vacancy request" row action on Sanctioned
+  // Strength): ?campus=&department=&designation=&maxCount= deep-links here
+  // from a designation row with vacant > 0, prefilling the pickers and
+  // capping the requested-count input below. Read once on mount (this
+  // page's own new precedent, matching the idiom already established by
+  // InterviewCreatePage/OfferCreatePage's `searchParams.get(...)` reads) --
+  // not re-synced if the URL changes later, same as those two pages.
+  const [searchParams] = useSearchParams();
+  const campusParam = searchParams.get("campus");
+  const departmentParam = searchParams.get("department");
+  const designationParam = searchParams.get("designation");
+  const maxCountParam = searchParams.get("maxCount");
+  const maxCount = maxCountParam && Number(maxCountParam) > 0 ? Number(maxCountParam) : null;
+
+  const [currentStep, setCurrentStep] = useState(() =>
+    campusParam && departmentParam && designationParam ? 3 : 0,
+  );
   const [roleCategory, setRoleCategory] = useState<StaffRoleCategory | null>(null);
-  const [campusId, setCampusId] = useState(isSuperAdmin ? "" : (user?.campus_id ?? ""));
-  const [departmentId, setDepartmentId] = useState(lockedDepartmentId ?? "");
-  const [designationId, setDesignationId] = useState<string | null>(null);
+  const [campusId, setCampusId] = useState(campusParam ?? (isSuperAdmin ? "" : (user?.campus_id ?? "")));
+  const [departmentId, setDepartmentId] = useState(lockedDepartmentId ?? departmentParam ?? "");
+  const [designationId, setDesignationId] = useState<string | null>(designationParam);
   const [manualPositionTitle, setManualPositionTitle] = useState("");
   const [manualQualification, setManualQualification] = useState("");
   const [manualExperience, setManualExperience] = useState("");
@@ -76,10 +94,33 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
 
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
+
+  // The deep link only carries a department id, not its category -- derive
+  // roleCategory from the department once it loads so the Designation
+  // step's query (which needs both departmentId and roleCategory) can fire
+  // without making the user re-pick Step 0 by hand.
+  useEffect(() => {
+    if (roleCategory !== null || !departmentParam || !departments) return;
+    const department = departments.find((d) => d.id === departmentParam);
+    if (department?.category) setRoleCategory(department.category);
+  }, [departments, departmentParam, roleCategory]);
+
   const { data: designations, isLoading: designationsLoading } = useQuery({
     queryKey: ["designations", departmentId, roleCategory],
     queryFn: () => listDesignations({ departmentId, category: roleCategory ?? undefined, isActive: true }),
     enabled: Boolean(departmentId && roleCategory),
+  });
+
+  // Phase E item 24's availability strip -- fetched (and shown) only once
+  // campus+department+designation are all known, since Sanctioned Strength
+  // is keyed at designation granularity: a request with no designation_id
+  // has no ceiling to check against, so there is nothing meaningful to show
+  // for the free-text "manual" designation path above.
+  const { data: availability, isLoading: availabilityLoading } = useQuery({
+    queryKey: ["sanctioned-strength-availability", campusId, departmentId, designationId],
+    queryFn: () =>
+      getSanctionedStrengthAvailability({ campusId, departmentId, designationId: designationId! }),
+    enabled: Boolean(campusId && departmentId && designationId),
   });
 
   const departmentOptions = (departments ?? []).filter(
@@ -315,15 +356,68 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
         ) : null}
 
         {currentStep === 3 ? (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="requested_count">Required count</Label>
-            <Input
-              id="requested_count"
-              type="number"
-              min={1}
-              value={requestedCount}
-              onChange={(e) => setRequestedCount(e.target.value)}
-            />
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="requested_count">Required count</Label>
+              <Input
+                id="requested_count"
+                type="number"
+                min={1}
+                max={maxCount ?? undefined}
+                value={requestedCount}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  // Client-side cap only -- a UX nicety pointing the
+                  // requester at the real ceiling before they hit the
+                  // server's own 409 ("Only N posts available to request
+                  // for this designation. Raise a sanction revision
+                  // first."), which is still the actual enforcement.
+                  if (maxCount && raw !== "" && Number(raw) > maxCount) {
+                    setRequestedCount(String(maxCount));
+                  } else {
+                    setRequestedCount(raw);
+                  }
+                }}
+              />
+              {maxCount ? (
+                <p className="text-xs text-muted-foreground">
+                  Capped at {maxCount} available post{maxCount === 1 ? "" : "s"} (from Sanctioned Strength).
+                </p>
+              ) : null}
+            </div>
+
+            {/* Phase E item 24: hidden entirely (not shown with zeros) until a
+                designation is actually picked -- Sanctioned Strength has no
+                ceiling to report against a designation-less/manual request. */}
+            {designationId ? (
+              <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs">
+                {availabilityLoading ? (
+                  <p className="text-muted-foreground">Loading sanctioned strength availability…</p>
+                ) : availability ? (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+                    <span>
+                      Sanctioned <span className="font-medium text-foreground">{availability.approved}</span>
+                    </span>
+                    <span>
+                      Working <span className="font-medium text-foreground">{availability.working}</span>
+                    </span>
+                    <span>
+                      Vacant <span className="font-medium text-foreground">{availability.vacant}</span>
+                    </span>
+                    <span>
+                      Already requested{" "}
+                      <span className="font-medium text-foreground">{availability.already_requested}</span>
+                    </span>
+                    <span>
+                      Available to request{" "}
+                      <span className="font-medium text-foreground">{availability.available_to_request}</span>
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">Sanctioned strength availability is unavailable right now.</p>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : null}
 

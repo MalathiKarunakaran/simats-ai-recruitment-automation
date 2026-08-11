@@ -365,6 +365,12 @@ export interface VacancyRequestRead {
   cancelled_by_id: string | null;
   cancelled_at: string | null;
   cancellation_reason: string | null;
+  // Phase E (zany-snuggling-pie.md): set by vacancy_workflow.py::submit()
+  // only when a SUPER_ADMIN explicitly bypassed the "Only N posts available
+  // to request" sanction-limit block -- drives the "Over-sanction" badge on
+  // VacancyRequestDetailPage/VacancyApprovalsPage.
+  is_over_sanction: boolean;
+  over_sanction_justification: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -399,6 +405,16 @@ export type VacancyRequestUpdatePayload = Partial<Omit<VacancyRequestCreatePaylo
 // Mirrors app/schemas/vacancy_request.py::VacancyRequestGenerateJDRequest.
 export interface VacancyRequestGenerateJDPayload {
   additional_instructions?: string | null;
+}
+
+// Mirrors app/schemas/vacancy_request.py::VacancyRequestSubmitRequest (Phase
+// E) -- optional body on POST /vacancy-requests/{id}/submit. Only ever sent
+// non-empty by a SUPER_ADMIN who has already hit the sanction-limit 409 and
+// checked "Override sanction limit" on VacancyRequestDetailPage; every other
+// caller submits with no body at all (see submitVacancyRequest's overload).
+export interface VacancyRequestSubmitPayload {
+  override_sanction?: boolean;
+  override_justification?: string | null;
 }
 
 // Mirrors app/models/enums.py::NotificationChannelEnum.
@@ -965,7 +981,8 @@ export type ReportType =
   | "offers"
   | "joining"
   | "vacancies"
-  | "time-to-hire";
+  | "time-to-hire"
+  | "sanctioned-strength-reconciliation";
 
 // Mirrors app/schemas/reporting.py::ReportResponse. The backend intentionally
 // uses one generic row shape for all 7 report types (see the docstring next
@@ -1132,6 +1149,18 @@ export interface SanctionedStrengthUpdatePayload {
   approved_strength?: number;
   effective_from?: string;
   remarks?: string | null;
+}
+
+// Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthAvailabilityRead
+// (Phase E) -- GET /sanctioned-strength/availability, shown as the
+// availability strip on the New Vacancy Request wizard once
+// campus+department+designation are all picked.
+export interface SanctionedStrengthAvailabilityRead {
+  approved: number;
+  working: number;
+  vacant: number;
+  already_requested: number;
+  available_to_request: number;
 }
 
 // Mirrors app/models/enums.py::SanctionedStrengthChangeSourceEnum.

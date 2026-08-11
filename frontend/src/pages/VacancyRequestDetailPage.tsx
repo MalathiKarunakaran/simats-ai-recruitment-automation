@@ -18,6 +18,7 @@ import {
   updateSlotCount,
 } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -47,6 +48,13 @@ export function VacancyRequestDetailPage() {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [slotCountDialogOpen, setSlotCountDialogOpen] = useState(false);
   const [slotCountInput, setSlotCountInput] = useState("");
+  // Phase E item 26: SUPER_ADMIN-only override of the "Only N posts
+  // available to request" sanction-limit block -- same conditional-reveal
+  // shape as the Cancel/Reject dialogs' required reason field below (a
+  // required Textarea that only appears, and only gates the action, once
+  // the checkbox is on).
+  const [overrideSanction, setOverrideSanction] = useState(false);
+  const [overrideJustification, setOverrideJustification] = useState("");
 
   const { data: vr, isLoading } = useQuery({
     queryKey: ["vacancy-request", id],
@@ -84,7 +92,22 @@ export function VacancyRequestDetailPage() {
     };
   }
 
-  const submitMutation = useMutation(makeMutation(submitVacancyRequest));
+  const submitMutation = useMutation({
+    mutationFn: () =>
+      overrideSanction
+        ? submitVacancyRequest(id!, {
+            override_sanction: true,
+            override_justification: overrideJustification.trim(),
+          })
+        : submitVacancyRequest(id!),
+    onSuccess: () => {
+      setError(null);
+      setOverrideSanction(false);
+      setOverrideJustification("");
+      afterAction();
+    },
+    onError: (err: unknown) => setError(err instanceof ApiError ? err.message : "Action failed"),
+  });
   const deanApproveMutation = useMutation(makeMutation(deanApproveVacancyRequest));
   const hrApproveMutation = useMutation(makeMutation(hrApproveVacancyRequest));
   const publishMutation = useMutation(makeMutation(publishVacancyRequest));
@@ -144,6 +167,7 @@ export function VacancyRequestDetailPage() {
   }
 
   const role = user.role;
+  const isSuperAdmin = role === "SUPER_ADMIN";
   const canSubmit = (role === "CAMPUS_HOD" || role === "SUPER_ADMIN") && vr.status === "DRAFT";
   const canEdit = canSubmit;
   const canDelete = canSubmit;
@@ -192,8 +216,12 @@ export function VacancyRequestDetailPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold">{vr.position_title}</h1>
-          <div className="mt-1">
+          <div className="mt-1 flex items-center gap-2">
             <StatusBadge status={vr.status} />
+            {/* Phase E item 26/badge: reuses the existing `destructive`
+                variant rather than adding a new one -- shown wherever a
+                SUPER_ADMIN has bypassed the sanction-limit block at submit(). */}
+            {vr.is_over_sanction ? <Badge variant="destructive">Over-sanction</Badge> : null}
           </div>
         </div>
         <Button variant="outline" size="sm" asChild>
@@ -230,6 +258,25 @@ export function VacancyRequestDetailPage() {
             <div className="text-muted-foreground">Experience required</div>
             <div>{vr.experience_required}</div>
           </div>
+          {vr.designation_id ? (
+            <div className="col-span-2">
+              {/* Phase E item 29's reverse link -- Sanctioned Strength is
+                  keyed at designation granularity, so this only makes sense
+                  once the request actually has a designation_id. */}
+              <Link
+                to={`/sanctioned-strength?department=${vr.department_id}&designation=${vr.designation_id}`}
+                className="text-sm font-medium text-primary underline-offset-2 hover:underline"
+              >
+                Sanctioned strength for this designation
+              </Link>
+            </div>
+          ) : null}
+          {vr.is_over_sanction && vr.over_sanction_justification ? (
+            <div className="col-span-2">
+              <div className="text-muted-foreground">Sanction override justification</div>
+              <div>{vr.over_sanction_justification}</div>
+            </div>
+          ) : null}
           {vr.salary_band_min || vr.salary_band_max ? (
             <div>
               <div className="text-muted-foreground">Salary band</div>
@@ -300,6 +347,36 @@ export function VacancyRequestDetailPage() {
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
+      {/* Phase E item 26: SUPER_ADMIN-only override of submit()'s sanction-
+          limit block. Checking the box reveals a required Textarea for the
+          justification -- same conditional-reveal shape as the Cancel/Reject
+          Dialogs' own required reason fields below (a plain state boolean
+          gating both visibility and whether the action button is enabled). */}
+      {canSubmit && isSuperAdmin ? (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-input"
+              checked={overrideSanction}
+              onChange={(e) => setOverrideSanction(e.target.checked)}
+            />
+            Override sanction limit
+          </label>
+          {overrideSanction ? (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="override_justification">Justification</Label>
+              <Textarea
+                id="override_justification"
+                required
+                value={overrideJustification}
+                onChange={(e) => setOverrideJustification(e.target.value)}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
         {canEdit ? (
           <Button variant="outline" asChild>
@@ -307,7 +384,10 @@ export function VacancyRequestDetailPage() {
           </Button>
         ) : null}
         {canSubmit ? (
-          <Button disabled={isBusy} onClick={() => submitMutation.mutate()}>
+          <Button
+            disabled={isBusy || (overrideSanction && !overrideJustification.trim())}
+            onClick={() => submitMutation.mutate()}
+          >
             Submit
           </Button>
         ) : null}
