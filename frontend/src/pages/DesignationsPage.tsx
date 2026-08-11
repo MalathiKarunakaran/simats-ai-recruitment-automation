@@ -27,6 +27,15 @@ import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 const CATEGORIES: StaffRoleCategory[] = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
 const EMPLOYMENT_TYPES: EmploymentType[] = ["FULL_TIME", "PART_TIME", "CONTRACT", "VISITING", "ADJUNCT", "TRA", "JRF"];
+// Same labels as CategoryTabs/DashboardPage's ROLE_CATEGORY_LABELS -- this
+// page previously fell back to a raw `.replace(/_/g, " ")` (rendering
+// "NON TEACHING", all-caps) instead of the "Non-Teaching" convention every
+// other category-aware page already uses.
+const CATEGORY_LABELS: Record<StaffRoleCategory, string> = {
+  TEACHING: "Teaching",
+  NON_TEACHING: "Non-Teaching",
+  HOUSEKEEPING: "Housekeeping",
+};
 
 interface FormState {
   category: StaffRoleCategory;
@@ -211,7 +220,7 @@ export function DesignationsPage() {
                         <SelectContent>
                           {CATEGORIES.map((category) => (
                             <SelectItem key={category} value={category}>
-                              {category.replace(/_/g, " ")}
+                              {CATEGORY_LABELS[category]}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -396,7 +405,7 @@ export function DesignationsPage() {
                 <td className="truncate py-2 font-medium text-foreground" title={designation.name}>
                   {designation.name}
                 </td>
-                <td className="whitespace-nowrap py-2">{designation.category.replace(/_/g, " ")}</td>
+                <td className="whitespace-nowrap py-2">{CATEGORY_LABELS[designation.category]}</td>
                 <td className="whitespace-nowrap py-2">
                   {designation.department_ids.length === 0 ? (
                     "—"

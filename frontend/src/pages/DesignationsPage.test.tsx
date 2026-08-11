@@ -134,7 +134,7 @@ describe("DesignationsPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
-    expect(screen.getByText("TEACHING")).toBeInTheDocument();
+    expect(screen.getByText("Teaching")).toBeInTheDocument();
     expect(screen.getByText("PhD")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
