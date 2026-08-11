@@ -24,13 +24,16 @@ import {
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AddDesignationRow } from "@/components/sanctionedStrength/AddDesignationRow";
+import { BulkUploadDialog } from "@/components/sanctionedStrength/BulkUploadDialog";
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
 import { InlineNumberCell } from "@/components/sanctionedStrength/InlineNumberCell";
 import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength/SanctionedStrengthHistoryDrawer";
+import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs } from "@/components/ui/tabs";
 import { CategoryTabs, mapServerCategoryCounts } from "@/components/domain/CategoryTabs";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { cn } from "@/lib/utils";
@@ -307,6 +310,12 @@ export function SanctionedStrengthPage() {
   const [expandedDepartmentIds, setExpandedDepartmentIds] = useState<Set<string>>(
     () => new Set(deepLinkDepartmentId ? [deepLinkDepartmentId] : []),
   );
+  // Page-section switcher (zany-snuggling-pie.md Phase F, item 2) -- the
+  // first use of components/ui/tabs.tsx's Tabs as a section switcher rather
+  // than a category filter (CategoryTabs above is still the latter). Local
+  // state only, not URL-persisted (unlike categoryFilter) -- no other page
+  // in this codebase deep-links into a specific section this way yet.
+  const [section, setSection] = useState<"register" | "history">("register");
 
   // A single-campus role's campus_code is always ignored server-side (see
   // resolve_campus_filter) -- only global-scope roles get a working filter.
@@ -392,276 +401,299 @@ export function SanctionedStrengthPage() {
       <PageHeader
         title="Sanctioned Strength"
         description="Sanctioned vs working strength per department. This defines how many posts may be requested."
+        // Phase F item 1: "Bulk upload" entry point, gated to the same
+        // canManage (SANCTIONED_STRENGTH_WRITE_ROLES) check as every other
+        // write affordance on this page -- the backend's own bulk-upload
+        // endpoints are gated identically (_write_only in
+        // sanctioned_strength.py).
+        actions={canManage ? <BulkUploadDialog /> : undefined}
       />
 
-      <CategoryTabs
-        value={categoryFilter}
-        onValueChange={(v) => {
-          setCategoryFilter(v);
-          setPage(0);
-        }}
-        counts={mapServerCategoryCounts(data?.category_counts)}
-      />
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Input
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          onBlur={commitSearch}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitSearch();
-          }}
-          placeholder="Search department or employee"
-          aria-label="Search"
-          className="sm:w-64"
+      {canManage ? (
+        <Tabs
+          value={section}
+          onValueChange={setSection}
+          tabs={[
+            { value: "register" as const, label: "Sanctioned Strength" },
+            { value: "history" as const, label: "Upload history" },
+          ]}
         />
-        {canFilterByCampus ? (
-          <div className="w-40">
-            <Select value={campusFilter} onValueChange={(v) => { setCampusFilter(v); setPage(0); }}>
-              <SelectTrigger aria-label="Campus filter">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All campuses</SelectItem>
-                {campuses?.map((campus) => (
-                  <SelectItem key={campus.id} value={campus.code}>
-                    {campus.code}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      ) : null}
+
+      {section === "history" && canManage ? (
+        <UploadHistoryTab />
+      ) : (
+        <>
+          <CategoryTabs
+            value={categoryFilter}
+            onValueChange={(v) => {
+              setCategoryFilter(v);
+              setPage(0);
+            }}
+            counts={mapServerCategoryCounts(data?.category_counts)}
+          />
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onBlur={commitSearch}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitSearch();
+              }}
+              placeholder="Search department or employee"
+              aria-label="Search"
+              className="sm:w-64"
+            />
+            {canFilterByCampus ? (
+              <div className="w-40">
+                <Select value={campusFilter} onValueChange={(v) => { setCampusFilter(v); setPage(0); }}>
+                  <SelectTrigger aria-label="Campus filter">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All campuses</SelectItem>
+                    {campuses?.map((campus) => (
+                      <SelectItem key={campus.id} value={campus.code}>
+                        {campus.code}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            <div className="w-48">
+              <Select
+                value={approvalStatusFilter}
+                onValueChange={(v) => { setApprovalStatusFilter(v as ApprovalStatus | "ALL"); setPage(0); }}
+              >
+                <SelectTrigger aria-label="Approval status filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All approval statuses</SelectItem>
+                  {APPROVAL_STATUSES.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {APPROVAL_STATUS_DISPLAY[status].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-48">
+              <Select
+                value={recruitmentStatusFilter}
+                onValueChange={(v) => { setRecruitmentStatusFilter(v as RecruitmentStatus | "ALL"); setPage(0); }}
+              >
+                <SelectTrigger aria-label="Recruitment status filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All recruitment statuses</SelectItem>
+                  {RECRUITMENT_STATUSES.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {RECRUITMENT_STATUS_DISPLAY[status].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-40">
+              <Select value={activeFilter} onValueChange={(v) => { setActiveFilter(v as "ALL" | "true" | "false"); setPage(0); }}>
+                <SelectTrigger aria-label="Active filter">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All statuses</SelectItem>
+                  <SelectItem value="true">Active</SelectItem>
+                  <SelectItem value="false">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-        ) : null}
-        <div className="w-48">
-          <Select
-            value={approvalStatusFilter}
-            onValueChange={(v) => { setApprovalStatusFilter(v as ApprovalStatus | "ALL"); setPage(0); }}
-          >
-            <SelectTrigger aria-label="Approval status filter">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All approval statuses</SelectItem>
-              {APPROVAL_STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {APPROVAL_STATUS_DISPLAY[status].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="w-48">
-          <Select
-            value={recruitmentStatusFilter}
-            onValueChange={(v) => { setRecruitmentStatusFilter(v as RecruitmentStatus | "ALL"); setPage(0); }}
-          >
-            <SelectTrigger aria-label="Recruitment status filter">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All recruitment statuses</SelectItem>
-              {RECRUITMENT_STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {RECRUITMENT_STATUS_DISPLAY[status].label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="w-40">
-          <Select value={activeFilter} onValueChange={(v) => { setActiveFilter(v as "ALL" | "true" | "false"); setPage(0); }}>
-            <SelectTrigger aria-label="Active filter">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All statuses</SelectItem>
-              <SelectItem value="true">Active</SelectItem>
-              <SelectItem value="false">Inactive</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-muted">
-            <tr className="text-left text-muted-foreground">
-              {/* Leading, unlabeled expand/chevron column. */}
-              <th className="w-8 px-3 py-2" aria-hidden="true" />
-              {COLUMNS.map((column) => {
-                const isSorted = column.sortBy && sortBy === column.sortBy;
-                const ariaSort: "ascending" | "descending" | "none" = isSorted
-                  ? sortDir === "asc"
-                    ? "ascending"
-                    : "descending"
-                  : "none";
-                return (
-                  <th
-                    key={column.key}
-                    className="px-3 py-2 text-table-header font-medium"
-                    aria-sort={column.sortBy ? ariaSort : undefined}
-                  >
-                    {column.sortBy ? (
-                      <button
-                        type="button"
-                        onClick={() => handleSort(column)}
-                        className={cn(
-                          "flex items-center gap-1 transition-colors hover:text-foreground",
-                          isSorted && "text-foreground",
-                        )}
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-muted">
+                <tr className="text-left text-muted-foreground">
+                  {/* Leading, unlabeled expand/chevron column. */}
+                  <th className="w-8 px-3 py-2" aria-hidden="true" />
+                  {COLUMNS.map((column) => {
+                    const isSorted = column.sortBy && sortBy === column.sortBy;
+                    const ariaSort: "ascending" | "descending" | "none" = isSorted
+                      ? sortDir === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : "none";
+                    return (
+                      <th
+                        key={column.key}
+                        className="px-3 py-2 text-table-header font-medium"
+                        aria-sort={column.sortBy ? ariaSort : undefined}
                       >
-                        {column.label}
-                        {isSorted ? (
-                          sortDir === "asc" ? (
-                            <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
-                          ) : (
-                            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                          )
+                        {column.sortBy ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSort(column)}
+                            className={cn(
+                              "flex items-center gap-1 transition-colors hover:text-foreground",
+                              isSorted && "text-foreground",
+                            )}
+                          >
+                            {column.label}
+                            {isSorted ? (
+                              sortDir === "asc" ? (
+                                <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+                              ) : (
+                                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                              )
+                            ) : (
+                              <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />
+                            )}
+                          </button>
                         ) : (
-                          <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />
+                          column.label
                         )}
-                      </button>
-                    ) : (
-                      column.label
-                    )}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {isLoading ? (
-              <tr>
-                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
-            ) : isError ? (
-              <tr>
-                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-destructive">
-                  {error instanceof ApiError ? error.message : "Failed to load sanctioned strength."}
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
-                  {hasAnyFilter ? "No departments match these filters." : "No departments found."}
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => {
-                const recruitmentDisplay = RECRUITMENT_STATUS_DISPLAY[row.recruitment_status];
-                const approvalDisplay = APPROVAL_STATUS_DISPLAY[row.approval_status];
-                const isExpanded = expandedDepartmentIds.has(row.department_id);
-                return (
-                  <Fragment key={row.department_id}>
-                    <tr className="transition-colors hover:bg-accent/50">
-                      <td className="px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpandedDepartment(row.department_id)}
-                          aria-expanded={isExpanded}
-                          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.department_name} designation breakdown`}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                        >
-                          {isExpanded ? (
-                            <ChevronDown className="h-4 w-4" aria-hidden="true" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 font-medium">
-                        <button
-                          type="button"
-                          onClick={() => toggleExpandedDepartment(row.department_id)}
-                          className="flex items-center gap-2 text-left"
-                        >
-                          {row.department_name}
-                          {!row.is_active ? <Badge variant="destructive">Inactive</Badge> : null}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2">{row.category ? row.category.replace(/_/g, " ") : "—"}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.approved_count}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.working_count}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.vacancy_count}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-col gap-1">
-                          <span className="tabular-nums">{row.filled_pct !== null ? `${row.filled_pct}%` : "—"}</span>
-                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                            <div
-                              className="h-full rounded-full bg-primary transition-[width] duration-300"
-                              style={{ width: `${Math.min(row.filled_pct ?? 0, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2">
-                        {/* Phase E item 28: clickable through to the requests
-                            that produced this status -- department-level
-                            only (no single designation to filter by here;
-                            that granularity is item 30's per-designation
-                            "Raise vacancy request" action above, and item
-                            29's reverse link, both of which do carry a
-                            designation param). Count is the same
-                            *_request_count field VacancyRegisterRow already
-                            carries (Phase B). */}
-                        <Link to={`/vacancy-requests?department=${row.department_id}`}>
-                          <Badge variant={recruitmentDisplay.variant}>
-                            {recruitmentDisplay.label} ({row.recruitment_status_request_count})
-                          </Badge>
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2">
-                        <Link to={`/vacancy-requests?department=${row.department_id}`}>
-                          <Badge variant={approvalDisplay.variant}>
-                            {approvalDisplay.label} ({row.approval_status_request_count})
-                          </Badge>
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2">{formatDate(row.last_join)}</td>
-                      <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
-                      <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
-                    </tr>
-                    {isExpanded ? (
-                      <DepartmentBreakdownRow
-                        departmentId={row.department_id}
-                        campusId={row.campus_id}
-                        category={row.category}
-                        canManage={canManage}
-                      />
-                    ) : null}
-                  </Fragment>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
+                      Loading…
+                    </td>
+                  </tr>
+                ) : isError ? (
+                  <tr>
+                    <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-destructive">
+                      {error instanceof ApiError ? error.message : "Failed to load sanctioned strength."}
+                    </td>
+                  </tr>
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
+                      {hasAnyFilter ? "No departments match these filters." : "No departments found."}
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((row) => {
+                    const recruitmentDisplay = RECRUITMENT_STATUS_DISPLAY[row.recruitment_status];
+                    const approvalDisplay = APPROVAL_STATUS_DISPLAY[row.approval_status];
+                    const isExpanded = expandedDepartmentIds.has(row.department_id);
+                    return (
+                      <Fragment key={row.department_id}>
+                        <tr className="transition-colors hover:bg-accent/50">
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandedDepartment(row.department_id)}
+                              aria-expanded={isExpanded}
+                              aria-label={`${isExpanded ? "Collapse" : "Expand"} ${row.department_name} designation breakdown`}
+                              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                            >
+                              {isExpanded ? (
+                                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 font-medium">
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandedDepartment(row.department_id)}
+                              className="flex items-center gap-2 text-left"
+                            >
+                              {row.department_name}
+                              {!row.is_active ? <Badge variant="destructive">Inactive</Badge> : null}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2">{row.category ? row.category.replace(/_/g, " ") : "—"}</td>
+                          <td className="px-3 py-2 tabular-nums">{row.approved_count}</td>
+                          <td className="px-3 py-2 tabular-nums">{row.working_count}</td>
+                          <td className="px-3 py-2 tabular-nums">{row.vacancy_count}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-col gap-1">
+                              <span className="tabular-nums">{row.filled_pct !== null ? `${row.filled_pct}%` : "—"}</span>
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className="h-full rounded-full bg-primary transition-[width] duration-300"
+                                  style={{ width: `${Math.min(row.filled_pct ?? 0, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            {/* Phase E item 28: clickable through to the requests
+                                that produced this status -- department-level
+                                only (no single designation to filter by here;
+                                that granularity is item 30's per-designation
+                                "Raise vacancy request" action above, and item
+                                29's reverse link, both of which do carry a
+                                designation param). Count is the same
+                                *_request_count field VacancyRegisterRow already
+                                carries (Phase B). */}
+                            <Link to={`/vacancy-requests?department=${row.department_id}`}>
+                              <Badge variant={recruitmentDisplay.variant}>
+                                {recruitmentDisplay.label} ({row.recruitment_status_request_count})
+                              </Badge>
+                            </Link>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Link to={`/vacancy-requests?department=${row.department_id}`}>
+                              <Badge variant={approvalDisplay.variant}>
+                                {approvalDisplay.label} ({row.approval_status_request_count})
+                              </Badge>
+                            </Link>
+                          </td>
+                          <td className="px-3 py-2">{formatDate(row.last_join)}</td>
+                          <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
+                          <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
+                        </tr>
+                        {isExpanded ? (
+                          <DepartmentBreakdownRow
+                            departmentId={row.department_id}
+                            campusId={row.campus_id}
+                            category={row.category}
+                            canManage={canManage}
+                          />
+                        ) : null}
+                      </Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          Showing {showingFrom}–{showingTo} of {total} departments
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page === 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={offset + limit >= total}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Showing {showingFrom}–{showingTo} of {total} departments
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={offset + limit >= total}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

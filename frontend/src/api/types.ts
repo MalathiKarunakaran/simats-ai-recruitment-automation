@@ -1177,3 +1177,70 @@ export interface SanctionedStrengthHistoryRead {
   source: SanctionedStrengthChangeSource;
   bulk_upload_log_id: string | null;
 }
+
+// --- Bulk upload (zany-snuggling-pie.md Phase F) ----------------------------
+// Mirrors app/schemas/sanctioned_strength_import.py. Rows are keyed on
+// (Campus Code, Department Name, Designation Name), not "codes" -- see that
+// file's module docstring for why (no designation.code column, non-unique
+// department.code).
+
+export type BulkUploadRowStatus = "created" | "updated" | "unchanged" | "rejected";
+
+// Mirrors BulkUploadRowPreview.
+export interface BulkUploadRowPreview {
+  row_number: number;
+  status: BulkUploadRowStatus;
+  error_reason: string | null;
+  campus_code: string | null;
+  department_name: string | null;
+  designation_name: string | null;
+  approved_strength: number | null;
+  effective_from: string | null;
+  remarks: string | null;
+}
+
+// Mirrors BulkUploadValidationResponse -- returned by both /validate (no
+// bulk_upload_log_id yet, nothing persisted) and as the base shape of
+// /commit's response below.
+export interface BulkUploadValidationResponse {
+  total: number;
+  created_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  rejected_count: number;
+  rows: BulkUploadRowPreview[];
+}
+
+// Mirrors BulkUploadCommitResponse -- adds the persisted batch's id, which is
+// what the error-report download and Upload History tab key off.
+export interface BulkUploadCommitResponse extends BulkUploadValidationResponse {
+  bulk_upload_log_id: string;
+}
+
+// Mirrors app/models/enums.py::BulkUploadStatusEnum.
+export type BulkUploadStatus = "COMPLETED" | "UNDONE";
+
+// Mirrors BulkUploadLogRead -- one row per past bulk upload, for the "Upload
+// history" tab.
+export interface BulkUploadLogRead {
+  id: string;
+  filename: string;
+  uploaded_by_id: string;
+  uploaded_at: string;
+  rows_total: number;
+  rows_created: number;
+  rows_updated: number;
+  rows_rejected: number;
+  stored_file_object_key: string | null;
+  status: BulkUploadStatus;
+  undo_deadline: string;
+  undone_at: string | null;
+  undone_by_id: string | null;
+}
+
+// Mirrors BulkUploadUndoResponse.
+export interface BulkUploadUndoResponse {
+  id: string;
+  status: BulkUploadStatus;
+  reverted_history_count: number;
+}

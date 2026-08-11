@@ -1,6 +1,10 @@
-import { apiFetch } from "@/api/client";
+import { apiFetch, apiFetchBlob } from "@/api/client";
 import type {
   ApprovalStatus,
+  BulkUploadCommitResponse,
+  BulkUploadLogRead,
+  BulkUploadUndoResponse,
+  BulkUploadValidationResponse,
   DepartmentDesignationBreakdownRow,
   PaginatedResponse,
   RecruitmentStatus,
@@ -174,4 +178,99 @@ export async function getSanctionedStrengthHistory(
   return apiFetch<PaginatedResponse<SanctionedStrengthHistoryRead>>(
     `/sanctioned-strength/${id}/history?${query.toString()}`,
   );
+}
+
+// --- Bulk upload (zany-snuggling-pie.md Phase F) -----------------------------
+// Mirrors the `/sanctioned-strength/bulk-upload*` endpoints in
+// app/api/v1/routers/sanctioned_strength.py -- all gated
+// SANCTIONED_STRENGTH_WRITE_ROLES. No server-side caching of parsed rows
+// between validate and commit: the client re-uploads the same File object to
+// /commit (see BulkUploadDialog), matching the backend's deliberate
+// no-new-session-infra choice.
+
+/** Downloads the live-generated bulk-upload template (Blob pattern, same as
+ * downloadTrackerTemplate/downloadReportExport). */
+export async function downloadSanctionedStrengthBulkUploadTemplate(): Promise<void> {
+  const blob = await apiFetchBlob("/sanctioned-strength/bulk-upload/template");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "sanctioned_strength_bulk_upload_template.xlsx";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// Mirrors POST /sanctioned-strength/bulk-upload/validate -- read-only, no DB
+// writes; returns the per-row preview + summary counts.
+export async function validateSanctionedStrengthBulkUpload(file: File): Promise<BulkUploadValidationResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<BulkUploadValidationResponse>("/sanctioned-strength/bulk-upload/validate", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+// Mirrors POST /sanctioned-strength/bulk-upload/commit -- re-sends the same
+// File the caller validated (the backend re-validates defensively rather
+// than trusting the earlier preview).
+export async function commitSanctionedStrengthBulkUpload(file: File): Promise<BulkUploadCommitResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<BulkUploadCommitResponse>("/sanctioned-strength/bulk-upload/commit", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+/** Downloads a completed batch's rejected-rows-only report. */
+export async function downloadSanctionedStrengthBulkUploadErrorReport(bulkUploadLogId: string): Promise<void> {
+  const blob = await apiFetchBlob(`/sanctioned-strength/bulk-upload/${bulkUploadLogId}/error-report`);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `sanctioned-strength-bulk-upload-${bulkUploadLogId}-errors.xlsx`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export interface ListBulkUploadsParams {
+  limit?: number;
+  offset?: number;
+}
+
+// Mirrors GET /sanctioned-strength/bulk-uploads -- newest-first, for the
+// "Upload history" tab. Not campus-scoped (a batch can span campuses).
+export async function listSanctionedStrengthBulkUploads(
+  params: ListBulkUploadsParams = {},
+): Promise<PaginatedResponse<BulkUploadLogRead>> {
+  const query = new URLSearchParams();
+  query.set("limit", String(params.limit ?? 50));
+  query.set("offset", String(params.offset ?? 0));
+  return apiFetch<PaginatedResponse<BulkUploadLogRead>>(`/sanctioned-strength/bulk-uploads?${query.toString()}`);
+}
+
+/** Proxied download of the originally-uploaded file -- `filename` is passed
+ * in by the caller (the BulkUploadLogRead row it already has), same as
+ * candidates.ts::downloadResume, since apiFetchBlob doesn't expose response
+ * headers. */
+export async function downloadSanctionedStrengthBulkUploadOriginalFile(
+  bulkUploadLogId: string,
+  filename: string,
+): Promise<void> {
+  const blob = await apiFetchBlob(`/sanctioned-strength/bulk-uploads/${bulkUploadLogId}/original-file`);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// Mirrors POST /sanctioned-strength/bulk-uploads/{id}/undo -- only succeeds
+// within the batch's 24h undo_deadline (server-enforced 409 after that).
+export async function undoSanctionedStrengthBulkUpload(bulkUploadLogId: string): Promise<BulkUploadUndoResponse> {
+  return apiFetch<BulkUploadUndoResponse>(`/sanctioned-strength/bulk-uploads/${bulkUploadLogId}/undo`, {
+    method: "POST",
+  });
 }
