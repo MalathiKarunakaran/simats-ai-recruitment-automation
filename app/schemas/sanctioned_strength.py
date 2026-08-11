@@ -93,7 +93,14 @@ class DepartmentDesignationBreakdownRow(BaseModel):
     this department -- approved=0 by construction in that case). Phase D's
     frontend needs this to know whether an inline edit/soft-delete/history
     request should target an existing row (PATCH/DELETE/GET .../history) or
-    whether "Approved" is still editable-to-create via a fresh POST."""
+    whether "Approved" is still editable-to-create via a fresh POST.
+
+    `effective_from`/`remarks` are the current-effective row's own values
+    (None, same as `sanctioned_strength_id`, when this designation has never
+    been sanctioned for this department) -- the frontend uses these to
+    pre-fill an edit form alongside `approved_strength`, which the PATCH
+    endpoint (`SanctionedStrengthUpdate`) has always accepted for all three
+    fields."""
 
     designation_id: uuid.UUID
     designation_name: str
@@ -101,6 +108,8 @@ class DepartmentDesignationBreakdownRow(BaseModel):
     approved: int
     working: int
     vacancy: int
+    effective_from: date | None
+    remarks: str | None
 
 
 class DepartmentDesignationBreakdownResponse(BaseModel):

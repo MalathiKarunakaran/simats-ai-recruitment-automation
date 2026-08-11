@@ -611,6 +611,8 @@ def _breakdown(client, actor, department_id):
 def test_breakdown_returns_approved_working_vacancy_per_designation(
     client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory, db_session
 ):
+    from datetime import date
+
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Breakdown Dept {uuid.uuid4().hex[:6]}")
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
@@ -618,7 +620,13 @@ def test_breakdown_returns_approved_working_vacancy_per_designation(
     designation_a = designation_factory(name="Professor", department=department)
     designation_b = designation_factory(name="Lab Assistant", department=department)
     strength_a = sanctioned_strength_factory(
-        campus=campus, department=department, designation=designation_a, approved_strength=3, created_by=hr_admin
+        campus=campus,
+        department=department,
+        designation=designation_a,
+        approved_strength=3,
+        effective_from=date(2026, 1, 1),
+        remarks="Approved per management circular",
+        created_by=hr_admin,
     )
     sanctioned_strength_factory(
         campus=campus, department=department, designation=designation_b, approved_strength=1, created_by=hr_admin
@@ -634,6 +642,10 @@ def test_breakdown_returns_approved_working_vacancy_per_designation(
     # the breakdown must surface the underlying SanctionedStrength row's own
     # id, not just its derived approved/working/vacancy figures.
     assert items["Professor"]["sanctioned_strength_id"] == str(strength_a.id)
+    # The frontend edit form needs the current-effective row's own
+    # effective_from/remarks to pre-fill alongside approved_strength.
+    assert items["Professor"]["effective_from"] == "2026-01-01"
+    assert items["Professor"]["remarks"] == "Approved per management circular"
     assert items["Lab Assistant"]["approved"] == 1
     assert items["Lab Assistant"]["working"] == 0
     assert items["Lab Assistant"]["vacancy"] == 1
@@ -677,6 +689,12 @@ def test_breakdown_designation_with_no_sanctioned_row_shows_zero_approved(
     assert items[0]["approved"] == 0
     assert items[0]["working"] == 0
     assert items[0]["vacancy"] == 0
+    # No sanctioned_strength row exists for this designation/department --
+    # effective_from/remarks follow the same null-when-unsanctioned
+    # convention as sanctioned_strength_id.
+    assert items[0]["sanctioned_strength_id"] is None
+    assert items[0]["effective_from"] is None
+    assert items[0]["remarks"] is None
     assert items[0]["sanctioned_strength_id"] is None
 
 
