@@ -105,3 +105,18 @@ class DepartmentDesignationBreakdownRow(BaseModel):
 
 class DepartmentDesignationBreakdownResponse(BaseModel):
     items: list[DepartmentDesignationBreakdownRow]
+
+
+class SanctionedStrengthAvailabilityRead(BaseModel):
+    """Phase E's availability strip (GET /sanctioned-strength/availability),
+    backed by app/services/sanctioned_strength.py::compute_availability_to_request
+    -- the same function app/services/vacancy_workflow.py::submit() calls to
+    enforce the "Only N posts available to request" 409. `available_to_request`
+    is deliberately not clamped to >= 0 here (unlike `vacant`) -- see that
+    function's docstring."""
+
+    approved: int
+    working: int
+    vacant: int
+    already_requested: int
+    available_to_request: int

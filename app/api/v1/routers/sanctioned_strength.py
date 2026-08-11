@@ -29,13 +29,14 @@ from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengt
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.sanctioned_strength import (
+    SanctionedStrengthAvailabilityRead,
     SanctionedStrengthCreate,
     SanctionedStrengthHistoryRead,
     SanctionedStrengthRead,
     SanctionedStrengthUpdate,
 )
 from app.services.audit import log_create, log_delete, log_update
-from app.services.sanctioned_strength import working_count_for
+from app.services.sanctioned_strength import compute_availability_to_request, working_count_for
 
 router = APIRouter(prefix="/sanctioned-strength", tags=["sanctioned-strength"])
 
@@ -65,6 +66,38 @@ def _get_or_404_scoped(db: Session, sanctioned_strength_id: uuid.UUID, scope: Ca
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, row.campus_id)
     return row
+
+
+@router.get("/availability", response_model=SanctionedStrengthAvailabilityRead)
+def get_sanctioned_strength_availability(
+    campus_id: uuid.UUID = Query(...),
+    department_id: uuid.UUID = Query(...),
+    designation_id: uuid.UUID = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> dict:
+    """Phase E's availability strip (`{approved, working, vacant,
+    already_requested, available_to_request}`) for one (campus, department,
+    designation) key -- shown on the New Vacancy Request form once
+    campus+department+designation are picked, and read by nothing else on
+    the backend side (submit()'s own enforcement calls the shared
+    `compute_availability_to_request` service function directly rather than
+    this HTTP endpoint). A live query every time, no new stored reservation
+    row -- see app/services/sanctioned_strength.py for the formula.
+    """
+    campus = db.get(Campus, campus_id)
+    if campus is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    enforce_campus_match(scope, campus.id)
+    if db.get(Department, department_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if db.get(Designation, designation_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    return compute_availability_to_request(
+        db, campus_id=campus_id, department_id=department_id, designation_id=designation_id
+    )
 
 
 @router.post("", response_model=SanctionedStrengthRead, status_code=status.HTTP_201_CREATED)

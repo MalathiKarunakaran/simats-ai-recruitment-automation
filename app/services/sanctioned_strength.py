@@ -29,8 +29,9 @@ from sqlalchemy.orm import Session
 from app.models.department import Department
 from app.models.designation import Designation
 from app.models.employee import Employee
-from app.models.enums import EmploymentStatusEnum
+from app.models.enums import VACANCY_REQUEST_IN_FLIGHT_STATUSES, EmploymentStatusEnum
 from app.models.sanctioned_strength import SanctionedStrength
+from app.models.vacancy_request import VacancyRequest
 
 
 def current_effective_rows(
@@ -187,6 +188,64 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
             }
         )
     return rows
+
+
+def compute_availability_to_request(
+    db: Session,
+    *,
+    campus_id: uuid.UUID,
+    department_id: uuid.UUID,
+    designation_id: uuid.UUID,
+    as_of: date | None = None,
+) -> dict:
+    """Phase E's availability strip / submit()-time enforcement figure, for
+    one (campus, department, designation) key. Reuses `current_effective_row`
+    (this module's own resolver) for `approved` and `working_count_for` (also
+    this module) for `working`, so the three read paths that need this
+    number -- the GET /sanctioned-strength/availability endpoint, the
+    Vacancy Request submit() choke point, and (implicitly, via the same
+    inputs) the reconciliation report -- can never disagree on how it's
+    computed.
+
+    `already_requested` is a live SUM(requested_count) over VacancyRequests
+    for this exact (campus, department, designation) key whose status is in
+    VACANCY_REQUEST_IN_FLIGHT_STATUSES (SUBMITTED, DEAN_APPROVED, APPROVED,
+    PUBLISHED) -- no stored reservation row, per the Context section's
+    decision 2; a request that reaches CLOSED/REJECTED/CANCELLED simply
+    drops out of this SUM on its own.
+
+    `available_to_request = approved - working - already_requested`, per the
+    locked formula -- deliberately NOT floored at 0 (unlike `vacant`): a
+    negative value here is meaningful (it means working + in-flight requests
+    already exceed the sanction), and submit()'s enforcement relies on that
+    signal to always block a further request once available_to_request <= 0,
+    not just once it reaches exactly 0.
+    """
+    current_row = current_effective_row(
+        db, campus_id=campus_id, department_id=department_id, designation_id=designation_id, as_of=as_of
+    )
+    approved = current_row.approved_strength if current_row is not None else 0
+    working = working_count_for(db, department_id=department_id, designation_id=designation_id)
+
+    already_requested = (
+        db.query(func.coalesce(func.sum(VacancyRequest.requested_count), 0))
+        .filter(
+            VacancyRequest.campus_id == campus_id,
+            VacancyRequest.department_id == department_id,
+            VacancyRequest.designation_id == designation_id,
+            VacancyRequest.status.in_(VACANCY_REQUEST_IN_FLIGHT_STATUSES),
+        )
+        .scalar()
+        or 0
+    )
+
+    return {
+        "approved": approved,
+        "working": working,
+        "vacant": max(approved - working, 0),
+        "already_requested": already_requested,
+        "available_to_request": approved - working - already_requested,
+    }
 
 
 def working_count_for(db: Session, *, department_id: uuid.UUID, designation_id: uuid.UUID) -> int:

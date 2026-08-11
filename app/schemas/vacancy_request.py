@@ -43,6 +43,17 @@ class VacancyRequestUpdate(BaseModel):
     priority: VacancyPriorityEnum | None = None
 
 
+class VacancyRequestSubmitRequest(BaseModel):
+    """Optional body for POST /{id}/submit -- omit entirely for the ordinary
+    submit path. `override_sanction`/`override_justification` are the
+    SUPER_ADMIN-only escape hatch for the Sanctioned Strength <->
+    VacancyRequest link (zany-snuggling-pie.md Phase E); see
+    app/services/vacancy_workflow.py::submit() for the 403/400 gating."""
+
+    override_sanction: bool = False
+    override_justification: str | None = None
+
+
 class VacancyRequestRejectRequest(BaseModel):
     reason: str = Field(min_length=1)
 
@@ -91,5 +102,10 @@ class VacancyRequestRead(BaseModel):
     cancelled_by_id: uuid.UUID | None
     cancelled_at: datetime | None
     cancellation_reason: str | None
+    # Sanctioned Strength enforcement (zany-snuggling-pie.md Phase E) -- see
+    # app/models/vacancy_request.py for the fields, app/services/
+    # vacancy_workflow.py::submit() for what sets them.
+    is_over_sanction: bool
+    over_sanction_justification: str | None
     created_at: datetime
     updated_at: datetime
