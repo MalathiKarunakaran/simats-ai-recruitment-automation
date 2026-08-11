@@ -185,6 +185,8 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
                 "approved": approved,
                 "working": working,
                 "vacancy": max(approved - working, 0),
+                "effective_from": current_row.effective_from if current_row is not None else None,
+                "remarks": current_row.remarks if current_row is not None else None,
             }
         )
     return rows
