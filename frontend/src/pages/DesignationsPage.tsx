@@ -31,6 +31,10 @@ import { CategoryTabs, mapServerCategoryCounts } from "@/components/domain/Categ
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 
+function normalizeSearch(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 const CATEGORIES: StaffRoleCategory[] = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
 const EMPLOYMENT_TYPES: EmploymentType[] = ["FULL_TIME", "PART_TIME", "CONTRACT", "VISITING", "ADJUNCT", "TRA", "JRF"];
 // Same labels as CategoryTabs/DashboardPage's ROLE_CATEGORY_LABELS -- this
@@ -50,95 +54,180 @@ interface FormState {
   departmentIds: string[];
 }
 
-// The "N departments" popover on each designation row -- read-only bullet
-// list of names for everyone, but for canManage users (mirrors the page's
-// own DESIGNATION_WRITE_ROLES gate) becomes a checkbox-per-department list
-// that saves immediately on toggle via a partial PATCH
-// (updateDesignation(id, { department_ids })), no separate Save/Cancel.
-// Deliberately not filtered by the designation's category -- the full Edit
-// dialog's own "Applicable departments" picker (above) doesn't filter by
-// category either, so this mirrors that rather than inventing a stricter
-// rule here. Split out as its own component (like SanctionedStrengthPage's
-// DesignationRow) so each row owns its own mutation/error state -- a plain
-// .map() body can't call hooks per iteration.
+// The Departments table cell is now purely view-only: a static "N
+// Department(s)" count line plus a separate "View Departments" link-button
+// that opens a read-only Dialog listing every mapped department name (with
+// client-side search). All editing now happens exclusively through the
+// Edit designation dialog's own "Applicable departments" picker below --
+// this cell never calls updateDesignation, for anyone, canManage or not.
 function DesignationDepartmentsCell({
   designation,
-  departments,
   departmentNameById,
-  canManage,
 }: {
   designation: DesignationRead;
-  departments: DepartmentRead[];
   departmentNameById: Map<string, string>;
-  canManage: boolean;
 }) {
-  const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
 
-  const updateDepartmentsMutation = useMutation({
-    mutationFn: (nextIds: string[]) => updateDesignation(designation.id, { department_ids: nextIds }),
-    onSuccess: () => {
-      setError(null);
-      void queryClient.invalidateQueries({ queryKey: ["designations"] });
-    },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to update departments"),
-  });
+  const count = designation.department_ids.length;
 
-  function toggleDepartment(departmentId: string) {
-    const nextIds = designation.department_ids.includes(departmentId)
-      ? designation.department_ids.filter((id) => id !== departmentId)
-      : [...designation.department_ids, departmentId];
-    setError(null);
-    updateDepartmentsMutation.mutate(nextIds);
-  }
-
-  // Non-managers with no departments linked yet see the same plain "—" the
-  // read-only list always showed -- nothing to open a popover onto. A
-  // manager still gets the trigger even at 0, since the checkbox list is
-  // how they'd link the first one without the full Edit dialog.
-  if (!canManage && designation.department_ids.length === 0) {
+  // Nothing to view when there are no linked departments -- same plain "—"
+  // the read-only cell always showed before this dialog existed.
+  if (count === 0) {
     return <>—</>;
   }
 
-  const count = designation.department_ids.length;
+  const departmentNames = designation.department_ids
+    .map((id) => ({ id, name: departmentNameById.get(id) ?? "Unknown" }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const trimmedSearch = search.trim();
+  const filteredNames = trimmedSearch
+    ? departmentNames.filter((d) => d.name.toLowerCase().includes(trimmedSearch.toLowerCase()))
+    : departmentNames;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span>
+        {count} Department{count === 1 ? "" : "s"}
+      </span>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setSearch("");
+        }}
+      >
+        <DialogTrigger asChild>
+          <button type="button" className="w-fit text-left text-xs text-primary underline-offset-2 hover:underline">
+            View Departments
+          </button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{designation.name}</DialogTitle>
+            <p className="text-sm text-muted-foreground">{CATEGORY_LABELS[designation.category]}</p>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <p className="text-sm font-medium text-foreground">Departments ({count})</p>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search departments"
+              aria-label="Search departments"
+            />
+            <div className="max-h-64 overflow-y-auto rounded-md border border-border p-2">
+              {filteredNames.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No departments match &quot;{trimmedSearch}&quot;.</p>
+              ) : (
+                <ul className="flex flex-col gap-1 text-sm">
+                  {filteredNames.map((department) => (
+                    <li key={department.id} className="rounded-md px-2 py-1.5">
+                      {department.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Searchable multi-select popover for the Edit/New designation dialog's
+// "Applicable departments" field, built on the existing Popover primitives.
+// `categoryDepartments` is already filtered by the caller to
+// `department.category === form.category` -- this component never sees (and
+// so can never offer) a cross-category department.
+function DepartmentMultiSelect({
+  categoryDepartments,
+  selectedIds,
+  onToggle,
+  onReplaceSelection,
+}: {
+  categoryDepartments: DepartmentRead[];
+  selectedIds: string[];
+  onToggle: (departmentId: string) => void;
+  onReplaceSelection: (departmentIds: string[]) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const trimmedSearch = normalizeSearch(search);
+  const filtered = trimmedSearch
+    ? categoryDepartments.filter((d) => d.name.toLowerCase().includes(trimmedSearch))
+    : categoryDepartments;
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className="text-primary underline-offset-2 hover:underline">
-          {count} department{count === 1 ? "" : "s"}
-        </button>
+        <Button type="button" variant="outline" className="w-full justify-start font-normal">
+          {selectedIds.length === 0
+            ? "Select departments"
+            : `${selectedIds.length} department${selectedIds.length === 1 ? "" : "s"} selected`}
+        </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="max-h-64 w-72 overflow-y-auto">
-        {canManage ? (
-          departments.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No departments found.</p>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {departments.map((department) => (
-                <li key={department.id}>
-                  <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-input"
-                      checked={designation.department_ids.includes(department.id)}
-                      disabled={updateDepartmentsMutation.isPending}
-                      onChange={() => toggleDepartment(department.id)}
-                    />
-                    {department.name}
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )
-        ) : (
-          <ul className="flex flex-col gap-1 text-sm">
-            {designation.department_ids.map((id) => (
-              <li key={id}>{departmentNameById.get(id) ?? "Unknown"}</li>
-            ))}
-          </ul>
-        )}
-        {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+      <PopoverContent align="start" className="w-72">
+        <div className="flex flex-col gap-2">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search departments"
+            aria-label="Search departments"
+          />
+          <div className="flex items-center justify-between text-xs">
+            {/* Select all / Clear all deliberately act on the full
+                category-filtered list, not whatever's currently visible
+                under an active search term -- so "Select all" after typing
+                "bio" still selects every department in this category, not
+                just the one visible match. That keeps the button's meaning
+                unambiguous regardless of the search box's contents. */}
+            <button
+              type="button"
+              className="text-primary underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+              disabled={categoryDepartments.length === 0}
+              onClick={() => onReplaceSelection(categoryDepartments.map((d) => d.id))}
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              className="text-primary underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+              disabled={selectedIds.length === 0}
+              onClick={() => onReplaceSelection([])}
+            >
+              Clear all
+            </button>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {categoryDepartments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No departments found for this category.</p>
+            ) : filtered.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No departments match &quot;{search.trim()}&quot;.</p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {filtered.map((department) => (
+                  <li key={department.id}>
+                    <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-input"
+                        checked={selectedIds.includes(department.id)}
+                        onChange={() => onToggle(department.id)}
+                      />
+                      {department.name}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       </PopoverContent>
     </Popover>
   );
@@ -260,11 +349,28 @@ export function DesignationsPage() {
     }));
   }
 
+  function departmentIdsForCategory(category: StaffRoleCategory): Set<string> {
+    return new Set((departments ?? []).filter((d) => d.category === category).map((d) => d.id));
+  }
+
   function submit() {
     const nameValid = name.validate();
     const qualificationValid = qualification.validate();
     const minExperienceValid = minExperience.validate();
     if (!nameValid || !qualificationValid || !minExperienceValid) return;
+
+    // Defense in depth: the category Select's onValueChange already
+    // intersects departmentIds down to the new category whenever it
+    // changes, and DepartmentMultiSelect only ever offers category-matching
+    // checkboxes, so this should be structurally impossible to trip -- but
+    // block submission rather than silently send a mismatched pair to the
+    // backend if some path we haven't thought of leaves a stale id behind.
+    const validDepartmentIds = departmentIdsForCategory(form.category);
+    if (form.departmentIds.some((id) => !validDepartmentIds.has(id))) {
+      setError("One or more selected departments don't match the selected category. Please re-select departments.");
+      return;
+    }
+
     if (editingId) {
       updateMutation.mutate();
     } else {
@@ -312,7 +418,21 @@ export function DesignationsPage() {
                       <Label>Teaching / Non-Teaching</Label>
                       <Select
                         value={form.category}
-                        onValueChange={(v) => setForm((f) => ({ ...f, category: v as StaffRoleCategory }))}
+                        onValueChange={(v) => {
+                          const nextCategory = v as StaffRoleCategory;
+                          // Applicable departments are always filtered to
+                          // the current category (see DepartmentMultiSelect
+                          // below) -- switching category must immediately
+                          // drop any selection that's no longer valid for
+                          // it, rather than leaving a stale cross-category
+                          // id sitting invisibly in departmentIds.
+                          const validIds = departmentIdsForCategory(nextCategory);
+                          setForm((f) => ({
+                            ...f,
+                            category: nextCategory,
+                            departmentIds: f.departmentIds.filter((id) => validIds.has(id)),
+                          }));
+                        }}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -349,36 +469,12 @@ export function DesignationsPage() {
 
                   <div className="flex flex-col gap-1.5">
                     <Label>Applicable departments</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button type="button" variant="outline" className="w-full justify-start font-normal">
-                          {form.departmentIds.length === 0
-                            ? "Select departments"
-                            : `${form.departmentIds.length} department${form.departmentIds.length === 1 ? "" : "s"} selected`}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" className="max-h-64 w-72 overflow-y-auto">
-                        {(departments ?? []).length === 0 ? (
-                          <p className="text-sm text-muted-foreground">No departments found.</p>
-                        ) : (
-                          <ul className="flex flex-col gap-1">
-                            {(departments ?? []).map((department) => (
-                              <li key={department.id}>
-                                <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 rounded border-input"
-                                    checked={form.departmentIds.includes(department.id)}
-                                    onChange={() => toggleDepartment(department.id)}
-                                  />
-                                  {department.name}
-                                </label>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </PopoverContent>
-                    </Popover>
+                    <DepartmentMultiSelect
+                      categoryDepartments={(departments ?? []).filter((d) => d.category === form.category)}
+                      selectedIds={form.departmentIds}
+                      onToggle={toggleDepartment}
+                      onReplaceSelection={(ids) => setForm((f) => ({ ...f, departmentIds: ids }))}
+                    />
                   </div>
 
                   <div className="flex flex-col gap-1.5">
@@ -506,13 +602,8 @@ export function DesignationsPage() {
                   {designation.name}
                 </td>
                 <td className="whitespace-nowrap py-2">{CATEGORY_LABELS[designation.category]}</td>
-                <td className="whitespace-nowrap py-2">
-                  <DesignationDepartmentsCell
-                    designation={designation}
-                    departments={departments ?? []}
-                    departmentNameById={departmentNameById}
-                    canManage={canManage}
-                  />
+                <td className="py-2">
+                  <DesignationDepartmentsCell designation={designation} departmentNameById={departmentNameById} />
                 </td>
                 <td className="truncate py-2" title={designation.qualification}>
                   {designation.qualification}

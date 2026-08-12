@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -7,7 +7,6 @@ import { describe, expect, it, vi } from "vitest";
 import * as departmentsApi from "@/api/departments";
 import * as designationsApi from "@/api/designations";
 import type { DesignationListResponse } from "@/api/designations";
-import { ApiError } from "@/api/client";
 import type { DepartmentRead, DesignationRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import { DesignationsPage } from "@/pages/DesignationsPage";
@@ -23,7 +22,6 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListDesignationsWithCounts = vi.mocked(designationsApi.listDesignationsWithCounts);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedCreateDesignation = vi.mocked(designationsApi.createDesignation);
-const mockedUpdateDesignation = vi.mocked(designationsApi.updateDesignation);
 
 function mockUser(role: UserRead["role"] | null) {
   mockedUseAuth.mockReturnValue({
@@ -39,7 +37,7 @@ const DEPARTMENT: DepartmentRead = {
   campus_id: "c-sse",
   name: "Computer Science",
   code: null,
-  category: null,
+  category: "TEACHING",
   parent_group: null,
   is_active: true,
   created_at: "2026-01-01T00:00:00Z",
@@ -51,7 +49,21 @@ const DEPARTMENT_2: DepartmentRead = {
   campus_id: "c-sse",
   name: "Mechanical Engineering",
   code: null,
-  category: null,
+  category: "TEACHING",
+  parent_group: null,
+  is_active: true,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
+// A NON_TEACHING department, used to prove the Edit dialog's picker filters
+// by the currently-selected category.
+const DEPARTMENT_3_NON_TEACHING: DepartmentRead = {
+  id: "d-3",
+  campus_id: "c-sse",
+  name: "Library Services",
+  code: null,
+  category: "NON_TEACHING",
   parent_group: null,
   is_active: true,
   created_at: "2026-01-01T00:00:00Z",
@@ -135,12 +147,13 @@ describe("DesignationsPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "1 department" })).toBeInTheDocument();
+    expect(screen.getByText("1 Department")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Departments" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New designation" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  it("renders designations with resolved department names for a write-role (RECRUITMENT_COORDINATOR)", async () => {
+  it("renders designations with the resolved category label for a write-role (RECRUITMENT_COORDINATOR)", async () => {
     mockUser("RECRUITMENT_COORDINATOR");
     mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -152,101 +165,124 @@ describe("DesignationsPage", () => {
     expect(screen.getByText("PhD")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
-
-    // Department names are hidden behind a popover, not inlined into the
-    // table row, so a designation linked to dozens of departments doesn't
-    // turn every row into a giant wall of comma-separated text.
-    await userEvent.click(screen.getByRole("button", { name: "1 department" }));
-    expect(await screen.findByText("Computer Science")).toBeInTheDocument();
   });
 
-  describe("Departments popover (editable checkbox list)", () => {
-    it("shows a read-only name list with no checkboxes for a non-write role, and never calls the API", async () => {
+  it("shows singular 'Department' for a count of one and plural 'Departments' otherwise", async () => {
+    mockUser("SUPER_ADMIN");
+    const twoDepartmentDesignation: DesignationRead = {
+      ...OTHER_DESIGNATION,
+      department_ids: ["d-1", "d-2"],
+    };
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION, twoDepartmentDesignation]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.getByText("1 Department")).toBeInTheDocument();
+    expect(screen.getByText("2 Departments")).toBeInTheDocument();
+  });
+
+  it("shows a plain dash with no View Departments link when a designation has zero linked departments", async () => {
+    mockUser("SUPER_ADMIN");
+    const noDepartments: DesignationRead = { ...DESIGNATION, department_ids: [] };
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([noDepartments]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View Departments" })).not.toBeInTheDocument();
+  });
+
+  describe("View Departments dialog (read-only)", () => {
+    it("opens on click and shows the designation name, category, count, and full department list", async () => {
       mockUser("CAMPUS_HOD");
-      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+      const twoDepartmentDesignation: DesignationRead = { ...DESIGNATION, department_ids: ["d-1", "d-2"] };
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([twoDepartmentDesignation]));
       mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
 
       renderPage();
       await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
 
-      await userEvent.click(screen.getByRole("button", { name: "1 department" }));
+      await userEvent.click(screen.getByRole("button", { name: "View Departments" }));
+
+      expect(await screen.findByRole("heading", { name: "Assistant Professor" })).toBeInTheDocument();
+      expect(screen.getByText("Departments (2)")).toBeInTheDocument();
+      expect(screen.getByText("Computer Science")).toBeInTheDocument();
+      expect(screen.getByText("Mechanical Engineering")).toBeInTheDocument();
+      // Read-only -- no checkboxes anywhere in this dialog, even for a
+      // write-capable role (see next test).
+      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    });
+
+    it("stays read-only (no checkboxes, never calls updateDesignation) even for a write-role user", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
+      const updateSpy = vi.mocked(designationsApi.updateDesignation);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: "View Departments" }));
 
       expect(await screen.findByText("Computer Science")).toBeInTheDocument();
       expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-      expect(mockedUpdateDesignation).not.toHaveBeenCalled();
+      expect(updateSpy).not.toHaveBeenCalled();
     });
 
-    it("checking an unlinked department saves immediately via a department_ids-only PATCH, adding just that id", async () => {
+    it("filters the department list by search, case-insensitively", async () => {
       mockUser("SUPER_ADMIN");
-      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+      const twoDepartmentDesignation: DesignationRead = { ...DESIGNATION, department_ids: ["d-1", "d-2"] };
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([twoDepartmentDesignation]));
       mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
-      mockedUpdateDesignation.mockResolvedValue({ ...DESIGNATION, department_ids: ["d-1", "d-2"] });
 
       renderPage();
       await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "View Departments" }));
+      await screen.findByText("Computer Science");
 
-      await userEvent.click(screen.getByRole("button", { name: "1 department" }));
-      const checkboxes = await screen.findAllByRole("checkbox");
-      expect(checkboxes).toHaveLength(2);
-      // DESIGNATION starts linked only to d-1 (Computer Science).
-      expect(screen.getByRole("checkbox", { name: "Computer Science" })).toBeChecked();
-      expect(screen.getByRole("checkbox", { name: "Mechanical Engineering" })).not.toBeChecked();
+      await userEvent.type(screen.getByLabelText("Search departments"), "mechanical");
 
-      await userEvent.click(screen.getByRole("checkbox", { name: "Mechanical Engineering" }));
-
-      await waitFor(() =>
-        expect(mockedUpdateDesignation).toHaveBeenCalledWith("des-1", { department_ids: ["d-1", "d-2"] }),
-      );
-      // No separate Save/Cancel step -- there's nothing else to click.
-      expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+      expect(screen.getByText("Mechanical Engineering")).toBeInTheDocument();
+      expect(screen.queryByText("Computer Science")).not.toBeInTheDocument();
     });
 
-    it("unchecking an already-linked department saves immediately, removing just that id", async () => {
+    it("shows a no-match message quoting the search term when nothing filters in", async () => {
       mockUser("SUPER_ADMIN");
       mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
-      mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
-      mockedUpdateDesignation.mockResolvedValue({ ...DESIGNATION, department_ids: [] });
+      mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
       renderPage();
       await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "View Departments" }));
+      await screen.findByText("Computer Science");
 
-      await userEvent.click(screen.getByRole("button", { name: "1 department" }));
-      await userEvent.click(await screen.findByRole("checkbox", { name: "Computer Science" }));
+      await userEvent.type(screen.getByLabelText("Search departments"), "no such department");
 
-      await waitFor(() => expect(mockedUpdateDesignation).toHaveBeenCalledWith("des-1", { department_ids: [] }));
+      expect(screen.getByText('No departments match "no such department".')).toBeInTheDocument();
     });
 
-    it("re-fetches the designations list after a successful toggle", async () => {
+    it("closes via the explicit Close button", async () => {
       mockUser("SUPER_ADMIN");
       mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
-      mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
-      mockedUpdateDesignation.mockResolvedValue({ ...DESIGNATION, department_ids: ["d-1", "d-2"] });
+      mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
       renderPage();
       await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
-      const callsBefore = mockedListDesignationsWithCounts.mock.calls.length;
+      await userEvent.click(screen.getByRole("button", { name: "View Departments" }));
+      await screen.findByText("Computer Science");
 
-      await userEvent.click(screen.getByRole("button", { name: "1 department" }));
-      await userEvent.click(await screen.findByRole("checkbox", { name: "Mechanical Engineering" }));
+      // Two "Close"-named buttons exist once the dialog is open: the
+      // explicit footer Button and Radix's own top-right dismiss X (which
+      // carries an sr-only "Close" label). The footer one renders first in
+      // DOM order (DialogContent renders {children} before its built-in
+      // Close), so it's the first match.
+      await userEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
 
-      await waitFor(() =>
-        expect(mockedListDesignationsWithCounts.mock.calls.length).toBeGreaterThan(callsBefore),
-      );
-    });
-
-    it("surfaces an ApiError message inline in the popover on a failed toggle", async () => {
-      mockUser("SUPER_ADMIN");
-      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
-      mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
-      mockedUpdateDesignation.mockRejectedValue(new ApiError(500, "Server exploded"));
-
-      renderPage();
-      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
-
-      await userEvent.click(screen.getByRole("button", { name: "1 department" }));
-      await userEvent.click(await screen.findByRole("checkbox", { name: "Mechanical Engineering" }));
-
-      expect(await screen.findByText("Server exploded")).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByText("Computer Science")).not.toBeInTheDocument());
     });
   });
 
@@ -271,38 +307,133 @@ describe("DesignationsPage", () => {
     await waitFor(() => expect(screen.getByText("No designations found.")).toBeInTheDocument());
   });
 
-  it("submits a new designation with the entered fields, including a checked department", async () => {
-    mockUser("SUPER_ADMIN");
-    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
-    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
-    mockedCreateDesignation.mockResolvedValue(DESIGNATION);
+  describe("New/Edit designation dialog's Applicable departments picker", () => {
+    it("submits a new designation with the entered fields, including a checked department", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+      mockedCreateDesignation.mockResolvedValue(DESIGNATION);
 
-    renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument());
+      renderPage();
+      await waitFor(() => expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument());
 
-    await userEvent.click(screen.getByRole("button", { name: "New designation" }));
+      await userEvent.click(screen.getByRole("button", { name: "New designation" }));
 
-    await userEvent.type(screen.getByLabelText("Designation name"), "Assistant Professor");
-    await userEvent.type(screen.getByLabelText("Qualification"), "PhD");
-    await userEvent.type(screen.getByLabelText("Minimum experience"), "2+ years");
+      await userEvent.type(screen.getByLabelText("Designation name"), "Assistant Professor");
+      await userEvent.type(screen.getByLabelText("Qualification"), "PhD");
+      await userEvent.type(screen.getByLabelText("Minimum experience"), "2+ years");
 
-    await userEvent.click(screen.getByRole("button", { name: "Select departments" }));
-    await userEvent.click(await screen.findByText("Computer Science"));
+      await userEvent.click(screen.getByRole("button", { name: "Select departments" }));
+      await userEvent.click(await screen.findByText("Computer Science"));
 
-    await userEvent.click(screen.getByRole("button", { name: "Create designation" }));
+      await userEvent.click(screen.getByRole("button", { name: "Create designation" }));
 
-    await waitFor(() =>
-      expect(mockedCreateDesignation).toHaveBeenCalledWith({
-        name: "Assistant Professor",
-        category: "TEACHING",
-        qualification: "PhD",
-        min_experience: "2+ years",
-        employment_type: "FULL_TIME",
-        is_active: true,
-        department_ids: ["d-1"],
-      }),
-    );
-  }, 15000);
+      await waitFor(() =>
+        expect(mockedCreateDesignation).toHaveBeenCalledWith({
+          name: "Assistant Professor",
+          category: "TEACHING",
+          qualification: "PhD",
+          min_experience: "2+ years",
+          employment_type: "FULL_TIME",
+          is_active: true,
+          department_ids: ["d-1"],
+        }),
+      );
+    }, 15000);
+
+    it("only offers departments matching the selected category, and drops a now-invalid selection on category switch", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2, DEPARTMENT_3_NON_TEACHING]);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      // DESIGNATION starts TEACHING, linked only to d-1 (Computer Science).
+      await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+      // The popover/select triggers below live directly on the DialogContent
+      // (not themselves portaled), so scoping by the dialog disambiguates
+      // them from anything else on the page -- but their *open* content
+      // (PopoverContent/SelectContent) renders into its own top-level
+      // Portal, a sibling of the dialog's portal under document.body, not a
+      // descendant of it, so once opened, that content is queried globally.
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByRole("button", { name: "1 department selected" })).toBeInTheDocument();
+
+      await userEvent.click(within(dialog).getByRole("button", { name: "1 department selected" }));
+      // Only TEACHING departments are offered -- the NON_TEACHING one never
+      // shows up here, even unchecked.
+      expect(await screen.findByText("Computer Science")).toBeInTheDocument();
+      expect(screen.getByText("Mechanical Engineering")).toBeInTheDocument();
+      expect(screen.queryByText("Library Services")).not.toBeInTheDocument();
+      // Close the popover before switching category.
+      await userEvent.keyboard("{Escape}");
+
+      // Switching category to NON_TEACHING drops the now-invalid d-1
+      // selection back to "Select departments". The category select has no
+      // aria-label of its own (unlike the page-level "Active filter"
+      // select), so scope by the dialog and take the first combobox in it
+      // (category is the first Select field in the form).
+      await userEvent.click(within(dialog).getAllByRole("combobox")[0]);
+      await userEvent.click(await screen.findByRole("option", { name: "Non-Teaching" }));
+
+      expect(within(dialog).getByRole("button", { name: "Select departments" })).toBeInTheDocument();
+
+      await userEvent.click(within(dialog).getByRole("button", { name: "Select departments" }));
+      expect(await screen.findByText("Library Services")).toBeInTheDocument();
+      expect(screen.queryByText("Computer Science")).not.toBeInTheDocument();
+      expect(screen.queryByText("Mechanical Engineering")).not.toBeInTheDocument();
+    });
+
+    it("filters the picker's department list by search, case-insensitively", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "New designation" }));
+
+      await userEvent.click(screen.getByRole("button", { name: "Select departments" }));
+      await userEvent.type(screen.getByLabelText("Search departments"), "mechanical");
+
+      expect(screen.getByText("Mechanical Engineering")).toBeInTheDocument();
+      expect(screen.queryByText("Computer Science")).not.toBeInTheDocument();
+    });
+
+    it("Select all selects the full category-filtered list regardless of an active search term", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "New designation" }));
+
+      await userEvent.click(screen.getByRole("button", { name: "Select departments" }));
+      // Search narrows the visible list to one match...
+      await userEvent.type(screen.getByLabelText("Search departments"), "mechanical");
+      // ...but Select all still selects both TEACHING departments.
+      await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+
+      expect(screen.getByRole("button", { name: "2 departments selected" })).toBeInTheDocument();
+    });
+
+    it("Clear all deselects every department", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+      await userEvent.click(await screen.findByRole("button", { name: "1 department selected" }));
+      await userEvent.click(screen.getByRole("button", { name: "Clear all" }));
+
+      expect(screen.getByRole("button", { name: "Select departments" })).toBeInTheDocument();
+    });
+  });
 
   it("narrows by name search client-side without an extra fetch", async () => {
     mockUser("SUPER_ADMIN");
