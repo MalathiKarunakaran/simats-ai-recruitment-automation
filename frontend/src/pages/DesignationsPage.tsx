@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { createDesignation, listDesignationsWithCounts, updateDesignation } from "@/api/designations";
+import { createDesignation, deleteDesignation, listDesignationsWithCounts, updateDesignation } from "@/api/designations";
 import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
 import {
@@ -15,6 +15,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 import {
   Dialog,
   DialogContent,
@@ -581,7 +582,7 @@ export function DesignationsPage() {
             <col className="w-40" />
             <col className="w-32" />
             <col className="w-24" />
-            {canManage ? <col className="w-20" /> : null}
+            {canManage ? <col className="w-28" /> : null}
           </colgroup>
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
@@ -619,9 +620,24 @@ export function DesignationsPage() {
                 </td>
                 {canManage ? (
                   <td className="py-2 text-right">
-                    <Button variant="outline" size="sm" onClick={() => openEditDialog(designation)}>
-                      Edit
-                    </Button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <Button variant="outline" size="sm" onClick={() => openEditDialog(designation)}>
+                        Edit
+                      </Button>
+                      <DeleteConfirmDialog
+                        triggerAriaLabel={`Delete designation ${designation.name}`}
+                        title="Delete designation"
+                        description={
+                          <>
+                            Remove <span className="font-medium text-foreground">{designation.name}</span>? This
+                            is a soft delete -- the designation stays visible (as Inactive) and can be
+                            reactivated later.
+                          </>
+                        }
+                        onDelete={() => deleteDesignation(designation.id)}
+                        onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["designations"] })}
+                      />
+                    </div>
                   </td>
                 ) : null}
               </tr>

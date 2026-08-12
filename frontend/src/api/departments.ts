@@ -13,3 +13,10 @@ export async function createDepartment(payload: DepartmentCreatePayload): Promis
 export async function updateDepartment(id: string, payload: DepartmentUpdatePayload): Promise<DepartmentRead> {
   return apiFetch<DepartmentRead>(`/departments/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
+
+// Mirrors DELETE /departments/{id} -- same write roles as create/update.
+// Soft delete; the backend returns 409 (surfaced via ApiError.message) when
+// active users or active designations still reference this department.
+export async function deleteDepartment(id: string): Promise<void> {
+  await apiFetch<void>(`/departments/${id}`, { method: "DELETE" });
+}

@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
+import { ApiError } from "@/api/client";
 import type { CampusRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import { CampusesPage } from "@/pages/CampusesPage";
@@ -19,6 +20,7 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedCreateCampus = vi.mocked(campusesApi.createCampus);
 const mockedUpdateCampus = vi.mocked(campusesApi.updateCampus);
+const mockedDeleteCampus = vi.mocked(campusesApi.deleteCampus);
 
 function mockUser(role: UserRead["role"]) {
   mockedUseAuth.mockReturnValue({
@@ -146,5 +148,48 @@ describe("CampusesPage", () => {
 
     expect(screen.getByText("SSE")).toBeInTheDocument();
     expect(screen.queryByText("SHIFT")).not.toBeInTheDocument();
+  });
+
+  it("hides Delete for a non-Super-Admin role", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("SSE")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Delete campus SSE" })).not.toBeInTheDocument();
+  });
+
+  it("deletes a campus via the confirm dialog and refreshes the list", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedDeleteCampus.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("SSE")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete campus SSE" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() => expect(mockedDeleteCampus).toHaveBeenCalledWith("c-sse"));
+  });
+
+  it("surfaces the backend's exact 409 conflict message inline in the delete dialog", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedDeleteCampus.mockRejectedValue(
+      new ApiError(409, "2 active department(s) reference this campus, cannot delete."),
+    );
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("SSE")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete campus SSE" }));
+    const dialog = screen.getByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() =>
+      expect(within(dialog).getByText("2 active department(s) reference this campus, cannot delete.")).toBeInTheDocument(),
+    );
   });
 });

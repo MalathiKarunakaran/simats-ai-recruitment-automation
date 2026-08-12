@@ -3,11 +3,17 @@ import { useState } from "react";
 
 import { listCampuses } from "@/api/campuses";
 import { ApiError } from "@/api/client";
-import { createEligibilityRule, listEligibilityRules, updateEligibilityRule } from "@/api/eligibilityRules";
+import {
+  createEligibilityRule,
+  deleteEligibilityRule,
+  listEligibilityRules,
+  updateEligibilityRule,
+} from "@/api/eligibilityRules";
 import { ELIGIBILITY_RULE_MANAGEMENT_ROLES, type EligibilityRule, type StaffRoleCategory } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 import {
   Dialog,
   DialogContent,
@@ -351,9 +357,27 @@ export function EligibilityRulesPage() {
                   <td className="py-2">{rule.notes ?? "—"}</td>
                   {canManage ? (
                     <td className="py-2">
-                      <Button variant="outline" size="sm" onClick={() => openEditDialog(rule)}>
-                        Edit
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button variant="outline" size="sm" onClick={() => openEditDialog(rule)}>
+                          Edit
+                        </Button>
+                        <DeleteConfirmDialog
+                          triggerAriaLabel={`Delete eligibility rule ${rule.required_qualification_keyword}`}
+                          title="Delete eligibility rule"
+                          description={
+                            <>
+                              Remove the{" "}
+                              <span className="font-medium text-foreground">
+                                {rule.required_qualification_keyword}
+                              </span>{" "}
+                              rule? This is a soft delete -- the rule stays visible (as Inactive) and can be
+                              reactivated later.
+                            </>
+                          }
+                          onDelete={() => deleteEligibilityRule(rule.id)}
+                          onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["eligibility-rules"] })}
+                        />
+                      </div>
                     </td>
                   ) : null}
                 </tr>

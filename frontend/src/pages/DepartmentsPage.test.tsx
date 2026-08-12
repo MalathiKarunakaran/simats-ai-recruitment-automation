@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
+import { ApiError } from "@/api/client";
 import * as departmentsApi from "@/api/departments";
 import type { CampusRead, DepartmentRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
@@ -22,6 +23,7 @@ const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedCreateDepartment = vi.mocked(departmentsApi.createDepartment);
 const mockedUpdateDepartment = vi.mocked(departmentsApi.updateDepartment);
+const mockedDeleteDepartment = vi.mocked(departmentsApi.deleteDepartment);
 
 function mockUser(role: UserRead["role"]) {
   mockedUseAuth.mockReturnValue({
@@ -240,5 +242,53 @@ describe("DepartmentsPage", () => {
 
     expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument();
     expect(screen.queryByText("HR OFFICE")).not.toBeInTheDocument();
+  });
+
+  it("hides Delete for a role without DEPARTMENT_MANAGEMENT_ROLES", async () => {
+    mockUser("CAMPUS_HOD");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartments.mockResolvedValue([CSE]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+    expect(
+      screen.queryByRole("button", { name: "Delete department Computer Science and Engineering" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("deletes a department via the confirm dialog and refreshes the list", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartments.mockResolvedValue([CSE]);
+    mockedDeleteDepartment.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete department Computer Science and Engineering" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() => expect(mockedDeleteDepartment).toHaveBeenCalledWith("d-cse"));
+  });
+
+  it("surfaces the backend's exact 409 conflict message inline in the delete dialog", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartments.mockResolvedValue([CSE]);
+    mockedDeleteDepartment.mockRejectedValue(
+      new ApiError(409, "2 active user(s) reference this department, cannot delete."),
+    );
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete department Computer Science and Engineering" }));
+    const dialog = screen.getByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() =>
+      expect(within(dialog).getByText("2 active user(s) reference this department, cannot delete.")).toBeInTheDocument(),
+    );
   });
 });

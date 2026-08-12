@@ -13,3 +13,11 @@ export async function createCampus(payload: CampusCreatePayload): Promise<Campus
 export async function updateCampus(id: string, payload: CampusUpdatePayload): Promise<CampusRead> {
   return apiFetch<CampusRead>(`/campuses/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
+
+// Mirrors DELETE /campuses/{id} -- SUPER_ADMIN only. Soft delete (is_active
+// flips to false, row stays listed); the backend returns 409 (surfaced via
+// ApiError.message) when active departments or active users still reference
+// this campus.
+export async function deleteCampus(id: string): Promise<void> {
+  await apiFetch<void>(`/campuses/${id}`, { method: "DELETE" });
+}

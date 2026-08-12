@@ -1,5 +1,11 @@
 import { apiFetch, apiFetchBlob } from "@/api/client";
-import type { CandidateCreatePayload, CandidateRead, CandidateWithdrawPayload, PaginatedResponse } from "@/api/types";
+import type {
+  CandidateCreatePayload,
+  CandidateRead,
+  CandidateUpdatePayload,
+  CandidateWithdrawPayload,
+  PaginatedResponse,
+} from "@/api/types";
 
 export async function listCandidates(emailFilter?: string, isWithdrawn?: boolean): Promise<CandidateRead[]> {
   const params = new URLSearchParams({ limit: "200" });
@@ -22,6 +28,15 @@ export async function withdrawCandidate(id: string, payload: CandidateWithdrawPa
 
 export async function createCandidate(payload: CandidateCreatePayload): Promise<CandidateRead> {
   return apiFetch<CandidateRead>("/candidates", { method: "POST", body: JSON.stringify(payload) });
+}
+
+// Mirrors PATCH /candidates/{id} -- same write gate as create (see
+// _write_gate in app/api/v1/routers/candidates.py). Partial edit of the
+// basic-details fields only -- deliberately excludes resume upload/withdraw,
+// which already have their own dedicated UI (ResumeUpload / the Withdraw
+// dialog on CandidateDetailPage).
+export async function updateCandidate(id: string, payload: CandidateUpdatePayload): Promise<CandidateRead> {
+  return apiFetch<CandidateRead>(`/candidates/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
 export async function uploadResume(id: string, file: File): Promise<CandidateRead> {

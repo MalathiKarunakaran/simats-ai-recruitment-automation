@@ -61,3 +61,11 @@ export async function createDesignation(payload: DesignationCreatePayload): Prom
 export async function updateDesignation(id: string, payload: DesignationUpdatePayload): Promise<DesignationRead> {
   return apiFetch<DesignationRead>(`/designations/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
+
+// Mirrors DELETE /designations/{id} -- DESIGNATION_WRITE_ROLES only. Soft
+// delete; the backend returns 409 (surfaced via ApiError.message) when
+// in-flight vacancy requests or active sanctioned-strength rows still
+// reference this designation.
+export async function deleteDesignation(id: string): Promise<void> {
+  await apiFetch<void>(`/designations/${id}`, { method: "DELETE" });
+}
