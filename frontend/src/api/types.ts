@@ -1104,13 +1104,20 @@ export interface DepartmentDesignationBreakdownRow {
   designation_name: string;
   // The current-effective SanctionedStrength row's own id -- null when this
   // designation has never been sanctioned for this department (approved is
-  // then 0 by construction). Phase D's InlineNumberCell/AddDesignationRow/
-  // delete-confirm/history-drawer all key off this to decide POST-a-new-row
-  // vs. PATCH/DELETE/history-on-an-existing-row.
+  // then 0 by construction). Phase D's SanctionedStrengthEditPopover/
+  // AddDesignationRow/delete-confirm/history-drawer all key off this to
+  // decide POST-a-new-row vs. PATCH/DELETE/history-on-an-existing-row.
   sanctioned_strength_id: string | null;
   approved: number;
   working: number;
   vacancy: number;
+  // The current-effective row's own effective_from/remarks -- both null
+  // (same convention as sanctioned_strength_id) when this designation has
+  // never been sanctioned for this department. Lets
+  // SanctionedStrengthEditPopover pre-fill an edit form alongside approved,
+  // matching all 3 fields SanctionedStrengthUpdatePayload accepts.
+  effective_from: string | null;
+  remarks: string | null;
 }
 
 // Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthRead.

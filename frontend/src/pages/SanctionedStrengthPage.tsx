@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { Fragment, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -6,10 +6,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import { listCampuses } from "@/api/campuses";
 import { ApiError } from "@/api/client";
 import {
-  createSanctionedStrength,
   getDepartmentSanctionedStrengthBreakdown,
   listSanctionedStrengthRegister,
-  updateSanctionedStrength,
   type SanctionedStrengthSortBy,
   type SortDirection,
 } from "@/api/sanctionedStrength";
@@ -26,7 +24,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { AddDesignationRow } from "@/components/sanctionedStrength/AddDesignationRow";
 import { BulkUploadDialog } from "@/components/sanctionedStrength/BulkUploadDialog";
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
-import { InlineNumberCell } from "@/components/sanctionedStrength/InlineNumberCell";
+import { SanctionedStrengthEditPopover } from "@/components/sanctionedStrength/SanctionedStrengthEditPopover";
 import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength/SanctionedStrengthHistoryDrawer";
 import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -87,9 +85,10 @@ function formatDate(value: string | null): string {
 }
 
 // One designation's row within an expanded department's breakdown table --
-// split out from DepartmentBreakdownRow so each row can own its own
-// create/update mutation + inline "did this specific save fail" error state
-// (a plain .map() body can't call hooks per iteration).
+// split out from DepartmentBreakdownRow so it can be a clean per-row
+// component (a plain .map() body can't call hooks per iteration). The
+// approved/effective_from/remarks edit affordance itself (including the
+// create-vs-update POST/PATCH branch) lives in SanctionedStrengthEditPopover.
 function DesignationRow({
   row,
   departmentId,
@@ -101,63 +100,15 @@ function DesignationRow({
   campusId: string;
   canManage: boolean;
 }) {
-  const queryClient = useQueryClient();
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  function invalidateAfterSave() {
-    void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-breakdown", departmentId] });
-    void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-register"] });
-  }
-
-  // No existing SanctionedStrength row yet for this designation -- the
-  // first non-empty save is a POST (item 1's "editable-to-create" case),
-  // every save after that is a PATCH against the now-known id.
-  const createMutation = useMutation({
-    mutationFn: (nextValue: number) =>
-      createSanctionedStrength({
-        campus_id: campusId,
-        department_id: departmentId,
-        designation_id: row.designation_id,
-        approved_strength: nextValue,
-        effective_from: new Date().toISOString().slice(0, 10),
-      }),
-    onSuccess: invalidateAfterSave,
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, nextValue }: { id: string; nextValue: number }) =>
-      updateSanctionedStrength(id, { approved_strength: nextValue }),
-    onSuccess: invalidateAfterSave,
-  });
-
-  async function handleSave(nextValue: number): Promise<boolean> {
-    setSaveError(null);
-    try {
-      if (row.sanctioned_strength_id) {
-        await updateMutation.mutateAsync({ id: row.sanctioned_strength_id, nextValue });
-      } else {
-        await createMutation.mutateAsync(nextValue);
-      }
-      return true;
-    } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : "Failed to save");
-      return false;
-    }
-  }
-
-  const isSaving = createMutation.isPending || updateMutation.isPending;
-
   return (
     <tr>
       <td className="px-3 py-1.5">{row.designation_name}</td>
       <td className="px-3 py-1.5">
-        <InlineNumberCell
-          value={row.approved}
-          onSave={handleSave}
+        <SanctionedStrengthEditPopover
+          row={row}
+          departmentId={departmentId}
+          campusId={campusId}
           readOnly={!canManage}
-          isSaving={isSaving}
-          saveError={saveError}
-          aria-label={`Approved for ${row.designation_name}`}
         />
       </td>
       <td className="px-3 py-1.5 tabular-nums">{row.working}</td>

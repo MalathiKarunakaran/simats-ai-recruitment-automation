@@ -29,8 +29,8 @@ export interface AddDesignationRowProps {
   category: StaffRoleCategory | null;
   /** designation_ids already present in this department's breakdown --
    * offering one of these again would just invite a duplicate-key 409/400
-   * from the backend for no benefit (see InlineNumberCell for editing an
-   * already-present, still-unsanctioned row instead). */
+   * from the backend for no benefit (see SanctionedStrengthEditPopover for
+   * editing an already-present, still-unsanctioned row instead). */
   excludeDesignationIds: string[];
   columnCount: number;
 }

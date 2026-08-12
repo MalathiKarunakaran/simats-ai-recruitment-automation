@@ -549,6 +549,8 @@ describe("SanctionedStrengthPage", () => {
         approved: 10,
         working: 7,
         vacancy: 3,
+        effective_from: "2026-08-10",
+        remarks: "Existing sanction",
       },
       {
         designation_id: "des-2",
@@ -557,6 +559,8 @@ describe("SanctionedStrengthPage", () => {
         approved: 4,
         working: 4,
         vacancy: 0,
+        effective_from: null,
+        remarks: null,
       },
     ];
 
@@ -653,7 +657,7 @@ describe("SanctionedStrengthPage", () => {
         expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
       }
 
-      it("PATCHes an existing row's Approved value on Enter and re-fetches the breakdown", async () => {
+      it("PATCHes an existing row via the edit popover's Save button, sending all three fields, and re-fetches the breakdown", async () => {
         mockAuth("HR_ADMIN");
         mockCampuses();
         mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
@@ -662,21 +666,91 @@ describe("SanctionedStrengthPage", () => {
 
         await expandCse();
 
-        // "Approved for Assistant Professor" is the exact accessible name
-        // InlineNumberCell's edit-trigger button gets from DesignationRow's
-        // own aria-label prop -- exact match deliberately, since "Professor"
-        // alone is ambiguous with the other row's "Approved for Professor".
-        await userEvent.click(screen.getByRole("button", { name: "Approved for Assistant Professor" }));
-        const input = screen.getByRole("spinbutton", { name: "Approved for Assistant Professor value" });
-        await userEvent.clear(input);
-        await userEvent.type(input, "12");
-        await userEvent.keyboard("{Enter}");
+        // "Edit sanctioned strength for Assistant Professor" is the exact
+        // accessible name SanctionedStrengthEditPopover's trigger gets --
+        // exact match deliberately, since "Professor" alone is ambiguous
+        // with the other row's "...for Professor" trigger.
+        await userEvent.click(
+          screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
+        );
+
+        // Pre-filled from the breakdown row (approved=10, effective_from=
+        // 2026-08-10, remarks="Existing sanction").
+        const approvedInput = screen.getByLabelText("Approved");
+        expect(approvedInput).toHaveValue(10);
+        const effectiveFromInput = screen.getByLabelText("Effective from");
+        expect(effectiveFromInput).toHaveValue("2026-08-10");
+        const remarksInput = screen.getByLabelText("Remarks");
+        expect(remarksInput).toHaveValue("Existing sanction");
+
+        await userEvent.clear(approvedInput);
+        await userEvent.type(approvedInput, "12");
+        await userEvent.clear(remarksInput);
+        await userEvent.type(remarksInput, "Revised headcount");
+
+        await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
         await waitFor(() =>
-          expect(mockedUpdateSanctionedStrength).toHaveBeenCalledWith("ss-1", { approved_strength: 12 }),
+          expect(mockedUpdateSanctionedStrength).toHaveBeenCalledWith("ss-1", {
+            approved_strength: 12,
+            effective_from: "2026-08-10",
+            remarks: "Revised headcount",
+          }),
         );
         // Invalidation triggers a second breakdown fetch for the same department.
         await waitFor(() => expect(mockedGetBreakdown.mock.calls.length).toBeGreaterThan(1));
+      });
+
+      it("rejects a non-numeric/negative Approved value, disabling Save and never calling the API", async () => {
+        mockAuth("HR_ADMIN");
+        mockCampuses();
+        mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+        mockedGetBreakdown.mockResolvedValue(BREAKDOWN_ROWS);
+
+        await expandCse();
+
+        await userEvent.click(
+          screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
+        );
+        const approvedInput = screen.getByLabelText("Approved");
+        await userEvent.clear(approvedInput);
+        await userEvent.type(approvedInput, "-5");
+
+        expect(screen.getByText("Enter a whole number, 0 or more.")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+        expect(mockedUpdateSanctionedStrength).not.toHaveBeenCalled();
+        expect(mockedCreateSanctionedStrength).not.toHaveBeenCalled();
+      });
+
+      it("Cancel discards the draft and closes the popover without calling the API", async () => {
+        mockAuth("HR_ADMIN");
+        mockCampuses();
+        mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+        mockedGetBreakdown.mockResolvedValue(BREAKDOWN_ROWS);
+
+        await expandCse();
+
+        await userEvent.click(
+          screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
+        );
+        const approvedInput = screen.getByLabelText("Approved");
+        await userEvent.clear(approvedInput);
+        await userEvent.type(approvedInput, "99");
+
+        await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+        expect(screen.queryByLabelText("Approved")).not.toBeInTheDocument();
+        expect(mockedUpdateSanctionedStrength).not.toHaveBeenCalled();
+        expect(mockedCreateSanctionedStrength).not.toHaveBeenCalled();
+
+        // Re-opening shows the original (unchanged) value, not the
+        // discarded "99" draft -- confirms Cancel didn't mutate local state
+        // either, only closed the popover.
+        await userEvent.click(
+          screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
+        );
+        expect(screen.getByLabelText("Approved")).toHaveValue(10);
       });
 
       it("POSTs a brand-new row when editing a designation with no sanctioned_strength_id yet", async () => {
@@ -689,11 +763,21 @@ describe("SanctionedStrengthPage", () => {
         await expandCse();
         expect(screen.getByText("Professor")).toBeInTheDocument();
 
-        await userEvent.click(screen.getByRole("button", { name: "Approved for Professor" }));
-        const input = screen.getByRole("spinbutton", { name: "Approved for Professor value" });
-        await userEvent.clear(input);
-        await userEvent.type(input, "6");
-        await userEvent.keyboard("{Enter}");
+        await userEvent.click(screen.getByRole("button", { name: "Edit sanctioned strength for Professor" }));
+        // Never sanctioned yet (sanctioned_strength_id === null) -- the
+        // popover still pre-fills from whatever the breakdown row's own
+        // approved/remarks are (4 / null here), effective_from just falls
+        // back to today since the row's own effective_from is null.
+        const approvedInput = screen.getByLabelText("Approved");
+        expect(approvedInput).toHaveValue(4);
+        const remarksInput = screen.getByLabelText("Remarks");
+        expect(remarksInput).toHaveValue("");
+
+        await userEvent.clear(approvedInput);
+        await userEvent.type(approvedInput, "6");
+        await userEvent.type(remarksInput, "New line");
+
+        await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
         await waitFor(() =>
           expect(mockedCreateSanctionedStrength).toHaveBeenCalledWith(
@@ -702,12 +786,17 @@ describe("SanctionedStrengthPage", () => {
               department_id: "d-cse",
               designation_id: "des-2",
               approved_strength: 6,
+              remarks: "New line",
             }),
           ),
         );
+        // effective_from defaults to today's ISO date (not asserted exactly
+        // to avoid a flaky hardcoded date).
+        const call = mockedCreateSanctionedStrength.mock.calls[0][0];
+        expect(call.effective_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       });
 
-      it("hides Approved-edit, Add designation, and Delete for a non-write role, but still shows History", async () => {
+      it("hides the edit popover trigger, Add designation, and Delete for a non-write role, but still shows History", async () => {
         mockAuth("CAMPUS_HOD");
         mockCampuses();
         mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
@@ -715,8 +804,12 @@ describe("SanctionedStrengthPage", () => {
 
         await expandCse();
 
-        expect(screen.queryByRole("button", { name: "Approved for Assistant Professor" })).not.toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: "Approved for Professor" })).not.toBeInTheDocument();
+        expect(
+          screen.queryByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
+        ).not.toBeInTheDocument();
+        expect(
+          screen.queryByRole("button", { name: "Edit sanctioned strength for Professor" }),
+        ).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Add designation" })).not.toBeInTheDocument();
         expect(
           screen.queryByRole("button", { name: /Delete sanctioned strength for Assistant Professor/ }),
