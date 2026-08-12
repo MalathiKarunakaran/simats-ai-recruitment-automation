@@ -38,7 +38,7 @@ def test_recruitment_coordinator_can_create_designation_with_departments(
     client, user_factory, department_factory
 ):
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
-    department = department_factory("SSE", "Computer Science")
+    department = department_factory("SSE", "Computer Science", category="TEACHING")
 
     response = client.post(
         "/api/v1/designations",
@@ -121,8 +121,8 @@ def test_candidate_cannot_list_designations(client, user_factory):
 
 def test_list_designations_filters_by_department_and_category(client, user_factory, department_factory):
     super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
-    cse_dept = department_factory("SSE", "Computer Science")
-    other_dept = department_factory("SSE", "Mechanical Engineering")
+    cse_dept = department_factory("SSE", "Computer Science", category="TEACHING")
+    other_dept = department_factory("SSE", "Mechanical Engineering", category="NON_TEACHING")
 
     matching = client.post(
         "/api/v1/designations",
@@ -209,6 +209,156 @@ def test_category_counts_reflect_full_set_regardless_of_selected_category(client
     assert housekeeping_only.status_code == 200
     housekeeping_body = housekeeping_only.json()
     assert housekeeping_body["category_counts"] == baseline_counts
+
+
+def test_designation_create_rejects_department_category_mismatch(client, user_factory, department_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    housekeeping_dept = department_factory("SSE", "Campus Upkeep", category="HOUSEKEEPING")
+
+    response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(department_ids=[str(housekeeping_dept.id)]),
+    )
+    assert response.status_code == 400
+    assert "Campus Upkeep" in response.json()["detail"]
+    assert "TEACHING" in response.json()["detail"]
+
+
+def test_designation_create_with_matching_department_categories_succeeds(client, user_factory, department_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    teaching_dept = department_factory("SSE", "Computer Science", category="TEACHING")
+
+    response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(department_ids=[str(teaching_dept.id)]),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["department_ids"] == [str(teaching_dept.id)]
+
+
+def test_designation_update_category_alone_succeeds_when_linked_departments_still_match(
+    client, user_factory, department_factory
+):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    non_teaching_dept = department_factory("SSE", "Administration", category="NON_TEACHING")
+
+    create_response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(category="NON_TEACHING", department_ids=[str(non_teaching_dept.id)]),
+    )
+    assert create_response.status_code == 201, create_response.text
+    designation_id = create_response.json()["id"]
+
+    patch_response = client.patch(
+        f"/api/v1/designations/{designation_id}",
+        headers=auth_headers(client, super_admin),
+        json={"is_active": False},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+
+
+def test_designation_update_category_alone_rejected_when_linked_departments_no_longer_match(
+    client, user_factory, department_factory
+):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    teaching_dept = department_factory("SSE", "Computer Science", category="TEACHING")
+
+    create_response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(category="TEACHING", department_ids=[str(teaching_dept.id)]),
+    )
+    assert create_response.status_code == 201, create_response.text
+    designation_id = create_response.json()["id"]
+
+    patch_response = client.patch(
+        f"/api/v1/designations/{designation_id}",
+        headers=auth_headers(client, super_admin),
+        json={"category": "NON_TEACHING"},
+    )
+    assert patch_response.status_code == 400
+    detail = patch_response.json()["detail"]
+    assert "NON_TEACHING" in detail
+    assert "department_ids" in detail
+
+
+def test_designation_update_department_ids_rejects_category_mismatch(
+    client, user_factory, department_factory
+):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    housekeeping_dept = department_factory("SSE", "Facilities", category="HOUSEKEEPING")
+
+    create_response = client.post(
+        "/api/v1/designations", headers=auth_headers(client, super_admin), json=_payload()
+    )
+    assert create_response.status_code == 201, create_response.text
+    designation_id = create_response.json()["id"]
+
+    patch_response = client.patch(
+        f"/api/v1/designations/{designation_id}",
+        headers=auth_headers(client, super_admin),
+        json={"department_ids": [str(housekeeping_dept.id)]},
+    )
+    assert patch_response.status_code == 400
+    assert "Facilities" in patch_response.json()["detail"]
+
+
+def test_designation_update_department_ids_to_valid_set_succeeds(client, user_factory, department_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    teaching_dept = department_factory("SSE", "Computer Science", category="TEACHING")
+
+    create_response = client.post(
+        "/api/v1/designations", headers=auth_headers(client, super_admin), json=_payload()
+    )
+    assert create_response.status_code == 201, create_response.text
+    designation_id = create_response.json()["id"]
+
+    patch_response = client.patch(
+        f"/api/v1/designations/{designation_id}",
+        headers=auth_headers(client, super_admin),
+        json={"department_ids": [str(teaching_dept.id)]},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    assert patch_response.json()["department_ids"] == [str(teaching_dept.id)]
+
+
+def test_designation_update_department_ids_and_category_together_validated_against_new_category(
+    client, user_factory, department_factory
+):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    teaching_dept = department_factory("SSE", "Computer Science", category="TEACHING")
+    non_teaching_dept = department_factory("SSE", "Administration", category="NON_TEACHING")
+
+    create_response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(department_ids=[str(teaching_dept.id)]),
+    )
+    assert create_response.status_code == 201, create_response.text
+    designation_id = create_response.json()["id"]
+
+    # Changing category and department_ids together to a still-mismatched
+    # pair (new category NON_TEACHING, but department_ids still points at a
+    # TEACHING department) must be validated against the *new* category.
+    patch_response = client.patch(
+        f"/api/v1/designations/{designation_id}",
+        headers=auth_headers(client, super_admin),
+        json={"category": "NON_TEACHING", "department_ids": [str(teaching_dept.id)]},
+    )
+    assert patch_response.status_code == 400
+
+    # Changing both together to a matching pair succeeds.
+    patch_response = client.patch(
+        f"/api/v1/designations/{designation_id}",
+        headers=auth_headers(client, super_admin),
+        json={"category": "NON_TEACHING", "department_ids": [str(non_teaching_dept.id)]},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    assert patch_response.json()["category"] == "NON_TEACHING"
+    assert patch_response.json()["department_ids"] == [str(non_teaching_dept.id)]
 
 
 def test_category_counts_respect_is_active_filter_but_not_category(client, user_factory):

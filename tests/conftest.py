@@ -530,9 +530,17 @@ def login_otp_factory(db_session):
 
 @pytest.fixture()
 def department_factory(db_session, campus_factory):
-    def _make(campus_code: str, name: str | None = None) -> Department:
+    def _make(
+        campus_code: str,
+        name: str | None = None,
+        category: StaffRoleCategoryEnum | None = None,
+    ) -> Department:
         campus = campus_factory(campus_code)
-        department = Department(campus_id=campus.id, name=name or f"Dept-{uuid.uuid4().hex[:8]}")
+        department = Department(
+            campus_id=campus.id,
+            name=name or f"Dept-{uuid.uuid4().hex[:8]}",
+            **({"category": category} if category is not None else {}),
+        )
         db_session.add(department)
         db_session.flush()
         return department
