@@ -22,6 +22,7 @@ vi.mock("@/auth/AuthContext", async () => {
 const mockedGetCandidate = vi.mocked(candidatesApi.getCandidate);
 const mockedListApplications = vi.mocked(applicationsApi.listApplications);
 const mockedWithdrawCandidate = vi.mocked(candidatesApi.withdrawCandidate);
+const mockedUpdateCandidate = vi.mocked(candidatesApi.updateCandidate);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 
@@ -192,5 +193,69 @@ describe("CandidateDetailPage", () => {
     await waitFor(() =>
       expect(mockedWithdrawCandidate).toHaveBeenCalledWith("cand-1", { reason: "Accepted another offer" }),
     );
+  });
+
+  it("hides the Edit button for a non-manage role", async () => {
+    mockUser("CAMPUS_HOD");
+    mockedGetCandidate.mockResolvedValue(CANDIDATE);
+    mockedListApplications.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  it("submits an edit with the updated fields for a manage role", async () => {
+    mockUser("HR_ADMIN");
+    mockedGetCandidate.mockResolvedValue(CANDIDATE);
+    mockedListApplications.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+    mockedUpdateCandidate.mockResolvedValue({ ...CANDIDATE, full_name: "Jane A. Doe" });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const nameInput = screen.getByLabelText("Full name");
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "Jane A. Doe");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(mockedUpdateCandidate).toHaveBeenCalledWith("cand-1", {
+        full_name: "Jane A. Doe",
+        email: "jane@example.com",
+        phone_number: "+91 9876543210",
+        source: "Referral",
+        reference_name: null,
+      }),
+    );
+  });
+
+  it("requires a reference name once source is switched to Reference", async () => {
+    mockUser("HR_ADMIN");
+    mockedGetCandidate.mockResolvedValue(CANDIDATE);
+    mockedListApplications.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+    // vitest doesn't auto-clear mock call history between tests in this
+    // project (no clearMocks in vite.config.ts) -- reset this mock's own
+    // call log explicitly so an earlier test's successful save doesn't leak
+    // into this test's "never called" assertion below.
+    mockedUpdateCandidate.mockClear();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByRole("option", { name: "Reference" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(
+      screen.getByText("Reference name is required when source is Reference"),
+    ).toBeInTheDocument();
+    expect(mockedUpdateCandidate).not.toHaveBeenCalled();
   });
 });

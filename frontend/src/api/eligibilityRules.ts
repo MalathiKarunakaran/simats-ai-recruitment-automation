@@ -27,3 +27,10 @@ export async function updateEligibilityRule(
     body: JSON.stringify(payload),
   });
 }
+
+// Mirrors DELETE /eligibility-rules/{id} -- SUPER_ADMIN/HR_ADMIN only. Soft
+// delete with no dependency guard (nothing references an eligibility rule by
+// id), so this always succeeds once the rule is found.
+export async function deleteEligibilityRule(id: string): Promise<void> {
+  await apiFetch<void>(`/eligibility-rules/${id}`, { method: "DELETE" });
+}

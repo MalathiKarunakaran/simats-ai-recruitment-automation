@@ -3,12 +3,13 @@ import { useState } from "react";
 
 import { ApiError } from "@/api/client";
 import { listCampuses } from "@/api/campuses";
-import { createDepartment, listDepartments, updateDepartment } from "@/api/departments";
+import { createDepartment, deleteDepartment, listDepartments, updateDepartment } from "@/api/departments";
 import { DEPARTMENT_MANAGEMENT_ROLES, type DepartmentRead, type StaffRoleCategory } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 import {
   Dialog,
   DialogContent,
@@ -346,9 +347,24 @@ export function DepartmentsPage() {
                 </td>
                 {canManage ? (
                   <td className="py-2">
-                    <Button variant="outline" size="sm" onClick={() => openEditDialog(department)}>
-                      Edit
-                    </Button>
+                    <div className="flex items-center gap-1.5">
+                      <Button variant="outline" size="sm" onClick={() => openEditDialog(department)}>
+                        Edit
+                      </Button>
+                      <DeleteConfirmDialog
+                        triggerAriaLabel={`Delete department ${department.name}`}
+                        title="Delete department"
+                        description={
+                          <>
+                            Remove <span className="font-medium text-foreground">{department.name}</span>? This is
+                            a soft delete -- the department stays visible (as Inactive) and can be reactivated
+                            later.
+                          </>
+                        }
+                        onDelete={() => deleteDepartment(department.id)}
+                        onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["departments"] })}
+                      />
+                    </div>
                   </td>
                 ) : null}
               </tr>

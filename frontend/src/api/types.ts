@@ -791,6 +791,18 @@ export interface CandidateWithdrawPayload {
   reason: string;
 }
 
+// Mirrors app/schemas/candidate.py::CandidateUpdate -- partial edit of the
+// basic-details fields only (deliberately excludes is_withdrawn/
+// withdrawn_at/withdrawn_reason/resume_storage_key, each owned by its own
+// dedicated endpoint).
+export interface CandidateUpdatePayload {
+  full_name?: string;
+  email?: string;
+  phone_number?: string | null;
+  source?: CandidateSource | null;
+  reference_name?: string | null;
+}
+
 // Mirrors app/models/enums.py::InterviewTypeEnum.
 export type InterviewType = "TECHNICAL" | "HR" | "TEACHING_DEMO" | "GENERAL";
 

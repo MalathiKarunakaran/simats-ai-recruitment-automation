@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "@/api/client";
 import * as departmentsApi from "@/api/departments";
 import * as designationsApi from "@/api/designations";
 import type { DesignationListResponse } from "@/api/designations";
@@ -22,6 +23,7 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListDesignationsWithCounts = vi.mocked(designationsApi.listDesignationsWithCounts);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedCreateDesignation = vi.mocked(designationsApi.createDesignation);
+const mockedDeleteDesignation = vi.mocked(designationsApi.deleteDesignation);
 
 function mockUser(role: UserRead["role"] | null) {
   mockedUseAuth.mockReturnValue({
@@ -506,5 +508,53 @@ describe("DesignationsPage", () => {
 
     expect(screen.getByText("No designations match the current filters.")).toBeInTheDocument();
     expect(screen.queryByText("No designations found.")).not.toBeInTheDocument();
+  });
+
+  it("hides Delete for a non-write staff role", async () => {
+    mockUser("CAMPUS_HOD");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Delete designation Assistant Professor" })).not.toBeInTheDocument();
+  });
+
+  it("deletes a designation via the confirm dialog and refreshes the list", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedDeleteDesignation.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete designation Assistant Professor" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() => expect(mockedDeleteDesignation).toHaveBeenCalledWith("des-1"));
+  });
+
+  it("surfaces the backend's exact 409 conflict message inline in the delete dialog", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedDeleteDesignation.mockRejectedValue(
+      new ApiError(409, "1 in-flight vacancy request(s) reference this designation, cannot delete."),
+    );
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete designation Assistant Professor" }));
+    const dialog = screen.getByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() =>
+      expect(
+        within(dialog).getByText("1 in-flight vacancy request(s) reference this designation, cannot delete."),
+      ).toBeInTheDocument(),
+    );
   });
 });

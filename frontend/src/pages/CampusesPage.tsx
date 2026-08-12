@@ -2,12 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { ApiError } from "@/api/client";
-import { createCampus, listCampuses, updateCampus } from "@/api/campuses";
+import { createCampus, deleteCampus, listCampuses, updateCampus } from "@/api/campuses";
 import { CAMPUS_CODES, type CampusCode, type CampusRead } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 import {
   Dialog,
   DialogContent,
@@ -240,9 +241,24 @@ export function CampusesPage() {
                 </td>
                 {canManage ? (
                   <td className="py-2">
-                    <Button variant="outline" size="sm" onClick={() => openEditDialog(campus)}>
-                      Edit
-                    </Button>
+                    <div className="flex items-center gap-1.5">
+                      <Button variant="outline" size="sm" onClick={() => openEditDialog(campus)}>
+                        Edit
+                      </Button>
+                      <DeleteConfirmDialog
+                        triggerAriaLabel={`Delete campus ${campus.code}`}
+                        title="Delete campus"
+                        description={
+                          <>
+                            Remove <span className="font-medium text-foreground">{campus.name}</span> ({campus.code})?
+                            This is a soft delete -- the campus stays visible (as Inactive) and can be
+                            reactivated later.
+                          </>
+                        }
+                        onDelete={() => deleteCampus(campus.id)}
+                        onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["campuses"] })}
+                      />
+                    </div>
                   </td>
                 ) : null}
               </tr>

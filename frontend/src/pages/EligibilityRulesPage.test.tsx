@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
+import { ApiError } from "@/api/client";
 import * as eligibilityRulesApi from "@/api/eligibilityRules";
 import type { CampusRead, EligibilityRule, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
@@ -21,6 +22,7 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListEligibilityRules = vi.mocked(eligibilityRulesApi.listEligibilityRules);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedCreateEligibilityRule = vi.mocked(eligibilityRulesApi.createEligibilityRule);
+const mockedDeleteEligibilityRule = vi.mocked(eligibilityRulesApi.deleteEligibilityRule);
 
 function mockUser(role: UserRead["role"] | null) {
   mockedUseAuth.mockReturnValue({
@@ -210,5 +212,47 @@ describe("EligibilityRulesPage", () => {
         notes: null,
       }),
     );
+  });
+
+  it("hides Delete for a non-admin staff role", async () => {
+    mockUser("CAMPUS_HOD");
+    mockedListEligibilityRules.mockResolvedValue([RULE]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("PHD")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Delete eligibility rule PHD" })).not.toBeInTheDocument();
+  });
+
+  it("deletes a rule via the confirm dialog and refreshes the list", async () => {
+    mockUser("HR_ADMIN");
+    mockedListEligibilityRules.mockResolvedValue([RULE]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedDeleteEligibilityRule.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("PHD")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete eligibility rule PHD" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() => expect(mockedDeleteEligibilityRule).toHaveBeenCalledWith("rule-1"));
+  });
+
+  it("surfaces a delete failure inline in the dialog", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListEligibilityRules.mockResolvedValue([RULE]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedDeleteEligibilityRule.mockRejectedValue(new ApiError(404, "Not found"));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("PHD")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete eligibility rule PHD" }));
+    const dialog = screen.getByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() => expect(within(dialog).getByText("Not found")).toBeInTheDocument());
   });
 });
