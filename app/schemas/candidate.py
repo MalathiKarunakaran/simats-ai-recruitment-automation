@@ -40,3 +40,19 @@ class CandidateRead(BaseModel):
 
 class CandidateWithdrawRequest(BaseModel):
     reason: str = Field(min_length=1)
+
+
+class CandidateUpdate(BaseModel):
+    """Partial edit of the basic-details fields only -- deliberately excludes
+    is_withdrawn/withdrawn_at/withdrawn_reason (withdraw_candidate's job
+    exclusively, see app/services/candidates.py) and resume_storage_key
+    (upload_resume's job exclusively). The reference_name-required-for-
+    Reference-source rule is re-checked in the router against the *merged*
+    state (this schema alone can't see the candidate's existing DB row), not
+    here, so a PATCH can't produce a state CandidateCreate couldn't."""
+
+    full_name: str | None = None
+    email: EmailStr | None = None
+    phone_number: str | None = None
+    source: CandidateSource | None = None
+    reference_name: str | None = None

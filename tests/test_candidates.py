@@ -200,6 +200,91 @@ def test_withdraw_candidate_skips_terminal_application(
     assert application.rejection_reason == "Not a fit"
 
 
+def test_update_candidate_success(client, user_factory, candidate_factory):
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    candidate = candidate_factory(full_name="Original Name", phone_number="9000000000")
+
+    response = client.patch(
+        f"/api/v1/candidates/{candidate.id}",
+        headers=auth_headers(client, hr_admin),
+        json={"full_name": "Updated Name", "phone_number": "9111111111"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["full_name"] == "Updated Name"
+    assert body["phone_number"] == "9111111111"
+    # Untouched field survives a partial patch.
+    assert body["email"] == candidate.email
+
+
+def test_update_candidate_forbidden_for_non_write_role(client, user_factory, candidate_factory):
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD)
+    candidate = candidate_factory()
+
+    response = client.patch(
+        f"/api/v1/candidates/{candidate.id}",
+        headers=auth_headers(client, hod),
+        json={"full_name": "Should Be Forbidden"},
+    )
+    assert response.status_code == 403
+
+
+def test_update_candidate_returns_404_for_unknown_candidate(client, user_factory):
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    response = client.patch(
+        "/api/v1/candidates/00000000-0000-0000-0000-000000000000",
+        headers=auth_headers(client, hr_admin),
+        json={"full_name": "Nobody"},
+    )
+    assert response.status_code == 404
+
+
+def test_update_candidate_duplicate_email_returns_409(client, user_factory, candidate_factory):
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    existing = candidate_factory(email="taken@example.com")
+    candidate = candidate_factory()
+
+    response = client.patch(
+        f"/api/v1/candidates/{candidate.id}",
+        headers=auth_headers(client, hr_admin),
+        json={"email": existing.email},
+    )
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]
+
+
+def test_update_candidate_switching_to_reference_source_requires_reference_name(
+    client, user_factory, candidate_factory
+):
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    candidate = candidate_factory()
+
+    response = client.patch(
+        f"/api/v1/candidates/{candidate.id}",
+        headers=auth_headers(client, hr_admin),
+        json={"source": "Reference"},
+    )
+    assert response.status_code == 400
+    assert "reference_name" in response.json()["detail"]
+
+
+def test_update_candidate_source_and_reference_name_together_succeeds(
+    client, user_factory, candidate_factory
+):
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    candidate = candidate_factory()
+
+    response = client.patch(
+        f"/api/v1/candidates/{candidate.id}",
+        headers=auth_headers(client, hr_admin),
+        json={"source": "Reference", "reference_name": "Jane Referrer"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["source"] == "Reference"
+    assert body["reference_name"] == "Jane Referrer"
+
+
 def test_list_candidates_is_withdrawn_filter(client, user_factory, candidate_factory):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     withdrawn_candidate = candidate_factory()

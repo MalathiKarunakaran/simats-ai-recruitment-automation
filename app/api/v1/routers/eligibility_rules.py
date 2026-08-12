@@ -10,7 +10,7 @@ from app.models.enums import UserRoleEnum
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.eligibility_rule import EligibilityRuleCreate, EligibilityRuleRead, EligibilityRuleUpdate
-from app.services.audit import log_create, log_update
+from app.services.audit import log_create, log_delete, log_update
 
 router = APIRouter(prefix="/eligibility-rules", tags=["eligibility-rules"])
 
@@ -125,3 +125,35 @@ def update_eligibility_rule(
     db.commit()
     db.refresh(rule)
     return rule
+
+
+@router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_eligibility_rule(
+    rule_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+) -> None:
+    rule = db.get(EligibilityRule, rule_id)
+    if rule is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    # No dependency guard here, unlike the other four master-data DELETEs in
+    # this PR: nothing in app/models/ holds a foreign key to
+    # eligibility_rules.id (see app/services/eligibility.py -- rules are
+    # read live by (campus_id, staff_category[, position_title]) match at
+    # submit-time, never stored as a reference on another row), so there is
+    # no real dependent state a soft delete here could orphan.
+    before = _rule_snapshot(rule)
+    rule.is_active = False
+
+    log_delete(
+        db,
+        actor=current_user,
+        entity_type="EligibilityRule",
+        entity=rule,
+        campus_context_id=rule.campus_id,
+        before_state=before,
+        request=request,
+    )
+    db.commit()

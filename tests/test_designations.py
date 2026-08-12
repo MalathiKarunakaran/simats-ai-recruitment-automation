@@ -1,4 +1,7 @@
-from app.models.enums import UserRoleEnum
+import uuid
+
+from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, UserRoleEnum, VacancyRequestStatusEnum
+from app.models.vacancy_request import VacancyRequest
 
 from tests.conftest import auth_headers
 
@@ -391,3 +394,143 @@ def test_category_counts_respect_is_active_filter_but_not_category(client, user_
     # all "every other active filter" this endpoint respects) -- so the
     # inactive designation must not be reflected here.
     assert active_body["category_counts"]["ALL"] == active_body["total"]
+
+
+def test_hr_admin_cannot_delete_designation(client, user_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    create_response = client.post(
+        "/api/v1/designations", headers=auth_headers(client, super_admin), json=_payload()
+    )
+    designation_id = create_response.json()["id"]
+
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    response = client.delete(
+        f"/api/v1/designations/{designation_id}", headers=auth_headers(client, hr_admin)
+    )
+    assert response.status_code == 403
+
+
+def test_super_admin_can_delete_designation_with_no_dependents(client, user_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    create_response = client.post(
+        "/api/v1/designations", headers=auth_headers(client, super_admin), json=_payload()
+    )
+    designation_id = create_response.json()["id"]
+
+    response = client.delete(
+        f"/api/v1/designations/{designation_id}", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 204
+
+    get_response = client.get(
+        f"/api/v1/designations?category=TEACHING", headers=auth_headers(client, super_admin)
+    )
+    match = next(item for item in get_response.json()["items"] if item["id"] == designation_id)
+    assert match["is_active"] is False
+
+
+def test_delete_designation_blocked_by_in_flight_vacancy_request(
+    client, user_factory, department_factory, db_session
+):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    department = department_factory("SSE", "Computer Science", category=StaffRoleCategoryEnum.TEACHING)
+
+    create_response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(department_ids=[str(department.id)]),
+    )
+    designation_id = create_response.json()["id"]
+
+    vacancy_request = VacancyRequest(
+        campus_id=department.campus_id,
+        department_id=department.id,
+        designation_id=uuid.UUID(designation_id),
+        role_category=StaffRoleCategoryEnum.TEACHING,
+        position_title="Assistant Professor",
+        employment_type=EmploymentTypeEnum.FULL_TIME,
+        requested_count=1,
+        qualification="PhD",
+        experience_required="3+ years",
+        status=VacancyRequestStatusEnum.SUBMITTED,
+        requested_by_id=super_admin.id,
+    )
+    db_session.add(vacancy_request)
+    db_session.flush()
+
+    response = client.delete(
+        f"/api/v1/designations/{designation_id}", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 409
+    assert "vacancy request" in response.json()["detail"]
+
+
+def test_delete_designation_not_blocked_by_terminal_vacancy_request(
+    client, user_factory, department_factory, db_session
+):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    department = department_factory("SSE", "Computer Science", category=StaffRoleCategoryEnum.TEACHING)
+
+    create_response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(department_ids=[str(department.id)]),
+    )
+    designation_id = create_response.json()["id"]
+
+    vacancy_request = VacancyRequest(
+        campus_id=department.campus_id,
+        department_id=department.id,
+        designation_id=uuid.UUID(designation_id),
+        role_category=StaffRoleCategoryEnum.TEACHING,
+        position_title="Assistant Professor",
+        employment_type=EmploymentTypeEnum.FULL_TIME,
+        requested_count=1,
+        qualification="PhD",
+        experience_required="3+ years",
+        status=VacancyRequestStatusEnum.CLOSED,
+        requested_by_id=super_admin.id,
+    )
+    db_session.add(vacancy_request)
+    db_session.flush()
+
+    response = client.delete(
+        f"/api/v1/designations/{designation_id}", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 204
+
+
+def test_delete_designation_blocked_by_active_sanctioned_strength(
+    client, user_factory, department_factory, campus_factory, sanctioned_strength_factory, db_session
+):
+    from app.models.designation import Designation
+
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    department = department_factory("SSE", "Computer Science", category=StaffRoleCategoryEnum.TEACHING)
+    campus = campus_factory("SSE")
+
+    create_response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(department_ids=[str(department.id)]),
+    )
+    designation_id = create_response.json()["id"]
+    designation = db_session.get(Designation, uuid.UUID(designation_id))
+
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation, created_by=super_admin
+    )
+
+    response = client.delete(
+        f"/api/v1/designations/{designation_id}", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 409
+    assert "sanctioned strength" in response.json()["detail"]
+
+
+def test_delete_unknown_designation_returns_404(client, user_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    response = client.delete(
+        f"/api/v1/designations/{uuid.uuid4()}", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 404
