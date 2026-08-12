@@ -11,7 +11,7 @@ from app.core.deps import get_current_active_user, get_db, require_roles, requir
 from app.models.candidate import Candidate
 from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
 from app.models.user import User
-from app.schemas.candidate import CandidateCreate, CandidateRead, CandidateWithdrawRequest
+from app.schemas.candidate import CandidateCreate, CandidateRead, CandidateUpdate, CandidateWithdrawRequest
 from app.schemas.common import PaginatedResponse
 from app.services import candidates as candidates_service
 from app.services import storage
@@ -105,6 +105,74 @@ def get_candidate(
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return candidate
+
+
+@router.patch("/{candidate_id}", response_model=CandidateRead)
+def update_candidate(
+    candidate_id: uuid.UUID,
+    payload: CandidateUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_write_gate),
+) -> Candidate:
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    before = {
+        "full_name": candidate.full_name,
+        "email": candidate.email,
+        "phone_number": candidate.phone_number,
+        "source": candidate.source,
+        "reference_name": candidate.reference_name,
+    }
+
+    updates = payload.model_dump(exclude_unset=True)
+
+    if "email" in updates and updates["email"] != candidate.email:
+        duplicate = (
+            db.query(Candidate)
+            .filter(Candidate.email == updates["email"], Candidate.id != candidate.id)
+            .one_or_none()
+        )
+        if duplicate is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="A candidate with this email already exists"
+            )
+
+    for field, value in updates.items():
+        setattr(candidate, field, value)
+
+    # Same reference_name-required-for-Reference-source rule CandidateCreate
+    # enforces (app/schemas/candidate.py's model_validator) -- re-checked
+    # here against the *merged* state so a PATCH that only flips source to
+    # "Reference" while leaving reference_name unset still gets caught, even
+    # though this schema's own validator can't see the candidate's prior row.
+    if candidate.source == "Reference" and not candidate.reference_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="reference_name is required when source is 'Reference'",
+        )
+
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="Candidate",
+        entity=candidate,
+        campus_context_id=None,
+        before_state=before,
+        after_state={
+            "full_name": candidate.full_name,
+            "email": candidate.email,
+            "phone_number": candidate.phone_number,
+            "source": candidate.source,
+            "reference_name": candidate.reference_name,
+        },
+        request=request,
+    )
+    db.commit()
+    db.refresh(candidate)
     return candidate
 
 

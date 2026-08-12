@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session
 from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db, require_roles
 from app.models.campus import Campus
 from app.models.department import Department
+from app.models.designation import Designation
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.department import DepartmentCreate, DepartmentRead, DepartmentUpdate
-from app.services.audit import log_create, log_update
+from app.services.audit import log_create, log_delete, log_update
 
 router = APIRouter(prefix="/departments", tags=["departments"])
 
@@ -131,3 +132,62 @@ def update_department(
     db.commit()
     db.refresh(department)
     return department
+
+
+@router.delete("/{department_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_department(
+    department_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+) -> None:
+    department = db.get(Department, department_id)
+    if department is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    # Primary guard: active Users assigned to this department (User.
+    # department_id, ondelete="SET NULL") -- the clearest, cheapest signal
+    # that this department is still actually staffed.
+    active_users = (
+        db.query(User).filter(User.department_id == department.id, User.is_active.is_(True)).count()
+    )
+    if active_users > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{active_users} active user(s) reference this department, cannot delete.",
+        )
+
+    # Secondary guard: active Designations still mapped to this department
+    # via the designation_departments M2M -- an indexed-PK join, cheap to
+    # run, and worth checking because a still-active Designation Master
+    # entry pointing only at this department would otherwise silently lose
+    # its only valid department option. Deliberately NOT walking further
+    # (SanctionedStrength/VacancyRequest keyed to this department) --  those
+    # are RESTRICT FKs that a soft delete never actually touches, and
+    # SanctionedStrength's own delete guard (working_count_for) already
+    # covers the "still has active employees" case at that finer-grained
+    # (department, designation) key.
+    active_designations = (
+        db.query(Designation)
+        .filter(Designation.departments.any(Department.id == department.id), Designation.is_active.is_(True))
+        .count()
+    )
+    if active_designations > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{active_designations} active designation(s) reference this department, cannot delete.",
+        )
+
+    before = _department_snapshot(department)
+    department.is_active = False
+
+    log_delete(
+        db,
+        actor=current_user,
+        entity_type="Department",
+        entity=department,
+        campus_context_id=department.campus_id,
+        before_state=before,
+        request=request,
+    )
+    db.commit()

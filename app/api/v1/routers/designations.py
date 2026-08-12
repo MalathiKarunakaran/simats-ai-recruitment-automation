@@ -7,10 +7,17 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.deps import get_current_active_user, get_db, require_roles
 from app.models.department import Department
 from app.models.designation import Designation
-from app.models.enums import DESIGNATION_WRITE_ROLES, StaffRoleCategoryEnum, UserRoleEnum
+from app.models.enums import (
+    DESIGNATION_WRITE_ROLES,
+    VACANCY_REQUEST_IN_FLIGHT_STATUSES,
+    StaffRoleCategoryEnum,
+    UserRoleEnum,
+)
+from app.models.sanctioned_strength import SanctionedStrength
 from app.models.user import User
+from app.models.vacancy_request import VacancyRequest
 from app.schemas.designation import DesignationCreate, DesignationListResponse, DesignationRead, DesignationUpdate
-from app.services.audit import log_create, log_update
+from app.services.audit import log_create, log_delete, log_update
 
 router = APIRouter(prefix="/designations", tags=["designations"])
 
@@ -200,3 +207,68 @@ def update_designation(
     db.commit()
     db.refresh(designation)
     return designation
+
+
+@router.delete("/{designation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_designation(
+    designation_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*DESIGNATION_WRITE_ROLES)),
+) -> None:
+    designation = db.get(Designation, designation_id)
+    if designation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    # Primary guard: VacancyRequests still moving through the approval
+    # pipeline for this designation (same VACANCY_REQUEST_IN_FLIGHT_STATUSES
+    # set app/services/sanctioned_strength.py's availability formula and
+    # vacancy_workflow.py's submit()-time enforcement already share) --
+    # deactivating the designation mid-request would leave HR/Dean approving
+    # a posting for a designation the master list no longer offers.
+    in_flight_requests = (
+        db.query(VacancyRequest)
+        .filter(
+            VacancyRequest.designation_id == designation.id,
+            VacancyRequest.status.in_(VACANCY_REQUEST_IN_FLIGHT_STATUSES),
+        )
+        .count()
+    )
+    if in_flight_requests > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{in_flight_requests} in-flight vacancy request(s) reference this designation, cannot delete.",
+        )
+
+    # Secondary guard: active SanctionedStrength rows keyed to this
+    # designation (the permanent establishment ceiling) -- an indexed
+    # designation_id lookup, cheap to run, and the same "is this still a
+    # live establishment entry" question sanctioned_strength.py's own
+    # delete guard asks about a (department, designation) key's employees.
+    active_sanctioned_strength = (
+        db.query(SanctionedStrength)
+        .filter(SanctionedStrength.designation_id == designation.id, SanctionedStrength.is_active.is_(True))
+        .count()
+    )
+    if active_sanctioned_strength > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{active_sanctioned_strength} active sanctioned strength record(s) reference this "
+                "designation, cannot delete."
+            ),
+        )
+
+    before = _designation_snapshot(designation)
+    designation.is_active = False
+
+    log_delete(
+        db,
+        actor=current_user,
+        entity_type="Designation",
+        entity=designation,
+        campus_context_id=None,
+        before_state=before,
+        request=request,
+    )
+    db.commit()

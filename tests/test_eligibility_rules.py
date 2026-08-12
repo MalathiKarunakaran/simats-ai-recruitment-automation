@@ -146,3 +146,59 @@ def test_category_specific_optional_fields_round_trip(client, user_factory, camp
     assert patched["subject"] == "Physics"
     # Fields set at creation stay intact after an unrelated patch.
     assert patched["skills_keyword"] == "Excel"
+
+
+def test_super_admin_can_delete_eligibility_rule(client, user_factory, campus_factory):
+    sse = campus_factory("SSE")
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    create_response = client.post(
+        "/api/v1/eligibility-rules",
+        headers=auth_headers(client, super_admin),
+        json={
+            "campus_id": str(sse.id),
+            "staff_category": "TEACHING",
+            "required_qualification_keyword": "PHD",
+        },
+    )
+    rule_id = create_response.json()["id"]
+
+    response = client.delete(
+        f"/api/v1/eligibility-rules/{rule_id}", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 204
+
+    listing = client.get("/api/v1/eligibility-rules", headers=auth_headers(client, super_admin))
+    match = next(item for item in listing.json()["items"] if item["id"] == rule_id)
+    assert match["is_active"] is False
+
+
+def test_non_admin_write_role_cannot_delete_eligibility_rule(client, user_factory, campus_factory):
+    sse = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    create_response = client.post(
+        "/api/v1/eligibility-rules",
+        headers=auth_headers(client, hr_admin),
+        json={
+            "campus_id": str(sse.id),
+            "staff_category": "TEACHING",
+            "required_qualification_keyword": "PHD",
+        },
+    )
+    rule_id = create_response.json()["id"]
+
+    campus_hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    response = client.delete(
+        f"/api/v1/eligibility-rules/{rule_id}", headers=auth_headers(client, campus_hod)
+    )
+    assert response.status_code == 403
+
+
+def test_delete_unknown_eligibility_rule_returns_404(client, user_factory):
+    import uuid
+
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    response = client.delete(
+        f"/api/v1/eligibility-rules/{uuid.uuid4()}", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 404

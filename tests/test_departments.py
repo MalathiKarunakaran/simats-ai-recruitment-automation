@@ -128,3 +128,67 @@ def test_department_factory_departments_have_a_category(department_factory):
     # column is NOT NULL, without needing to touch every call site.
     department = department_factory("SSE")
     assert department.category == StaffRoleCategoryEnum.NON_TEACHING
+
+
+def test_hod_cannot_delete_department(client, user_factory, department_factory):
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    response = client.delete(f"/api/v1/departments/{department.id}", headers=auth_headers(client, hod))
+    assert response.status_code == 403
+
+
+def test_super_admin_can_delete_department_with_no_dependents(client, user_factory, department_factory):
+    department = department_factory("SSE")
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    response = client.delete(f"/api/v1/departments/{department.id}", headers=auth_headers(client, super_admin))
+    assert response.status_code == 204
+
+    get_response = client.get("/api/v1/departments", headers=auth_headers(client, super_admin))
+    body = get_response.json()
+    match = next(item for item in body["items"] if item["id"] == str(department.id))
+    assert match["is_active"] is False
+
+
+def test_delete_department_blocked_by_active_user(client, user_factory, department_factory, db_session):
+    department = department_factory("SSE")
+    staff = user_factory(UserRoleEnum.RECRUITMENT_OFFICER, campus_code="SSE")
+    staff.department_id = department.id
+    db_session.flush()
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.delete(f"/api/v1/departments/{department.id}", headers=auth_headers(client, hr_admin))
+    assert response.status_code == 409
+    assert "user" in response.json()["detail"]
+
+
+def test_delete_department_blocked_by_active_designation(client, user_factory, department_factory, designation_factory):
+    department = department_factory("SSE", "Computer Science", category=StaffRoleCategoryEnum.TEACHING)
+    designation_factory(category=StaffRoleCategoryEnum.TEACHING, department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.delete(f"/api/v1/departments/{department.id}", headers=auth_headers(client, hr_admin))
+    assert response.status_code == 409
+    assert "designation" in response.json()["detail"]
+
+
+def test_delete_department_not_blocked_by_inactive_designation(
+    client, user_factory, department_factory, designation_factory, db_session
+):
+    department = department_factory("SSE", "Computer Science", category=StaffRoleCategoryEnum.TEACHING)
+    designation = designation_factory(category=StaffRoleCategoryEnum.TEACHING, department=department)
+    designation.is_active = False
+    db_session.flush()
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.delete(f"/api/v1/departments/{department.id}", headers=auth_headers(client, hr_admin))
+    assert response.status_code == 204
+
+
+def test_delete_unknown_department_returns_404(client, user_factory):
+    import uuid
+
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    response = client.delete(f"/api/v1/departments/{uuid.uuid4()}", headers=auth_headers(client, hr_admin))
+    assert response.status_code == 404
