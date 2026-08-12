@@ -46,6 +46,37 @@ def _resolve_departments(db: Session, department_ids: list[uuid.UUID]) -> list[D
     return departments
 
 
+def _mismatched_departments(
+    departments: list[Department], expected_category: StaffRoleCategoryEnum
+) -> list[Department]:
+    return [department for department in departments if department.category != expected_category]
+
+
+def _validate_department_categories(
+    departments: list[Department], expected_category: StaffRoleCategoryEnum
+) -> None:
+    """Every department linked to a designation must share the designation's
+    own category -- a Teaching designation can never be mapped to a
+    Non-Teaching/Housekeeping department, and vice versa. Enforced here (not
+    just filtered in the frontend picker) so a direct API call can't create
+    an invalid mapping either."""
+    mismatched = _mismatched_departments(departments, expected_category)
+    if not mismatched:
+        return
+    max_shown = 5
+    names = [f"'{department.name}' is {department.category.value}" for department in mismatched[:max_shown]]
+    label = ", ".join(names)
+    if len(mismatched) > max_shown:
+        label += f" (+{len(mismatched) - max_shown} more)"
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            f"Department(s) {label} but designation category is {expected_category.value}. "
+            "All departments must match the designation's category."
+        ),
+    )
+
+
 @router.get("", response_model=DesignationListResponse)
 def list_designations(
     limit: int = Query(50, ge=1, le=200),
@@ -89,6 +120,7 @@ def create_designation(
     current_user: User = Depends(require_roles(*DESIGNATION_WRITE_ROLES)),
 ) -> Designation:
     departments = _resolve_departments(db, payload.department_ids)
+    _validate_department_categories(departments, payload.category)
 
     designation = Designation(
         name=payload.name,
@@ -134,7 +166,26 @@ def update_designation(
         setattr(designation, field, value)
 
     if payload.department_ids is not None:
-        designation.departments = _resolve_departments(db, payload.department_ids)
+        # `updates` (applied above) already assigned the new `category` onto
+        # `designation` if it was part of this same request, so
+        # `designation.category` is the effective category either way.
+        departments = _resolve_departments(db, payload.department_ids)
+        _validate_department_categories(departments, designation.category)
+        designation.departments = departments
+    elif payload.category is not None:
+        # Category changed but department_ids left untouched -- check the
+        # currently linked departments still hold up against the new
+        # category rather than silently leaving a stale mismatch in place.
+        mismatched = _mismatched_departments(designation.departments, designation.category)
+        if mismatched:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Category changed to {designation.category.value} but {len(mismatched)} linked "
+                    f"department(s) are not {designation.category.value}; provide department_ids to "
+                    "update the mapping."
+                ),
+            )
 
     log_update(
         db,
