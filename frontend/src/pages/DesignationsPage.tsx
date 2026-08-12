@@ -4,7 +4,13 @@ import { useState } from "react";
 import { createDesignation, listDesignationsWithCounts, updateDesignation } from "@/api/designations";
 import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
-import { DESIGNATION_WRITE_ROLES, type DesignationRead, type EmploymentType, type StaffRoleCategory } from "@/api/types";
+import {
+  DESIGNATION_WRITE_ROLES,
+  type DepartmentRead,
+  type DesignationRead,
+  type EmploymentType,
+  type StaffRoleCategory,
+} from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +48,100 @@ interface FormState {
   employmentType: EmploymentType;
   isActive: boolean;
   departmentIds: string[];
+}
+
+// The "N departments" popover on each designation row -- read-only bullet
+// list of names for everyone, but for canManage users (mirrors the page's
+// own DESIGNATION_WRITE_ROLES gate) becomes a checkbox-per-department list
+// that saves immediately on toggle via a partial PATCH
+// (updateDesignation(id, { department_ids })), no separate Save/Cancel.
+// Deliberately not filtered by the designation's category -- the full Edit
+// dialog's own "Applicable departments" picker (above) doesn't filter by
+// category either, so this mirrors that rather than inventing a stricter
+// rule here. Split out as its own component (like SanctionedStrengthPage's
+// DesignationRow) so each row owns its own mutation/error state -- a plain
+// .map() body can't call hooks per iteration.
+function DesignationDepartmentsCell({
+  designation,
+  departments,
+  departmentNameById,
+  canManage,
+}: {
+  designation: DesignationRead;
+  departments: DepartmentRead[];
+  departmentNameById: Map<string, string>;
+  canManage: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const updateDepartmentsMutation = useMutation({
+    mutationFn: (nextIds: string[]) => updateDesignation(designation.id, { department_ids: nextIds }),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["designations"] });
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to update departments"),
+  });
+
+  function toggleDepartment(departmentId: string) {
+    const nextIds = designation.department_ids.includes(departmentId)
+      ? designation.department_ids.filter((id) => id !== departmentId)
+      : [...designation.department_ids, departmentId];
+    setError(null);
+    updateDepartmentsMutation.mutate(nextIds);
+  }
+
+  // Non-managers with no departments linked yet see the same plain "—" the
+  // read-only list always showed -- nothing to open a popover onto. A
+  // manager still gets the trigger even at 0, since the checkbox list is
+  // how they'd link the first one without the full Edit dialog.
+  if (!canManage && designation.department_ids.length === 0) {
+    return <>—</>;
+  }
+
+  const count = designation.department_ids.length;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className="text-primary underline-offset-2 hover:underline">
+          {count} department{count === 1 ? "" : "s"}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="max-h-64 w-72 overflow-y-auto">
+        {canManage ? (
+          departments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No departments found.</p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {departments.map((department) => (
+                <li key={department.id}>
+                  <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-input"
+                      checked={designation.department_ids.includes(department.id)}
+                      disabled={updateDepartmentsMutation.isPending}
+                      onChange={() => toggleDepartment(department.id)}
+                    />
+                    {department.name}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : (
+          <ul className="flex flex-col gap-1 text-sm">
+            {designation.department_ids.map((id) => (
+              <li key={id}>{departmentNameById.get(id) ?? "Unknown"}</li>
+            ))}
+          </ul>
+        )}
+        {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 const EMPTY_FORM: FormState = {
@@ -407,25 +507,12 @@ export function DesignationsPage() {
                 </td>
                 <td className="whitespace-nowrap py-2">{CATEGORY_LABELS[designation.category]}</td>
                 <td className="whitespace-nowrap py-2">
-                  {designation.department_ids.length === 0 ? (
-                    "—"
-                  ) : (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <button type="button" className="text-primary underline-offset-2 hover:underline">
-                          {designation.department_ids.length} department
-                          {designation.department_ids.length === 1 ? "" : "s"}
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" className="max-h-64 w-72 overflow-y-auto">
-                        <ul className="flex flex-col gap-1 text-sm">
-                          {designation.department_ids.map((id) => (
-                            <li key={id}>{departmentNameById.get(id) ?? "Unknown"}</li>
-                          ))}
-                        </ul>
-                      </PopoverContent>
-                    </Popover>
-                  )}
+                  <DesignationDepartmentsCell
+                    designation={designation}
+                    departments={departments ?? []}
+                    departmentNameById={departmentNameById}
+                    canManage={canManage}
+                  />
                 </td>
                 <td className="truncate py-2" title={designation.qualification}>
                   {designation.qualification}
