@@ -19,6 +19,14 @@ import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function UserDetailPage() {
@@ -51,6 +59,7 @@ export function UserDetailPage() {
   const [departmentId, setDepartmentId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [selectedCapabilities, setSelectedCapabilities] = useState<CoordinatorCapability[]>([]);
+  const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!target) return;
@@ -91,6 +100,7 @@ export function UserDetailPage() {
     mutationFn: () => updateUser(id!, { is_active: !target!.is_active }),
     onSuccess: () => {
       setError(null);
+      setDeactivateDialogOpen(false);
       afterChange();
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Update failed"),
@@ -217,13 +227,39 @@ export function UserDetailPage() {
             >
               {saveMutation.isPending ? "Saving…" : "Save changes"}
             </Button>
-            <Button
-              variant="outline"
-              disabled={toggleActiveMutation.isPending}
-              onClick={() => toggleActiveMutation.mutate()}
-            >
-              {toggleActiveMutation.isPending ? "Updating…" : target.is_active ? "Deactivate" : "Reactivate"}
-            </Button>
+            {target.is_active ? (
+              <Dialog open={deactivateDialogOpen} onOpenChange={setDeactivateDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">Deactivate</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Deactivate user</DialogTitle>
+                  </DialogHeader>
+                  <p className="text-sm text-muted-foreground">
+                    Deactivate <span className="font-medium text-foreground">{target.full_name}</span>? They will
+                    lose access until reactivated.
+                  </p>
+                  <DialogFooter>
+                    <Button
+                      variant="destructive"
+                      disabled={toggleActiveMutation.isPending}
+                      onClick={() => toggleActiveMutation.mutate()}
+                    >
+                      {toggleActiveMutation.isPending ? "Deactivating…" : "Confirm deactivate"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            ) : (
+              <Button
+                variant="outline"
+                disabled={toggleActiveMutation.isPending}
+                onClick={() => toggleActiveMutation.mutate()}
+              >
+                {toggleActiveMutation.isPending ? "Updating…" : "Reactivate"}
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

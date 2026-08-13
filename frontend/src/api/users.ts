@@ -34,10 +34,6 @@ export async function updateUser(id: string, payload: UserUpdatePayload): Promis
   return apiFetch<UserRead>(`/users/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
-export async function deactivateUser(id: string): Promise<void> {
-  await apiFetch<void>(`/users/${id}`, { method: "DELETE" });
-}
-
 export async function getUserCapabilities(id: string): Promise<CoordinatorCapabilitiesRead> {
   return apiFetch<CoordinatorCapabilitiesRead>(`/users/${id}/capabilities`);
 }

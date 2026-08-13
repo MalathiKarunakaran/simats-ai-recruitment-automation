@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,6 +37,7 @@ const mockedListUsers = vi.mocked(usersApi.listUsers);
 const mockedListInterviewFeedback = vi.mocked(interviewsApi.listInterviewFeedback);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
 const mockedGenerateInterviewQuestions = vi.mocked(interviewsApi.generateInterviewQuestions);
+const mockedUpdateInterview = vi.mocked(interviewsApi.updateInterview);
 
 const CANDIDATE: CandidateRead = {
   id: "cand-1",
@@ -262,5 +263,52 @@ describe("InterviewDetailPage", () => {
     await waitFor(() => expect(mockedGenerateInterviewQuestions).toHaveBeenCalledWith("int-1"));
     expect(await screen.findByText("Describe a project you led.")).toBeInTheDocument();
     expect(screen.getByText("How do you handle disagreement?")).toBeInTheDocument();
+  });
+
+  it("cancelling an interview requires confirming a dialog before the mutation fires", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetInterview.mockResolvedValue(makeInterview());
+    mockedUpdateInterview.mockResolvedValue(makeInterview({ status: "CANCELLED" }));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Cancel")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(mockedUpdateInterview).not.toHaveBeenCalled();
+
+    const dialog = await screen.findByRole("dialog");
+    expect(screen.getByText("Cancel this interview? This cannot be undone.")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm cancel" }));
+
+    await waitFor(() => expect(mockedUpdateInterview).toHaveBeenCalledWith("int-1", { status: "CANCELLED" }));
+  });
+
+  it("Close on the cancel confirm dialog aborts without calling the mutation", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetInterview.mockResolvedValue(makeInterview());
+    mockedUpdateInterview.mockResolvedValue(makeInterview({ status: "CANCELLED" }));
+    mockedUpdateInterview.mockClear(); // a prior test in this file already confirmed a cancel
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Cancel")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mockedUpdateInterview).not.toHaveBeenCalled();
   });
 });

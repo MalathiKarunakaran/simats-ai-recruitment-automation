@@ -46,6 +46,7 @@ export function VacancyRequestDetailPage() {
   const [jdInstructions, setJdInstructions] = useState("");
   const [cancelReason, setCancelReason] = useState("");
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [slotCountDialogOpen, setSlotCountDialogOpen] = useState(false);
   const [slotCountInput, setSlotCountInput] = useState("");
   // Phase E item 26: SUPER_ADMIN-only override of the "Only N posts
@@ -541,9 +542,26 @@ export function VacancyRequestDetailPage() {
           </Dialog>
         ) : null}
         {canDelete ? (
-          <Button variant="destructive" disabled={isBusy} onClick={() => deleteMutation.mutate()}>
-            Delete
-          </Button>
+          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="destructive" disabled={isBusy}>
+                Delete
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete vacancy request</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Delete this draft vacancy request? This cannot be undone.
+              </p>
+              <DialogFooter>
+                <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
+                  {deleteMutation.isPending ? "Deleting…" : "Confirm delete"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         ) : null}
       </div>
     </div>
