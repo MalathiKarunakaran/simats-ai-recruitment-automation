@@ -123,8 +123,11 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
     enabled: Boolean(campusId && departmentId && designationId),
   });
 
+  // is_active added alongside the existing campus_id/category filters -- this
+  // wizard is create-only (no edit mode), so there's no "already-assigned
+  // inactive department" case to preserve, unlike VacancyRequestForm.tsx.
   const departmentOptions = (departments ?? []).filter(
-    (d) => d.campus_id === campusId && (!d.category || d.category === roleCategory),
+    (d) => d.campus_id === campusId && d.is_active && (!d.category || d.category === roleCategory),
   );
   const selectedDesignation = designations?.find((d) => d.id === designationId) ?? null;
   const hasDesignationOptions = (designations ?? []).length > 0;

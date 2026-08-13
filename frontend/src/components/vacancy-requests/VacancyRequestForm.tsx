@@ -68,7 +68,11 @@ export function VacancyRequestForm({ mode, initialValues, onSuccess }: Props) {
   const [priority, setPriority] = useState<VacancyPriority>(initialValues?.priority ?? "NORMAL");
   const [error, setError] = useState<string | null>(null);
 
-  const departmentOptions = (departments ?? []).filter((d) => d.campus_id === campusId);
+  // is_active filter added alongside the existing campus_id one -- this
+  // Select is create-mode only (edit mode shows department as read-only
+  // text below, sourced from initialValues, not from this list), so
+  // filtering here can never hide an already-assigned inactive department.
+  const departmentOptions = (departments ?? []).filter((d) => d.campus_id === campusId && d.is_active);
 
   const mutation = useMutation({
     mutationFn: async () => {
