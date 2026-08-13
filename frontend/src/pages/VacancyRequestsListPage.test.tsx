@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as approvedVacanciesApi from "@/api/approvedVacancies";
 import * as auditLogsApi from "@/api/auditLogs";
 import * as campusesApi from "@/api/campuses";
+import { ApiError } from "@/api/client";
 import * as departmentsApi from "@/api/departments";
 import * as jobPostingsApi from "@/api/jobPostings";
 import type { DepartmentRead, UserRead, VacancyRequestRead } from "@/api/types";
@@ -29,6 +30,7 @@ vi.mock("@/auth/AuthContext", async () => {
 
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListVacancyRequests = vi.mocked(vacancyRequestsApi.listVacancyRequests);
+const mockedSubmitVacancyRequest = vi.mocked(vacancyRequestsApi.submitVacancyRequest);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListJobPostings = vi.mocked(jobPostingsApi.listJobPostings);
@@ -103,17 +105,26 @@ function mockCommonApis() {
   mockedListAuditLogs.mockResolvedValue([]);
 }
 
+// "Flat view" (a plain table of every request) is the default render now --
+// the parent-group accordion + department-card grid + drill-down detail
+// table still exist, just gated behind clicking this Tabs toggle first (see
+// VacancyRequestsListPage.tsx's `viewMode` state).
+async function switchToGroupedView() {
+  await userEvent.click(await screen.findByRole("tab", { name: "Grouped view" }));
+}
+
 // The detailed vacancy table (position_title/requester/campus columns) only
 // renders once its department's card has actually been clicked (a real
 // conditional render, unlike the parent-group accordion which just
 // CSS-collapses its always-rendered children) -- tests asserting on that
-// detail need to open the department card first.
+// detail need to open the department card first. Only meaningful once
+// already in grouped view.
 async function openDepartmentCard(name: string | RegExp) {
   await userEvent.click(await screen.findByRole("button", { name }));
 }
 
 describe("VacancyRequestsListPage", () => {
-  it("renders rows from the API response", async () => {
+  it("renders vacancy request rows from the API response in the default flat table", async () => {
     mockCommonApis();
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedUseAuth.mockReturnValue({
@@ -129,11 +140,15 @@ describe("VacancyRequestsListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /Computer Science/ })).toBeInTheDocument());
-    await openDepartmentCard(/Computer Science/);
-
-    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
-    expect(screen.getByText("SSE")).toBeInTheDocument();
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("Assistant Professor")).toBeInTheDocument();
+    expect(within(table).getByText("Computer Science")).toBeInTheDocument();
+    expect(within(table).getByText("SSE")).toBeInTheDocument();
+    expect(within(table).getByText("NORMAL")).toBeInTheDocument(); // PriorityBadge
+    expect(within(table).getByText("DRAFT")).toBeInTheDocument(); // StatusBadge
+    // No human-readable request-number field exists on VacancyRequestRead --
+    // the row shows a short uppercased form of the real id instead.
+    expect(within(table).getByTitle("vr-1")).toHaveTextContent("#VR-1");
   });
 
   it("shows the create button for a CAMPUS_HOD but not for an unrelated role", async () => {
@@ -158,7 +173,7 @@ describe("VacancyRequestsListPage", () => {
       logout: vi.fn(),
     });
     renderPage();
-    await waitFor(() => expect(screen.getByText(/No vacancy requests/)).toBeInTheDocument());
+    expect(await screen.findByText("No Vacancy Requests Yet")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /New request/ })).not.toBeInTheDocument();
   });
 
@@ -178,7 +193,7 @@ describe("VacancyRequestsListPage", () => {
     renderPage();
     await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith(null));
     const callCountBeforeFilter = mockedListVacancyRequests.mock.calls.length;
-    await openDepartmentCard(/Computer Science/);
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
     await userEvent.click(await screen.findByRole("option", { name: "SUBMITTED" }));
@@ -202,7 +217,6 @@ describe("VacancyRequestsListPage", () => {
     mockedListCampuses.mockResolvedValue([]);
 
     renderPage();
-    await openDepartmentCard(/Computer Science/);
     expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
@@ -229,7 +243,6 @@ describe("VacancyRequestsListPage", () => {
     ]);
 
     renderPage();
-    await openDepartmentCard(/Computer Science/);
     expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
     expect(screen.getByText("Lab Assistant")).toBeInTheDocument();
     const callCountBeforeFilter = mockedListVacancyRequests.mock.calls.length;
@@ -258,7 +271,6 @@ describe("VacancyRequestsListPage", () => {
     ]);
 
     renderPage();
-    await openDepartmentCard(/Computer Science/);
     expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
 
     await userEvent.type(screen.getByPlaceholderText("Search position"), "lab");
@@ -267,11 +279,11 @@ describe("VacancyRequestsListPage", () => {
     expect(screen.getByText("Lab Assistant")).toBeInTheDocument();
   });
 
-  it("shows a filters-specific empty state when filters narrow a non-empty list to zero", async () => {
+  it("shows a filters-specific empty state (Clear-filters CTA) distinct from the no-data-at-all empty state (Create CTA)", async () => {
     mockCommonApis();
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedUseAuth.mockReturnValue({
-      user: { role: "HR_ADMIN" } as UserRead,
+      user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(),
@@ -282,16 +294,115 @@ describe("VacancyRequestsListPage", () => {
     ]);
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Computer Science/ })).toBeInTheDocument());
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
 
     await userEvent.type(screen.getByPlaceholderText("Search position"), "nonexistent");
 
-    expect(await screen.findByText("No vacancy requests match these filters.")).toBeInTheDocument();
+    const emptyState = (await screen.findByText("No matching vacancy requests")).closest("div");
+    expect(within(emptyState!).getByRole("button", { name: "Clear filters" })).toBeInTheDocument();
+    // This CAMPUS_HOD *can* create requests, but a filtered-to-zero result
+    // still gets the Clear-filters CTA, never the Create CTA (see
+    // emptyStateTitle/hasAnyFilter branching in the page component).
+    expect(within(emptyState!).queryByRole("link", { name: /Create Vacancy Request/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the no-data-at-all empty state (Create CTA, no Clear-filters button) when there are no requests and no filters applied", async () => {
+    mockCommonApis();
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListVacancyRequests.mockResolvedValue([]);
+    mockedListCampuses.mockResolvedValue([]);
+
+    renderPage();
+
+    const emptyState = (await screen.findByText("No Vacancy Requests Yet")).closest("div");
+    expect(within(emptyState!).getByRole("link", { name: /Create Vacancy Request/ })).toBeInTheDocument();
+    expect(within(emptyState!).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("the top-bar Clear filters button resets every active filter back to All/empty", async () => {
+    mockCommonApis();
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    const submitted = { ...VR, id: "vr-2", status: "SUBMITTED" as const, position_title: "Lecturer" };
+    mockedListVacancyRequests.mockResolvedValue([VR, submitted]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+
+    renderPage();
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByPlaceholderText("Search position"), "assistant");
+    expect(screen.queryByText("Lecturer")).not.toBeInTheDocument();
+    expect(screen.getByText("1 filter applied")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    expect(screen.getByPlaceholderText("Search position")).toHaveValue("");
+    expect(await screen.findByText("Lecturer")).toBeInTheDocument();
+    expect(screen.getByText("Assistant Professor")).toBeInTheDocument();
+    expect(screen.queryByText(/filter(s)? applied/)).not.toBeInTheDocument();
+  });
+
+  it("submits a DRAFT request from the row's inline Submit action and clears any prior row error on success", async () => {
+    mockCommonApis();
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListVacancyRequests.mockResolvedValue([VR]); // VR.status === "DRAFT"
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+    mockedSubmitVacancyRequest.mockResolvedValue({ ...VR, status: "SUBMITTED" });
+
+    renderPage();
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(mockedSubmitVacancyRequest).toHaveBeenCalledWith("vr-1"));
+    expect(screen.queryByText(/submit failed/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces a row-level error message when the inline Submit action fails", async () => {
+    mockCommonApis();
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedListVacancyRequests.mockResolvedValue([VR]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+    mockedSubmitVacancyRequest.mockRejectedValue(new ApiError(409, "Only 0 posts available to request"));
+
+    renderPage();
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Submit" }));
+
+    expect(await screen.findByText("Only 0 posts available to request")).toBeInTheDocument();
   });
 
   it("renders KPI tiles reflecting the full unfiltered set", async () => {
     mockCommonApis();
-    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
@@ -305,12 +416,10 @@ describe("VacancyRequestsListPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Total requests")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Computer Science/ })).toBeInTheDocument());
     // 3 total, 1 draft, 1 pending (SUBMITTED), 1 rejected -- each tile shows its count.
     // Label -> CardHeader -> Card (the tile's own container), not a sibling tile.
-    const totalTile = screen.getByText("Total requests").parentElement?.parentElement;
-    expect(totalTile).toHaveTextContent("3");
+    const totalTile = (await screen.findByText("Total requests")).parentElement?.parentElement;
+    await waitFor(() => expect(totalTile).toHaveTextContent("3"));
   });
 
   it("resolves requester names and offers a Requested by filter for HR Admin", async () => {
@@ -330,7 +439,6 @@ describe("VacancyRequestsListPage", () => {
 
     renderPage();
     expect(screen.getByRole("combobox", { name: "Requested by filter" })).toBeInTheDocument();
-    await openDepartmentCard(/Computer Science/);
 
     expect(await screen.findByText("Priya HOD")).toBeInTheDocument();
   });
@@ -352,13 +460,118 @@ describe("VacancyRequestsListPage", () => {
     mockedListCampuses.mockResolvedValue([]);
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Computer Science/ })).toBeInTheDocument());
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
 
     expect(mockedListUsers).toHaveBeenCalledTimes(callCountBefore);
     expect(screen.queryByRole("combobox", { name: "Requested by filter" })).not.toBeInTheDocument();
   });
 
-  it("groups requests into a department card (inside the 'Ungrouped' parent-group accordion) showing aggregated counts, detail table closed by default", async () => {
+  it("defaults to the All tab, then narrows to Non-Teaching, showing only the matching role_category's rows", async () => {
+    mockCommonApis();
+    mockedListDepartments.mockResolvedValue([
+      DEPARTMENT,
+      { ...DEPARTMENT, id: "d-2", name: "Housekeeping Services" },
+    ]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    const nonTeaching = {
+      ...VR,
+      id: "vr-2",
+      department_id: "d-2",
+      role_category: "NON_TEACHING" as const,
+      position_title: "Office Assistant",
+    };
+    mockedListVacancyRequests.mockResolvedValue([VR, nonTeaching]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+
+    renderPage();
+
+    // "All" (the URL-absent default) shows both requests' rows.
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+    expect(screen.getByText("Office Assistant")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "All (2)" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Non-Teaching/ }));
+
+    expect(await screen.findByText("Office Assistant")).toBeInTheDocument();
+    expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+  });
+
+  it("combines the category tab with the campus filter (both apply, not just one)", async () => {
+    mockCommonApis();
+    mockedListDepartments.mockResolvedValue([
+      DEPARTMENT,
+      { ...DEPARTMENT, id: "d-2", name: "Physics", campus_id: "c-scad" },
+    ]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    // Both TEACHING -- one at SSE, one at SCAD.
+    const scadTeaching = {
+      ...VR,
+      id: "vr-2",
+      department_id: "d-2",
+      campus_id: "c-scad",
+      position_title: "Lecturer (SCAD)",
+    };
+    mockedListVacancyRequests.mockResolvedValue([VR, scadTeaching]);
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("tab", { name: /^Teaching/ }));
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+    expect(screen.getByText("Lecturer (SCAD)")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
+
+    // Teaching + campus=SSE applies both -- SCAD's TEACHING request drops out.
+    expect(screen.getByText("Assistant Professor")).toBeInTheDocument();
+    expect(screen.queryByText("Lecturer (SCAD)")).not.toBeInTheDocument();
+  });
+
+  it("pre-filters by ?department=&designation= on mount (Phase E items 28/29 deep links from Sanctioned Strength)", async () => {
+    mockCommonApis();
+    mockedListDepartments.mockResolvedValue([
+      DEPARTMENT,
+      { ...DEPARTMENT, id: "d-2", name: "Physics" },
+    ]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    const physicsRequest = {
+      ...VR,
+      id: "vr-2",
+      department_id: "d-2",
+      designation_id: "desg-2",
+      position_title: "Lecturer in Physics",
+    };
+    mockedListVacancyRequests.mockResolvedValue([VR, physicsRequest]);
+    mockedListCampuses.mockResolvedValue([]);
+
+    renderPage("/?department=d-2&designation=desg-2");
+
+    expect(await screen.findByText("Lecturer in Physics")).toBeInTheDocument();
+    expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+  });
+
+  it("(grouped view) groups requests into a department card (inside the 'Ungrouped' parent-group accordion) showing aggregated counts, detail table closed by default", async () => {
     mockCommonApis();
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedUseAuth.mockReturnValue({
@@ -374,6 +587,7 @@ describe("VacancyRequestsListPage", () => {
     ]);
 
     renderPage();
+    await switchToGroupedView();
 
     // Departments without a parent_group land in a fixed "Ungrouped" bucket.
     expect(await screen.findByRole("button", { name: /Ungrouped/ })).toBeInTheDocument();
@@ -394,7 +608,7 @@ describe("VacancyRequestsListPage", () => {
     expect(screen.getByText("Lecturer")).toBeInTheDocument();
   });
 
-  it("computes per-row filled/remaining counts from the approved-vacancy -> job-posting bridge", async () => {
+  it("(grouped view) computes per-row filled/remaining counts from the approved-vacancy -> job-posting bridge", async () => {
     mockCommonApis();
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedListApprovedVacancies.mockResolvedValue([
@@ -440,8 +654,8 @@ describe("VacancyRequestsListPage", () => {
     ]);
 
     renderPage();
-
-    await userEvent.click(await screen.findByRole("button", { name: /Computer Science/ }));
+    await switchToGroupedView();
+    await openDepartmentCard(/Computer Science/);
 
     // "Assistant Professor" is the designation group heading, not a row
     // cell -- the row itself lives in the table nested under it.
@@ -451,112 +665,7 @@ describe("VacancyRequestsListPage", () => {
     expect(row).toHaveTextContent(/2.*1.*1/);
   });
 
-  it("defaults to the All tab, then narrows to Non-Teaching, showing only the matching role_category's departments", async () => {
-    mockCommonApis();
-    mockedListDepartments.mockResolvedValue([
-      DEPARTMENT,
-      { ...DEPARTMENT, id: "d-2", name: "Housekeeping Services" },
-    ]);
-    mockedUseAuth.mockReturnValue({
-      user: { role: "HR_ADMIN" } as UserRead,
-      isLoading: false,
-      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
-    });
-    const nonTeaching = {
-      ...VR,
-      id: "vr-2",
-      department_id: "d-2",
-      role_category: "NON_TEACHING" as const,
-      position_title: "Office Assistant",
-    };
-    mockedListVacancyRequests.mockResolvedValue([VR, nonTeaching]);
-    mockedListCampuses.mockResolvedValue([
-      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
-    ]);
-
-    renderPage();
-
-    // "All" (the URL-absent default) shows both departments' cards.
-    expect(await screen.findByRole("button", { name: /Computer Science/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Housekeeping Services/ })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "All (2)" })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("tab", { name: /^Non-Teaching/ }));
-
-    expect(await screen.findByRole("button", { name: /Housekeeping Services/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Computer Science/ })).not.toBeInTheDocument();
-  });
-
-  it("combines the category tab with the campus filter (both apply, not just one)", async () => {
-    mockCommonApis();
-    mockedListDepartments.mockResolvedValue([
-      DEPARTMENT,
-      { ...DEPARTMENT, id: "d-2", name: "Physics", campus_id: "c-scad" },
-    ]);
-    mockedUseAuth.mockReturnValue({
-      user: { role: "HR_ADMIN" } as UserRead,
-      isLoading: false,
-      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
-    });
-    // Both TEACHING -- one at SSE, one at SCAD.
-    const scadTeaching = {
-      ...VR,
-      id: "vr-2",
-      department_id: "d-2",
-      campus_id: "c-scad",
-      position_title: "Lecturer (SCAD)",
-    };
-    mockedListVacancyRequests.mockResolvedValue([VR, scadTeaching]);
-    mockedListCampuses.mockResolvedValue([
-      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
-      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
-    ]);
-
-    renderPage();
-
-    await userEvent.click(await screen.findByRole("tab", { name: /^Teaching/ }));
-    expect(await screen.findByRole("button", { name: /Computer Science/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Physics/ })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
-    await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
-
-    // Teaching + campus=SSE applies both -- SCAD's TEACHING department drops out.
-    expect(screen.getByRole("button", { name: /Computer Science/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Physics/ })).not.toBeInTheDocument();
-  });
-
-  it("pre-filters by ?department=&designation= on mount (Phase E items 28/29 deep links from Sanctioned Strength)", async () => {
-    mockCommonApis();
-    mockedListDepartments.mockResolvedValue([
-      DEPARTMENT,
-      { ...DEPARTMENT, id: "d-2", name: "Physics" },
-    ]);
-    mockedUseAuth.mockReturnValue({
-      user: { role: "HR_ADMIN" } as UserRead,
-      isLoading: false,
-      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
-    });
-    const physicsRequest = {
-      ...VR,
-      id: "vr-2",
-      department_id: "d-2",
-      designation_id: "desg-2",
-      position_title: "Lecturer in Physics",
-    };
-    mockedListVacancyRequests.mockResolvedValue([VR, physicsRequest]);
-    mockedListCampuses.mockResolvedValue([]);
-
-    renderPage("/?department=d-2&designation=desg-2");
-
-    expect(await screen.findByRole("button", { name: /Physics/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Computer Science/ })).not.toBeInTheDocument();
-  });
-
-  it("filters department cards by Parent Group, bucketing departments without one under 'Ungrouped'", async () => {
+  it("(grouped view) filters department cards by Parent Group, bucketing departments without one under 'Ungrouped'", async () => {
     mockCommonApis();
     mockedListDepartments.mockResolvedValue([
       DEPARTMENT,
@@ -575,6 +684,7 @@ describe("VacancyRequestsListPage", () => {
     ]);
 
     renderPage();
+    await switchToGroupedView();
 
     expect(await screen.findByRole("button", { name: /Ungrouped/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /School of Sciences/ })).toBeInTheDocument();

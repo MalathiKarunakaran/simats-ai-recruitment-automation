@@ -1,22 +1,24 @@
-import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, FileSpreadsheet, FileUp, Plus } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight, FileSpreadsheet, FileUp, Plus, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { listApprovedVacancies } from "@/api/approvedVacancies";
 import { listAuditLogs } from "@/api/auditLogs";
 import { listCampuses } from "@/api/campuses";
+import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
 import { listJobPostings } from "@/api/jobPostings";
 import type {
   EmploymentType,
+  StaffRoleCategory,
   VacancyPriority,
   VacancyRequestRead,
   VacancyRequestStatus,
 } from "@/api/types";
 import { USER_MANAGEMENT_ROLES } from "@/api/types";
 import { listUsers } from "@/api/users";
-import { listVacancyRequests } from "@/api/vacancyRequests";
+import { listVacancyRequests, submitVacancyRequest } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AccordionItem } from "@/components/ui/accordion";
@@ -25,9 +27,12 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs } from "@/components/ui/tabs";
 import { CategoryTabs } from "@/components/domain/CategoryTabs";
 import { DepartmentSummaryCard, type DepartmentSummary } from "@/components/vacancy-requests/DepartmentSummaryCard";
 import { DepartmentVacancyDetailTable, type FillStats } from "@/components/vacancy-requests/DepartmentVacancyDetailTable";
+import { PriorityBadge } from "@/components/vacancy-requests/PriorityBadge";
+import { StatusBadge } from "@/components/vacancy-requests/StatusBadge";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { summarizeVacancyRequestStatuses } from "@/lib/vacancyRequestStats";
@@ -54,12 +59,57 @@ const CAN_CREATE_ROLES = ["CAMPUS_HOD", "SUPER_ADMIN"];
 const CAN_IMPORT_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
 const AUDIT_READ_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "ASSOCIATE_DEAN_RECRUITMENT", "CAMPUS_HOD"];
 
+// Same labels as CategoryTabs/DesignationsPage -- used for the
+// category-aware empty-state copy ("No Housekeeping Vacancy Requests" etc.).
+const CATEGORY_LABELS: Record<StaffRoleCategory, string> = {
+  TEACHING: "Teaching",
+  NON_TEACHING: "Non-Teaching",
+  HOUSEKEEPING: "Housekeeping",
+};
+
+type ViewMode = "FLAT" | "GROUPED";
+
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+// Compact "Sanctioned Strength -> Vacancy Request -> Approval -> Published ->
+// Closed" strip -- deliberately not a big graphic (per the redesign brief),
+// just a subtle text strip under the page header. Folds in the old
+// "Posts available to request come from Sanctioned Strength" paragraph's
+// link functionality as the first step, rather than keeping both.
+const WORKFLOW_STEPS: { label: string; to?: string }[] = [
+  { label: "Sanctioned Strength", to: "/sanctioned-strength" },
+  { label: "Vacancy Request" },
+  { label: "Approval" },
+  { label: "Published" },
+  { label: "Closed" },
+];
+
+function WorkflowIndicator() {
+  return (
+    <div className="-mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+      {WORKFLOW_STEPS.map((step, index) => (
+        <span key={step.label} className="flex items-center gap-1.5">
+          {step.to ? (
+            <Link to={step.to} className="font-medium text-primary underline-offset-2 hover:underline">
+              {step.label}
+            </Link>
+          ) : (
+            <span>{step.label}</span>
+          )}
+          {index < WORKFLOW_STEPS.length - 1 ? (
+            <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+          ) : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function VacancyRequestsListPage() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   // Phase E item 28/29: SanctionedStrengthPage's clickable Recruitment/
   // Approval Status badges and VacancyRequestDetailPage's reverse link both
   // land here as ?department=X(&designation=Y) -- read once on mount, same
@@ -69,10 +119,12 @@ export function VacancyRequestsListPage() {
   const [statusFilter, setStatusFilter] = useState<VacancyRequestStatus | "ALL">("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   const [departmentFilter, setDepartmentFilter] = useState<string>(() => searchParams.get("department") ?? "ALL");
-  // No visible Select for this one (nothing in this page's filter bar lets a
-  // user pick a single designation) -- it only ever comes from the deep
-  // link's own URL, so a derived constant is enough; no setter needed.
-  const designationFilter = searchParams.get("designation") ?? "ALL";
+  // Was a derived (setter-less) constant before this redesign -- now a real
+  // useState (initialized from the deep link exactly like departmentFilter
+  // above) so "Clear Filters" below can actually reset it. Still no visible
+  // Select for it; the only way to set it remains the ?designation= deep
+  // link, same as before.
+  const [designationFilter, setDesignationFilter] = useState<string>(() => searchParams.get("designation") ?? "ALL");
   const [parentGroupFilter, setParentGroupFilter] = useState<string>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<VacancyPriority | "ALL">("ALL");
   const [employmentTypeFilter, setEmploymentTypeFilter] = useState<EmploymentType | "ALL">("ALL");
@@ -87,8 +139,20 @@ export function VacancyRequestsListPage() {
   // hooks/useCategoryTabState.ts) so the selection survives refresh/back-
   // forward/shared links.
   const [activeTab, setActiveTab] = useCategoryTabState();
+  // Flat table is the default (per the redesign brief); the parent-group
+  // accordion + department card grid + drill-down detail table this page
+  // used to show unconditionally is now opt-in behind this toggle, not
+  // deleted -- it's still the only place that surfaces group totals, urgent
+  // counts, and per-department fill stats, so it stays reachable rather than
+  // silently dropping that information. See report/commit message for the
+  // full rationale.
+  const [viewMode, setViewMode] = useState<ViewMode>("FLAT");
   const [expandedParentGroups, setExpandedParentGroups] = useState<Set<string>>(new Set());
   const [expandedDepartmentId, setExpandedDepartmentId] = useState<string | null>(null);
+  // Surfaces a failure from the flat table's inline "Submit" row action (see
+  // below) -- a lightweight substitute for a toast/notification system,
+  // which this codebase doesn't have.
+  const [rowActionError, setRowActionError] = useState<string | null>(null);
 
   const canCreate = Boolean(user && CAN_CREATE_ROLES.includes(user.role));
   const canImport = Boolean(user && CAN_IMPORT_ROLES.includes(user.role));
@@ -102,9 +166,9 @@ export function VacancyRequestsListPage() {
     queryKey: ["approved-vacancies"],
     queryFn: listApprovedVacancies,
   });
-  // Fetched unfiltered (status=null) so the KPI/department-summary counts
-  // above the table always reflect the whole scope, independent of
-  // whatever the table's own filters narrow down to below.
+  // Fetched unfiltered (status=null) so the KPI strip above the table always
+  // reflects the whole scope, independent of whatever the table's own
+  // filters narrow down to below.
   const { data: vacancyRequests, isLoading } = useQuery({
     queryKey: ["vacancy-requests", "ALL"],
     queryFn: () => listVacancyRequests(null),
@@ -121,6 +185,25 @@ export function VacancyRequestsListPage() {
     enabled: canReadAuditLogs,
   });
 
+  // Reuses the same submit() mutation the detail page's "Submit" button
+  // calls, with no override payload -- safe as a quick inline row action
+  // because it needs no extra reason/justification for the common case
+  // (submitVacancyRequest(id) with no body) and mirrors the exact same
+  // role+status gate as VacancyRequestDetailPage's canSubmit (CAMPUS_HOD/
+  // SUPER_ADMIN + status DRAFT, which is also exactly _can_write's role set
+  // on the backend's own submit endpoint -- no ownership check either side).
+  // A SUPER_ADMIN hitting the sanction-limit block still gets a real error
+  // here (rowActionError) and can open the detail page for the override
+  // dialog -- that path deliberately isn't duplicated inline.
+  const submitRowMutation = useMutation({
+    mutationFn: (vacancyRequestId: string) => submitVacancyRequest(vacancyRequestId),
+    onSuccess: () => {
+      setRowActionError(null);
+      void queryClient.invalidateQueries({ queryKey: ["vacancy-requests"] });
+    },
+    onError: (err: unknown) => setRowActionError(err instanceof ApiError ? err.message : "Submit failed"),
+  });
+
   const requesterNameById = useMemo(() => {
     const map = new Map<string, string>();
     requesters?.forEach((u) => map.set(u.id, u.full_name));
@@ -131,7 +214,8 @@ export function VacancyRequestsListPage() {
 
   // Bridges VacancyRequest -> ApprovedVacancy -> JobPosting (no direct FK on
   // VacancyRequestRead itself) to get each individual request's own
-  // filled/remaining counts, not just the department-level aggregate above.
+  // filled/remaining counts -- only consumed by the (opt-in) grouped view's
+  // detail table and department cards below, not the default flat table.
   const fillStatsByRequestId = useMemo(() => {
     const map = new Map<string, FillStats>();
     if (!approvedVacancies || !jobPostings) return map;
@@ -163,13 +247,11 @@ export function VacancyRequestsListPage() {
   const departmentById = useMemo(() => new Map((departments ?? []).map((d) => [d.id, d])), [departments]);
 
   // The one place that turns a department's own slice of (already
-  // tab+filter-narrowed) requests into a DepartmentSummary -- used for both
-  // the top horizontal-scroll card strip and the grouped accordion cards
-  // below, so the two can never again show contradictory counts for the
-  // same department (see CLAUDE.md A2/A5: they used to be two independent
-  // computations with different "approved" definitions and different
-  // "filled" sources -- one summed jobPostings by department, the other
-  // summed the approvedVacancy->jobPosting bridge per request).
+  // tab+filter-narrowed) requests into a DepartmentSummary -- used by the
+  // grouped view's accordion cards, so it can never again show a count that
+  // contradicts the flat table's own filtering (see CLAUDE.md A2/A5: they
+  // used to be two independent computations with different "approved"
+  // definitions and different "filled" sources).
   function buildDepartmentSummary(departmentId: string, requests: VacancyRequestRead[]): DepartmentSummary {
     const buckets = summarizeVacancyRequestStatuses(requests);
     const lastRequestDate = requests.reduce<string | null>(
@@ -236,16 +318,18 @@ export function VacancyRequestsListPage() {
     (vr) => activeTab === "ALL" || vr.role_category === activeTab,
   );
 
+  // Default sort for the flat table -- newest request first. Nothing else on
+  // this page assumes a particular row order (the grouped view re-sorts its
+  // own department cards by total, then designation groups by name), so this
+  // is the one place ordering actually matters.
+  const sortedFlatRequests = useMemo(
+    () => [...filteredVacancyRequests].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    [filteredVacancyRequests],
+  );
+
   // Requests for the active tab/filters, bucketed by department -- feeds
   // both each DepartmentCard's own stats and (once a card is clicked) the
-  // detailed vacancy table below the grid. Also the shared upstream source
-  // for the top summary-card strip below -- both now read from this exact
-  // same tab+filter-narrowed map, so a department can never show one total
-  // in the strip and a different total in the grouped accordion again (see
-  // CLAUDE.md A4/A5: the strip used to be built from the raw, entirely
-  // unfiltered list, ignoring both the active category tab and every other
-  // filter, which is why its counts silently disagreed with the section
-  // below it).
+  // detailed vacancy table below the grid, in the (opt-in) grouped view.
   const requestsByDepartment = useMemo(() => {
     const map = new Map<string, typeof filteredVacancyRequests>();
     for (const vr of filteredVacancyRequests) {
@@ -255,18 +339,9 @@ export function VacancyRequestsListPage() {
     return map;
   }, [filteredVacancyRequests]);
 
-  const departmentSummaries: DepartmentSummary[] = useMemo(
-    () =>
-      Array.from(requestsByDepartment.entries())
-        .map(([departmentId, requests]) => buildDepartmentSummary(departmentId, requests))
-        .sort((a, b) => b.total - a.total),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildDepartmentSummary closes over
-    // departmentById/fillStatsByRequestId, both already in this deps list.
-    [requestsByDepartment, departmentById, fillStatsByRequestId],
-  );
-
   // Parent Group (accordion) -> Department (card grid) hierarchy, one level
-  // above the existing Department -> role/designation/campus grouping.
+  // above the existing Department -> role/designation/campus grouping. Only
+  // rendered when viewMode === "GROUPED".
   const parentGroupSections = useMemo(() => {
     const sections = new Map<string, DepartmentSummary[]>();
     for (const [departmentId, requests] of requestsByDepartment.entries()) {
@@ -299,18 +374,42 @@ export function VacancyRequestsListPage() {
     setExpandedDepartmentId((prev) => (prev === departmentId ? null : departmentId));
   }
 
-  const hasAnyFilter =
-    statusFilter !== "ALL" ||
-    campusFilter !== "ALL" ||
-    departmentFilter !== "ALL" ||
-    designationFilter !== "ALL" ||
-    parentGroupFilter !== "ALL" ||
-    priorityFilter !== "ALL" ||
-    employmentTypeFilter !== "ALL" ||
-    requestedByFilter !== "ALL" ||
-    dateFrom !== "" ||
-    dateTo !== "" ||
-    normalizedSearch !== "";
+  const activeFilterConditions = [
+    statusFilter !== "ALL",
+    campusFilter !== "ALL",
+    departmentFilter !== "ALL",
+    designationFilter !== "ALL",
+    parentGroupFilter !== "ALL",
+    priorityFilter !== "ALL",
+    employmentTypeFilter !== "ALL",
+    requestedByFilter !== "ALL",
+    dateFrom !== "",
+    dateTo !== "",
+    normalizedSearch !== "",
+  ];
+  const activeFilterCount = activeFilterConditions.filter(Boolean).length;
+  const hasAnyFilter = activeFilterCount > 0;
+
+  function clearFilters() {
+    setStatusFilter("ALL");
+    setCampusFilter("ALL");
+    setDepartmentFilter("ALL");
+    setDesignationFilter("ALL");
+    setParentGroupFilter("ALL");
+    setPriorityFilter("ALL");
+    setEmploymentTypeFilter("ALL");
+    setRequestedByFilter("ALL");
+    setDateFrom("");
+    setDateTo("");
+    setSearch("");
+  }
+
+  const isEmpty = filteredVacancyRequests.length === 0;
+  const emptyStateTitle = hasAnyFilter
+    ? "No matching vacancy requests"
+    : activeTab !== "ALL"
+      ? `No ${CATEGORY_LABELS[activeTab]} Vacancy Requests`
+      : "No Vacancy Requests Yet";
 
   return (
     <div className="flex flex-col gap-6">
@@ -369,44 +468,41 @@ export function VacancyRequestsListPage() {
         }
       />
 
-      <p className="-mt-3 text-sm text-muted-foreground">
-        Posts available to request come from{" "}
-        <Link to="/sanctioned-strength" className="font-medium text-primary underline-offset-2 hover:underline">
-          Sanctioned Strength
-        </Link>
-        .
-      </p>
+      <WorkflowIndicator />
 
-      {/* Every VacancyRequestStatus gets its own tile below (see
-          lib/vacancyRequestStats.ts) -- draft+pending+approved+published+
-          closed+rejected+cancelled always sums to Total requests, so this
-          row can never again silently drop a request into no bucket at all
-          (CLAUDE.md A1). */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
+      {/* Every VacancyRequestStatus gets its own tile, either here (the 6
+          primary buckets) or the compact secondary row just below -- see
+          lib/vacancyRequestStats.ts. draft+pending+approved+published+
+          closed+rejected+cancelled always sums to Total requests, so between
+          the two rows no request is ever silently dropped into no bucket at
+          all (CLAUDE.md A1). */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatTile label="Total requests" value={kpis.total} isLoading={isLoading} />
         <StatTile label="Draft" value={kpis.draft} isLoading={isLoading} />
         <StatTile label="Pending approval" value={kpis.pending} isLoading={isLoading} accent="gold" />
         <StatTile label="Approved" value={kpis.approved} isLoading={isLoading} accent="green" />
         <StatTile label="Published" value={kpis.published} isLoading={isLoading} accent="green" />
         <StatTile label="Closed" value={kpis.closed} isLoading={isLoading} />
-        <StatTile label="Rejected" value={kpis.rejected} isLoading={isLoading} accent="orange" />
-        <StatTile label="Cancelled" value={kpis.cancelled} isLoading={isLoading} accent="orange" />
-        <StatTile label="Departments" value={departments?.length ?? 0} isLoading={!departments} />
-        {canReadAuditLogs ? (
-          <StatTile label="Bulk uploads today" value={bulkUploadsToday} isLoading={!todaysAuditLogs} />
-        ) : null}
       </div>
 
-      {departmentSummaries.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <h2 className="text-sm font-semibold text-foreground">Departments</h2>
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            {departmentSummaries.map((summary) => (
-              <DepartmentSummaryCard key={summary.departmentId} summary={summary} />
-            ))}
-          </div>
-        </div>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
+        <span>
+          Rejected <span className="font-semibold text-foreground tabular-nums">{kpis.rejected}</span>
+        </span>
+        <span>
+          Cancelled <span className="font-semibold text-foreground tabular-nums">{kpis.cancelled}</span>
+        </span>
+        <span>
+          Departments{" "}
+          <span className="font-semibold text-foreground tabular-nums">{departments?.length ?? 0}</span>
+        </span>
+        {canReadAuditLogs ? (
+          <span>
+            Bulk uploads today{" "}
+            <span className="font-semibold text-foreground tabular-nums">{bulkUploadsToday}</span>
+          </span>
+        ) : null}
+      </div>
 
       <CategoryTabs
         value={activeTab}
@@ -429,7 +525,7 @@ export function VacancyRequestsListPage() {
           <div className="w-48">
             <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
               <SelectTrigger aria-label="Department filter">
-                <SelectValue />
+                <SelectValue className="truncate" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All departments</SelectItem>
@@ -444,7 +540,7 @@ export function VacancyRequestsListPage() {
           <div className="w-40">
             <Select value={campusFilter} onValueChange={setCampusFilter}>
               <SelectTrigger aria-label="Campus filter">
-                <SelectValue />
+                <SelectValue className="truncate" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All campuses</SelectItem>
@@ -459,7 +555,7 @@ export function VacancyRequestsListPage() {
           <div className="w-44">
             <Select value={parentGroupFilter} onValueChange={setParentGroupFilter}>
               <SelectTrigger aria-label="Parent group filter">
-                <SelectValue />
+                <SelectValue className="truncate" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All parent groups</SelectItem>
@@ -475,7 +571,7 @@ export function VacancyRequestsListPage() {
           <div className="w-40">
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as VacancyRequestStatus | "ALL")}>
               <SelectTrigger aria-label="Status filter">
-                <SelectValue />
+                <SelectValue className="truncate" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All statuses</SelectItem>
@@ -490,7 +586,7 @@ export function VacancyRequestsListPage() {
           <div className="w-36">
             <Select value={priorityFilter} onValueChange={(v) => setPriorityFilter(v as VacancyPriority | "ALL")}>
               <SelectTrigger aria-label="Priority filter">
-                <SelectValue />
+                <SelectValue className="truncate" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All priorities</SelectItem>
@@ -502,13 +598,16 @@ export function VacancyRequestsListPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="w-40">
+          {/* Bug fix (redesign spec item 5b): this trigger used to wrap "All
+              vacancy types" onto two lines -- widened from w-40 and the value
+              itself now truncates with an ellipsis instead of wrapping. */}
+          <div className="w-48">
             <Select
               value={employmentTypeFilter}
               onValueChange={(v) => setEmploymentTypeFilter(v as EmploymentType | "ALL")}
             >
               <SelectTrigger aria-label="Vacancy type filter">
-                <SelectValue />
+                <SelectValue className="truncate whitespace-nowrap" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All vacancy types</SelectItem>
@@ -520,11 +619,18 @@ export function VacancyRequestsListPage() {
               </SelectContent>
             </Select>
           </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
           {canResolveRequesterNames ? (
+            // Bug fix (redesign spec item 5a): this trigger used to render
+            // visibly taller than its siblings whenever a long requester
+            // full name was selected, because the selected value wrapped
+            // instead of truncating -- same `truncate` fix as above.
             <div className="w-44">
               <Select value={requestedByFilter} onValueChange={setRequestedByFilter}>
                 <SelectTrigger aria-label="Requested by filter">
-                  <SelectValue />
+                  <SelectValue className="truncate" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">Requested by anyone</SelectItem>
@@ -554,15 +660,141 @@ export function VacancyRequestsListPage() {
               onChange={(e) => setDateTo(e.target.value)}
             />
           </div>
+          <div className="ml-auto flex items-center gap-2">
+            {hasAnyFilter ? (
+              <span className="text-xs text-muted-foreground">
+                {activeFilterCount} filter{activeFilterCount === 1 ? "" : "s"} applied
+              </span>
+            ) : null}
+            <Button variant="outline" size="sm" disabled={!hasAnyFilter} onClick={clearFilters} className="gap-1.5">
+              <X className="h-3.5 w-3.5" />
+              Clear filters
+            </Button>
+          </div>
         </div>
       </Card>
 
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          Showing {sortedFlatRequests.length} of {vacancyRequests?.length ?? 0} requests
+        </p>
+        <Tabs
+          value={viewMode}
+          onValueChange={setViewMode}
+          tabs={[
+            { value: "FLAT", label: "Flat view" },
+            { value: "GROUPED", label: "Grouped view" },
+          ]}
+        />
+      </div>
+
+      {rowActionError ? <p className="text-sm text-destructive">{rowActionError}</p> : null}
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : parentGroupSections.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {hasAnyFilter ? "No vacancy requests match these filters." : "No vacancy requests in this scope yet."}
-        </p>
+      ) : isEmpty ? (
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-12 text-center">
+          <p className="text-sm font-medium text-foreground">{emptyStateTitle}</p>
+          {hasAnyFilter ? (
+            <Button variant="outline" size="sm" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          ) : canCreate ? (
+            <Button size="sm" asChild>
+              <Link to="/vacancy-requests/new">
+                <Plus className="h-4 w-4" />
+                Create Vacancy Request
+              </Link>
+            </Button>
+          ) : null}
+        </div>
+      ) : viewMode === "FLAT" ? (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[1080px] table-fixed text-sm">
+            <colgroup>
+              <col className="w-24" />
+              <col />
+              <col className="w-28" />
+              <col className="w-40" />
+              <col className="w-20" />
+              <col className="w-24" />
+              {canResolveRequesterNames ? <col className="w-32" /> : null}
+              <col className="w-24" />
+              <col className="w-32" />
+              <col className="w-28" />
+              <col className="w-32" />
+            </colgroup>
+            <thead>
+              <tr className="border-b border-border bg-muted/50 text-left text-muted-foreground">
+                <th className="px-3 py-2 font-medium">Request ID</th>
+                <th className="px-3 py-2 font-medium">Position</th>
+                <th className="px-3 py-2 font-medium">Category</th>
+                <th className="px-3 py-2 font-medium">Department</th>
+                <th className="px-3 py-2 font-medium">Campus</th>
+                <th className="px-3 py-2 font-medium">Vacancies</th>
+                {canResolveRequesterNames ? <th className="px-3 py-2 font-medium">Requested By</th> : null}
+                <th className="px-3 py-2 font-medium">Priority</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Requested Date</th>
+                <th className="px-3 py-2 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedFlatRequests.map((vr) => {
+                const department = departmentById.get(vr.department_id);
+                const campus = campusById.get(vr.campus_id);
+                const isSubmittingThisRow = submitRowMutation.isPending && submitRowMutation.variables === vr.id;
+                return (
+                  <tr key={vr.id} className="border-b border-border last:border-0 hover:bg-accent/50">
+                    {/* No human-readable request-number field exists on
+                        VacancyRequestRead (see app/schemas/vacancy_request.py)
+                        -- short form of the real id, full id on hover/title,
+                        rather than inventing a field that isn't there. */}
+                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground" title={vr.id}>
+                      #{vr.id.slice(0, 8).toUpperCase()}
+                    </td>
+                    <td className="truncate px-3 py-2 font-medium text-foreground" title={vr.position_title}>
+                      {vr.position_title}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">{vr.role_category.replace(/_/g, " ")}</td>
+                    <td className="truncate px-3 py-2" title={department?.name}>
+                      {department?.name ?? "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
+                    <td className="px-3 py-2 tabular-nums">{vr.requested_count}</td>
+                    {canResolveRequesterNames ? (
+                      <td className="truncate px-3 py-2">{requesterNameById.get(vr.requested_by_id) ?? "—"}</td>
+                    ) : null}
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <PriorityBadge priority={vr.priority} />
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">
+                      <StatusBadge status={vr.status} />
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">{new Date(vr.created_at).toLocaleDateString()}</td>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {canCreate && vr.status === "DRAFT" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isSubmittingThisRow}
+                            onClick={() => submitRowMutation.mutate(vr.id)}
+                          >
+                            {isSubmittingThisRow ? "Submitting…" : "Submit"}
+                          </Button>
+                        ) : null}
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to={`/vacancy-requests/${vr.id}`}>View</Link>
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {parentGroupSections.map(([groupLabel, cards]) => {
