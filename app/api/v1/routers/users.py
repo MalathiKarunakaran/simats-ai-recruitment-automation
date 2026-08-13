@@ -26,7 +26,7 @@ from app.schemas.user import (
     UserSelfUpdate,
     UserUpdate,
 )
-from app.services.audit import log_create, log_delete, log_update
+from app.services.audit import log_create, log_update
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -203,32 +203,6 @@ def update_user(
     db.commit()
     db.refresh(target)
     return target
-
-
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def deactivate_user(
-    user_id: uuid.UUID,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
-) -> None:
-    target = db.get(User, user_id)
-    if target is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
-    before = _user_snapshot(target)
-    target.is_active = False
-
-    log_delete(
-        db,
-        actor=current_user,
-        entity_type="User",
-        entity=target,
-        campus_context_id=target.campus_id,
-        before_state=before,
-        request=request,
-    )
-    db.commit()
 
 
 def _capabilities_of(db: Session, user_id: uuid.UUID) -> list[CoordinatorCapabilityEnum]:
