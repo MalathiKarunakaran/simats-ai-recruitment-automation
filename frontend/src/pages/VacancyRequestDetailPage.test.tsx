@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -22,6 +22,7 @@ const mockedGetVacancyRequest = vi.mocked(vacancyRequestsApi.getVacancyRequest);
 const mockedSubmit = vi.mocked(vacancyRequestsApi.submitVacancyRequest);
 const mockedGenerateJd = vi.mocked(vacancyRequestsApi.generateJd);
 const mockedCancel = vi.mocked(vacancyRequestsApi.cancelVacancyRequest);
+const mockedDelete = vi.mocked(vacancyRequestsApi.deleteVacancyRequest);
 const mockedUpdateSlotCount = vi.mocked(vacancyRequestsApi.updateSlotCount);
 const mockedGetApprovedVacancyForRequest = vi.mocked(approvedVacanciesApi.getApprovedVacancyForRequest);
 const mockedListHiringSlots = vi.mocked(approvedVacanciesApi.listHiringSlots);
@@ -363,6 +364,53 @@ describe("VacancyRequestDetailPage", () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText("Submit")).toBeInTheDocument());
     expect(screen.queryByText("Override sanction limit")).not.toBeInTheDocument();
+  });
+
+  it("deleting a DRAFT request requires confirming a dialog before the mutation fires", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
+    mockedDelete.mockResolvedValue(undefined);
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Delete")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(mockedDelete).not.toHaveBeenCalled();
+
+    const dialog = await screen.findByRole("dialog");
+    expect(screen.getByText("Delete this draft vacancy request? This cannot be undone.")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() => expect(mockedDelete).toHaveBeenCalledWith("vr-1"));
+  });
+
+  it("Cancel in the delete confirm dialog aborts without calling the mutation", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
+    mockedDelete.mockResolvedValue(undefined);
+    mockedDelete.mockClear(); // a prior test in this file already confirmed a delete
+
+    renderDetail();
+    await waitFor(() => expect(screen.getByText("Delete")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mockedDelete).not.toHaveBeenCalled();
   });
 
   it("does not show Cancel or Adjust count for a Recruitment Officer", async () => {

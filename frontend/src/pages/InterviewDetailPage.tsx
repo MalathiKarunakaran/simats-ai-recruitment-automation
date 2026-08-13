@@ -49,6 +49,7 @@ export function InterviewDetailPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [editScheduledAt, setEditScheduledAt] = useState("");
   const [editDuration, setEditDuration] = useState("");
   const [editMeetingLink, setEditMeetingLink] = useState("");
@@ -98,6 +99,7 @@ export function InterviewDetailPage() {
     mutationFn: () => updateInterview(id!, { status: "CANCELLED" }),
     onSuccess: () => {
       setError(null);
+      setCancelDialogOpen(false);
       afterAction();
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Cancel failed"),
@@ -334,13 +336,26 @@ export function InterviewDetailPage() {
             </Button>
           ) : null}
 
-          <Button
-            variant="destructive"
-            disabled={cancelMutation.isPending}
-            onClick={() => cancelMutation.mutate()}
-          >
-            {cancelMutation.isPending ? "Cancelling…" : "Cancel"}
-          </Button>
+          <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="destructive">Cancel</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Cancel interview</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">Cancel this interview? This cannot be undone.</p>
+              <DialogFooter>
+                <Button
+                  variant="destructive"
+                  disabled={cancelMutation.isPending}
+                  onClick={() => cancelMutation.mutate()}
+                >
+                  {cancelMutation.isPending ? "Cancelling…" : "Confirm cancel"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       ) : null}
 
