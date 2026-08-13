@@ -108,3 +108,13 @@ def test_user_can_read_own_profile_via_users_me(client, user_factory):
     response = client.get("/api/v1/users/me", headers=auth_headers(client, hod))
     assert response.status_code == 200
     assert response.json()["email"] == hod.email
+
+
+def test_delete_users_route_no_longer_exists(client, user_factory):
+    """DELETE /users/{id} was dead code -- the frontend never called it and
+    PATCH /users/{id} (is_active=False) is the one real deactivate path.
+    Regression guard against silently reintroducing it."""
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    target = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    response = client.delete(f"/api/v1/users/{target.id}", headers=auth_headers(client, admin))
+    assert response.status_code == 405
