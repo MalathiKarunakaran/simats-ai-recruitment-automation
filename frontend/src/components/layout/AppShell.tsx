@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   ListChecks,
+  MapPin,
   Newspaper,
   Plus,
   Settings,
@@ -164,6 +165,17 @@ const NAV_GROUPS: NavGroup[] = [
         // check DEPARTMENT_MANAGEMENT_ROLES (SUPER_ADMIN/HR_ADMIN). Replaces
         // the inline Campus/Department cards that used to live in Settings
         // -- now standalone pages, same as Designations always was.
+      },
+      {
+        to: "/locations",
+        label: "Locations",
+        icon: MapPin,
+        // Mirrors locations.py's own read gate (_staff_only, campus-scoped
+        // for non-global roles) -- broad read, same pattern as Departments
+        // above; write controls inside the page itself check
+        // LOCATION_MANAGEMENT_ROLES (SUPER_ADMIN/HR_ADMIN/RECRUITMENT_OFFICER
+        // -- broader than Department's own write set, plan decision 4).
+        // glowing-zooming-hamming.md Phase B.
       },
       {
         to: "/activity-log",

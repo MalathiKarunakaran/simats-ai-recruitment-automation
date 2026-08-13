@@ -222,6 +222,47 @@ export interface DepartmentUpdatePayload {
 // (HR_ADMIN deliberately keeps it).
 export const DEPARTMENT_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
 
+// Mirrors app/schemas/location.py::LocationRead (glowing-zooming-hamming.md
+// Phase B, Location Master -- green-field, nothing else references
+// location_id yet). category is nullable (a building can serve multiple
+// staff categories, or none yet), unlike Department's own category.
+export interface LocationRead {
+  id: string;
+  campus_id: string;
+  name: string;
+  block_building: string | null;
+  floor_venue: string | null;
+  category: StaffRoleCategory | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/location.py::LocationCreate.
+export interface LocationCreatePayload {
+  campus_id: string;
+  name: string;
+  block_building?: string | null;
+  floor_venue?: string | null;
+  category?: StaffRoleCategory | null;
+  is_active?: boolean;
+}
+
+// Mirrors app/schemas/location.py::LocationUpdate.
+export interface LocationUpdatePayload {
+  name?: string;
+  block_building?: string | null;
+  floor_venue?: string | null;
+  category?: StaffRoleCategory | null;
+  is_active?: boolean;
+}
+
+// Mirrors app/api/v1/routers/locations.py::_WRITE_ROLES -- broader than
+// DEPARTMENT_MANAGEMENT_ROLES above by design (plan decision 4): the
+// spec's "HR Assistant" role maps onto RECRUITMENT_OFFICER, which gets
+// direct write/deactivate access here, unlike Department/Designation.
+export const LOCATION_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_OFFICER"];
+
 // Mirrors app/models/enums.py::DESIGNATION_WRITE_ROLES -- deliberately
 // narrower than DEPARTMENT_MANAGEMENT_ROLES (no HR_ADMIN).
 export const DESIGNATION_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
