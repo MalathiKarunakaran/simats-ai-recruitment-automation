@@ -10,6 +10,7 @@ import uuid
 from datetime import date
 
 from app.models.enums import SanctionedStrengthChangeSourceEnum, StaffRoleCategoryEnum, UserRoleEnum
+from app.models.location import Location
 from app.models.sanctioned_strength import SanctionedStrengthHistory
 
 from tests.conftest import auth_headers
@@ -26,6 +27,8 @@ def _create(client, actor, **overrides):
         "effective_from": str(overrides.get("effective_from", date.today())),
         "remarks": overrides.get("remarks"),
     }
+    if "location_id" in overrides:
+        payload["location_id"] = str(overrides["location_id"]) if overrides["location_id"] is not None else None
     return client.post(ENDPOINT, json=payload, headers=auth_headers(client, actor))
 
 
@@ -406,3 +409,104 @@ def test_history_cross_campus_is_404_for_single_campus_role(
 
     response = client.get(f"{ENDPOINT}/{row.id}/history", headers=auth_headers(client, hod_sse))
     assert response.status_code == 404
+
+
+# --- Phase C (glowing-zooming-hamming.md): location_id wiring ---------------------------------------
+
+
+def test_create_housekeeping_without_location_id_is_400(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Housekeeping Dept {uuid.uuid4().hex[:6]}")
+    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    db_session.flush()
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _create(
+        client, hr_admin, campus_id=campus.id, department_id=department.id, designation_id=designation.id
+    )
+    assert response.status_code == 400
+    assert "location" in response.json()["detail"].lower()
+
+
+def test_create_housekeeping_with_location_id_succeeds(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Housekeeping Dept {uuid.uuid4().hex[:6]}")
+    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    location = Location(campus_id=campus.id, name="Block A")
+    db_session.add(location)
+    db_session.flush()
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _create(
+        client,
+        hr_admin,
+        campus_id=campus.id,
+        department_id=department.id,
+        designation_id=designation.id,
+        location_id=location.id,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["location_id"] == str(location.id)
+
+
+def test_create_unknown_location_id_is_400(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Unknown Location Dept {uuid.uuid4().hex[:6]}")
+    department.category = StaffRoleCategoryEnum.TEACHING
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    db_session.flush()
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _create(
+        client,
+        hr_admin,
+        campus_id=campus.id,
+        department_id=department.id,
+        designation_id=designation.id,
+        location_id=uuid.uuid4(),
+    )
+    assert response.status_code == 400
+    assert "location" in response.json()["detail"].lower()
+
+
+def test_create_teaching_without_location_id_still_succeeds(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Teaching NoLoc Dept {uuid.uuid4().hex[:6]}")
+    department.category = StaffRoleCategoryEnum.TEACHING
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    db_session.flush()
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _create(
+        client, hr_admin, campus_id=campus.id, department_id=department.id, designation_id=designation.id
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["location_id"] is None
+
+
+def test_create_non_teaching_without_location_id_still_succeeds(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"NonTeaching NoLoc Dept {uuid.uuid4().hex[:6]}")
+    department.category = StaffRoleCategoryEnum.NON_TEACHING
+    designation = designation_factory(StaffRoleCategoryEnum.NON_TEACHING, department=department)
+    db_session.flush()
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _create(
+        client, hr_admin, campus_id=campus.id, department_id=department.id, designation_id=designation.id
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["location_id"] is None

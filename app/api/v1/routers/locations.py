@@ -1,8 +1,9 @@
-"""Location Master (glowing-zooming-hamming.md Phase B) -- a green-field,
-purely additive master-data module. Nothing else references `location_id`
-yet (Phase C wires it into Sanctioned Strength), so DELETE below is an
-unconditional soft delete with no dependency guard, mirroring how
-`EligibilityRule`'s DELETE worked before anything referenced it.
+"""Location Master (glowing-zooming-hamming.md Phase B), extended in Phase C
+with a DELETE dependency guard once `SanctionedStrength.location_id` exists.
+DELETE below is blocked (409) while any active SanctionedStrength row still
+references this location, mirroring `sanctioned_strength.py`'s own
+`working_count_for()`-based delete guard and `departments.py`'s delete-guard
+message style.
 
 Structurally the closest template is `app/api/v1/routers/departments.py`
 (campus-scoped, category-carrying, soft-delete master data), with one
@@ -21,6 +22,7 @@ from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, g
 from app.models.campus import Campus
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.location import Location
+from app.models.sanctioned_strength import SanctionedStrength
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.location import LocationCreate, LocationRead, LocationUpdate
@@ -175,12 +177,25 @@ def delete_location(
     current_user: User = Depends(require_roles(*_WRITE_ROLES)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> None:
-    # No dependency guard yet -- nothing references location_id until Phase C
-    # wires it into SanctionedStrength, at which point a guard mirroring
-    # sanctioned_strength.py's own delete-time working_count_for() check gets
-    # added here. Unconditional soft delete for now, matching how
-    # EligibilityRule's DELETE worked before anything referenced it.
+    # Phase C (glowing-zooming-hamming.md) dependency guard -- now that
+    # SanctionedStrength.location_id exists, block the soft delete while any
+    # active SanctionedStrength row still references this location, mirroring
+    # departments.py's own delete-guard style (count + 409 message).
     location = _get_or_404_scoped(db, location_id, scope)
+
+    active_sanctioned_strength = (
+        db.query(SanctionedStrength)
+        .filter(SanctionedStrength.location_id == location.id, SanctionedStrength.is_active.is_(True))
+        .count()
+    )
+    if active_sanctioned_strength > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{active_sanctioned_strength} active sanctioned-strength record(s) reference this "
+                "location, cannot delete."
+            ),
+        )
 
     before = _location_snapshot(location)
     location.is_active = False

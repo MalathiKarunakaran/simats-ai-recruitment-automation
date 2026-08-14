@@ -41,8 +41,10 @@ from app.models.enums import (
     SANCTIONED_STRENGTH_WRITE_ROLES,
     BulkUploadStatusEnum,
     SanctionedStrengthChangeSourceEnum,
+    StaffRoleCategoryEnum,
     UserRoleEnum,
 )
+from app.models.location import Location
 from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengthHistory
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
@@ -109,6 +111,7 @@ def _snapshot(row: SanctionedStrength) -> dict:
         "campus_id": row.campus_id,
         "department_id": row.department_id,
         "designation_id": row.designation_id,
+        "location_id": row.location_id,
         "category": row.category.value,
         "approved_strength": row.approved_strength,
         "effective_from": row.effective_from,
@@ -184,10 +187,22 @@ def create_sanctioned_strength(
             ),
         )
 
+    # Phase C (glowing-zooming-hamming.md) -- Housekeeping rows must carry a
+    # location_id (Housekeeping strength is tracked per Location, not just
+    # per department/designation); Teaching/Non-Teaching stay fully optional.
+    if designation.category == StaffRoleCategoryEnum.HOUSEKEEPING and payload.location_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Location is required for Housekeeping sanctioned strength records.",
+        )
+    if payload.location_id is not None and db.get(Location, payload.location_id) is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown location_id")
+
     row = SanctionedStrength(
         campus_id=payload.campus_id,
         department_id=payload.department_id,
         designation_id=payload.designation_id,
+        location_id=payload.location_id,
         category=designation.category,
         approved_strength=payload.approved_strength,
         effective_from=payload.effective_from,
@@ -240,6 +255,10 @@ def update_sanctioned_strength(
         row.effective_from = payload.effective_from
     if payload.remarks is not None:
         row.remarks = payload.remarks
+    if payload.location_id is not None:
+        if db.get(Location, payload.location_id) is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown location_id")
+        row.location_id = payload.location_id
     row.updated_by_id = current_user.id
 
     # Only write a history row when approved_strength actually changed --

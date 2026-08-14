@@ -759,6 +759,68 @@ def test_breakdown_includes_designation_with_only_inactive_sanctioned_row(
     assert items["Soft Deleted Row Designation"]["sanctioned_strength_id"] is None
 
 
+def test_breakdown_includes_location_fields(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory, db_session
+):
+    """Phase C (glowing-zooming-hamming.md): the breakdown surfaces the
+    current-effective row's location_id and resolved location_name,
+    None for a designation whose current row has no location_id set."""
+    from app.models.location import Location
+
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Location Breakdown Dept {uuid.uuid4().hex[:6]}")
+    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    location = Location(campus_id=campus.id, name="Central Block")
+    db_session.add(location)
+    db_session.flush()
+
+    housekeeping_designation = designation_factory(
+        StaffRoleCategoryEnum.HOUSEKEEPING, name="Housekeeper", department=department
+    )
+    sanctioned_strength_factory(
+        campus=campus,
+        department=department,
+        designation=housekeeping_designation,
+        approved_strength=4,
+        created_by=hr_admin,
+    )
+    response = _breakdown(client, hr_admin, department.id)
+    assert response.status_code == 200, response.text
+    items = {row["designation_name"]: row for row in response.json()["items"]}
+    assert items["Housekeeper"]["location_id"] is None
+    assert items["Housekeeper"]["location_name"] is None
+
+    # Now attach a location to a fresh sanctioned-strength row via a second
+    # designation, and confirm the breakdown resolves both id + name.
+    another_designation = designation_factory(
+        StaffRoleCategoryEnum.HOUSEKEEPING, name="Groundskeeper", department=department
+    )
+    from app.models.sanctioned_strength import SanctionedStrength
+    from datetime import date
+
+    db_session.add(
+        SanctionedStrength(
+            campus_id=campus.id,
+            department_id=department.id,
+            designation_id=another_designation.id,
+            location_id=location.id,
+            category=StaffRoleCategoryEnum.HOUSEKEEPING,
+            approved_strength=2,
+            effective_from=date.today(),
+            created_by_id=hr_admin.id,
+        )
+    )
+    db_session.commit()
+
+    response = _breakdown(client, hr_admin, department.id)
+    assert response.status_code == 200, response.text
+    items = {row["designation_name"]: row for row in response.json()["items"]}
+    assert items["Groundskeeper"]["location_id"] == str(location.id)
+    assert items["Groundskeeper"]["location_name"] == "Central Block"
+
+
 def test_breakdown_unknown_department_is_404(client, user_factory):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     response = _breakdown(client, hr_admin, uuid.uuid4())

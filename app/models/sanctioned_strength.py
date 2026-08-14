@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
 from app.models.enums import SanctionedStrengthChangeSourceEnum, StaffRoleCategoryEnum
+from app.models.location import Location
 
 
 class SanctionedStrength(Base):
@@ -67,6 +68,13 @@ class SanctionedStrength(Base):
     designation_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("designations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    # Phase C (glowing-zooming-hamming.md) -- nullable everywhere except
+    # Housekeeping rows (enforced in the router, not the DB, since Teaching/
+    # Non-Teaching stay fully optional). Green-field column: every
+    # pre-existing row gets NULL, no backfill.
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     category: Mapped[StaffRoleCategoryEnum] = mapped_column(
         Enum(StaffRoleCategoryEnum, name="staff_role_category_enum"), nullable=False
     )
@@ -90,6 +98,7 @@ class SanctionedStrength(Base):
     campus: Mapped["Campus"] = relationship()
     department: Mapped["Department"] = relationship()
     designation: Mapped["Designation"] = relationship()
+    location: Mapped["Location"] = relationship()
     created_by: Mapped["User"] = relationship(foreign_keys=[created_by_id])
     updated_by: Mapped["User"] = relationship(foreign_keys=[updated_by_id])
     history: Mapped[list["SanctionedStrengthHistory"]] = relationship(

@@ -28,19 +28,27 @@ class SanctionedStrengthCreate(BaseModel):
     approved_strength: int = Field(ge=0)
     effective_from: date
     remarks: str | None = None
+    # Phase C (glowing-zooming-hamming.md) -- optional for Teaching/
+    # Non-Teaching, required for Housekeeping (enforced in the router, since
+    # it depends on the resolved designation category, not a static schema
+    # rule).
+    location_id: uuid.UUID | None = None
 
 
 class SanctionedStrengthUpdate(BaseModel):
-    """Deliberately narrow: only the 3 fields a revision can actually change.
+    """Deliberately narrow: only the fields a revision can actually change.
     campus_id/department_id/designation_id/category are immutable after
     creation (a change of key is a new SanctionedStrength row, not an edit
     of this one) -- and none of the Vacancy Register's derived read-model
     fields (approved_count, working_count, etc.) belong on this table at
-    all, so there is nothing to accidentally expose here."""
+    all, so there is nothing to accidentally expose here. `location_id` is
+    the one exception to "immutable after creation" -- Housekeeping rows may
+    need to be re-pointed at a corrected Location without a full new row."""
 
     approved_strength: int | None = Field(default=None, ge=0)
     effective_from: date | None = None
     remarks: str | None = None
+    location_id: uuid.UUID | None = None
 
 
 class SanctionedStrengthRead(BaseModel):
@@ -50,6 +58,7 @@ class SanctionedStrengthRead(BaseModel):
     campus_id: uuid.UUID
     department_id: uuid.UUID
     designation_id: uuid.UUID
+    location_id: uuid.UUID | None
     category: StaffRoleCategoryEnum
     approved_strength: int
     effective_from: date
@@ -100,7 +109,13 @@ class DepartmentDesignationBreakdownRow(BaseModel):
     been sanctioned for this department) -- the frontend uses these to
     pre-fill an edit form alongside `approved_strength`, which the PATCH
     endpoint (`SanctionedStrengthUpdate`) has always accepted for all three
-    fields."""
+    fields.
+
+    `location_id`/`location_name` (Phase C, glowing-zooming-hamming.md) are
+    the current-effective row's own `location_id` and the resolved
+    Location's `name` -- both None when this designation has never been
+    sanctioned for this department, or when the current-effective row has no
+    `location_id` set (Teaching/Non-Teaching rows, which stay optional)."""
 
     designation_id: uuid.UUID
     designation_name: str
@@ -110,6 +125,8 @@ class DepartmentDesignationBreakdownRow(BaseModel):
     vacancy: int
     effective_from: date | None
     remarks: str | None
+    location_id: uuid.UUID | None
+    location_name: str | None
 
 
 class DepartmentDesignationBreakdownResponse(BaseModel):
