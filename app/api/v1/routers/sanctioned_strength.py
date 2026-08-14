@@ -62,8 +62,11 @@ from app.schemas.sanctioned_strength_import import (
     BulkUploadUndoResponse,
     BulkUploadValidationResponse,
 )
+from app.schemas.sanctioned_strength_views import TeachingStrengthListResponse
 from app.services import sanctioned_strength_import, storage
+from app.services import sanctioned_strength_views
 from app.services.audit import log_create, log_delete, log_event, log_update
+from app.services.reporting import validate_campus_code
 from app.services.sanctioned_strength import compute_availability_to_request, working_count_for
 from app.services.storage import get_minio_client
 
@@ -126,6 +129,79 @@ def _get_or_404_scoped(db: Session, sanctioned_strength_id: uuid.UUID, scope: Ca
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, row.campus_id)
     return row
+
+
+@router.get("/views/teaching", response_model=TeachingStrengthListResponse)
+def list_teaching_strength_view(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    sort_by: str = Query("department_name"),
+    sort_dir: str = Query("asc"),
+    campus_code: str | None = Query(None),
+    department_id: uuid.UUID | None = Query(None),
+    designation_id: uuid.UUID | None = Query(None),
+    location_id: uuid.UUID | None = Query(None),
+    search: str | None = Query(None),
+    row_status: str | None = Query(None, alias="status"),
+    vacancy: int | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> TeachingStrengthListResponse:
+    """Phase E (glowing-zooming-hamming.md) -- the designation-level Teaching
+    operational view, one row per current-effective SanctionedStrength row
+    with category == TEACHING. See app/services/sanctioned_strength_views.py
+    for every field's derivation and the `status` priority order. Same
+    param-validation-then-delegate shape as
+    GET /departments/vacancy-register (app/api/v1/routers/vacancy_register.py):
+    sort_by/sort_dir/status validated against their own value tuples with a
+    422 on an unknown value, campus_code validated via the shared
+    validate_campus_code helper.
+    """
+    if sort_by not in sanctioned_strength_views.TEACHING_STRENGTH_SORT_FIELDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown sort_by '{sort_by}'. Valid values: "
+                f"{', '.join(sanctioned_strength_views.TEACHING_STRENGTH_SORT_FIELDS)}."
+            ),
+        )
+    if sort_dir not in sanctioned_strength_views.TEACHING_STRENGTH_SORT_DIRECTIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown sort_dir '{sort_dir}'. Valid values: "
+                f"{', '.join(sanctioned_strength_views.TEACHING_STRENGTH_SORT_DIRECTIONS)}."
+            ),
+        )
+    if row_status is not None and row_status not in sanctioned_strength_views.TEACHING_STRENGTH_STATUS_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown status '{row_status}'. Valid values: "
+                f"{', '.join(sanctioned_strength_views.TEACHING_STRENGTH_STATUS_VALUES)}."
+            ),
+        )
+    validated_campus_code = validate_campus_code(campus_code)
+
+    rows, total, status_counts = sanctioned_strength_views.list_teaching_strength_rows(
+        db,
+        scope,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        campus_code=validated_campus_code,
+        department_id=department_id,
+        designation_id=designation_id,
+        location_id=location_id,
+        search=search,
+        status=row_status,
+        vacancy=vacancy,
+    )
+    return TeachingStrengthListResponse(
+        items=rows, total=total, limit=limit, offset=offset, status_counts=status_counts
+    )
 
 
 @router.get("/availability", response_model=SanctionedStrengthAvailabilityRead)
