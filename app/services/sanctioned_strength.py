@@ -30,6 +30,7 @@ from app.models.department import Department
 from app.models.designation import Designation
 from app.models.employee import Employee
 from app.models.enums import VACANCY_REQUEST_IN_FLIGHT_STATUSES, EmploymentStatusEnum
+from app.models.location import Location
 from app.models.sanctioned_strength import SanctionedStrength
 from app.models.vacancy_request import VacancyRequest
 
@@ -161,6 +162,18 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
         row.designation_id: row for row in current_effective_rows(db, department_id=department_id)
     }
 
+    # Phase C (glowing-zooming-hamming.md) -- resolve each current-effective
+    # row's location_id to its Location.name in one batched query, rather
+    # than N+1 lookups per designation.
+    location_ids = {
+        row.location_id for row in current_rows_by_designation.values() if row.location_id is not None
+    }
+    location_name_by_id: dict = {}
+    if location_ids:
+        location_name_by_id = dict(
+            db.query(Location.id, Location.name).filter(Location.id.in_(location_ids)).all()
+        )
+
     working_by_designation = dict(
         db.query(Employee.designation_id, func.count(Employee.id))
         .filter(
@@ -177,6 +190,7 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
         current_row = current_rows_by_designation.get(designation.id)
         approved = current_row.approved_strength if current_row is not None else 0
         working = working_by_designation.get(designation.id, 0)
+        location_id = current_row.location_id if current_row is not None else None
         rows.append(
             {
                 "designation_id": designation.id,
@@ -187,6 +201,8 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
                 "vacancy": max(approved - working, 0),
                 "effective_from": current_row.effective_from if current_row is not None else None,
                 "remarks": current_row.remarks if current_row is not None else None,
+                "location_id": location_id,
+                "location_name": location_name_by_id.get(location_id) if location_id is not None else None,
             }
         )
     return rows

@@ -1,7 +1,9 @@
 import uuid
+from datetime import date
 
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.location import Location
+from app.models.sanctioned_strength import SanctionedStrength
 
 from tests.conftest import auth_headers
 
@@ -325,3 +327,71 @@ def test_create_location_rejects_unknown_campus_id(client, user_factory):
         json={"campus_id": str(uuid.uuid4()), "name": "Nowhere Block"},
     )
     assert response.status_code == 400
+
+
+# --- Phase C (glowing-zooming-hamming.md): DELETE dependency guard ----------------------------------
+
+
+def test_delete_location_blocked_when_active_sanctioned_strength_references_it(
+    client, user_factory, campus_factory, department_factory, designation_factory, db_session
+):
+    sse = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Guarded Dept {uuid.uuid4().hex[:6]}")
+    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    location = Location(campus_id=sse.id, name="Referenced Block")
+    db_session.add(location)
+    db_session.flush()
+    db_session.add(
+        SanctionedStrength(
+            campus_id=sse.id,
+            department_id=department.id,
+            designation_id=designation.id,
+            location_id=location.id,
+            category=StaffRoleCategoryEnum.HOUSEKEEPING,
+            approved_strength=3,
+            effective_from=date.today(),
+            created_by_id=hr_admin.id,
+        )
+    )
+    db_session.commit()
+
+    response = client.delete(f"/api/v1/locations/{location.id}", headers=auth_headers(client, hr_admin))
+    assert response.status_code == 409
+    assert "sanctioned-strength" in response.json()["detail"].lower()
+
+    db_session.refresh(location)
+    assert location.is_active is True
+
+
+def test_delete_location_allowed_when_no_active_sanctioned_strength_references_it(
+    client, user_factory, campus_factory, department_factory, designation_factory, db_session
+):
+    sse = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Unguarded Dept {uuid.uuid4().hex[:6]}")
+    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    location = Location(campus_id=sse.id, name="Unreferenced Block")
+    db_session.add(location)
+    db_session.flush()
+    # Only an inactive (soft-deleted) SanctionedStrength row references this
+    # location -- must not block the delete.
+    db_session.add(
+        SanctionedStrength(
+            campus_id=sse.id,
+            department_id=department.id,
+            designation_id=designation.id,
+            location_id=location.id,
+            category=StaffRoleCategoryEnum.HOUSEKEEPING,
+            approved_strength=3,
+            effective_from=date.today(),
+            is_active=False,
+            created_by_id=hr_admin.id,
+        )
+    )
+    db_session.commit()
+
+    response = client.delete(f"/api/v1/locations/{location.id}", headers=auth_headers(client, hr_admin))
+    assert response.status_code == 204
