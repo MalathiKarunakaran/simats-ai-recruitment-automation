@@ -300,13 +300,23 @@ def delete_sanctioned_strength(
     row = _get_or_404_scoped(db, sanctioned_strength_id, scope)
 
     # Item 7: block the soft delete while active employees still occupy this
-    # (department, designation) key -- reuses the same COUNT(Employee) the
-    # designation breakdown uses, so the two never disagree.
-    working = working_count_for(db, department_id=row.department_id, designation_id=row.designation_id)
+    # (department, designation) key -- reuses the same working_count_for the
+    # designation breakdown uses, so the two never disagree. Phase D
+    # (glowing-zooming-hamming.md) -- pass this row's own category/
+    # location_id through so a HOUSEKEEPING row's guard counts live
+    # HousekeepingStaff, not (always-zero) Employee rows.
+    working = working_count_for(
+        db,
+        department_id=row.department_id,
+        designation_id=row.designation_id,
+        category=row.category,
+        location_id=row.location_id,
+    )
     if working > 0:
+        occupant_noun = "housekeeping staff" if row.category == StaffRoleCategoryEnum.HOUSEKEEPING else "employee(s)"
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"{working} active employee(s) in this designation, cannot delete.",
+            detail=f"{working} active {occupant_noun} in this designation, cannot delete.",
         )
 
     before = _snapshot(row)

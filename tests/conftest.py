@@ -45,12 +45,15 @@ from app.models.enums import (
     ApplicationStatusEnum,
     CoordinatorCapabilityEnum,
     EmploymentTypeEnum,
+    HousekeepingShiftEnum,
     JoiningDocumentStatusEnum,
     OfferStatusEnum,
     StaffRoleCategoryEnum,
     UserRoleEnum,
 )
+from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.joining import JoiningDocument
+from app.models.location import Location
 from app.models.offer import Offer
 from app.models.sanctioned_strength import SanctionedStrength
 from app.models.user import User
@@ -586,16 +589,77 @@ def sanctioned_strength_factory(db_session, campus_factory):
         is_active: bool = True,
         created_by: User,
         remarks: str | None = None,
+        location_id: uuid.UUID | None = None,
     ) -> SanctionedStrength:
         row = SanctionedStrength(
             campus_id=campus.id,
             department_id=department.id,
             designation_id=designation.id,
+            location_id=location_id,
             category=designation.category,
             approved_strength=approved_strength,
             effective_from=effective_from or date.today(),
             is_active=is_active,
             remarks=remarks,
+            created_by_id=created_by.id,
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def location_factory(db_session, campus_factory):
+    def _make(
+        campus_code: str,
+        name: str | None = None,
+        category: StaffRoleCategoryEnum | None = None,
+    ) -> Location:
+        campus = campus_factory(campus_code)
+        location = Location(
+            campus_id=campus.id,
+            name=name or f"Location-{uuid.uuid4().hex[:8]}",
+            category=category,
+        )
+        db_session.add(location)
+        db_session.flush()
+        return location
+
+    return _make
+
+
+@pytest.fixture()
+def housekeeping_staff_factory(db_session):
+    counter = {"n": 0}
+
+    def _make(
+        *,
+        campus,
+        designation: Designation,
+        location: Location,
+        created_by: User,
+        bio_id: str | None = None,
+        name: str | None = None,
+        shift: HousekeepingShiftEnum = HousekeepingShiftEnum.MORNING,
+        block: str | None = None,
+        floor_venue: str | None = None,
+        supervisor: str | None = None,
+        is_active: bool = True,
+    ) -> HousekeepingStaff:
+        counter["n"] += 1
+        row = HousekeepingStaff(
+            campus_id=campus.id,
+            bio_id=bio_id or f"BIO-{counter['n']}-{uuid.uuid4().hex[:6]}",
+            name=name or f"Housekeeping Staff {counter['n']}",
+            designation_id=designation.id,
+            location_id=location.id,
+            block=block,
+            floor_venue=floor_venue,
+            shift=shift,
+            supervisor=supervisor,
+            is_active=is_active,
             created_by_id=created_by.id,
         )
         db_session.add(row)

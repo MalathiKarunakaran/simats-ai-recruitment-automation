@@ -29,7 +29,8 @@ from sqlalchemy.orm import Session
 from app.models.department import Department
 from app.models.designation import Designation
 from app.models.employee import Employee
-from app.models.enums import VACANCY_REQUEST_IN_FLIGHT_STATUSES, EmploymentStatusEnum
+from app.models.enums import VACANCY_REQUEST_IN_FLIGHT_STATUSES, EmploymentStatusEnum, StaffRoleCategoryEnum
+from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.location import Location
 from app.models.sanctioned_strength import SanctionedStrength
 from app.models.vacancy_request import VacancyRequest
@@ -140,6 +141,16 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
     Designations with no current-effective sanctioned row for this
     department still appear (approved=0), so a department can see every
     designation relevant to it, not just the ones with a current sanction.
+
+    Phase D (glowing-zooming-hamming.md) -- for a HOUSEKEEPING designation,
+    `working` is instead resolved per-designation via `working_count_for`
+    (category=HOUSEKEEPING, scoped to that designation's current-effective
+    `location_id` when one exists), which live-counts `HousekeepingStaff`
+    rows rather than `Employee` rows -- see that function's own docstring.
+    Not folded into the single batched Employee query below (that stays
+    Teaching/Non-Teaching-only, unchanged) since each Housekeeping
+    designation can have a different current-effective `location_id` to
+    scope by; this is an additive branch, not a rewrite.
     """
     designations = (
         db.query(Designation)
@@ -189,8 +200,17 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
     for designation in designations:
         current_row = current_rows_by_designation.get(designation.id)
         approved = current_row.approved_strength if current_row is not None else 0
-        working = working_by_designation.get(designation.id, 0)
         location_id = current_row.location_id if current_row is not None else None
+        if designation.category == StaffRoleCategoryEnum.HOUSEKEEPING:
+            working = working_count_for(
+                db,
+                department_id=department_id,
+                designation_id=designation.id,
+                category=StaffRoleCategoryEnum.HOUSEKEEPING,
+                location_id=location_id,
+            )
+        else:
+            working = working_by_designation.get(designation.id, 0)
         rows.append(
             {
                 "designation_id": designation.id,
@@ -238,12 +258,28 @@ def compute_availability_to_request(
     already exceed the sanction), and submit()'s enforcement relies on that
     signal to always block a further request once available_to_request <= 0,
     not just once it reaches exactly 0.
+
+    Phase D (glowing-zooming-hamming.md) -- resolves the designation's
+    category (a cheap extra `db.get`, since only `designation_id` is passed
+    in, not the category itself) and, when a current-effective row exists,
+    its `location_id`, and forwards both into `working_count_for` -- this is
+    what makes a HOUSEKEEPING key's `working` figure correctly count live
+    `HousekeepingStaff` instead of (always-zero) `Employee` rows here, and
+    transitively in every caller of this function: the
+    GET /sanctioned-strength/availability endpoint AND
+    `vacancy_workflow.py::submit()`'s sanction-enforcement check.
     """
     current_row = current_effective_row(
         db, campus_id=campus_id, department_id=department_id, designation_id=designation_id, as_of=as_of
     )
     approved = current_row.approved_strength if current_row is not None else 0
-    working = working_count_for(db, department_id=department_id, designation_id=designation_id)
+
+    designation = db.get(Designation, designation_id)
+    category = designation.category if designation is not None else None
+    location_id = current_row.location_id if current_row is not None else None
+    working = working_count_for(
+        db, department_id=department_id, designation_id=designation_id, category=category, location_id=location_id
+    )
 
     already_requested = (
         db.query(func.coalesce(func.sum(VacancyRequest.requested_count), 0))
@@ -266,11 +302,44 @@ def compute_availability_to_request(
     }
 
 
-def working_count_for(db: Session, *, department_id: uuid.UUID, designation_id: uuid.UUID) -> int:
-    """Live COUNT(Employee) for one (department, designation) key -- shared by
-    the breakdown above and the sanctioned_strength router's soft-delete
-    block (item 7: "N active employees in this designation, cannot delete")
-    so the two never compute this figure differently."""
+def working_count_for(
+    db: Session,
+    *,
+    department_id: uuid.UUID,
+    designation_id: uuid.UUID,
+    category: StaffRoleCategoryEnum | None = None,
+    location_id: uuid.UUID | None = None,
+) -> int:
+    """Live "how many people are actually working this designation right
+    now" count for one (department, designation) key -- shared by the
+    breakdown above, the sanctioned_strength router's soft-delete block
+    (item 7: "N active employees in this designation, cannot delete"), and
+    reporting.py's reconciliation report, so none of them ever compute this
+    figure differently.
+
+    Phase D (glowing-zooming-hamming.md) -- HOUSEKEEPING branch: Housekeeping
+    staff live in the separate `HousekeepingStaff` roster table, not
+    `Employee` (see that model's docstring / the plan's decision 3). Pass
+    `category=StaffRoleCategoryEnum.HOUSEKEEPING` (and, where the caller
+    knows it -- typically a SanctionedStrength row's own `location_id` --
+    `location_id`) to switch to a live COUNT of active `HousekeepingStaff`
+    rows scoped to `designation_id` (+ `location_id` when given) instead of
+    the Employee-based count below. `department_id` is accepted but
+    deliberately unused in this branch -- `HousekeepingStaff` has no
+    `department_id` column at all (see that model's own docstring).
+    Teaching/Non-Teaching callers (`category` left unset, or explicitly
+    TEACHING/NON_TEACHING) keep counting `Employee` exactly as before -- this
+    is an additive branch, not a rewrite of the pre-Phase-D behavior.
+    """
+    if category == StaffRoleCategoryEnum.HOUSEKEEPING:
+        query = db.query(func.count(HousekeepingStaff.id)).filter(
+            HousekeepingStaff.designation_id == designation_id,
+            HousekeepingStaff.is_active.is_(True),
+        )
+        if location_id is not None:
+            query = query.filter(HousekeepingStaff.location_id == location_id)
+        return query.scalar() or 0
+
     return (
         db.query(func.count(Employee.id))
         .filter(

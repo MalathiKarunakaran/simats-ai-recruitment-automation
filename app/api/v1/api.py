@@ -13,6 +13,7 @@ from app.api.v1.routers import (
     designations,
     eligibility_rules,
     employees,
+    housekeeping_staff,
     interviews,
     job_distribution,
     job_postings,
@@ -39,6 +40,7 @@ api_router.include_router(vacancy_register.router)
 api_router.include_router(sanctioned_strength.router)
 api_router.include_router(designations.router)
 api_router.include_router(locations.router)
+api_router.include_router(housekeeping_staff.router)
 api_router.include_router(eligibility_rules.router)
 api_router.include_router(pipeline_stage_configs.router)
 api_router.include_router(audit_logs.router)
