@@ -263,6 +263,72 @@ export interface LocationUpdatePayload {
 // direct write/deactivate access here, unlike Department/Designation.
 export const LOCATION_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_OFFICER"];
 
+// Mirrors app/models/enums.py::HousekeepingShiftEnum -- a small, bounded
+// vocabulary (glowing-zooming-hamming.md Phase D).
+export type HousekeepingShift = "MORNING" | "AFTERNOON" | "EVENING" | "NIGHT";
+
+// Mirrors app/schemas/housekeeping_staff.py::HousekeepingStaffRead. A
+// separate, standalone roster table from Employee (plan decision 3) --
+// location_id is required here (unlike SanctionedStrength.location_id,
+// which is nullable and only required-for-HOUSEKEEPING at the router
+// level), since every row in this table is Housekeeping staff by
+// construction.
+export interface HousekeepingStaffRead {
+  id: string;
+  campus_id: string;
+  bio_id: string;
+  name: string;
+  designation_id: string;
+  location_id: string;
+  block: string | null;
+  floor_venue: string | null;
+  shift: HousekeepingShift;
+  supervisor: string | null;
+  is_active: boolean;
+  created_by_id: string;
+  updated_by_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Mirrors app/schemas/housekeeping_staff.py::HousekeepingStaffCreate.
+export interface HousekeepingStaffCreatePayload {
+  campus_id: string;
+  bio_id: string;
+  name: string;
+  designation_id: string;
+  location_id: string;
+  block?: string | null;
+  floor_venue?: string | null;
+  shift: HousekeepingShift;
+  supervisor?: string | null;
+  is_active?: boolean;
+}
+
+// Mirrors app/schemas/housekeeping_staff.py::HousekeepingStaffUpdate.
+export interface HousekeepingStaffUpdatePayload {
+  bio_id?: string;
+  name?: string;
+  designation_id?: string;
+  location_id?: string;
+  block?: string | null;
+  floor_venue?: string | null;
+  shift?: HousekeepingShift;
+  supervisor?: string | null;
+  is_active?: boolean;
+}
+
+// Mirrors app/api/v1/routers/housekeeping_staff.py::_WRITE_ROLES
+// (SANCTIONED_STRENGTH_WRITE_ROLES + RECRUITMENT_OFFICER -- corrected
+// post-merge-review, not the bare SANCTIONED_STRENGTH_WRITE_ROLES constant;
+// same broader-than-Department write set as LOCATION_MANAGEMENT_ROLES,
+// plan decision 4).
+export const HOUSEKEEPING_STAFF_MANAGEMENT_ROLES: readonly UserRole[] = [
+  "SUPER_ADMIN",
+  "HR_ADMIN",
+  "RECRUITMENT_OFFICER",
+];
+
 // Mirrors app/models/enums.py::DESIGNATION_WRITE_ROLES -- deliberately
 // narrower than DEPARTMENT_MANAGEMENT_ROLES (no HR_ADMIN).
 export const DESIGNATION_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
