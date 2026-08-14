@@ -46,13 +46,14 @@ def test_hod_cannot_create_housekeeping_staff(client, user_factory, campus_facto
     assert response.status_code == 403
 
 
-def test_recruitment_officer_cannot_create_housekeeping_staff(
+def test_recruitment_officer_can_create_housekeeping_staff(
     client, user_factory, campus_factory, designation_factory, location_factory
 ):
-    # Deliberate deviation from locations.py's own _WRITE_ROLES: this router
-    # reuses SANCTIONED_STRENGTH_WRITE_ROLES exactly (SUPER_ADMIN/HR_ADMIN
-    # only), NOT the broader RECRUITMENT_OFFICER-inclusive set locations.py
-    # itself uses.
+    # This router's _WRITE_ROLES matches locations.py's own precedent
+    # (SANCTIONED_STRENGTH_WRITE_ROLES + RECRUITMENT_OFFICER), per the epic's
+    # plan decision 2 ("HR Assistant" = RECRUITMENT_OFFICER manages this
+    # operational data) -- corrected post-merge-review from an initial draft
+    # that reused the bare SANCTIONED_STRENGTH_WRITE_ROLES constant literally.
     sse = campus_factory("SSE")
     designation = _housekeeping_designation(designation_factory)
     location = location_factory("SSE")
@@ -61,7 +62,7 @@ def test_recruitment_officer_cannot_create_housekeeping_staff(
     response = client.post(
         ENDPOINT, headers=auth_headers(client, officer), json=_payload(sse, designation, location)
     )
-    assert response.status_code == 403
+    assert response.status_code == 201, response.text
 
 
 def test_hr_admin_can_create_housekeeping_staff(client, user_factory, campus_factory, designation_factory, location_factory):
@@ -319,22 +320,14 @@ def test_delete_unknown_id_returns_404(client, user_factory):
 
 # --- Campus scope ------------------------------------------------------
 #
-# Note: SANCTIONED_STRENGTH_WRITE_ROLES (SUPER_ADMIN/HR_ADMIN) are both
-# GLOBAL_SCOPE_ROLES, so -- exactly like sanctioned_strength.py's own
-# PATCH/DELETE endpoints, which share this RBAC set and have no dedicated
-# cross-campus-404 test of their own either -- there is no legitimately-
-# authorized-but-wrong-campus write actor able to reach PATCH/DELETE's
-# `enforce_campus_match` 404 branch through this router's real RBAC set (a
-# global-scope role's CampusScope.is_global is always True, so the guard is
-# a no-op for it). This differs from locations.py, whose write-role set
-# deliberately includes the single-campus-scoped RECRUITMENT_OFFICER
-# specifically to make that branch reachable/testable. `_get_or_404_scoped`
-# is still applied for consistency/future-proofing (e.g. if a
-# single-campus-scoped role is ever added to this write set), but campus
-# scoping is exercised below via the LIST endpoint instead, which is
-# `_staff_only` (reachable by single-campus roles like CAMPUS_HOD) --
-# matching sanctioned_strength.py's own precedent of testing this on its
-# comparable staff-only read endpoint.
+# _WRITE_ROLES includes RECRUITMENT_OFFICER (single-campus-scoped, not a
+# GLOBAL_SCOPE_ROLES member), same as locations.py's own precedent -- so
+# unlike a write-role set of only SUPER_ADMIN/HR_ADMIN (both global-scope,
+# where CampusScope.is_global is always True and the guard would be a
+# no-op), PATCH/DELETE's `enforce_campus_match` 404 branch is genuinely
+# reachable through this router's real RBAC set and is exercised directly
+# below (test_recruitment_officer_cross_campus_patch_is_404), in addition to
+# campus scoping on the LIST endpoint via CAMPUS_HOD.
 
 
 def test_list_is_campus_scoped_for_hod(client, user_factory, campus_factory, designation_factory, location_factory, db_session):
@@ -400,6 +393,33 @@ def test_hr_admin_global_scope_can_patch_any_campus_staff(
         f"{ENDPOINT}/{row.id}", headers=auth_headers(client, hr_admin), json={"block": "Reachable"}
     )
     assert response.status_code == 200
+
+
+def test_recruitment_officer_cross_campus_patch_is_404(
+    client, user_factory, campus_factory, designation_factory, location_factory, db_session
+):
+    sse = campus_factory("SSE")
+    scad = campus_factory("SCAD")
+    designation = _housekeeping_designation(designation_factory)
+    location = location_factory("SCAD")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    row = HousekeepingStaff(
+        campus_id=scad.id,
+        bio_id="BIO-SCAD-3",
+        name="SCAD Staff 2",
+        designation_id=designation.id,
+        location_id=location.id,
+        shift="MORNING",
+        created_by_id=hr_admin.id,
+    )
+    db_session.add(row)
+    db_session.flush()
+
+    officer_sse = user_factory(UserRoleEnum.RECRUITMENT_OFFICER, campus_code="SSE")
+    response = client.patch(
+        f"{ENDPOINT}/{row.id}", headers=auth_headers(client, officer_sse), json={"block": "Unreachable"}
+    )
+    assert response.status_code == 404
 
 
 # --- List filters --------------------------------------------------------

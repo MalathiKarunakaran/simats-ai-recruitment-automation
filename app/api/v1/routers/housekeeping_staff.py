@@ -1,15 +1,22 @@
 """Housekeeping staff roster CRUD (glowing-zooming-hamming.md Phase D) --
 structurally the closest template is `app/api/v1/routers/locations.py`
 (campus-scoped, soft-delete master-ish data with FKs), same call as this
-module's own docstring intent. Writes are gated to
-SANCTIONED_STRENGTH_WRITE_ROLES -- the plan's own Phase D scope line says to
-"reuse SANCTIONED_STRENGTH_WRITE_ROLES from app/models/enums.py (same RBAC
-set as Sanctioned Strength itself, matching the plan's decision that HR
-Assistant/RECRUITMENT_OFFICER manages this data)" -- note
-SANCTIONED_STRENGTH_WRITE_ROLES itself is (SUPER_ADMIN, HR_ADMIN); unlike
-`locations.py`'s own `_WRITE_ROLES`, RECRUITMENT_OFFICER is NOT included here
--- this module reuses the *named* SANCTIONED_STRENGTH_WRITE_ROLES constant
-exactly as instructed, not a re-derived RECRUITMENT_OFFICER-inclusive set.
+module's own docstring intent.
+
+Writes are gated to `_WRITE_ROLES` below, not the bare
+`SANCTIONED_STRENGTH_WRITE_ROLES` constant -- the Phase D dispatch brief said
+to reuse that named constant, but `SANCTIONED_STRENGTH_WRITE_ROLES` itself is
+(SUPER_ADMIN, HR_ADMIN) only and predates this epic's plan decision 2 ("HR
+Assistant" = RECRUITMENT_OFFICER manages this operational data), which
+Phase B's `locations.py` already implements as its own `_WRITE_ROLES =
+SUPER_ADMIN, HR_ADMIN, RECRUITMENT_OFFICER`. Corrected post-merge-review to
+match that established epic precedent rather than the shared pre-epic
+constant literally -- this also makes the campus-scope 404 guard on
+PATCH/DELETE actually reachable through a legitimately-authorized caller
+(RECRUITMENT_OFFICER is campus-scoped; SUPER_ADMIN/HR_ADMIN are both
+GLOBAL_SCOPE_ROLES and couldn't exercise it). The shared
+`SANCTIONED_STRENGTH_WRITE_ROLES` constant itself is left untouched -- other
+endpoints that already use it directly are out of this phase's scope.
 
 CREATE validates: `designation_id` resolves to a Designation whose category
 is HOUSEKEEPING (enforced here, not the DB -- same "validate at the API
@@ -40,6 +47,10 @@ from app.schemas.housekeeping_staff import HousekeepingStaffCreate, Housekeeping
 from app.services.audit import log_create, log_delete, log_update
 
 router = APIRouter(prefix="/housekeeping-staff", tags=["housekeeping-staff"])
+
+# Same shape as locations.py's own _WRITE_ROLES -- SANCTIONED_STRENGTH_WRITE_ROLES
+# plus RECRUITMENT_OFFICER (see module docstring for why).
+_WRITE_ROLES = (*SANCTIONED_STRENGTH_WRITE_ROLES, UserRoleEnum.RECRUITMENT_OFFICER)
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -134,7 +145,7 @@ def create_housekeeping_staff(
     payload: HousekeepingStaffCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
 ) -> HousekeepingStaff:
     if db.get(Campus, payload.campus_id) is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown campus_id")
@@ -196,7 +207,7 @@ def update_housekeeping_staff(
     payload: HousekeepingStaffUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> HousekeepingStaff:
     row = _get_or_404_scoped(db, housekeeping_staff_id, scope)
@@ -259,7 +270,7 @@ def delete_housekeeping_staff(
     housekeeping_staff_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> None:
     row = _get_or_404_scoped(db, housekeeping_staff_id, scope)
