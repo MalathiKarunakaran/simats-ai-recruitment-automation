@@ -26,6 +26,7 @@ import { BulkUploadDialog } from "@/components/sanctionedStrength/BulkUploadDial
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
 import { SanctionedStrengthEditPopover } from "@/components/sanctionedStrength/SanctionedStrengthEditPopover";
 import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength/SanctionedStrengthHistoryDrawer";
+import { TeachingStrengthTable } from "@/components/sanctionedStrength/TeachingStrengthTable";
 import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -236,8 +237,15 @@ export function SanctionedStrengthPage() {
 
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   // URL-persisted via ?category=... (see hooks/useCategoryTabState.ts) so
-  // the selection survives refresh/back-forward/shared links.
-  const [categoryFilter, setCategoryFilter] = useCategoryTabState();
+  // the selection survives refresh/back-forward/shared links. Defaults to
+  // TEACHING (glowing-zooming-hamming.md Phase E's default-tab fix) --
+  // Teaching now has its own dedicated operational view (TeachingStrengthTable,
+  // below) and is this page's most-used tab, so landing on it directly
+  // avoids an extra click on every visit. The hook's own default stays "ALL"
+  // for every other of its 8+ call sites -- this is a page-local override via
+  // the hook's new optional defaultValue param, not a change to the hook's
+  // own default (see useCategoryTabState.ts's docstring).
+  const [categoryFilter, setCategoryFilter] = useCategoryTabState("category", "TEACHING");
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<ApprovalStatus | "ALL">("ALL");
   const [recruitmentStatusFilter, setRecruitmentStatusFilter] = useState<RecruitmentStatus | "ALL">("ALL");
   // Defaults to Active-only -- inactive/deactivated departments shouldn't
@@ -384,6 +392,18 @@ export function SanctionedStrengthPage() {
             counts={mapServerCategoryCounts(data?.category_counts)}
           />
 
+          {categoryFilter === "TEACHING" ? (
+            // Teaching's own operational view (Phase E) -- designation-level
+            // rows, every row inline, no expand. Non-Teaching/Housekeeping/All
+            // keep the existing department-rollup+expand table below (their
+            // own dedicated views are Phases F/G) -- this branch is the only
+            // thing that changes behavior for those tabs versus before this
+            // phase; the register query above still runs regardless of tab
+            // (CategoryTabs' own counts need it), it's just not rendered as a
+            // table body while on the Teaching tab.
+            <TeachingStrengthTable canManage={canManage} canFilterByCampus={canFilterByCampus} campuses={campuses} />
+          ) : (
+            <>
           <div className="flex flex-wrap items-center gap-3">
             <Input
               value={searchInput}
@@ -643,6 +663,8 @@ export function SanctionedStrengthPage() {
               </Button>
             </div>
           </div>
+            </>
+          )}
         </>
       )}
     </div>

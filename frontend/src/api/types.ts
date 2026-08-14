@@ -1173,6 +1173,53 @@ export interface DepartmentDesignationBreakdownRow {
   remarks: string | null;
 }
 
+// Mirrors app/schemas/sanctioned_strength_views.py::TeachingStrengthRow
+// (glowing-zooming-hamming.md Phase E) -- one row per current-effective
+// SanctionedStrength row with category TEACHING, backing
+// GET /sanctioned-strength/views/teaching. See that backend module's own
+// docstring for every field's derivation and the `status` priority order.
+export type TeachingStrengthStatus =
+  | "VACANCY_RECRUITMENT_REQUIRED"
+  | "FULLY_STAFFED"
+  | "OVERSTAFFED"
+  | "APPROVAL_PENDING"
+  | "INACTIVE";
+
+export interface TeachingStrengthRow {
+  sanctioned_strength_id: string;
+  campus_id: string;
+  campus_code: string | null;
+  department_id: string;
+  department_name: string | null;
+  designation_id: string;
+  designation_name: string | null;
+  location_id: string | null;
+  location_name: string | null;
+
+  approved: number;
+  working: number;
+  // approved - working, deliberately signed (not floored at 0) -- see the
+  // backend module's own docstring.
+  vacancy: number;
+  // null (not 0.0) when approved === 0.
+  filled_pct: number | null;
+  status: TeachingStrengthStatus;
+
+  last_join: string | null;
+  last_resignation: string | null;
+  last_updated: string;
+}
+
+// Mirrors app/schemas/sanctioned_strength_views.py::TeachingStrengthListResponse
+// -- additive on top of PaginatedResponse: status_counts is a snapshot of
+// {"VACANCY_RECRUITMENT_REQUIRED": n, "FULLY_STAFFED": n, "OVERSTAFFED": n,
+// "APPROVAL_PENDING": n, "INACTIVE": n, "ALL": n} across every active filter
+// except `status` itself, so a status-tabs-style UI's count doesn't collapse
+// when a different status is selected.
+export interface TeachingStrengthListResponse extends PaginatedResponse<TeachingStrengthRow> {
+  status_counts: Record<string, number>;
+}
+
 // Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthRead.
 export interface SanctionedStrengthRead {
   id: string;

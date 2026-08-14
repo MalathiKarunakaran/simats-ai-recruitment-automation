@@ -37,6 +37,20 @@ export interface SanctionedStrengthEditPopoverProps {
    * plain approved value with no edit affordance at all, same convention as
    * InlineNumberCell's own readOnly prop. */
   readOnly?: boolean;
+  /** Teaching view reuse (glowing-zooming-hamming.md Phase E) --
+   * TeachingStrengthTable's own row shape (TeachingStrengthRow) doesn't
+   * carry effective_from/remarks, so its row-actions wrapper
+   * (TeachingRowActions) lazily fetches this designation's true
+   * DepartmentDesignationBreakdownRow (via the existing
+   * getDepartmentSanctionedStrengthBreakdown call, reused rather than
+   * reimplemented) *before* ever mounting this component, then mounts it
+   * with `autoOpen` so the single "Edit" click the user already made opens
+   * the form immediately instead of requiring a second click on this
+   * component's own pencil trigger. Defaulted false so
+   * SanctionedStrengthPage's existing DesignationRow usage (which already
+   * has the correct effective_from/remarks synchronously, no fetch needed)
+   * is completely unaffected. */
+  autoOpen?: boolean;
 }
 
 export function SanctionedStrengthEditPopover({
@@ -44,9 +58,10 @@ export function SanctionedStrengthEditPopover({
   departmentId,
   campusId,
   readOnly = false,
+  autoOpen = false,
 }: SanctionedStrengthEditPopoverProps) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const [approvedStrength, setApprovedStrength] = useState(String(row.approved));
   const [effectiveFrom, setEffectiveFrom] = useState(row.effective_from ?? todayIsoDate());
   const [remarks, setRemarks] = useState(row.remarks ?? "");

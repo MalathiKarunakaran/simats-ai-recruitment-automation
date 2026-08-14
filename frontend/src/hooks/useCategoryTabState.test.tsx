@@ -47,6 +47,40 @@ function renderHarness(initialEntries: string[] = ["/page"]) {
   );
 }
 
+// Second harness (glowing-zooming-hamming.md Phase E) -- exercises the new
+// optional `defaultValue` param, e.g. SanctionedStrengthPage's own
+// `useCategoryTabState("category", "TEACHING")` call. Deliberately a
+// separate component (not a prop on Harness) so the plain no-arg Harness
+// above -- covering every existing call site's actual usage -- is left
+// completely untouched.
+function DefaultValueHarness() {
+  const [category, setCategory] = useCategoryTabState("category", "TEACHING");
+  const [searchParams] = useSearchParams();
+  return (
+    <div>
+      <p data-testid="value">{category}</p>
+      <p data-testid="raw-search">{searchParams.toString()}</p>
+      <button type="button" onClick={() => setCategory("TEACHING")}>
+        Set Teaching
+      </button>
+      <button type="button" onClick={() => setCategory("ALL")}>
+        Set All
+      </button>
+      <button type="button" onClick={() => setCategory("HOUSEKEEPING")}>
+        Set Housekeeping
+      </button>
+    </div>
+  );
+}
+
+function renderDefaultValueHarness(initialEntries: string[] = ["/page"]) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <DefaultValueHarness />
+    </MemoryRouter>,
+  );
+}
+
 describe("useCategoryTabState", () => {
   it("defaults to ALL when the URL has no ?category param", () => {
     renderHarness(["/page"]);
@@ -139,5 +173,47 @@ describe("useCategoryTabState", () => {
     const rawSearch = screen.getByTestId("raw-search").textContent ?? "";
     expect(rawSearch).toContain("status=ACTIVE");
     expect(rawSearch).toContain("category=teaching");
+  });
+
+  it("reads an explicit ?category=all back as ALL (the no-arg hook's own default too, but now a real writable value)", () => {
+    renderHarness(["/page?category=all"]);
+    expect(screen.getByTestId("value")).toHaveTextContent("ALL");
+  });
+
+  // glowing-zooming-hamming.md Phase E -- the new optional `defaultValue`
+  // param (SanctionedStrengthPage passes "TEACHING"). Every test above this
+  // point exercises the hook exactly as every other existing call site does
+  // (no arguments beyond an optional paramName) and is unchanged by this
+  // addition -- confirms the new param is additive/backward-compatible.
+  describe("with an explicit defaultValue (e.g. SanctionedStrengthPage's \"TEACHING\")", () => {
+    it("defaults to the passed defaultValue, not ALL, when the URL has no ?category param", () => {
+      renderDefaultValueHarness(["/page"]);
+      expect(screen.getByTestId("value")).toHaveTextContent("TEACHING");
+    });
+
+    it("omits the URL param when the value is set back to the page's own default", async () => {
+      renderDefaultValueHarness(["/page?category=housekeeping"]);
+      expect(screen.getByTestId("value")).toHaveTextContent("HOUSEKEEPING");
+
+      await userEvent.click(screen.getByRole("button", { name: "Set Teaching" }));
+
+      expect(screen.getByTestId("value")).toHaveTextContent("TEACHING");
+      expect(screen.getByTestId("raw-search")).toHaveTextContent("");
+    });
+
+    it("still writes ALL explicitly (?category=all) when ALL is not this page's own default", async () => {
+      renderDefaultValueHarness(["/page"]);
+      expect(screen.getByTestId("value")).toHaveTextContent("TEACHING");
+
+      await userEvent.click(screen.getByRole("button", { name: "Set All" }));
+
+      expect(screen.getByTestId("value")).toHaveTextContent("ALL");
+      expect(screen.getByTestId("raw-search")).toHaveTextContent("category=all");
+    });
+
+    it("reads ?category=housekeeping back as HOUSEKEEPING same as the no-arg hook (defaultValue only changes the fallback, not the recognized values)", () => {
+      renderDefaultValueHarness(["/page?category=housekeeping"]);
+      expect(screen.getByTestId("value")).toHaveTextContent("HOUSEKEEPING");
+    });
   });
 });
