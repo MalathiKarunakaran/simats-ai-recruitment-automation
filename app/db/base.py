@@ -27,5 +27,6 @@ from app.models.pipeline_stage_config import PipelineStageConfig  # noqa: F401
 from app.models.bulk_upload_log import BulkUploadLog  # noqa: F401
 from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengthHistory  # noqa: F401
 from app.models.location import Location  # noqa: F401
+from app.models.housekeeping_staff import HousekeepingStaff  # noqa: F401
 
 __all__ = ["Base"]

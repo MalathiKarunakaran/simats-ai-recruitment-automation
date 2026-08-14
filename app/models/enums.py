@@ -290,6 +290,22 @@ class BulkUploadStatusEnum(str, enum.Enum):
     UNDONE = "UNDONE"
 
 
+class HousekeepingShiftEnum(str, enum.Enum):
+    """Which shift a Housekeeping staff roster entry (Phase D,
+    glowing-zooming-hamming.md) is assigned to. A small, bounded, unlikely-
+    to-change vocabulary -- matches this codebase's existing enum-heavy
+    convention (native Postgres ENUM, same as StaffRoleCategoryEnum/
+    EmploymentTypeEnum/etc.) rather than a free-text column, per the plan's
+    "Lower-stakes design defaults" section. Unlike `supervisor` (genuinely
+    free text -- no self-referential-FK precedent anywhere in this codebase),
+    shift has a real fixed set of values worth enforcing at the DB level."""
+
+    MORNING = "MORNING"
+    AFTERNOON = "AFTERNOON"
+    EVENING = "EVENING"
+    NIGHT = "NIGHT"
+
+
 class CoordinatorCapabilityEnum(str, enum.Enum):
     """Per-user, Super-Admin-granted capabilities for RECRUITMENT_COORDINATOR
     only. Unlike every other role's access (a fixed set of endpoints gated by

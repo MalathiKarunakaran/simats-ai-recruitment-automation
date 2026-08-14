@@ -804,7 +804,17 @@ def sanctioned_strength_reconciliation_report(
 
     rows: list[dict] = []
     for ss_row in current_rows:
-        working = working_count_for(db, department_id=ss_row.department_id, designation_id=ss_row.designation_id)
+        # Phase D (glowing-zooming-hamming.md) -- pass this row's own
+        # category/location_id through so a HOUSEKEEPING key's working_count
+        # reflects live HousekeepingStaff, not (always-zero) Employee rows;
+        # Teaching/Non-Teaching keep counting Employee exactly as before.
+        working = working_count_for(
+            db,
+            department_id=ss_row.department_id,
+            designation_id=ss_row.designation_id,
+            category=ss_row.category,
+            location_id=ss_row.location_id,
+        )
         already_requested = already_requested_by_key.get(
             (ss_row.campus_id, ss_row.department_id, ss_row.designation_id), 0
         )
