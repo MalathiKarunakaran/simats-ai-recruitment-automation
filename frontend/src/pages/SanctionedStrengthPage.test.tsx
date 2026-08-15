@@ -6,14 +6,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
 import { ApiError } from "@/api/client";
+import * as departmentsApi from "@/api/departments";
 import * as designationsApi from "@/api/designations";
+import * as locationsApi from "@/api/locations";
 import * as sanctionedStrengthApi from "@/api/sanctionedStrength";
 import type { SanctionedStrengthListResponse } from "@/api/sanctionedStrength";
+import * as sanctionedStrengthViewsApi from "@/api/sanctionedStrengthViews";
 import type {
   DepartmentDesignationBreakdownRow,
+  DepartmentRead,
   DesignationRead,
+  LocationRead,
   SanctionedStrengthHistoryRead,
   SanctionedStrengthRead,
+  TeachingStrengthListResponse,
+  TeachingStrengthRow,
   UserRead,
   UserRole,
   VacancyRegisterRow,
@@ -22,8 +29,11 @@ import * as authContext from "@/auth/AuthContext";
 import { SanctionedStrengthPage } from "@/pages/SanctionedStrengthPage";
 
 vi.mock("@/api/sanctionedStrength");
+vi.mock("@/api/sanctionedStrengthViews");
 vi.mock("@/api/campuses");
+vi.mock("@/api/departments");
 vi.mock("@/api/designations");
+vi.mock("@/api/locations");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -36,8 +46,11 @@ const mockedUpdateSanctionedStrength = vi.mocked(sanctionedStrengthApi.updateSan
 const mockedDeleteSanctionedStrength = vi.mocked(sanctionedStrengthApi.deleteSanctionedStrength);
 const mockedGetSanctionedStrengthHistory = vi.mocked(sanctionedStrengthApi.getSanctionedStrengthHistory);
 const mockedListBulkUploads = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthBulkUploads);
+const mockedListTeachingStrengthRows = vi.mocked(sanctionedStrengthViewsApi.listTeachingStrengthRows);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
+const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
+const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 
 const CSE_ROW: VacancyRegisterRow = {
@@ -113,6 +126,89 @@ function paginated(
   };
 }
 
+// --- Teaching operational view fixtures (glowing-zooming-hamming.md Phase E) ---
+
+const TEACHING_ROW_1: TeachingStrengthRow = {
+  sanctioned_strength_id: "ts-1",
+  campus_id: "c-sse",
+  campus_code: "SSE",
+  department_id: "d-cse",
+  department_name: "Computer Science",
+  designation_id: "des-1",
+  designation_name: "Assistant Professor",
+  location_id: "loc-1",
+  location_name: "Block A",
+  approved: 10,
+  working: 7,
+  vacancy: 3,
+  filled_pct: 70,
+  status: "VACANCY_RECRUITMENT_REQUIRED",
+  last_join: "2026-07-01",
+  last_resignation: null,
+  last_updated: "2026-08-01T10:00:00Z",
+};
+
+const TEACHING_ROW_2: TeachingStrengthRow = {
+  sanctioned_strength_id: "ts-2",
+  campus_id: "c-sse",
+  campus_code: "SSE",
+  department_id: "d-mech",
+  department_name: "Mechanical Engineering",
+  designation_id: "des-2",
+  designation_name: "Professor",
+  location_id: null,
+  location_name: null,
+  approved: 5,
+  working: 5,
+  vacancy: 0,
+  filled_pct: 100,
+  status: "FULLY_STAFFED",
+  last_join: null,
+  last_resignation: "2026-06-15",
+  last_updated: "2026-07-15T09:00:00Z",
+};
+
+function paginatedTeaching(
+  items: TeachingStrengthRow[],
+  total = items.length,
+  statusCounts?: Record<string, number>,
+): TeachingStrengthListResponse {
+  return {
+    items,
+    total,
+    limit: 50,
+    offset: 0,
+    status_counts: statusCounts ?? {
+      VACANCY_RECRUITMENT_REQUIRED: items.filter((r) => r.status === "VACANCY_RECRUITMENT_REQUIRED").length,
+      FULLY_STAFFED: items.filter((r) => r.status === "FULLY_STAFFED").length,
+      OVERSTAFFED: items.filter((r) => r.status === "OVERSTAFFED").length,
+      APPROVAL_PENDING: items.filter((r) => r.status === "APPROVAL_PENDING").length,
+      INACTIVE: items.filter((r) => r.status === "INACTIVE").length,
+      ALL: items.length,
+    },
+  };
+}
+
+// Populates the Teaching table's own Department/Designation/Location filter
+// dropdowns -- fetched unconditionally on mount (small master-data lists,
+// same eager-fetch convention as AddDesignationRow's own designations query,
+// just not gated behind an "open" flag since these are plain filter Selects,
+// not a create-row form).
+function mockTeachingFilterData() {
+  const now = "2026-01-01T00:00:00Z";
+  mockedListDepartments.mockResolvedValue([
+    { id: "d-cse", campus_id: "c-sse", name: "Computer Science", code: "CSE", category: "TEACHING", parent_group: null, is_active: true, created_at: now, updated_at: now },
+    { id: "d-mech", campus_id: "c-sse", name: "Mechanical Engineering", code: "MECH", category: "TEACHING", parent_group: null, is_active: true, created_at: now, updated_at: now },
+  ] satisfies DepartmentRead[]);
+  mockedListDesignations.mockResolvedValue([
+    { id: "des-1", name: "Assistant Professor", category: "TEACHING", qualification: "PhD", min_experience: "0+ years", employment_type: "FULL_TIME", is_active: true, department_ids: ["d-cse"], created_at: now, updated_at: now },
+    { id: "des-2", name: "Professor", category: "TEACHING", qualification: "PhD", min_experience: "10+ years", employment_type: "FULL_TIME", is_active: true, department_ids: ["d-mech"], created_at: now, updated_at: now },
+  ] satisfies DesignationRead[]);
+  mockedListLocations.mockResolvedValue([
+    { id: "loc-1", campus_id: "c-sse", name: "Block A", block_building: "A", floor_venue: "1st Floor", category: "TEACHING", is_active: true, created_at: now, updated_at: now },
+  ] satisfies LocationRead[]);
+}
+
 function mockAuth(role: UserRole) {
   mockedUseAuth.mockReturnValue({
     user: { role } as UserRead,
@@ -131,11 +227,22 @@ function mockCampuses() {
   ]);
 }
 
-function renderPage() {
+// Defaults to ?category=non-teaching (glowing-zooming-hamming.md Phase E) --
+// SanctionedStrengthPage now defaults to the TEACHING tab (its own
+// TeachingStrengthTable, a completely different component/endpoint), but
+// every test in this file *except* the dedicated "Teaching operational view"
+// describe block below exercises the pre-existing department-rollup+expand
+// table (backed by listSanctionedStrengthRegister) -- deliberately started
+// on a non-default, non-Teaching tab so all of that pre-existing coverage
+// keeps exercising exactly the same code path it always did, unchanged by
+// this phase's default-tab fix. NON_TEACHING was picked (not HOUSEKEEPING or
+// ALL) since it's a real, explicit-in-the-URL category with no special
+// meaning to any test below.
+function renderPage(initialEntries: string[] = ["/sanctioned-strength?category=non-teaching"]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <SanctionedStrengthPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -229,7 +336,12 @@ describe("SanctionedStrengthPage", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={["/sanctioned-strength?department=d-cse&designation=des-1"]}>
+        {/* &category=non-teaching -- this reverse-link test exercises the
+            rollup table's expand/collapse behavior specifically, which is
+            unrelated to (and unaffected by) which category is selected; a
+            non-Teaching category keeps it on that table rather than the new
+            default TEACHING tab's TeachingStrengthTable (no expand there). */}
+        <MemoryRouter initialEntries={["/sanctioned-strength?department=d-cse&designation=des-1&category=non-teaching"]}>
           <SanctionedStrengthPage />
         </MemoryRouter>
       </QueryClientProvider>,
@@ -325,7 +437,11 @@ describe("SanctionedStrengthPage", () => {
     mockCampuses();
     mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([]));
 
-    renderPage();
+    // Explicit ?category=all -- renderPage()'s own default (non-teaching)
+    // is itself a real category filter (hasAnyFilter treats
+    // categoryFilter !== "ALL" as a filter), which would flip this into the
+    // *filters-narrowed* empty state below instead of this genuine one.
+    renderPage(["/sanctioned-strength?category=all"]);
 
     expect(await screen.findByText("No departments found.")).toBeInTheDocument();
   });
@@ -398,7 +514,11 @@ describe("SanctionedStrengthPage", () => {
     mockCampuses();
     mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW], 120));
 
-    renderPage();
+    // Starts on Housekeeping (not the default renderPage() Non-Teaching
+    // entry) so clicking the Non-Teaching tab below is a genuine change --
+    // both tabs render the same pre-existing rollup table, so this test is
+    // otherwise unaffected by the default-tab fix.
+    renderPage(["/sanctioned-strength?category=housekeeping"]);
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -1028,6 +1148,333 @@ describe("SanctionedStrengthPage", () => {
 
       expect(await screen.findByText("sanctioned-strength-batch.xlsx")).toBeInTheDocument();
       expect(screen.queryByText("Computer Science")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Teaching operational view (Phase E)", () => {
+    // Same reasoning as the "expandable department row" describe above --
+    // vi.mock() call histories aren't cleared automatically between tests
+    // (no clearMocks in vite.config.ts), and the "Edit (write role)" test
+    // below asserts mockedGetBreakdown is *not* called before the Edit
+    // click, which only holds with a fresh count per test.
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("defaults to the Teaching tab on a fresh page load, calling the Teaching view endpoint (not the register)", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_1]));
+
+      renderPage(["/sanctioned-strength"]);
+
+      expect(await screen.findByRole("tab", { name: /^Teaching/ })).toHaveAttribute("aria-selected", "true");
+      await waitFor(() => expect(mockedListTeachingStrengthRows).toHaveBeenCalled());
+      expect(screen.getByText("Assistant Professor")).toBeInTheDocument();
+      // Not the old department-rollup register endpoint's own table --
+      // that one never fetches when the register query is unused for
+      // rendering (still fetched for CategoryTabs' own counts, but its rows
+      // aren't rendered as a table body here).
+      expect(screen.queryByText("Vacancy Exists")).not.toBeInTheDocument();
+    });
+
+    it("renders every Teaching column inline for a row, with no expand affordance anywhere on the table", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_1]));
+
+      renderPage(["/sanctioned-strength"]);
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      const row = screen.getByText("Assistant Professor").closest("tr");
+      expect(row).not.toBeNull();
+      // Cell-indexed (not withinRow.getByText) for the plain numeric
+      // columns -- Approved's own value ("10") is deliberately echoed a
+      // second time in the Actions cell (TeachingRowActions' own approved
+      // display next to the Edit trigger), so a bare getByText("10") scoped
+      // to the row is ambiguous. Column order matches TeachingStrengthTable's
+      // own COLUMNS array.
+      const cells = within(row as HTMLElement).getAllByRole("cell");
+      expect(cells[0]).toHaveTextContent("SSE");
+      expect(cells[1]).toHaveTextContent("Computer Science");
+      expect(cells[2]).toHaveTextContent("Assistant Professor");
+      expect(cells[3]).toHaveTextContent("Block A");
+      expect(cells[4]).toHaveTextContent("10");
+      expect(cells[5]).toHaveTextContent("7");
+      expect(cells[6]).toHaveTextContent("3");
+      expect(cells[7]).toHaveTextContent("70%");
+      expect(cells[8]).toHaveTextContent("Vacancy/Recruitment Required");
+      expect(cells[9]).toHaveTextContent(new Date("2026-07-01").toLocaleDateString());
+
+      // Every value above was visible immediately -- no chevron/expand
+      // button exists anywhere on this table (unlike the old rollup table's
+      // department rows).
+      expect(screen.queryByRole("button", { name: /Expand/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Collapse/ })).not.toBeInTheDocument();
+    });
+
+    it("shows '—' for a null Location/Last Join/Last Resignation, and a null filled_pct as '—' too", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_2]));
+
+      renderPage(["/sanctioned-strength"]);
+      await waitFor(() => expect(screen.getByText("Professor")).toBeInTheDocument());
+
+      const row = screen.getByText("Professor").closest("tr");
+      const withinRow = within(row as HTMLElement);
+      // location_name is null on TEACHING_ROW_2 -- rendered as "—", same as
+      // the department_name/designation_name null-fallback convention.
+      expect(withinRow.getAllByText("—").length).toBeGreaterThan(0);
+      expect(withinRow.getByText("100%")).toBeInTheDocument();
+      expect(withinRow.getByText("Fully Staffed")).toBeInTheDocument();
+    });
+
+    it("maps every backend status code to its exact intended label text", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      const rows: TeachingStrengthRow[] = [
+        { ...TEACHING_ROW_1, sanctioned_strength_id: "ts-a", designation_id: "des-a", designation_name: "Row A", status: "VACANCY_RECRUITMENT_REQUIRED" },
+        { ...TEACHING_ROW_1, sanctioned_strength_id: "ts-b", designation_id: "des-b", designation_name: "Row B", status: "FULLY_STAFFED" },
+        { ...TEACHING_ROW_1, sanctioned_strength_id: "ts-c", designation_id: "des-c", designation_name: "Row C", status: "OVERSTAFFED" },
+        { ...TEACHING_ROW_1, sanctioned_strength_id: "ts-d", designation_id: "des-d", designation_name: "Row D", status: "APPROVAL_PENDING" },
+        { ...TEACHING_ROW_1, sanctioned_strength_id: "ts-e", designation_id: "des-e", designation_name: "Row E", status: "INACTIVE" },
+      ];
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching(rows, rows.length));
+
+      renderPage(["/sanctioned-strength"]);
+
+      await waitFor(() => expect(screen.getByText("Row A")).toBeInTheDocument());
+      // Exact wording per app/services/sanctioned_strength_views.py's own
+      // module docstring -- not invented client-side.
+      expect(screen.getByText("Vacancy/Recruitment Required")).toBeInTheDocument();
+      expect(screen.getByText("Fully Staffed")).toBeInTheDocument();
+      expect(screen.getByText("Overstaffed")).toBeInTheDocument();
+      expect(screen.getByText("Approval Pending")).toBeInTheDocument();
+      expect(screen.getByText("Inactive")).toBeInTheDocument();
+    });
+
+    it("wires Department/Designation/Location/Status/Vacancy filters and column sorting to the real endpoint's query params", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_1]));
+
+      renderPage(["/sanctioned-strength"]);
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Department filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Computer Science" }));
+      await waitFor(() =>
+        expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ department_id: "d-cse", offset: 0 }),
+        ),
+      );
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Designation filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Assistant Professor" }));
+      await waitFor(() =>
+        expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ designation_id: "des-1", offset: 0 }),
+        ),
+      );
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Location filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Block A" }));
+      await waitFor(() =>
+        expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ location_id: "loc-1", offset: 0 }),
+        ),
+      );
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Overstaffed" }));
+      await waitFor(() =>
+        expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ status: "OVERSTAFFED", offset: 0 }),
+        ),
+      );
+
+      const vacancyInput = screen.getByRole("spinbutton", { name: "Vacancy filter" });
+      await userEvent.type(vacancyInput, "3");
+      await userEvent.keyboard("{Enter}");
+      await waitFor(() =>
+        expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ vacancy: 3, offset: 0 }),
+        ),
+      );
+
+      const approvedHeader = screen.getByRole("columnheader", { name: /^Approved/ });
+      expect(approvedHeader).toHaveAttribute("aria-sort", "none");
+
+      await userEvent.click(screen.getByRole("button", { name: /^Approved/ }));
+      await waitFor(() =>
+        expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ sort_by: "approved", sort_dir: "asc", offset: 0 }),
+        ),
+      );
+      await waitFor(() => expect(approvedHeader).toHaveAttribute("aria-sort", "ascending"));
+
+      await userEvent.click(screen.getByRole("button", { name: /^Approved/ }));
+      await waitFor(() =>
+        expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ sort_by: "approved", sort_dir: "desc", offset: 0 }),
+        ),
+      );
+    });
+
+    it("commits the search box on Enter, re-fetching with the typed text and resetting to page 0", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_1], 120));
+
+      renderPage(["/sanctioned-strength"]);
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: "Next" }));
+      await waitFor(() =>
+        expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
+      );
+
+      const searchBox = screen.getByRole("textbox", { name: "Search" });
+      await userEvent.type(searchBox, "computer");
+      await userEvent.keyboard("{Enter}");
+
+      await waitFor(() =>
+        expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ search: "computer", offset: 0 }),
+        ),
+      );
+    });
+
+    it("hides Edit/Delete for a non-write role but still shows History and the Raise vacancy request link", async () => {
+      mockAuth("CAMPUS_HOD");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_1]));
+
+      renderPage(["/sanctioned-strength"]);
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      expect(
+        screen.queryByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /Delete sanctioned strength for Assistant Professor/ }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /View history for Assistant Professor/ })).toBeInTheDocument();
+
+      const raiseLink = screen.getByRole("link", { name: "Raise vacancy request" });
+      expect(raiseLink).toHaveAttribute(
+        "href",
+        "/vacancy-requests/new?campus=c-sse&department=d-cse&designation=des-1&maxCount=3",
+      );
+    });
+
+    it("hides the Raise vacancy request link once vacancy is 0 (Fully Staffed)", async () => {
+      mockAuth("CAMPUS_HOD");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_2]));
+
+      renderPage(["/sanctioned-strength"]);
+      await waitFor(() => expect(screen.getByText("Professor")).toBeInTheDocument());
+
+      expect(screen.queryByRole("link", { name: "Raise vacancy request" })).not.toBeInTheDocument();
+    });
+
+    it("Edit (write role): lazily fetches the department breakdown for the true effective_from/remarks before opening, and PATCHes on Save", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_1]));
+      mockedGetBreakdown.mockResolvedValue([
+        {
+          designation_id: "des-1",
+          designation_name: "Assistant Professor",
+          sanctioned_strength_id: "ts-1",
+          approved: 10,
+          working: 7,
+          vacancy: 3,
+          effective_from: "2026-05-01",
+          remarks: "Original remark",
+        },
+      ]);
+      mockedUpdateSanctionedStrength.mockResolvedValue({
+        id: "ts-1",
+        campus_id: "c-sse",
+        department_id: "d-cse",
+        designation_id: "des-1",
+        category: "TEACHING",
+        approved_strength: 12,
+        effective_from: "2026-05-01",
+        remarks: "Original remark",
+        is_active: true,
+        created_by_id: "u-1",
+        updated_by_id: "u-1",
+        created_at: "2026-05-01T00:00:00Z",
+        updated_at: "2026-05-01T00:00:00Z",
+      });
+
+      renderPage(["/sanctioned-strength"]);
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      expect(mockedGetBreakdown).not.toHaveBeenCalled();
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
+      );
+
+      await waitFor(() => expect(mockedGetBreakdown).toHaveBeenCalledWith("d-cse"));
+
+      // Pre-filled with the *fetched* effective_from/remarks, not a blind
+      // today's-date/blank default -- TeachingStrengthTable's own
+      // TeachingRowActions exists specifically to avoid the data-loss bug
+      // where Save would otherwise silently overwrite a real historical
+      // effective_from with today's date (see that component's docstring).
+      const effectiveFromInput = await screen.findByLabelText("Effective from");
+      expect(effectiveFromInput).toHaveValue("2026-05-01");
+      expect(screen.getByLabelText("Remarks")).toHaveValue("Original remark");
+
+      const approvedInput = screen.getByLabelText("Approved");
+      await userEvent.clear(approvedInput);
+      await userEvent.type(approvedInput, "12");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() =>
+        expect(mockedUpdateSanctionedStrength).toHaveBeenCalledWith("ts-1", {
+          approved_strength: 12,
+          effective_from: "2026-05-01",
+          remarks: "Original remark",
+        }),
+      );
+    });
+
+    it("shows a genuine 'no designations found' empty state when no filters are active, and a filters-narrowed variant otherwise", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([]));
+
+      renderPage(["/sanctioned-strength"]);
+
+      expect(await screen.findByText("No sanctioned Teaching designations found.")).toBeInTheDocument();
+
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_1]));
+      await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Overstaffed" }));
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([]));
+      await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Inactive" }));
+
+      expect(await screen.findByText("No designations match these filters.")).toBeInTheDocument();
     });
   });
 });
