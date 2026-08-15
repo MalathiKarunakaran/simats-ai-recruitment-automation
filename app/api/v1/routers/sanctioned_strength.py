@@ -62,7 +62,7 @@ from app.schemas.sanctioned_strength_import import (
     BulkUploadUndoResponse,
     BulkUploadValidationResponse,
 )
-from app.schemas.sanctioned_strength_views import TeachingStrengthListResponse
+from app.schemas.sanctioned_strength_views import NonTeachingStrengthListResponse, TeachingStrengthListResponse
 from app.services import sanctioned_strength_import, storage
 from app.services import sanctioned_strength_views
 from app.services.audit import log_create, log_delete, log_event, log_update
@@ -200,6 +200,82 @@ def list_teaching_strength_view(
         vacancy=vacancy,
     )
     return TeachingStrengthListResponse(
+        items=rows, total=total, limit=limit, offset=offset, status_counts=status_counts
+    )
+
+
+@router.get("/views/non-teaching", response_model=NonTeachingStrengthListResponse)
+def list_non_teaching_strength_view(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    sort_by: str = Query("department_name"),
+    sort_dir: str = Query("asc"),
+    campus_code: str | None = Query(None),
+    department_id: uuid.UUID | None = Query(None),
+    designation_id: uuid.UUID | None = Query(None),
+    location_id: uuid.UUID | None = Query(None),
+    search: str | None = Query(None),
+    row_status: str | None = Query(None, alias="status"),
+    vacancy: int | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> NonTeachingStrengthListResponse:
+    """Phase F (glowing-zooming-hamming.md) -- the designation-level
+    Non-Teaching operational view, one row per current-effective
+    SanctionedStrength row with category == NON_TEACHING. Identical shape to
+    `list_teaching_strength_view` just above (same param set, same
+    validation-then-delegate structure, same sort/status value tuples --
+    see app/services/sanctioned_strength_views.py's module docstring for why
+    the TEACHING_STRENGTH_* constant names are reused here rather than
+    duplicated under a NON_TEACHING_STRENGTH_* name) -- the two handlers only
+    differ in which `category` they pass into the shared
+    `list_strength_view_rows` service function and which response schema
+    they wrap the result in.
+    """
+    if sort_by not in sanctioned_strength_views.TEACHING_STRENGTH_SORT_FIELDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown sort_by '{sort_by}'. Valid values: "
+                f"{', '.join(sanctioned_strength_views.TEACHING_STRENGTH_SORT_FIELDS)}."
+            ),
+        )
+    if sort_dir not in sanctioned_strength_views.TEACHING_STRENGTH_SORT_DIRECTIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown sort_dir '{sort_dir}'. Valid values: "
+                f"{', '.join(sanctioned_strength_views.TEACHING_STRENGTH_SORT_DIRECTIONS)}."
+            ),
+        )
+    if row_status is not None and row_status not in sanctioned_strength_views.TEACHING_STRENGTH_STATUS_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown status '{row_status}'. Valid values: "
+                f"{', '.join(sanctioned_strength_views.TEACHING_STRENGTH_STATUS_VALUES)}."
+            ),
+        )
+    validated_campus_code = validate_campus_code(campus_code)
+
+    rows, total, status_counts = sanctioned_strength_views.list_strength_view_rows(
+        db,
+        scope,
+        category=StaffRoleCategoryEnum.NON_TEACHING,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        campus_code=validated_campus_code,
+        department_id=department_id,
+        designation_id=designation_id,
+        location_id=location_id,
+        search=search,
+        status=row_status,
+        vacancy=vacancy,
+    )
+    return NonTeachingStrengthListResponse(
         items=rows, total=total, limit=limit, offset=offset, status_counts=status_counts
     )
 

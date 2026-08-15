@@ -219,3 +219,149 @@ def test_list_employees_employment_status_filter(client, published_vacancy_facto
     resigned_ids = {item["id"] for item in resigned_response.json()["items"]}
     assert str(separated_hire.employee.id) in resigned_ids
     assert str(active_hire.employee.id) not in resigned_ids
+
+
+# --- Phase F (glowing-zooming-hamming.md) -- department_id/designation_id filters ----
+#
+# Added for the Non-Teaching operational view's expand-to-employee-details
+# use case (app/api/v1/routers/sanctioned_strength.py's /views/non-teaching
+# endpoint). Plain, additive, backward-compatible equality filters -- these
+# tests cover each alone, both combined with each other, both combined with
+# the pre-existing employment_status filter, and campus-scope isolation
+# (same convention as test_list_employees_employment_status_filter above).
+
+
+def test_list_employees_department_id_filter(client, published_vacancy_factory, hired_employee_factory):
+    vacancy_a = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    vacancy_b = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired_a = hired_employee_factory(vacancy_a)
+    hired_b = hired_employee_factory(vacancy_b)
+
+    response = client.get(
+        "/api/v1/employees",
+        headers=auth_headers(client, vacancy_a.hr_admin),
+        params={"department_id": str(vacancy_a.department.id)},
+    )
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()["items"]}
+    assert str(hired_a.employee.id) in ids
+    assert str(hired_b.employee.id) not in ids
+
+
+def test_list_employees_designation_id_filter(
+    client, published_vacancy_factory, hired_employee_factory, designation_factory, db_session
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=2)
+    hired_with_designation = hired_employee_factory(vacancy)
+    hired_without_designation = hired_employee_factory(vacancy)
+
+    designation = designation_factory(department=vacancy.department)
+    hired_with_designation.employee.designation_id = designation.id
+    db_session.flush()
+
+    response = client.get(
+        "/api/v1/employees",
+        headers=auth_headers(client, vacancy.hr_admin),
+        params={"designation_id": str(designation.id)},
+    )
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()["items"]}
+    assert str(hired_with_designation.employee.id) in ids
+    assert str(hired_without_designation.employee.id) not in ids
+
+
+def test_list_employees_department_and_designation_id_filters_combined(
+    client, published_vacancy_factory, hired_employee_factory, designation_factory, db_session
+):
+    vacancy_a = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    vacancy_b = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired_a = hired_employee_factory(vacancy_a)
+    hired_b = hired_employee_factory(vacancy_b)
+
+    # Same designation name reused across two different departments -- the
+    # combined filter must require both to match, not either.
+    designation_a = designation_factory(name="Shared Role", department=vacancy_a.department)
+    designation_b = designation_factory(name="Shared Role", department=vacancy_b.department)
+    hired_a.employee.designation_id = designation_a.id
+    hired_b.employee.designation_id = designation_b.id
+    db_session.flush()
+
+    response = client.get(
+        "/api/v1/employees",
+        headers=auth_headers(client, vacancy_a.hr_admin),
+        params={"department_id": str(vacancy_a.department.id), "designation_id": str(designation_a.id)},
+    )
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()["items"]}
+    assert ids == {str(hired_a.employee.id)}
+
+    # Mismatched pair (department A, designation B) -- must yield nothing.
+    mismatched = client.get(
+        "/api/v1/employees",
+        headers=auth_headers(client, vacancy_a.hr_admin),
+        params={"department_id": str(vacancy_a.department.id), "designation_id": str(designation_b.id)},
+    )
+    assert mismatched.json()["items"] == []
+
+
+def test_list_employees_department_id_filter_combined_with_employment_status(
+    client, published_vacancy_factory, hired_employee_factory
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=2)
+    active_hire = hired_employee_factory(vacancy)
+    separated_hire = hired_employee_factory(vacancy)
+
+    client.post(
+        f"/api/v1/employees/{separated_hire.employee.id}/offboard",
+        headers=auth_headers(client, vacancy.hr_admin),
+        json={
+            "separation_type": "RESIGNED",
+            "separation_date": date.today().isoformat(),
+            "reason": "Moving on",
+        },
+    )
+
+    response = client.get(
+        "/api/v1/employees",
+        headers=auth_headers(client, vacancy.hr_admin),
+        params={"department_id": str(vacancy.department.id), "employment_status": "ACTIVE"},
+    )
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()["items"]}
+    assert str(active_hire.employee.id) in ids
+    assert str(separated_hire.employee.id) not in ids
+
+
+def test_list_employees_department_id_filter_respects_campus_scope(
+    client, published_vacancy_factory, hired_employee_factory, user_factory
+):
+    vacancy_sse = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    vacancy_scad = published_vacancy_factory(campus_code="SCAD", slot_count=1)
+    hired_sse = hired_employee_factory(vacancy_sse)
+    hired_scad = hired_employee_factory(vacancy_scad)
+
+    # A single-campus-scoped SCAD officer must never see the SSE employee,
+    # even though no department_id filter was passed that would otherwise
+    # exclude it -- the existing campus-scope filter still applies alongside
+    # the new department_id filter, same as it already does alongside
+    # employment_status.
+    officer_scad = user_factory(UserRoleEnum.RECRUITMENT_OFFICER, campus_code="SCAD")
+    response = client.get(
+        "/api/v1/employees",
+        headers=auth_headers(client, officer_scad),
+        params={"department_id": str(vacancy_scad.department.id)},
+    )
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()["items"]}
+    assert str(hired_scad.employee.id) in ids
+    assert str(hired_sse.employee.id) not in ids
+
+    # Same SCAD officer querying an SSE department_id: campus scope still
+    # wins, so nothing is returned rather than leaking the SSE employee.
+    cross_campus_response = client.get(
+        "/api/v1/employees",
+        headers=auth_headers(client, officer_scad),
+        params={"department_id": str(vacancy_sse.department.id)},
+    )
+    assert cross_campus_response.status_code == 200
+    assert cross_campus_response.json()["items"] == []
