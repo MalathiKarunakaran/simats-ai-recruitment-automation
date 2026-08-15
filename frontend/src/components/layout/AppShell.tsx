@@ -18,6 +18,7 @@ import {
   Newspaper,
   Plus,
   Settings,
+  Sparkles,
   Upload,
   UserCog,
   UserPlus,
@@ -176,6 +177,21 @@ const NAV_GROUPS: NavGroup[] = [
         // LOCATION_MANAGEMENT_ROLES (SUPER_ADMIN/HR_ADMIN/RECRUITMENT_OFFICER
         // -- broader than Department's own write set, plan decision 4).
         // glowing-zooming-hamming.md Phase B.
+      },
+      {
+        to: "/housekeeping-staff",
+        label: "Housekeeping Staff",
+        icon: Sparkles,
+        // Mirrors housekeeping_staff.py's own read gate (_staff_only,
+        // campus-scoped for non-global roles) -- broad read, same pattern as
+        // Locations above; write controls inside the page itself check
+        // HOUSEKEEPING_STAFF_MANAGEMENT_ROLES (SUPER_ADMIN/HR_ADMIN/
+        // RECRUITMENT_OFFICER -- housekeeping_staff.py's _WRITE_ROLES,
+        // corrected post-merge-review to add RECRUITMENT_OFFICER on top of
+        // the bare SANCTIONED_STRENGTH_WRITE_ROLES constant, same broader
+        // write set as Locations, plan decision 4). Bare list page only
+        // (glowing-zooming-hamming.md Phase D) -- the full location-grouped
+        // operational view is Phase G's job.
       },
       {
         to: "/activity-log",
