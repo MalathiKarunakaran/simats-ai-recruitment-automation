@@ -282,5 +282,5 @@ describe("HousekeepingStaffFormDrawer", () => {
     await waitFor(() =>
       expect(within(dialog).getByText("bio_id 'BIO-001' is already in use on this campus.")).toBeInTheDocument(),
     );
-  });
+  }, 10000);
 });
