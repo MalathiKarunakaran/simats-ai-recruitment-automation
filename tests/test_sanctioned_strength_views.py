@@ -1,10 +1,16 @@
 """Tests for the Sanctioned Strength Teaching operational view
 (glowing-zooming-hamming.md Phase E):
-- app/services/sanctioned_strength_views.py's `teaching_strength_status` pure
-  function (one test per state + the documented priority order).
+- app/services/sanctioned_strength_views.py's `strength_row_status` pure
+  function (one test per state + the documented priority order) -- renamed
+  from `teaching_strength_status` in Phase F when the function was reused,
+  unchanged, for the Non-Teaching view too (see that module's docstring).
 - GET /api/v1/sanctioned-strength/views/teaching (app/api/v1/routers/
   sanctioned_strength.py), mirroring tests/test_vacancy_register.py's own
   conventions for its sibling GET /departments/vacancy-register endpoint.
+
+See tests/test_non_teaching_strength_views.py for the Phase F Non-Teaching
+sibling coverage -- this file's own tests are otherwise left unchanged (see
+that other file's own docstring for why).
 """
 
 import uuid
@@ -12,7 +18,7 @@ import uuid
 from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, UserRoleEnum
 from app.models.vacancy_request import VacancyRequest
 from app.services import vacancy_workflow
-from app.services.sanctioned_strength_views import teaching_strength_status
+from app.services.sanctioned_strength_views import strength_row_status
 
 from tests.conftest import auth_headers
 
@@ -48,37 +54,37 @@ def _make_vr(
     return vr
 
 
-# --- teaching_strength_status: one test per state + priority order ------------------
+# --- strength_row_status: one test per state + priority order ------------------
 
 
 def test_status_vacancy_positive_is_vacancy_recruitment_required():
     assert (
-        teaching_strength_status(vacancy=2, is_inactive=False, has_pending_request=False)
+        strength_row_status(vacancy=2, is_inactive=False, has_pending_request=False)
         == "VACANCY_RECRUITMENT_REQUIRED"
     )
 
 
 def test_status_vacancy_zero_is_fully_staffed():
-    assert teaching_strength_status(vacancy=0, is_inactive=False, has_pending_request=False) == "FULLY_STAFFED"
+    assert strength_row_status(vacancy=0, is_inactive=False, has_pending_request=False) == "FULLY_STAFFED"
 
 
 def test_status_vacancy_negative_is_overstaffed():
-    assert teaching_strength_status(vacancy=-1, is_inactive=False, has_pending_request=False) == "OVERSTAFFED"
+    assert strength_row_status(vacancy=-1, is_inactive=False, has_pending_request=False) == "OVERSTAFFED"
 
 
 def test_status_pending_request_is_approval_pending():
     assert (
-        teaching_strength_status(vacancy=1, is_inactive=False, has_pending_request=True) == "APPROVAL_PENDING"
+        strength_row_status(vacancy=1, is_inactive=False, has_pending_request=True) == "APPROVAL_PENDING"
     )
     # Also outranks the FULLY_STAFFED floor outcome.
     assert (
-        teaching_strength_status(vacancy=0, is_inactive=False, has_pending_request=True) == "APPROVAL_PENDING"
+        strength_row_status(vacancy=0, is_inactive=False, has_pending_request=True) == "APPROVAL_PENDING"
     )
 
 
 def test_status_inactive_outranks_everything():
-    assert teaching_strength_status(vacancy=5, is_inactive=True, has_pending_request=True) == "INACTIVE"
-    assert teaching_strength_status(vacancy=-5, is_inactive=True, has_pending_request=False) == "INACTIVE"
+    assert strength_row_status(vacancy=5, is_inactive=True, has_pending_request=True) == "INACTIVE"
+    assert strength_row_status(vacancy=-5, is_inactive=True, has_pending_request=False) == "INACTIVE"
 
 
 def test_status_priority_overstaffed_outranks_approval_pending():
@@ -86,7 +92,7 @@ def test_status_priority_overstaffed_outranks_approval_pending():
     APPROVAL_PENDING -- a key that is both overstaffed AND has an in-flight
     VacancyRequest must still read OVERSTAFFED."""
     assert (
-        teaching_strength_status(vacancy=-1, is_inactive=False, has_pending_request=True) == "OVERSTAFFED"
+        strength_row_status(vacancy=-1, is_inactive=False, has_pending_request=True) == "OVERSTAFFED"
     )
 
 

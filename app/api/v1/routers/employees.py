@@ -34,6 +34,17 @@ def list_employees(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     employment_status: EmploymentStatusEnum | None = Query(None),
+    # Phase F (glowing-zooming-hamming.md) -- department_id/designation_id
+    # filters, added for the Non-Teaching operational view's
+    # expand-to-employee-details use case (see
+    # app/api/v1/routers/sanctioned_strength.py's /views/non-teaching
+    # endpoint): plain AND-combined equality filters, same shape as the
+    # pre-existing employment_status filter just above, applied alongside
+    # (not instead of) the existing campus-scope filter below. Additive,
+    # backward-compatible -- no existing caller passes these, so omitting
+    # them is a no-op.
+    department_id: uuid.UUID | None = Query(None),
+    designation_id: uuid.UUID | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
@@ -43,6 +54,10 @@ def list_employees(
         query = query.filter(Employee.campus_id == scope.campus_id)
     if employment_status is not None:
         query = query.filter(Employee.employment_status == employment_status)
+    if department_id is not None:
+        query = query.filter(Employee.department_id == department_id)
+    if designation_id is not None:
+        query = query.filter(Employee.designation_id == designation_id)
     total = query.count()
     rows = query.order_by(Employee.created_at.desc()).offset(offset).limit(limit).all()
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)

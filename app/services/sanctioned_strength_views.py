@@ -20,14 +20,56 @@ pattern for no real benefit. A sibling module, explicitly reusing
 keeps each grain's own file focused -- matching this codebase's "one file per
 concern" convention (see CLAUDE.md's Repo layout section).
 
-Phase E builds the TEACHING-only version (`list_teaching_strength_rows`,
+Phase E built the TEACHING-only version (`list_teaching_strength_rows`,
 `TEACHING_STRENGTH_SORT_FIELDS`, `TEACHING_STRENGTH_STATUS_VALUES`,
-`teaching_strength_status`). Phase F (not built here) is expected to
-generalize `list_teaching_strength_rows` with a `category` parameter for
-NON_TEACHING rather than duplicating this function -- the category filter is
-already applied as a single Python-side `row.category == ...` comparison
-(mirroring vacancy_register.py's own category-filter placement), so adding a
-parameter for it is additive, not a rewrite.
+`teaching_strength_status`). Phase F (glowing-zooming-hamming.md) generalizes
+the read-model into `list_strength_view_rows(..., category=...)` -- the
+category filter was already applied as a single Python-side
+`row.category == ...` comparison (mirroring vacancy_register.py's own
+category-filter placement), so adding a parameter for it was additive, not a
+rewrite, exactly as this module anticipated.
+
+Naming/refactor choices made in Phase F (documented here since they were
+judgment calls, not spec-given):
+- `list_teaching_strength_rows` is kept as a **thin wrapper** around the new
+  `list_strength_view_rows(..., category=StaffRoleCategoryEnum.TEACHING)`
+  rather than being renamed/removed at every call site. The existing
+  `/views/teaching` router handler and every Phase E test call it by this
+  exact name -- keeping it means Phase E's tests exercise the identical
+  public entry point unchanged (byte-for-byte behavior, not just "equivalent
+  behavior"), which is the explicit bar Phase F was told to clear. The new
+  `/views/non-teaching` handler calls `list_strength_view_rows` directly with
+  `category=StaffRoleCategoryEnum.NON_TEACHING` -- there is no
+  "list_non_teaching_strength_rows" wrapper, since that endpoint has no
+  pre-existing external name to preserve.
+- `teaching_strength_status` -- unlike the list function, this pure function
+  took no `category` parameter to begin with (its formula never depended on
+  category), so there is nothing to "generalize" here, only to rename now
+  that it demonstrably serves two categories: renamed to `strength_row_status`
+  everywhere (this module, `tests/test_sanctioned_strength_views.py`'s Phase E
+  tests updated to import the new name -- there is no behavior change to
+  detect from that, so no "byte for byte" concern applies to a pure rename of
+  an internal helper that isn't itself part of any HTTP contract). No thin
+  wrapper kept under the old name: it was never a value other phases or the
+  frontend called directly (it backs the `status` field on each row, never
+  exposed as its own endpoint), so there is no external-compatibility reason
+  to alias it.
+- `TEACHING_STRENGTH_SORT_FIELDS` / `_SORT_DIRECTIONS` / `_STATUS_VALUES`
+  constants are reused **as-is** for the Non-Teaching view too (not
+  duplicated as `NON_TEACHING_STRENGTH_*` siblings): every one of these is a
+  genuinely category-agnostic value set (the same row shape, same status
+  vocabulary, same sortable field names) -- duplicating them under a new name
+  would be two constants that must always be kept in sync by convention
+  alone, which is exactly the kind of accidental-drift risk this codebase's
+  "single choke point" philosophy warns against elsewhere. The constant names
+  keep their Phase E `TEACHING_STRENGTH_*` prefix rather than being renamed
+  to something category-neutral (e.g. `STRENGTH_VIEW_SORT_FIELDS`) purely to
+  avoid an unrelated-seeming rename touching the Teaching router handler's
+  existing references for no behavioral reason -- flagged here as the one
+  place where "reuse the name" and "the name is the clearest possible name"
+  diverge slightly; a future reader landing on `TEACHING_STRENGTH_STATUS_VALUES`
+  being passed into the Non-Teaching handler may reasonably ask why -- this
+  paragraph is that answer.
 
 Column definitions:
 - `approved`: current-effective `SanctionedStrength.approved_strength` for
@@ -35,25 +77,26 @@ Column definitions:
   `sanctioned_strength.current_effective_rows`, this module's own base row
   set (see below), not reimplemented.
 - `working`: live headcount for the (department, designation) key, via
-  `sanctioned_strength.working_count_for` -- called with
-  `category=StaffRoleCategoryEnum.TEACHING` explicitly (not left `None`) so
-  it's self-documenting at the call site that this view is TEACHING-only,
-  even though `None` would resolve to the same Employee-counting branch
-  (TEACHING/unset both fall through `working_count_for`'s default branch --
-  see that function's own docstring). Never `HousekeepingStaff` for this
-  view.
+  `sanctioned_strength.working_count_for` -- called with this view's own
+  `category` (TEACHING or, as of Phase F, NON_TEACHING) explicitly, not left
+  `None`, so it's self-documenting at the call site which category each view
+  is scoped to, even though `None` would resolve to the same
+  Employee-counting branch for both of them (TEACHING/NON_TEACHING/unset all
+  fall through `working_count_for`'s default branch -- see that function's
+  own docstring; only HOUSEKEEPING diverges, to `HousekeepingStaff`). Never
+  `HousekeepingStaff` for either of these two views.
 - `vacancy`: `approved - working`, **deliberately signed, not floored at
   0** -- this is the one deliberate divergence from vacancy_register.py's own
   `vacancy_count` (which floors at 0 and infers "overstaffed" as a separate
   boolean check). Here, `vacancy`'s sign is itself the direct input to
-  `teaching_strength_status` (Vacancy > 0 / == 0 / < 0), so flooring it would
+  `strength_row_status` (Vacancy > 0 / == 0 / < 0), so flooring it would
   destroy the very signal the status function needs -- see
-  `teaching_strength_status`'s own docstring.
+  `strength_row_status`'s own docstring.
 - `filled_pct`: `working / approved * 100`, rounded to 1dp, or `None` (not
   0.0) when `approved == 0` -- identical convention to
   vacancy_register.py's own `filled_pct` / reporting.py's
   `vacancy_closure_rate_pct`.
-- `status`: see `teaching_strength_status` below.
+- `status`: see `strength_row_status` below.
 - `last_join` / `last_resignation`: per-designation analogues of
   vacancy_register.py's own department-level fields (its module docstring,
   lines ~81-84), but scoped to **both** `department_id` and `designation_id`
@@ -78,7 +121,10 @@ Column definitions:
   no separate "every revision" input to fold in the way the department-level
   rollup needed).
 
-`status` priority order and exact codes -- `teaching_strength_status`:
+`status` priority order and exact codes -- `strength_row_status` (this
+function is category-agnostic; it never inspects `category` itself, only the
+already-resolved `vacancy`/`is_inactive`/`has_pending_request` values every
+caller -- Teaching or Non-Teaching -- computes the same way):
 
 Vacancy>0 -> "VACANCY_RECRUITMENT_REQUIRED" (intended frontend label,
 **flagged as a judgment call**: "Vacancy/Recruitment Required" -- the plan
@@ -191,10 +237,12 @@ def _sort_key(value, reverse: bool):
     return (value is None, value)
 
 
-def teaching_strength_status(*, vacancy: int, is_inactive: bool, has_pending_request: bool) -> str:
-    """Pure function -- no DB access, no side effects. See this module's own
-    docstring for the exact label strings and the full priority-order
-    reasoning: INACTIVE > OVERSTAFFED > APPROVAL_PENDING >
+def strength_row_status(*, vacancy: int, is_inactive: bool, has_pending_request: bool) -> str:
+    """Pure function -- no DB access, no side effects, category-agnostic (see
+    module docstring's Phase F naming-choices section for why this was
+    renamed from `teaching_strength_status` rather than kept aliased). See
+    this module's own docstring for the exact label strings and the full
+    priority-order reasoning: INACTIVE > OVERSTAFFED > APPROVAL_PENDING >
     VACANCY_RECRUITMENT_REQUIRED > FULLY_STAFFED."""
     if is_inactive:
         return "INACTIVE"
@@ -207,10 +255,11 @@ def teaching_strength_status(*, vacancy: int, is_inactive: bool, has_pending_req
     return "FULLY_STAFFED"
 
 
-def list_teaching_strength_rows(
+def list_strength_view_rows(
     db: Session,
     scope: CampusScope,
     *,
+    category: StaffRoleCategoryEnum,
     limit: int,
     offset: int,
     sort_by: str,
@@ -223,8 +272,19 @@ def list_teaching_strength_rows(
     status: str | None = None,
     vacancy: int | None = None,
 ) -> tuple[list[dict], int, dict[str, int]]:
-    """Returns (page_rows, total, status_counts) -- one row per
-    current-effective SanctionedStrength row whose category is TEACHING.
+    """Phase F (glowing-zooming-hamming.md) generalization of Phase E's
+    TEACHING-only `list_teaching_strength_rows` -- returns (page_rows, total,
+    status_counts), one row per current-effective SanctionedStrength row
+    whose category matches the given `category` (TEACHING or NON_TEACHING --
+    HOUSEKEEPING is deliberately out of scope for this function: Phase G's
+    Housekeeping view is grouped by Location, not (department, designation),
+    a genuinely different grain, per this repo's plan document). Every
+    mechanic below (batched Department/Designation/Campus/Location lookups,
+    in-flight VacancyRequest lookup, last_join/last_resignation/last_updated
+    aggregation, status_counts snapshot, filters, sort, pagination) is
+    unchanged from Phase E -- only the hardcoded `StaffRoleCategoryEnum.TEACHING`
+    filter and the hardcoded `working_count_for(..., category=TEACHING)` call
+    became parametrized on `category`.
 
     `status_counts` is this module's `category_counts`-shaped analogue:
     `{code: n for code in TEACHING_STRENGTH_STATUS_VALUES} | {"ALL": n}`,
@@ -234,12 +294,12 @@ def list_teaching_strength_rows(
     count that doesn't collapse when a different status tab is selected --
     same convention as vacancy_register.py's own `category_counts`. Named
     `status_counts` here rather than reusing the literal name
-    `category_counts`: this endpoint's category is already fixed to TEACHING
-    by construction (see this module's docstring), so a `category_counts`
-    field listing TEACHING/NON_TEACHING/HOUSEKEEPING counts would always
-    read `{"NON_TEACHING": 0, "HOUSEKEEPING": 0}` here and add nothing --
-    `status` is this view's actual tabbable dimension, so that's what gets
-    the pre-filter-cut count snapshot.
+    `category_counts`: each call of this function's category is already
+    fixed by its own `category` argument (see this module's docstring), so a
+    `category_counts` field listing TEACHING/NON_TEACHING/HOUSEKEEPING counts
+    would always read `{0, 0}` for the other two categories here and add
+    nothing -- `status` is this view's actual tabbable dimension, so that's
+    what gets the pre-filter-cut count snapshot.
 
     total is the count of rows matching every filter (including the
     Python-computed `status`/`vacancy` filters), before offset/limit
@@ -250,19 +310,19 @@ def list_teaching_strength_rows(
     effective_rows = current_effective_rows(
         db, campus_id=campus_id_filter, department_id=department_id, designation_id=designation_id
     )
-    teaching_rows = [row for row in effective_rows if row.category == StaffRoleCategoryEnum.TEACHING]
+    category_rows = [row for row in effective_rows if row.category == category]
     if location_id is not None:
-        teaching_rows = [row for row in teaching_rows if row.location_id == location_id]
+        category_rows = [row for row in category_rows if row.location_id == location_id]
 
-    if not teaching_rows:
+    if not category_rows:
         empty_counts = {code: 0 for code in TEACHING_STRENGTH_STATUS_VALUES}
         empty_counts["ALL"] = 0
         return [], 0, empty_counts
 
-    department_ids = {row.department_id for row in teaching_rows}
-    designation_ids = {row.designation_id for row in teaching_rows}
-    campus_ids = {row.campus_id for row in teaching_rows}
-    location_ids = {row.location_id for row in teaching_rows if row.location_id is not None}
+    department_ids = {row.department_id for row in category_rows}
+    designation_ids = {row.designation_id for row in category_rows}
+    campus_ids = {row.campus_id for row in category_rows}
+    location_ids = {row.location_id for row in category_rows if row.location_id is not None}
 
     department_by_id = {d.id: d for d in db.query(Department).filter(Department.id.in_(department_ids)).all()}
     designation_by_id = {
@@ -324,7 +384,7 @@ def list_teaching_strength_rows(
     pattern = search.strip().lower() if search else None
 
     results: list[dict] = []
-    for row in teaching_rows:
+    for row in category_rows:
         department = department_by_id.get(row.department_id)
         designation = designation_by_id.get(row.designation_id)
         # Both are guaranteed to exist (RESTRICT FKs on SanctionedStrength --
@@ -342,7 +402,7 @@ def list_teaching_strength_rows(
             db,
             department_id=row.department_id,
             designation_id=row.designation_id,
-            category=StaffRoleCategoryEnum.TEACHING,
+            category=category,
         )
         approved = row.approved_strength
         row_vacancy = approved - working
@@ -356,7 +416,7 @@ def list_teaching_strength_rows(
         has_pending_request = (
             in_flight_count_by_key.get((row.campus_id, row.department_id, row.designation_id), 0) > 0
         )
-        row_status = teaching_strength_status(
+        row_status = strength_row_status(
             vacancy=row_vacancy, is_inactive=is_inactive, has_pending_request=has_pending_request
         )
 
@@ -410,3 +470,45 @@ def list_teaching_strength_rows(
     total = len(results)
     page = results[offset : offset + limit]
     return page, total, status_counts
+
+
+def list_teaching_strength_rows(
+    db: Session,
+    scope: CampusScope,
+    *,
+    limit: int,
+    offset: int,
+    sort_by: str,
+    sort_dir: str,
+    campus_code: str | None = None,
+    department_id: uuid.UUID | None = None,
+    designation_id: uuid.UUID | None = None,
+    location_id: uuid.UUID | None = None,
+    search: str | None = None,
+    status: str | None = None,
+    vacancy: int | None = None,
+) -> tuple[list[dict], int, dict[str, int]]:
+    """Phase E's original entry point, kept as a thin wrapper around the
+    Phase F generalization (`list_strength_view_rows`) rather than renamed or
+    removed -- see this module's docstring's "Phase F naming/refactor
+    choices" section for why. Every existing caller (the `/views/teaching`
+    router handler, `tests/test_sanctioned_strength_views.py`'s Phase E
+    tests) keeps calling this exact name with this exact signature, and gets
+    byte-for-byte the same behavior as before this refactor -- this wrapper
+    is the thing that guarantees that, not just a convention."""
+    return list_strength_view_rows(
+        db,
+        scope,
+        category=StaffRoleCategoryEnum.TEACHING,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        campus_code=campus_code,
+        department_id=department_id,
+        designation_id=designation_id,
+        location_id=location_id,
+        search=search,
+        status=status,
+        vacancy=vacancy,
+    )
