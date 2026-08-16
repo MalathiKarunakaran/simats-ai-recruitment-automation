@@ -9,6 +9,7 @@ import { ApiError } from "@/api/client";
 import * as departmentsApi from "@/api/departments";
 import * as designationsApi from "@/api/designations";
 import * as employeesApi from "@/api/employees";
+import * as housekeepingStaffApi from "@/api/housekeepingStaff";
 import * as locationsApi from "@/api/locations";
 import * as sanctionedStrengthApi from "@/api/sanctionedStrength";
 import type { SanctionedStrengthListResponse } from "@/api/sanctionedStrength";
@@ -18,6 +19,9 @@ import type {
   DepartmentRead,
   DesignationRead,
   EmployeeRead,
+  HousekeepingStaffRead,
+  HousekeepingStrengthListResponse,
+  HousekeepingStrengthRow,
   LocationRead,
   NonTeachingStrengthListResponse,
   NonTeachingStrengthRow,
@@ -39,6 +43,7 @@ vi.mock("@/api/departments");
 vi.mock("@/api/designations");
 vi.mock("@/api/locations");
 vi.mock("@/api/employees");
+vi.mock("@/api/housekeepingStaff");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -53,11 +58,15 @@ const mockedGetSanctionedStrengthHistory = vi.mocked(sanctionedStrengthApi.getSa
 const mockedListBulkUploads = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthBulkUploads);
 const mockedListTeachingStrengthRows = vi.mocked(sanctionedStrengthViewsApi.listTeachingStrengthRows);
 const mockedListNonTeachingStrengthRows = vi.mocked(sanctionedStrengthViewsApi.listNonTeachingStrengthRows);
+const mockedListHousekeepingStrengthRows = vi.mocked(sanctionedStrengthViewsApi.listHousekeepingStrengthRows);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
 const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedListEmployeesByDepartmentDesignation = vi.mocked(employeesApi.listEmployeesByDepartmentDesignation);
+const mockedListHousekeepingStaffByLocation = vi.mocked(housekeepingStaffApi.listHousekeepingStaffByLocation);
+const mockedCreateHousekeepingStaff = vi.mocked(housekeepingStaffApi.createHousekeepingStaff);
+const mockedDeleteHousekeepingStaff = vi.mocked(housekeepingStaffApi.deleteHousekeepingStaff);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 
 const CSE_ROW: VacancyRegisterRow = {
@@ -320,6 +329,106 @@ const EMPLOYEE_1: EmployeeRead = {
   updated_at: "2026-07-10T00:00:00Z",
 };
 
+// --- Housekeeping operational view fixtures (glowing-zooming-hamming.md Phase G) ---
+
+const HOUSEKEEPING_ROW_1: HousekeepingStrengthRow = {
+  campus_id: "c-sse",
+  campus_code: "SSE",
+  location_id: "loc-hk-1",
+  location_name: "Central Library",
+  block: "Block A",
+  floor_venue: "Ground Floor",
+  shifts: ["EVENING", "MORNING"],
+  required: 5,
+  available: 3,
+  vacancy: 2,
+  status: "VACANCY_RECRUITMENT_REQUIRED",
+};
+
+// available (6) > required (2) -- OVERSTAFFED status while vacancy still
+// reads the FLOORED value (0), never negative. See
+// app/services/sanctioned_strength_views.py's own module docstring, Phase G
+// judgment call #2, and api/types.ts's own HousekeepingStrengthRow
+// docstring.
+const HOUSEKEEPING_ROW_2: HousekeepingStrengthRow = {
+  campus_id: "c-sse",
+  campus_code: "SSE",
+  location_id: "loc-hk-2",
+  location_name: "Admin Block",
+  block: null,
+  floor_venue: null,
+  shifts: [],
+  required: 2,
+  available: 6,
+  vacancy: 0,
+  status: "OVERSTAFFED",
+};
+
+function paginatedHousekeeping(
+  items: HousekeepingStrengthRow[],
+  total = items.length,
+  statusCounts?: Record<string, number>,
+): HousekeepingStrengthListResponse {
+  return {
+    items,
+    total,
+    limit: 50,
+    offset: 0,
+    status_counts: statusCounts ?? {
+      VACANCY_RECRUITMENT_REQUIRED: items.filter((r) => r.status === "VACANCY_RECRUITMENT_REQUIRED").length,
+      FULLY_STAFFED: items.filter((r) => r.status === "FULLY_STAFFED").length,
+      OVERSTAFFED: items.filter((r) => r.status === "OVERSTAFFED").length,
+      APPROVAL_PENDING: items.filter((r) => r.status === "APPROVAL_PENDING").length,
+      INACTIVE: items.filter((r) => r.status === "INACTIVE").length,
+      ALL: items.length,
+    },
+  };
+}
+
+const HK_DESIGNATION: DesignationRead = {
+  id: "des-hk-1",
+  name: "Cleaner",
+  category: "HOUSEKEEPING",
+  qualification: "10th pass",
+  min_experience: "0+ years",
+  employment_type: "FULL_TIME",
+  is_active: true,
+  department_ids: [],
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
+// Populates the Housekeeping table's own Location filter dropdown and the
+// designation lookup its roster expand row resolves names from -- no
+// Department fixture at all (this view has no department dimension, see
+// HousekeepingStrengthTable's own docstring).
+function mockHousekeepingFilterData() {
+  const now = "2026-01-01T00:00:00Z";
+  mockedListDesignations.mockResolvedValue([HK_DESIGNATION]);
+  mockedListLocations.mockResolvedValue([
+    { id: "loc-hk-1", campus_id: "c-sse", name: "Central Library", block_building: "Block A", floor_venue: "Ground Floor", category: "HOUSEKEEPING", is_active: true, created_at: now, updated_at: now },
+    { id: "loc-hk-2", campus_id: "c-sse", name: "Admin Block", block_building: null, floor_venue: null, category: "HOUSEKEEPING", is_active: true, created_at: now, updated_at: now },
+  ] satisfies LocationRead[]);
+}
+
+const HOUSEKEEPING_STAFF_1: HousekeepingStaffRead = {
+  id: "hk-staff-1",
+  campus_id: "c-sse",
+  bio_id: "BIO-100",
+  name: "Kamala Devi",
+  designation_id: "des-hk-1",
+  location_id: "loc-hk-1",
+  block: "Block A",
+  floor_venue: "Ground Floor",
+  shift: "MORNING",
+  supervisor: "Ramesh",
+  is_active: true,
+  created_by_id: "u-1",
+  updated_by_id: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
 function mockAuth(role: UserRole) {
   mockedUseAuth.mockReturnValue({
     user: { role } as UserRead,
@@ -338,20 +447,28 @@ function mockCampuses() {
   ]);
 }
 
-// Defaults to ?category=housekeeping (glowing-zooming-hamming.md Phases
-// E/F) -- SanctionedStrengthPage now defaults to the TEACHING tab (its own
-// TeachingStrengthTable, a completely different component/endpoint), and as
-// of Phase F NON_TEACHING is *also* its own dedicated component
-// (NonTeachingStrengthTable, its own endpoint) -- so every test in this file
-// *except* the dedicated "Teaching operational view"/"Non-Teaching
-// operational view" describe blocks below exercises the pre-existing
-// department-rollup+expand table (backed by listSanctionedStrengthRegister)
-// -- deliberately started on HOUSEKEEPING (neither of the two categories
-// with their own dedicated view yet -- Housekeeping's is Phase G's job) so
-// all of that pre-existing coverage keeps exercising exactly the same code
-// path it always did, unchanged by either phase's default-tab/dedicated-view
-// changes.
-function renderPage(initialEntries: string[] = ["/sanctioned-strength?category=housekeeping"]) {
+// Defaults to ?category=all (glowing-zooming-hamming.md Phases E/F/G) --
+// SanctionedStrengthPage now defaults to the TEACHING tab (its own
+// TeachingStrengthTable, a completely different component/endpoint), and by
+// Phase F NON_TEACHING was *also* its own dedicated component
+// (NonTeachingStrengthTable). As of this file's own Phase G update,
+// HOUSEKEEPING is the third and last of the three staff categories to get
+// its own dedicated component (HousekeepingStrengthTable) -- which means
+// "All" is now the *only* remaining tab that still exercises the pre-existing
+// department-rollup+expand table (backed by listSanctionedStrengthRegister).
+// This function's own default changed from HOUSEKEEPING (Phases E/F's
+// choice, back when Housekeeping had no dedicated view yet) to ALL for
+// exactly that reason -- every test in this file *except* the dedicated
+// "Teaching operational view"/"Non-Teaching operational view"/"Housekeeping
+// operational view" describe blocks below still needs a tab that renders
+// the legacy rollup table, and ALL is the only one left. Tests that
+// previously relied on the HOUSEKEEPING default to reach the rollup table
+// (or explicitly clicked/passed category=housekeeping to force it) were
+// updated in this same phase -- see the comments at each call site below for
+// what changed and why (mirrors this file's own precedent: the Phase E->F
+// default-tab change from NON_TEACHING to HOUSEKEEPING broke one test the
+// same way, documented at that test's own site).
+function renderPage(initialEntries: string[] = ["/sanctioned-strength?category=all"]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -449,13 +566,14 @@ describe("SanctionedStrengthPage", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
-        {/* &category=housekeeping -- this reverse-link test exercises the
-            rollup table's expand/collapse behavior specifically, which is
-            unrelated to (and unaffected by) which category is selected; a
-            Housekeeping category keeps it on that table rather than the
-            default TEACHING tab's TeachingStrengthTable or Phase F's own
-            NON_TEACHING -> NonTeachingStrengthTable (neither has an expand). */}
-        <MemoryRouter initialEntries={["/sanctioned-strength?department=d-cse&designation=des-1&category=housekeeping"]}>
+        {/* &category=all -- this reverse-link test exercises the rollup
+            table's expand/collapse behavior specifically, which is
+            unrelated to (and unaffected by) which category is selected, as
+            long as that category still renders the rollup table -- as of
+            Phase G, "All" is the only one that does (Teaching/Non-Teaching/
+            Housekeeping are all now their own dedicated components with no
+            expand affordance at all). */}
+        <MemoryRouter initialEntries={["/sanctioned-strength?department=d-cse&designation=des-1&category=all"]}>
           <SanctionedStrengthPage />
         </MemoryRouter>
       </QueryClientProvider>,
@@ -551,10 +669,12 @@ describe("SanctionedStrengthPage", () => {
     mockCampuses();
     mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([]));
 
-    // Explicit ?category=all -- renderPage()'s own default (housekeeping)
-    // is itself a real category filter (hasAnyFilter treats
-    // categoryFilter !== "ALL" as a filter), which would flip this into the
-    // *filters-narrowed* empty state below instead of this genuine one.
+    // Explicit ?category=all -- redundant with renderPage()'s own default as
+    // of Phase G (also "all"), kept explicit here as a guard against that
+    // default ever changing again: any non-"ALL" categoryFilter is itself a
+    // real filter (hasAnyFilter treats categoryFilter !== "ALL" as a
+    // filter), which would flip this into the *filters-narrowed* empty
+    // state below instead of this genuine one.
     renderPage(["/sanctioned-strength?category=all"]);
 
     expect(await screen.findByText("No departments found.")).toBeInTheDocument();
@@ -565,16 +685,21 @@ describe("SanctionedStrengthPage", () => {
     mockCampuses();
     mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
 
-    // Starts on "all" (not renderPage()'s own default of Housekeeping) so
-    // clicking the Housekeeping tab below is a genuine change that actually
-    // triggers a new fetch -- clicking a tab that's already selected is a
-    // no-op, which is exactly what silently broke this test on the
-    // Phase E->F default-tab change (non-teaching -> housekeeping).
-    renderPage(["/sanctioned-strength?category=all"]);
+    // As of Phase G, "All" is the *only* tab left that renders this rollup
+    // table (Teaching/Non-Teaching/Housekeeping are all now their own
+    // dedicated components -- see renderPage()'s own comment), so a category
+    // tab click can no longer be this test's "narrowing filter" the way it
+    // was pre-Phase-G (start on "all", click "Housekeeping" while it was
+    // still the rollup table too). Uses the Approval status filter instead
+    // -- any of this page's own filters narrows the same way; this one was
+    // picked simply because it's a plain Select, same low-ceremony shape as
+    // the category-tab click it replaces.
+    renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
     mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([]));
-    await userEvent.click(screen.getByRole("tab", { name: /^Housekeeping/ }));
+    await userEvent.click(screen.getByRole("combobox", { name: "Approval status filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Approval Pending" }));
 
     expect(await screen.findByText("No departments match these filters.")).toBeInTheDocument();
     expect(screen.queryByText("No departments found.")).not.toBeInTheDocument();
@@ -632,14 +757,23 @@ describe("SanctionedStrengthPage", () => {
     mockAuth("HR_ADMIN");
     mockCampuses();
     mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW], 120));
+    // Phase G: Housekeeping is now its own dedicated view/component (like
+    // Teaching/Non-Teaching before it) -- "All" is the only tab left that
+    // renders the rollup table, so this test now starts there
+    // (renderPage()'s own default, as of this phase) rather than switching
+    // *to* it. The underlying behavior under test -- that a category tab
+    // click re-fires listSanctionedStrengthRegister with the new category
+    // param and offset reset to 0 -- still holds regardless of which tab is
+    // switched *to*, since that query itself always runs unconditionally
+    // (CategoryTabs' own counts need it) whether or not the clicked tab
+    // happens to render this query's rows. Switches to Housekeeping instead
+    // of All (the reverse of the pre-Phase-G direction) to keep exercising
+    // a real, non-null category value change.
+    mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([]));
+    mockedListLocations.mockResolvedValue([]);
+    mockedListDesignations.mockResolvedValue([]);
 
-    // Starts on Housekeeping (renderPage()'s own default) so clicking the
-    // All tab below is a genuine change -- both Housekeeping and All still
-    // render the pre-existing rollup table (Teaching/Non-Teaching are now
-    // their own dedicated components/endpoints as of Phases E/F, so neither
-    // is usable for this test any more), so this test is otherwise
-    // unaffected by either phase's default-tab/dedicated-view changes.
-    renderPage(["/sanctioned-strength?category=housekeeping"]);
+    renderPage();
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -647,11 +781,11 @@ describe("SanctionedStrengthPage", () => {
       expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: /^All/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /^Housekeeping/ }));
 
     await waitFor(() =>
       expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
-        expect.objectContaining({ category: null, offset: 0 }),
+        expect.objectContaining({ category: "HOUSEKEEPING", offset: 0 }),
       ),
     );
   });
@@ -1929,6 +2063,366 @@ describe("SanctionedStrengthPage", () => {
       await userEvent.click(await screen.findByRole("option", { name: "Inactive" }));
 
       expect(await screen.findByText("No designations match these filters.")).toBeInTheDocument();
+    });
+  });
+
+  describe("Housekeeping operational view (Phase G)", () => {
+    // Same vi.clearAllMocks() reasoning as the Teaching/Non-Teaching describe
+    // blocks above.
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("renders HousekeepingStrengthTable and calls its own view endpoint (not the register) when the Housekeeping tab is selected", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+
+      expect(await screen.findByRole("tab", { name: /^Housekeeping/ })).toHaveAttribute("aria-selected", "true");
+      await waitFor(() => expect(mockedListHousekeepingStrengthRows).toHaveBeenCalled());
+      expect(screen.getByText("Central Library")).toBeInTheDocument();
+      // Neither the old rollup register's own rows nor Teaching/Non-Teaching's
+      // own endpoints should be involved on this tab.
+      expect(mockedListTeachingStrengthRows).not.toHaveBeenCalled();
+      expect(mockedListNonTeachingStrengthRows).not.toHaveBeenCalled();
+    });
+
+    it("renders the Location/Block/Floor-Venue/Required/Available/Vacancy/Shift/Status columns inline, with a leading expand chevron and NO Department/Designation column anywhere", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      // No "Department"/"Designation" column header exists anywhere on this
+      // table -- HousekeepingStrengthRow carries neither field (see
+      // api/types.ts's own docstring) -- a live-verify-worthy acceptance
+      // criterion per the plan, asserted here directly against the DOM.
+      expect(screen.queryByRole("columnheader", { name: /Department/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("columnheader", { name: /Designation/ })).not.toBeInTheDocument();
+
+      const row = screen.getByText("Central Library").closest("tr");
+      expect(row).not.toBeNull();
+      // cells[0] is the leading chevron cell (no text).
+      const cells = within(row as HTMLElement).getAllByRole("cell");
+      expect(cells[1]).toHaveTextContent("Central Library");
+      expect(cells[2]).toHaveTextContent("Block A");
+      expect(cells[3]).toHaveTextContent("Ground Floor");
+      expect(cells[4]).toHaveTextContent("5");
+      expect(cells[5]).toHaveTextContent("3");
+      expect(cells[6]).toHaveTextContent("2");
+      // shifts: ["EVENING", "MORNING"] -- rendered as separate badges,
+      // sorted as the backend already sorts them (see
+      // app/services/sanctioned_strength_views.py's own docstring).
+      expect(within(cells[7]).getByText("Evening")).toBeInTheDocument();
+      expect(within(cells[7]).getByText("Morning")).toBeInTheDocument();
+      expect(cells[8]).toHaveTextContent("Vacancy/Recruitment Required");
+
+      expect(screen.getByRole("button", { name: /^Expand roster for/ })).toBeInTheDocument();
+    });
+
+    it("renders '—' for the Shift column when a location's roster is empty (shifts: [])", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_2]));
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Admin Block")).toBeInTheDocument());
+
+      const row = screen.getByText("Admin Block").closest("tr");
+      const withinRow = within(row as HTMLElement);
+      expect(withinRow.getAllByText("—").length).toBeGreaterThanOrEqual(3); // Block, Floor/Venue, Shift
+    });
+
+    it("shows OVERSTAFFED status while vacancy still reads the FLOORED value (0), never negative", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      // required=2, available=6 -- raw_vacancy is -4, but the row's own
+      // vacancy field is floored at 0 while status still reads OVERSTAFFED
+      // (see app/services/sanctioned_strength_views.py's own docstring,
+      // Phase G judgment call #2).
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_2]));
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Admin Block")).toBeInTheDocument());
+
+      const row = screen.getByText("Admin Block").closest("tr");
+      const withinRow = within(row as HTMLElement);
+      const cells = withinRow.getAllByRole("cell");
+      expect(cells[4]).toHaveTextContent("2"); // Required
+      expect(cells[5]).toHaveTextContent("6"); // Available
+      expect(cells[6]).toHaveTextContent("0"); // Vacancy -- floored, not -4
+      expect(withinRow.getByText("Overstaffed")).toBeInTheDocument();
+    });
+
+    it("maps every backend status code to its exact intended label text", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      const rows: HousekeepingStrengthRow[] = [
+        { ...HOUSEKEEPING_ROW_1, location_id: "loc-a", location_name: "Row A", status: "VACANCY_RECRUITMENT_REQUIRED" },
+        { ...HOUSEKEEPING_ROW_1, location_id: "loc-b", location_name: "Row B", status: "FULLY_STAFFED" },
+        { ...HOUSEKEEPING_ROW_1, location_id: "loc-c", location_name: "Row C", status: "OVERSTAFFED" },
+        { ...HOUSEKEEPING_ROW_1, location_id: "loc-d", location_name: "Row D", status: "APPROVAL_PENDING" },
+        { ...HOUSEKEEPING_ROW_1, location_id: "loc-e", location_name: "Row E", status: "INACTIVE" },
+      ];
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping(rows, rows.length));
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+
+      await waitFor(() => expect(screen.getByText("Row A")).toBeInTheDocument());
+      expect(screen.getByText("Vacancy/Recruitment Required")).toBeInTheDocument();
+      expect(screen.getByText("Fully Staffed")).toBeInTheDocument();
+      expect(screen.getByText("Overstaffed")).toBeInTheDocument();
+      expect(screen.getByText("Approval Pending")).toBeInTheDocument();
+      expect(screen.getByText("Inactive")).toBeInTheDocument();
+    });
+
+    it("wires Location/Block/Shift/Status/Vacancy filters and column sorting to the real endpoint's query params", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Location filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Central Library" }));
+      await waitFor(() =>
+        expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ location_id: "loc-hk-1", offset: 0 }),
+        ),
+      );
+
+      const blockInput = screen.getByRole("textbox", { name: "Block filter" });
+      await userEvent.type(blockInput, "Block A");
+      await userEvent.keyboard("{Enter}");
+      await waitFor(() =>
+        expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ block: "Block A", offset: 0 }),
+        ),
+      );
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Shift filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Morning" }));
+      await waitFor(() =>
+        expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ shift: "MORNING", offset: 0 }),
+        ),
+      );
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Overstaffed" }));
+      await waitFor(() =>
+        expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ status: "OVERSTAFFED", offset: 0 }),
+        ),
+      );
+
+      const vacancyInput = screen.getByRole("spinbutton", { name: "Vacancy filter" });
+      await userEvent.type(vacancyInput, "2");
+      await userEvent.keyboard("{Enter}");
+      await waitFor(() =>
+        expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ vacancy: 2, offset: 0 }),
+        ),
+      );
+
+      const requiredHeader = screen.getByRole("columnheader", { name: /^Required/ });
+      expect(requiredHeader).toHaveAttribute("aria-sort", "none");
+
+      await userEvent.click(screen.getByRole("button", { name: /^Required/ }));
+      await waitFor(() =>
+        expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ sort_by: "required", sort_dir: "asc", offset: 0 }),
+        ),
+      );
+      await waitFor(() => expect(requiredHeader).toHaveAttribute("aria-sort", "ascending"));
+
+      await userEvent.click(screen.getByRole("button", { name: /^Required/ }));
+      await waitFor(() =>
+        expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ sort_by: "required", sort_dir: "desc", offset: 0 }),
+        ),
+      );
+    });
+
+    it("commits the search box on Enter, re-fetching with the typed text and resetting to page 0", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1], 120));
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: "Next" }));
+      await waitFor(() =>
+        expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50 })),
+      );
+
+      const searchBox = screen.getByRole("textbox", { name: "Search" });
+      await userEvent.type(searchBox, "library");
+      await userEvent.keyboard("{Enter}");
+
+      await waitFor(() =>
+        expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(
+          expect.objectContaining({ search: "library", offset: 0 }),
+        ),
+      );
+    });
+
+    it("expands a location to lazily fetch and show its real HousekeepingStaff roster (not mock data), with Edit/Delete per entry for a write role", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+      mockedListHousekeepingStaffByLocation.mockResolvedValue([HOUSEKEEPING_STAFF_1]);
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      expect(mockedListHousekeepingStaffByLocation).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole("button", { name: "Expand roster for Central Library" }));
+
+      await waitFor(() => expect(mockedListHousekeepingStaffByLocation).toHaveBeenCalledWith("loc-hk-1"));
+      expect(await screen.findByText("BIO-100")).toBeInTheDocument();
+      expect(screen.getByText("Kamala Devi")).toBeInTheDocument();
+      expect(screen.getByText("Cleaner")).toBeInTheDocument();
+      expect(screen.getByText("Ramesh")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Delete housekeeping staff Kamala Devi" })).toBeInTheDocument();
+
+      // Collapsing removes the expanded sub-row's content again.
+      await userEvent.click(screen.getByRole("button", { name: "Collapse roster for Central Library" }));
+      expect(screen.queryByText("Kamala Devi")).not.toBeInTheDocument();
+    });
+
+    it("Delete (roster row): confirms via dialog and calls DELETE /housekeeping-staff/{id}", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+      mockedListHousekeepingStaffByLocation.mockResolvedValue([HOUSEKEEPING_STAFF_1]);
+      mockedDeleteHousekeepingStaff.mockResolvedValue(undefined);
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: "Expand roster for Central Library" }));
+      expect(await screen.findByText("Kamala Devi")).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "Delete housekeeping staff Kamala Devi" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Confirm delete" }));
+
+      await waitFor(() => expect(mockedDeleteHousekeepingStaff).toHaveBeenCalledWith("hk-staff-1"));
+    });
+
+    it("shows an empty-roster message when the expanded location has nobody currently assigned, and hides Edit/Delete for a non-write role", async () => {
+      mockAuth("CAMPUS_HOD");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+      mockedListHousekeepingStaffByLocation.mockResolvedValue([]);
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: "Expand roster for Central Library" }));
+
+      expect(
+        await screen.findByText("No housekeeping staff currently at this location."),
+      ).toBeInTheDocument();
+    });
+
+    it("hides Edit/Delete on a populated roster for a non-write role", async () => {
+      mockAuth("CAMPUS_HOD");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+      mockedListHousekeepingStaffByLocation.mockResolvedValue([HOUSEKEEPING_STAFF_1]);
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: "Expand roster for Central Library" }));
+      expect(await screen.findByText("Kamala Devi")).toBeInTheDocument();
+
+      expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Delete housekeeping staff Kamala Devi" }),
+      ).not.toBeInTheDocument();
+      // No "Add staff" action either, per this table's own canManage gate.
+      expect(screen.queryByRole("button", { name: "Add staff" })).not.toBeInTheDocument();
+    });
+
+    it("'Add staff' opens HousekeepingStaffFormDrawer pre-filled to this row's own location_id/campus_id, with the campus locked", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+      mockedCreateHousekeepingStaff.mockResolvedValue(HOUSEKEEPING_STAFF_1);
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: "Add staff" }));
+
+      expect(await screen.findByText("Add housekeeping staff")).toBeInTheDocument();
+      // Campus is locked (pre-filled from the row, not user-pickable) --
+      // see HousekeepingStrengthTable's own docstring for why.
+      expect(screen.queryByRole("combobox", { name: "Campus" })).not.toBeInTheDocument();
+      expect(await screen.findByText("SSE")).toBeInTheDocument();
+
+      const dialog = screen.getByRole("dialog");
+      await userEvent.type(within(dialog).getByLabelText("Bio ID"), "BIO-200");
+      await userEvent.type(within(dialog).getByLabelText("Name"), "New Staffer");
+      await userEvent.click(within(dialog).getByRole("combobox", { name: "Designation" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Cleaner" }));
+      await userEvent.click(within(dialog).getByRole("combobox", { name: "Shift" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Morning" }));
+
+      // Scoped to the dialog -- the row's own "Add staff" trigger button
+      // (behind the now-open dialog) shares the same accessible name as the
+      // dialog's own submit button.
+      await userEvent.click(within(dialog).getByRole("button", { name: "Add staff" }));
+
+      await waitFor(() =>
+        expect(mockedCreateHousekeepingStaff).toHaveBeenCalledWith(
+          expect.objectContaining({ campus_id: "c-sse", location_id: "loc-hk-1" }),
+        ),
+      );
+    }, 10000);
+
+    it("shows a genuine 'no locations found' empty state when no filters are active, and a filters-narrowed variant otherwise", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([]));
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+
+      expect(await screen.findByText("No sanctioned Housekeeping locations found.")).toBeInTheDocument();
+
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+      await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Overstaffed" }));
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([]));
+      await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Inactive" }));
+
+      expect(await screen.findByText("No locations match these filters.")).toBeInTheDocument();
     });
   });
 });

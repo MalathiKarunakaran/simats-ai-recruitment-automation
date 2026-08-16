@@ -17,6 +17,23 @@ export async function listHousekeepingStaff(): Promise<HousekeepingStaffRead[]> 
   return response.items;
 }
 
+// Mirrors GET /housekeeping-staff?location_id=... -- the location-scoped
+// "lazy-fetch one filtered slice on expand" fetch for
+// HousekeepingStrengthTable's roster expand row (glowing-zooming-hamming.md
+// Phase G), same precedent as employees.ts's own
+// listEmployeesByDepartmentDesignation(). Deliberately a new function, not a
+// param added to listHousekeepingStaff() above -- that one is still used
+// unchanged by HousekeepingStaffListPage.tsx's own full-roster + client-side
+// filter shape (Phase D), a genuinely different fetch pattern (fetch-once,
+// filter-in-memory) from this one (fetch-per-expanded-location, server-side
+// filtered). limit=200 mirrors listHousekeepingStaff()'s own ceiling -- more
+// than any single location's roster is expected to have.
+export async function listHousekeepingStaffByLocation(locationId: string): Promise<HousekeepingStaffRead[]> {
+  const query = new URLSearchParams({ location_id: locationId, limit: "200" });
+  const response = await apiFetch<PaginatedResponse<HousekeepingStaffRead>>(`/housekeeping-staff?${query.toString()}`);
+  return response.items;
+}
+
 export async function createHousekeepingStaff(
   payload: HousekeepingStaffCreatePayload,
 ): Promise<HousekeepingStaffRead> {

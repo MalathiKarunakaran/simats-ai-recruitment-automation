@@ -1,6 +1,8 @@
 import { apiFetch } from "@/api/client";
 import type { SortDirection } from "@/api/sanctionedStrength";
 import type {
+  HousekeepingStrengthListResponse,
+  HousekeepingStrengthStatus,
   NonTeachingStrengthListResponse,
   NonTeachingStrengthStatus,
   TeachingStrengthListResponse,
@@ -146,4 +148,64 @@ export async function listNonTeachingStrengthRows(
 
   const qs = query.toString();
   return apiFetch<NonTeachingStrengthListResponse>(`/sanctioned-strength/views/non-teaching${qs ? `?${qs}` : ""}`);
+}
+
+// Housekeeping sibling of TeachingStrengthSortBy/NonTeachingStrengthSortBy
+// above (glowing-zooming-hamming.md Phase G) -- GET
+// /sanctioned-strength/views/housekeeping has a genuinely different sortable
+// column set (app/services/sanctioned_strength_views.py's own
+// HOUSEKEEPING_STRENGTH_SORT_FIELDS): Location-grained (location_name/block/
+// floor_venue/required/available/vacancy/status), no campus_code/
+// department_name/designation_name/filled_pct/last_join/last_resignation/
+// last_updated -- this view's row simply doesn't carry those fields (see
+// api/types.ts's own HousekeepingStrengthRow docstring).
+export type HousekeepingStrengthSortBy =
+  | "location_name"
+  | "block"
+  | "floor_venue"
+  | "required"
+  | "available"
+  | "vacancy"
+  | "status";
+
+export interface ListHousekeepingStrengthParams {
+  limit?: number;
+  offset?: number;
+  sort_by?: HousekeepingStrengthSortBy;
+  sort_dir?: SortDirection;
+  campus_code?: string | null;
+  location_id?: string | null;
+  block?: string | null;
+  shift?: string | null;
+  search?: string | null;
+  status?: HousekeepingStrengthStatus | null;
+  vacancy?: number | null;
+}
+
+// Mirrors GET /sanctioned-strength/views/housekeeping -- returns the full
+// response (not unwrapped to .items), same convention as
+// listTeachingStrengthRows()/listNonTeachingStrengthRows() above. No
+// department_id/designation_id params here -- this view has neither
+// dimension (see app/services/sanctioned_strength_views.py's own
+// list_housekeeping_strength_rows docstring for why).
+export async function listHousekeepingStrengthRows(
+  params: ListHousekeepingStrengthParams = {},
+): Promise<HousekeepingStrengthListResponse> {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  if (params.sort_by) query.set("sort_by", params.sort_by);
+  if (params.sort_dir) query.set("sort_dir", params.sort_dir);
+  if (params.campus_code) query.set("campus_code", params.campus_code);
+  if (params.location_id) query.set("location_id", params.location_id);
+  if (params.block) query.set("block", params.block);
+  if (params.shift) query.set("shift", params.shift);
+  if (params.search) query.set("search", params.search);
+  if (params.status) query.set("status", params.status);
+  if (params.vacancy !== undefined && params.vacancy !== null) {
+    query.set("vacancy", String(params.vacancy));
+  }
+
+  const qs = query.toString();
+  return apiFetch<HousekeepingStrengthListResponse>(`/sanctioned-strength/views/housekeeping${qs ? `?${qs}` : ""}`);
 }

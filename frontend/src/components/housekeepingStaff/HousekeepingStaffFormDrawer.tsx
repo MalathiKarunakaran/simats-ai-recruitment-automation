@@ -19,9 +19,10 @@ import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 // outside (open/onOpenChange/record, no internal trigger button) rather than
 // owning its own trigger the way SanctionedStrengthHistoryDrawer does -- both
 // HousekeepingStaffListPage's "Add staff"/"Edit" buttons need to open the
-// same instance, and Phase G's location-grouped view is expected to reuse
-// this same component for inline roster add/edit (see the plan's Phase G
-// section), so it can't assume a single fixed trigger.
+// same instance, and (as of Phase G) HousekeepingStrengthTable's own
+// per-location "Add staff"/roster-row Edit actions reuse this exact same
+// component for inline roster add/edit, so it can't assume a single fixed
+// trigger.
 //
 // Slide-in technique copied verbatim from SanctionedStrengthHistoryDrawer.tsx
 // (Dialog/DialogContent + the same className override) -- no new dependency.
@@ -33,6 +34,15 @@ import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 // the backend's real 409 ("bio_id '...' is already in use on this campus.")
 // is surfaced verbatim via ApiError.message, same convention as
 // DeleteConfirmDialog/LocationsPage's own error handling.
+//
+// Phase G's own extension: `initialLocationId`/`initialCampusId` (see the
+// props doc below) -- HousekeepingStrengthTable already knows which
+// Location (and its campus) a given row's "Add staff" action targets before
+// the drawer even opens, unlike HousekeepingStaffListPage's own "Add staff"
+// button (no location known ahead of time). Both are optional and only
+// consulted by the seeding effect below when `record` is null (create
+// mode); HousekeepingStaffListPage's existing calls (which omit both) are
+// unaffected.
 
 const SHIFTS: HousekeepingShift[] = ["MORNING", "AFTERNOON", "EVENING", "NIGHT"];
 
@@ -49,6 +59,21 @@ export interface HousekeepingStaffFormDrawerProps {
   /** The campus to default/lock to in create mode -- the current user's own
    * campus_id for a single-campus role. */
   defaultCampusId: string;
+  /** Additive (glowing-zooming-hamming.md Phase G): pre-fill create mode to
+   * a known location/campus, for HousekeepingStrengthTable's "Add staff to
+   * this location" action -- unlike `defaultCampusId` (a role-driven
+   * fallback that's always present), these are only supplied by a caller
+   * that already knows which location it's adding to, so both stay
+   * optional. Only consulted when `record` is null (create mode); ignored
+   * in edit mode, where the record's own campus_id/location_id always win.
+   * When `initialCampusId` is set, it takes priority over `defaultCampusId`
+   * for the seeded campus (a specific known campus is more precise than the
+   * role's generic default) -- see the seeding effect below. Optional and
+   * additive only: HousekeepingStaffListPage.tsx's existing usage (which
+   * doesn't know a location ahead of time) omits both and keeps behaving
+   * exactly as before this phase. */
+  initialLocationId?: string;
+  initialCampusId?: string;
   onSaved: () => void;
 }
 
@@ -58,6 +83,8 @@ export function HousekeepingStaffFormDrawer({
   record,
   canChooseCampus,
   defaultCampusId,
+  initialLocationId,
+  initialCampusId,
   onSaved,
 }: HousekeepingStaffFormDrawerProps) {
   const isEdit = record !== null;
@@ -81,9 +108,13 @@ export function HousekeepingStaffFormDrawer({
     if (!open) return;
     bioId.onChange(record?.bio_id ?? "");
     name.onChange(record?.name ?? "");
-    setCampusId(record?.campus_id ?? defaultCampusId);
+    // record's own campus_id/location_id always win in edit mode;
+    // initialCampusId/initialLocationId (Phase G's pre-fill props) are only
+    // consulted for create mode, ahead of the role-driven defaultCampusId
+    // fallback -- see this prop's own docstring above.
+    setCampusId(record?.campus_id ?? initialCampusId ?? defaultCampusId);
     setDesignationId(record?.designation_id ?? "");
-    setLocationId(record?.location_id ?? "");
+    setLocationId(record?.location_id ?? initialLocationId ?? "");
     setShift(record?.shift ?? "");
     setBlock(record?.block ?? "");
     setFloorVenue(record?.floor_venue ?? "");
@@ -91,7 +122,7 @@ export function HousekeepingStaffFormDrawer({
     setIsActive(record?.is_active ?? true);
     setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, record?.id]);
+  }, [open, record?.id, initialLocationId, initialCampusId]);
 
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses, enabled: open });
   const { data: designations } = useQuery({
