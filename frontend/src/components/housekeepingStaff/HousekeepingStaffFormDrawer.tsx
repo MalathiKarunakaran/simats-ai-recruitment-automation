@@ -17,12 +17,13 @@ import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 // Reusable add/edit drawer for one HousekeepingStaff record
 // (glowing-zooming-hamming.md Phase D). Deliberately controlled from the
 // outside (open/onOpenChange/record, no internal trigger button) rather than
-// owning its own trigger the way SanctionedStrengthHistoryDrawer does -- both
-// HousekeepingStaffListPage's "Add staff"/"Edit" buttons need to open the
-// same instance, and (as of Phase G) HousekeepingStrengthTable's own
-// per-location "Add staff"/roster-row Edit actions reuse this exact same
-// component for inline roster add/edit, so it can't assume a single fixed
-// trigger.
+// owning its own trigger the way SanctionedStrengthHistoryDrawer used to
+// (folded into SanctionedStrengthDrawer.tsx and deleted in Phase H, once
+// that was its only remaining usage) -- both HousekeepingStaffListPage's
+// "Add staff"/"Edit" buttons need to open the same instance, and (as of
+// Phase G) HousekeepingStrengthTable's own per-location "Add staff"/
+// roster-row Edit actions reuse this exact same component for inline
+// roster add/edit, so it can't assume a single fixed trigger.
 //
 // Slide-in technique copied verbatim from SanctionedStrengthHistoryDrawer.tsx
 // (Dialog/DialogContent + the same className override) -- no new dependency.

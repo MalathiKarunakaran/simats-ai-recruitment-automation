@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { Fragment, useState } from "react";
 
@@ -23,11 +23,10 @@ import { cn } from "@/lib/utils";
 // designation-level, every-row-inline table for categoryFilter ===
 // "NON_TEACHING" on SanctionedStrengthPage. Structurally this is
 // TeachingStrengthTable's sibling (same filters/sort/pagination shape,
-// same GET /sanctioned-strength/views/* family, same
-// StrengthRowActions Edit/History/Delete/Raise-vacancy-request cluster
-// reused verbatim -- see that component's own docstring) with two
-// deliberate differences, both judgment calls documented here per this
-// phase's plan:
+// same GET /sanctioned-strength/views/* family, same StrengthRowActions
+// cluster reused verbatim -- see that component's own docstring, updated in
+// Phase H to the single-drawer-trigger shape) with two deliberate
+// differences, both judgment calls documented here per this phase's plan:
 //
 // 1. Column set: the plan names a narrower column list for Non-Teaching
 //    than Teaching actually renders -- "Department/Job Position/Block/
@@ -162,11 +161,18 @@ function EmployeeExpandRow({ departmentId, designationId }: { departmentId: stri
 
 export interface NonTeachingStrengthTableProps {
   canManage: boolean;
+  canViewAuditLog: boolean;
   canFilterByCampus: boolean;
   campuses: CampusRead[] | undefined;
 }
 
-export function NonTeachingStrengthTable({ canManage, canFilterByCampus, campuses }: NonTeachingStrengthTableProps) {
+export function NonTeachingStrengthTable({
+  canManage,
+  canViewAuditLog,
+  canFilterByCampus,
+  campuses,
+}: NonTeachingStrengthTableProps) {
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
   const [sortBy, setSortBy] = useState<NonTeachingStrengthSortBy>("department_name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -493,7 +499,15 @@ export function NonTeachingStrengthTable({ canManage, canFilterByCampus, campuse
                         <Badge variant={statusDisplay.variant}>{statusDisplay.label}</Badge>
                       </td>
                       <td className="px-3 py-2">
-                        <StrengthRowActions row={row} canManage={canManage} />
+                        <StrengthRowActions
+                          row={row}
+                          canManage={canManage}
+                          canViewAuditLog={canViewAuditLog}
+                          category="NON_TEACHING"
+                          onSaved={() =>
+                            queryClient.invalidateQueries({ queryKey: ["non-teaching-strength-view"] })
+                          }
+                        />
                       </td>
                     </tr>
                     {isExpanded ? (

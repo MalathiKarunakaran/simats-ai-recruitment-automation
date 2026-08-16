@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown, Plus } from "lucide-react";
 import { Fragment, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
@@ -12,6 +12,7 @@ import {
   type SortDirection,
 } from "@/api/sanctionedStrength";
 import {
+  AUDIT_LOG_READ_ROLES,
   GLOBAL_SCOPE_ROLES,
   HOUSEKEEPING_STAFF_MANAGEMENT_ROLES,
   SANCTIONED_STRENGTH_WRITE_ROLES,
@@ -22,13 +23,11 @@ import {
 } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { AddDesignationRow } from "@/components/sanctionedStrength/AddDesignationRow";
 import { BulkUploadDialog } from "@/components/sanctionedStrength/BulkUploadDialog";
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
 import { HousekeepingStrengthTable } from "@/components/sanctionedStrength/HousekeepingStrengthTable";
 import { NonTeachingStrengthTable } from "@/components/sanctionedStrength/NonTeachingStrengthTable";
-import { SanctionedStrengthEditPopover } from "@/components/sanctionedStrength/SanctionedStrengthEditPopover";
-import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength/SanctionedStrengthHistoryDrawer";
+import { SanctionedStrengthDrawer } from "@/components/sanctionedStrength/SanctionedStrengthDrawer";
 import { TeachingStrengthTable } from "@/components/sanctionedStrength/TeachingStrengthTable";
 import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -90,66 +89,128 @@ function formatDate(value: string | null): string {
 
 // One designation's row within an expanded department's breakdown table --
 // split out from DepartmentBreakdownRow so it can be a clean per-row
-// component (a plain .map() body can't call hooks per iteration). The
-// approved/effective_from/remarks edit affordance itself (including the
-// create-vs-update POST/PATCH branch) lives in SanctionedStrengthEditPopover.
+// component (a plain .map() body can't call hooks per iteration). Phase H
+// (glowing-zooming-hamming.md): the Approved cell's own edit popover and the
+// Actions cell's History-button both collapsed into a single
+// SanctionedStrengthDrawer trigger (per this phase's user-confirmed "ONE
+// trigger, not two" decision) -- same single-trigger shape as
+// TeachingStrengthTable/NonTeachingStrengthTable's own StrengthRowActions
+// (see that component's docstring). "Raise vacancy request" moved inside
+// the drawer's own Recruitment Status tab, so it no longer sits in this row
+// at all. Delete stays untouched, its own separate button next to the
+// trigger, exactly as before.
 function DesignationRow({
   row,
   departmentId,
   campusId,
+  campusLabel,
+  departmentLabel,
+  category,
   canManage,
+  canViewAuditLog,
 }: {
   row: DepartmentDesignationBreakdownRow;
   departmentId: string;
   campusId: string;
+  campusLabel: string;
+  departmentLabel: string;
+  category: string | null;
   canManage: boolean;
+  canViewAuditLog: boolean;
 }) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
   return (
     <tr>
       <td className="px-3 py-1.5">{row.designation_name}</td>
-      <td className="px-3 py-1.5">
-        <SanctionedStrengthEditPopover
-          row={row}
-          departmentId={departmentId}
-          campusId={campusId}
-          readOnly={!canManage}
-        />
-      </td>
+      <td className="px-3 py-1.5 tabular-nums">{row.approved}</td>
       <td className="px-3 py-1.5 tabular-nums">{row.working}</td>
       <td className="px-3 py-1.5 tabular-nums">{row.vacancy}</td>
       <td className="px-3 py-1.5">
         <div className="flex items-center gap-1.5">
-          {row.sanctioned_strength_id ? (
-            <>
-              <SanctionedStrengthHistoryDrawer
-                sanctionedStrengthId={row.sanctioned_strength_id}
-                designationName={row.designation_name}
-              />
-              {canManage ? (
-                <DeleteSanctionedStrengthDialog
-                  sanctionedStrengthId={row.sanctioned_strength_id}
-                  designationName={row.designation_name}
-                  departmentId={departmentId}
-                />
-              ) : null}
-            </>
-          ) : (
-            <span className="text-xs text-muted-foreground">Not yet sanctioned</span>
-          )}
-          {/* Phase E item 30: only offered where there's actually something
-              vacant to request against -- `maxCount` is a client-side cap
-              only, the real ceiling is still enforced server-side by
-              submit()'s own "Only N posts available to request" 409. */}
-          {row.vacancy > 0 ? (
-            <Link
-              to={`/vacancy-requests/new?campus=${campusId}&department=${departmentId}&designation=${row.designation_id}&maxCount=${row.vacancy}`}
-              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-            >
-              Raise vacancy request
-            </Link>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label={`${canManage ? "Edit" : "View"} sanctioned strength for ${row.designation_name}`}
+            onClick={() => setDrawerOpen(true)}
+          >
+            {canManage ? "Edit" : "View"}
+          </Button>
+          {canManage && row.sanctioned_strength_id ? (
+            <DeleteSanctionedStrengthDialog
+              sanctionedStrengthId={row.sanctioned_strength_id}
+              designationName={row.designation_name}
+              departmentId={departmentId}
+            />
           ) : null}
         </div>
       </td>
+      <SanctionedStrengthDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        mode={canManage ? "edit" : "view"}
+        canManage={canManage}
+        canViewAuditLog={canViewAuditLog}
+        campusId={campusId}
+        campusLabel={campusLabel}
+        departmentId={departmentId}
+        departmentLabel={departmentLabel}
+        category={category as StaffRoleCategory | null}
+        designationId={row.designation_id}
+        designationName={row.designation_name}
+      />
+    </tr>
+  );
+}
+
+// Trailing "Add designation" row under an expanded department's breakdown
+// -- Phase H replaced AddDesignationRow.tsx's own inline form with a plain
+// button that opens SanctionedStrengthDrawer in "add" mode, scoped to this
+// department/campus/category exactly as AddDesignationRow.tsx did (the
+// drawer's own Basic Info tab re-implements that file's category-filtered,
+// already-present-designations-excluded Select -- see
+// SanctionedStrengthDrawer.tsx's own docstring).
+function AddDesignationTrigger({
+  departmentId,
+  campusId,
+  campusLabel,
+  departmentLabel,
+  category,
+  canViewAuditLog,
+  columnCount,
+}: {
+  departmentId: string;
+  campusId: string;
+  campusLabel: string;
+  departmentLabel: string;
+  category: string | null;
+  canViewAuditLog: boolean;
+  columnCount: number;
+}) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  return (
+    <tr>
+      <td colSpan={columnCount} className="px-3 py-1.5">
+        <Button type="button" variant="outline" size="sm" onClick={() => setDrawerOpen(true)}>
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          Add designation
+        </Button>
+      </td>
+      <SanctionedStrengthDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        mode="add"
+        canManage
+        canViewAuditLog={canViewAuditLog}
+        campusId={campusId}
+        campusLabel={campusLabel}
+        departmentId={departmentId}
+        departmentLabel={departmentLabel}
+        category={category as StaffRoleCategory | null}
+        designationId={null}
+      />
     </tr>
   );
 }
@@ -162,13 +223,19 @@ function DesignationRow({
 function DepartmentBreakdownRow({
   departmentId,
   campusId,
+  campusLabel,
+  departmentLabel,
   category,
   canManage,
+  canViewAuditLog,
 }: {
   departmentId: string;
   campusId: string;
+  campusLabel: string;
+  departmentLabel: string;
   category: string | null;
   canManage: boolean;
+  canViewAuditLog: boolean;
 }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["sanctioned-strength-breakdown", departmentId],
@@ -204,15 +271,21 @@ function DepartmentBreakdownRow({
                   row={row}
                   departmentId={departmentId}
                   campusId={campusId}
+                  campusLabel={campusLabel}
+                  departmentLabel={departmentLabel}
+                  category={category}
                   canManage={canManage}
+                  canViewAuditLog={canViewAuditLog}
                 />
               ))}
               {canManage ? (
-                <AddDesignationRow
+                <AddDesignationTrigger
                   departmentId={departmentId}
                   campusId={campusId}
-                  category={category as StaffRoleCategory | null}
-                  excludeDesignationIds={data.map((row) => row.designation_id)}
+                  campusLabel={campusLabel}
+                  departmentLabel={departmentLabel}
+                  category={category}
+                  canViewAuditLog={canViewAuditLog}
                   columnCount={BREAKDOWN_COLUMN_COUNT}
                 />
               ) : null}
@@ -296,6 +369,12 @@ export function SanctionedStrengthPage() {
   // RECRUITMENT_OFFICER, unlike SANCTIONED_STRENGTH_WRITE_ROLES) -- see that
   // component's own docstring, item 2.
   const canManageHousekeepingStaff = Boolean(user && HOUSEKEEPING_STAFF_MANAGEMENT_ROLES.includes(user.role));
+  // Phase H: gates SanctionedStrengthDrawer's own Audit Log tab -- mirrors
+  // app/api/v1/routers/audit_logs.py's own read-role gate (same set
+  // AppShell.tsx's "Activity Log" nav item already uses), a different (and
+  // broader-in-one-direction, narrower-in-another) role set than `canManage`
+  // above.
+  const canViewAuditLog = Boolean(user && AUDIT_LOG_READ_ROLES.includes(user.role));
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses, enabled: canFilterByCampus });
 
   const { data, isLoading, isError, error } = useQuery({
@@ -412,7 +491,12 @@ export function SanctionedStrengthPage() {
             // phase; the register query above still runs regardless of tab
             // (CategoryTabs' own counts need it), it's just not rendered as a
             // table body while on the Teaching tab.
-            <TeachingStrengthTable canManage={canManage} canFilterByCampus={canFilterByCampus} campuses={campuses} />
+            <TeachingStrengthTable
+              canManage={canManage}
+              canViewAuditLog={canViewAuditLog}
+              canFilterByCampus={canFilterByCampus}
+              campuses={campuses}
+            />
           ) : categoryFilter === "NON_TEACHING" ? (
             // Non-Teaching's own operational view (Phase F, glowing-zooming-
             // hamming.md) -- same designation-level-rows-with-no-department-
@@ -423,7 +507,12 @@ export function SanctionedStrengthPage() {
             // own dedicated view is Phase G's job, and "All" spans every
             // category so it isn't a single designation-level grain to begin
             // with).
-            <NonTeachingStrengthTable canManage={canManage} canFilterByCampus={canFilterByCampus} campuses={campuses} />
+            <NonTeachingStrengthTable
+              canManage={canManage}
+              canViewAuditLog={canViewAuditLog}
+              canFilterByCampus={canFilterByCampus}
+              campuses={campuses}
+            />
           ) : categoryFilter === "HOUSEKEEPING" ? (
             // Housekeeping's own operational view (Phase G, glowing-zooming-
             // hamming.md) -- Location-grained rows (Required/Available/
@@ -667,8 +756,11 @@ export function SanctionedStrengthPage() {
                           <DepartmentBreakdownRow
                             departmentId={row.department_id}
                             campusId={row.campus_id}
+                            campusLabel={row.campus_code}
+                            departmentLabel={row.department_name}
                             category={row.category}
                             canManage={canManage}
+                            canViewAuditLog={canViewAuditLog}
                           />
                         ) : null}
                       </Fragment>

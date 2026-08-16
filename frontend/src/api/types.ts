@@ -341,6 +341,20 @@ export const DESIGNATION_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "REC
 // only consulted for the write actions, never the "View history" trigger.
 export const SANCTIONED_STRENGTH_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
 
+// Mirrors app/api/v1/routers/audit_logs.py::_READ_ROLES exactly (same role
+// set AppShell.tsx's own "Activity Log" nav item already gates on) --
+// SanctionedStrengthDrawer.tsx (Phase H, glowing-zooming-hamming.md) reuses
+// this to hide its Audit Log tab for a viewer who'd otherwise hit a 403 on
+// GET /audit-logs the moment they clicked it (e.g. RECRUITMENT_OFFICER/
+// MANAGEMENT/INTERVIEW_PANEL_MEMBER, all of whom can still view the drawer
+// itself read-only).
+export const AUDIT_LOG_READ_ROLES: readonly UserRole[] = [
+  "SUPER_ADMIN",
+  "HR_ADMIN",
+  "ASSOCIATE_DEAN_RECRUITMENT",
+  "CAMPUS_HOD",
+];
+
 // Mirrors app/schemas/designation.py::DesignationRead.
 export interface DesignationRead {
   id: string;
@@ -1237,6 +1251,16 @@ export interface DepartmentDesignationBreakdownRow {
   // matching all 3 fields SanctionedStrengthUpdatePayload accepts.
   effective_from: string | null;
   remarks: string | null;
+  // Mirrors app/schemas/sanctioned_strength.py::DepartmentDesignationBreakdownRow's
+  // own location_id/location_name (Phase C, glowing-zooming-hamming.md) --
+  // the backend has sent these since Phase C, but this frontend type never
+  // carried them until Phase H's drawer (glowing-zooming-hamming.md) needed
+  // them to pre-fill its own Location tab. Both null, same convention as
+  // sanctioned_strength_id, when this designation has never been sanctioned
+  // for this department, or when the current-effective row has no
+  // location_id set (Teaching/Non-Teaching rows, which stay optional).
+  location_id: string | null;
+  location_name: string | null;
 }
 
 // Mirrors app/schemas/sanctioned_strength_views.py::TeachingStrengthRow
@@ -1406,15 +1430,24 @@ export interface SanctionedStrengthCreatePayload {
   approved_strength: number;
   effective_from: string;
   remarks?: string | null;
+  // Phase C (glowing-zooming-hamming.md) -- optional for Teaching/
+  // Non-Teaching, required for Housekeeping (backend-enforced 400, mirrored
+  // client-side in SanctionedStrengthDrawer). Never sent by this codebase
+  // until Phase H's drawer -- the legacy SanctionedStrengthEditPopover/
+  // AddDesignationRow it replaces never grew a Location field despite the
+  // backend accepting one since Phase C.
+  location_id?: string | null;
 }
 
 // Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthUpdate --
-// the only 3 fields a revision can change; campus/department/designation/
-// category are immutable after creation.
+// campus/department/designation/category are immutable after creation;
+// location_id is the one exception (Phase C) -- a Housekeeping row may need
+// to be re-pointed at a corrected Location without a full new row.
 export interface SanctionedStrengthUpdatePayload {
   approved_strength?: number;
   effective_from?: string;
   remarks?: string | null;
+  location_id?: string | null;
 }
 
 // Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthAvailabilityRead
