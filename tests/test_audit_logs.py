@@ -143,3 +143,53 @@ def test_campus_id_filter_narrows_for_a_global_scope_role(client, user_factory):
 
     campus_contexts = {l["campus_context_id"] for l in logs}
     assert campus_contexts == {str(hod_sse.campus_id)}
+
+
+# --- entity_id filter (Phase H, glowing-zooming-hamming.md) ---------------
+
+
+def test_entity_id_filter_narrows_to_a_single_entity(client, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    target_a = user_factory(UserRoleEnum.RECRUITMENT_OFFICER, campus_code="SSE")
+    target_b = user_factory(UserRoleEnum.RECRUITMENT_OFFICER, campus_code="SCAD")
+    headers = auth_headers(client, admin)
+
+    client.patch(f"/api/v1/users/{target_a.id}", headers=headers, json={"full_name": "A Updated"})
+    client.patch(f"/api/v1/users/{target_b.id}", headers=headers, json={"full_name": "B Updated"})
+
+    logs = client.get(
+        "/api/v1/audit-logs",
+        headers=headers,
+        params={"entity_type": "User", "entity_id": str(target_a.id)},
+    ).json()["items"]
+
+    assert logs
+    assert all(l["entity_id"] == str(target_a.id) for l in logs)
+    assert any(l["action"] == "UPDATE" for l in logs)
+
+
+def test_entity_id_combines_with_entity_type(client, user_factory):
+    # entity_id alone could theoretically collide across entity types (two
+    # different tables both happening to reuse the same UUID never actually
+    # happens, but the filter should still AND-combine, not OR, with
+    # entity_type when both are supplied).
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    target = user_factory(UserRoleEnum.RECRUITMENT_OFFICER, campus_code="SSE")
+    headers = auth_headers(client, admin)
+
+    client.patch(f"/api/v1/users/{target.id}", headers=headers, json={"full_name": "Combined Filter"})
+
+    matching = client.get(
+        "/api/v1/audit-logs",
+        headers=headers,
+        params={"entity_type": "User", "entity_id": str(target.id)},
+    ).json()["items"]
+    assert matching
+    assert all(l["entity_type"] == "User" and l["entity_id"] == str(target.id) for l in matching)
+
+    non_matching_type = client.get(
+        "/api/v1/audit-logs",
+        headers=headers,
+        params={"entity_type": "VacancyRequest", "entity_id": str(target.id)},
+    ).json()["items"]
+    assert non_matching_type == []

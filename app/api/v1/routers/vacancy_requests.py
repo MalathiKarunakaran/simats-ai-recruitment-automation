@@ -162,6 +162,23 @@ def list_vacancy_requests(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     status_filter: VacancyRequestStatusEnum | None = Query(None, alias="status"),
+    # Phase H (glowing-zooming-hamming.md) -- department_id/designation_id
+    # filters, added for the Sanctioned Strength drawer's "Approval Status"
+    # tab (the actual VacancyRequest rows for one exact (campus, department,
+    # designation) key -- their individual status/requested_by/dates -- as
+    # distinct from the "Recruitment Status" tab, which uses the pre-existing
+    # GET /sanctioned-strength/availability *counts* endpoint, unchanged).
+    # This mirrors vacancy_register.py's own approval_status ("where's the
+    # paperwork") vs. recruitment_status ("does this need recruitment,
+    # numerically") split -- see that module's docstring -- and the same
+    # additive department_id/designation_id precedent already used for
+    # GET /employees in Phase F (app/api/v1/routers/employees.py). Plain
+    # AND-combined equality filters, same shape as the pre-existing status
+    # filter just above, applied alongside (not instead of) the existing
+    # campus-scope filter below. No existing caller passes these, so omitting
+    # them is a no-op.
+    department_id: uuid.UUID | None = Query(None),
+    designation_id: uuid.UUID | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
@@ -171,6 +188,10 @@ def list_vacancy_requests(
         query = query.filter(VacancyRequest.campus_id == scope.campus_id)
     if status_filter is not None:
         query = query.filter(VacancyRequest.status == status_filter)
+    if department_id is not None:
+        query = query.filter(VacancyRequest.department_id == department_id)
+    if designation_id is not None:
+        query = query.filter(VacancyRequest.designation_id == designation_id)
     total = query.count()
     rows = query.order_by(VacancyRequest.created_at.desc()).offset(offset).limit(limit).all()
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
