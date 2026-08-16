@@ -207,9 +207,9 @@ function paginatedTeaching(
 
 // Populates the Teaching table's own Department/Designation/Location filter
 // dropdowns -- fetched unconditionally on mount (small master-data lists,
-// same eager-fetch convention as AddDesignationRow's own designations query,
-// just not gated behind an "open" flag since these are plain filter Selects,
-// not a create-row form).
+// same eager-fetch convention as SanctionedStrengthDrawer's own designations
+// query, just not gated behind an "open" flag since these are plain filter
+// Selects, not a create-row form).
 function mockTeachingFilterData() {
   const now = "2026-01-01T00:00:00Z";
   mockedListDepartments.mockResolvedValue([
@@ -926,6 +926,8 @@ describe("SanctionedStrengthPage", () => {
         vacancy: 3,
         effective_from: "2026-08-10",
         remarks: "Existing sanction",
+        location_id: null,
+        location_name: null,
       },
       {
         designation_id: "des-2",
@@ -936,6 +938,8 @@ describe("SanctionedStrengthPage", () => {
         vacancy: 0,
         effective_from: null,
         remarks: null,
+        location_id: null,
+        location_name: null,
       },
     ];
 
@@ -971,7 +975,7 @@ describe("SanctionedStrengthPage", () => {
       await waitFor(() => expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument());
     });
 
-    it("offers 'Raise vacancy request' only for a designation row with vacancy > 0 (Phase E item 30)", async () => {
+    it("no longer renders a per-row 'Raise vacancy request' link (moved into the drawer's Recruitment Status tab, Phase H)", async () => {
       mockAuth("HR_ADMIN");
       mockCampuses();
       mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
@@ -982,14 +986,11 @@ describe("SanctionedStrengthPage", () => {
       await userEvent.click(screen.getByRole("button", { name: /Expand Computer Science/ }));
       expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
 
-      // Assistant Professor: vacancy=3 -> link shown, capped at that count.
-      const raiseLink = screen.getByRole("link", { name: "Raise vacancy request" });
-      expect(raiseLink).toHaveAttribute(
-        "href",
-        "/vacancy-requests/new?campus=c-sse&department=d-cse&designation=des-1&maxCount=3",
-      );
-      // Professor: vacancy=0 -> no link for that row. Only one link total.
-      expect(screen.getAllByRole("link", { name: "Raise vacancy request" })).toHaveLength(1);
+      // Assistant Professor has vacancy=3 -- under the old row-level link,
+      // this would have shown a "Raise vacancy request" link. As of Phase H
+      // that CTA lives inside SanctionedStrengthDrawer's own Recruitment
+      // Status tab instead (see SanctionedStrengthDrawer.test.tsx).
+      expect(screen.queryByRole("link", { name: "Raise vacancy request" })).not.toBeInTheDocument();
     });
 
     it("only fetches the breakdown for the expanded department, not every department in the list", async () => {
@@ -1008,7 +1009,16 @@ describe("SanctionedStrengthPage", () => {
       expect(mockedGetBreakdown).not.toHaveBeenCalledWith("d-mech");
     });
 
-    describe("CRUD affordances (Phase D)", () => {
+    // Phase H (glowing-zooming-hamming.md): the old per-field Edit
+    // popover/History button/Add-designation-inline-form CRUD affordances
+    // collapsed into the single SanctionedStrengthDrawer trigger + Delete
+    // shape -- see SanctionedStrengthDrawer.tsx's own docstring. This
+    // describe block now drives that same drawer through the page's own
+    // legacy rollup table entry points ("Edit"/"View" trigger, "Add
+    // designation" button); the drawer's own tab-by-tab data-source
+    // coverage (Recruitment/Approval Status, Audit Log, mode defaults) lives
+    // in SanctionedStrengthDrawer.test.tsx instead of being re-tested here.
+    describe("Sanctioned strength drawer (Phase H)", () => {
       const SANCTIONED_STRENGTH_ROW: SanctionedStrengthRead = {
         id: "ss-1",
         campus_id: "c-sse",
@@ -1032,7 +1042,7 @@ describe("SanctionedStrengthPage", () => {
         expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
       }
 
-      it("PATCHes an existing row via the edit popover's Save button, sending all three fields, and re-fetches the breakdown", async () => {
+      it("PATCHes an existing row via the drawer's Strength tab, sending all three fields, and re-fetches the breakdown", async () => {
         mockAuth("HR_ADMIN");
         mockCampuses();
         mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
@@ -1041,13 +1051,17 @@ describe("SanctionedStrengthPage", () => {
 
         await expandCse();
 
-        // "Edit sanctioned strength for Assistant Professor" is the exact
-        // accessible name SanctionedStrengthEditPopover's trigger gets --
+        // "Edit sanctioned strength for Assistant Professor" is the single
+        // drawer-trigger's exact accessible name for a write-role user --
         // exact match deliberately, since "Professor" alone is ambiguous
         // with the other row's "...for Professor" trigger.
         await userEvent.click(
           screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
         );
+        // Defaults to the Basic Info tab for a write-role user.
+        expect(await screen.findByRole("tab", { name: "Basic Info" })).toHaveAttribute("aria-selected", "true");
+
+        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
 
         // Pre-filled from the breakdown row (approved=10, effective_from=
         // 2026-08-10, remarks="Existing sanction").
@@ -1070,6 +1084,7 @@ describe("SanctionedStrengthPage", () => {
             approved_strength: 12,
             effective_from: "2026-08-10",
             remarks: "Revised headcount",
+            location_id: null,
           }),
         );
         // Invalidation triggers a second breakdown fetch for the same department.
@@ -1087,7 +1102,8 @@ describe("SanctionedStrengthPage", () => {
         await userEvent.click(
           screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
         );
-        const approvedInput = screen.getByLabelText("Approved");
+        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
+        const approvedInput = await screen.findByLabelText("Approved");
         await userEvent.clear(approvedInput);
         await userEvent.type(approvedInput, "-5");
 
@@ -1098,7 +1114,7 @@ describe("SanctionedStrengthPage", () => {
         expect(mockedCreateSanctionedStrength).not.toHaveBeenCalled();
       });
 
-      it("Cancel discards the draft and closes the popover without calling the API", async () => {
+      it("Cancel discards the draft and closes the drawer without calling the API", async () => {
         mockAuth("HR_ADMIN");
         mockCampuses();
         mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
@@ -1109,7 +1125,8 @@ describe("SanctionedStrengthPage", () => {
         await userEvent.click(
           screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
         );
-        const approvedInput = screen.getByLabelText("Approved");
+        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
+        const approvedInput = await screen.findByLabelText("Approved");
         await userEvent.clear(approvedInput);
         await userEvent.type(approvedInput, "99");
 
@@ -1121,11 +1138,12 @@ describe("SanctionedStrengthPage", () => {
 
         // Re-opening shows the original (unchanged) value, not the
         // discarded "99" draft -- confirms Cancel didn't mutate local state
-        // either, only closed the popover.
+        // either, only closed the drawer.
         await userEvent.click(
           screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
         );
-        expect(screen.getByLabelText("Approved")).toHaveValue(10);
+        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
+        expect(await screen.findByLabelText("Approved")).toHaveValue(10);
       });
 
       it("POSTs a brand-new row when editing a designation with no sanctioned_strength_id yet", async () => {
@@ -1138,12 +1156,16 @@ describe("SanctionedStrengthPage", () => {
         await expandCse();
         expect(screen.getByText("Professor")).toBeInTheDocument();
 
+        // The trigger still opens (in "edit" mode) even though this
+        // designation has never been sanctioned yet -- same as the legacy
+        // popover's own behavior for a null sanctioned_strength_id row.
         await userEvent.click(screen.getByRole("button", { name: "Edit sanctioned strength for Professor" }));
-        // Never sanctioned yet (sanctioned_strength_id === null) -- the
-        // popover still pre-fills from whatever the breakdown row's own
-        // approved/remarks are (4 / null here), effective_from just falls
-        // back to today since the row's own effective_from is null.
-        const approvedInput = screen.getByLabelText("Approved");
+        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
+        // Never sanctioned yet (sanctioned_strength_id === null) -- still
+        // pre-fills from whatever the breakdown row's own approved/remarks
+        // are (4 / null here), effective_from just falls back to today
+        // since the row's own effective_from is null.
+        const approvedInput = await screen.findByLabelText("Approved");
         expect(approvedInput).toHaveValue(4);
         const remarksInput = screen.getByLabelText("Remarks");
         expect(remarksInput).toHaveValue("");
@@ -1171,7 +1193,7 @@ describe("SanctionedStrengthPage", () => {
         expect(call.effective_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       });
 
-      it("hides the edit popover trigger, Add designation, and Delete for a non-write role, but still shows History", async () => {
+      it("shows a single 'View' trigger (not Edit), Add designation, and Delete hidden for a non-write role", async () => {
         mockAuth("CAMPUS_HOD");
         mockCampuses();
         mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
@@ -1182,19 +1204,17 @@ describe("SanctionedStrengthPage", () => {
         expect(
           screen.queryByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
         ).not.toBeInTheDocument();
-        expect(
-          screen.queryByRole("button", { name: "Edit sanctioned strength for Professor" }),
-        ).not.toBeInTheDocument();
         expect(screen.queryByRole("button", { name: "Add designation" })).not.toBeInTheDocument();
         expect(
           screen.queryByRole("button", { name: /Delete sanctioned strength for Assistant Professor/ }),
         ).not.toBeInTheDocument();
+        // The single trigger is still present, just labeled/gated read-only.
         expect(
-          screen.getByRole("button", { name: /View history for Assistant Professor/ }),
+          screen.getByRole("button", { name: "View sanctioned strength for Assistant Professor" }),
         ).toBeInTheDocument();
       });
 
-      it("Add designation: submits a POST with the selected designation, category-filtered and excluding rows already shown", async () => {
+      it("Add designation: opens the drawer in Add mode and submits a POST with the selected designation, category-filtered and excluding rows already shown", async () => {
         mockAuth("HR_ADMIN");
         mockCampuses();
         mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
@@ -1229,6 +1249,8 @@ describe("SanctionedStrengthPage", () => {
         await expandCse();
 
         await userEvent.click(screen.getByRole("button", { name: "Add designation" }));
+        // Add mode defaults to the Basic Info tab too (a write-role action).
+        expect(await screen.findByRole("combobox", { name: "Designation" })).toBeInTheDocument();
 
         await userEvent.click(screen.getByRole("combobox", { name: "Designation" }));
         // Category-filtered: the NON_TEACHING designation is never offered
@@ -1238,7 +1260,8 @@ describe("SanctionedStrengthPage", () => {
         expect(screen.queryByRole("option", { name: "Assistant Professor" })).not.toBeInTheDocument();
         await userEvent.click(await screen.findByRole("option", { name: "Associate Professor" }));
 
-        const approvedInput = screen.getByLabelText("Approved");
+        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
+        const approvedInput = await screen.findByLabelText("Approved");
         await userEvent.clear(approvedInput);
         await userEvent.type(approvedInput, "5");
 
@@ -1295,7 +1318,7 @@ describe("SanctionedStrengthPage", () => {
         ).toBeInTheDocument();
       });
 
-      it("History drawer: fetches and renders old -> new, changed-by, and source per entry", async () => {
+      it("History tab: fetches and renders old -> new, changed-by, and source per entry", async () => {
         mockAuth("HR_ADMIN");
         mockCampuses();
         mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
@@ -1331,7 +1354,10 @@ describe("SanctionedStrengthPage", () => {
 
         await expandCse();
 
-        await userEvent.click(screen.getByRole("button", { name: /View history for Assistant Professor/ }));
+        await userEvent.click(
+          screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
+        );
+        await userEvent.click(await screen.findByRole("tab", { name: "History" }));
 
         await waitFor(() => expect(mockedGetSanctionedStrengthHistory).toHaveBeenCalledWith("ss-1"));
         expect(await screen.findByText("8 → 10")).toBeInTheDocument();
@@ -1607,7 +1633,7 @@ describe("SanctionedStrengthPage", () => {
       );
     });
 
-    it("hides Edit/Delete for a non-write role but still shows History and the Raise vacancy request link", async () => {
+    it("shows a single 'View' trigger (not Edit) and hides Delete for a non-write role; no per-row Raise vacancy request link", async () => {
       mockAuth("CAMPUS_HOD");
       mockCampuses();
       mockTeachingFilterData();
@@ -1622,28 +1648,17 @@ describe("SanctionedStrengthPage", () => {
       expect(
         screen.queryByRole("button", { name: /Delete sanctioned strength for Assistant Professor/ }),
       ).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /View history for Assistant Professor/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "View sanctioned strength for Assistant Professor" }),
+      ).toBeInTheDocument();
 
-      const raiseLink = screen.getByRole("link", { name: "Raise vacancy request" });
-      expect(raiseLink).toHaveAttribute(
-        "href",
-        "/vacancy-requests/new?campus=c-sse&department=d-cse&designation=des-1&maxCount=3",
-      );
-    });
-
-    it("hides the Raise vacancy request link once vacancy is 0 (Fully Staffed)", async () => {
-      mockAuth("CAMPUS_HOD");
-      mockCampuses();
-      mockTeachingFilterData();
-      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_2]));
-
-      renderPage(["/sanctioned-strength"]);
-      await waitFor(() => expect(screen.getByText("Professor")).toBeInTheDocument());
-
+      // Phase H: "Raise vacancy request" moved inside the drawer's own
+      // Recruitment Status tab -- no longer a row-level link, regardless of
+      // vacancy (TEACHING_ROW_1 has vacancy=3).
       expect(screen.queryByRole("link", { name: "Raise vacancy request" })).not.toBeInTheDocument();
     });
 
-    it("Edit (write role): lazily fetches the department breakdown for the true effective_from/remarks before opening, and PATCHes on Save", async () => {
+    it("Edit (write role): opens the drawer defaulting to Basic Info, and PATCHes the true effective_from/remarks from the Strength tab", async () => {
       mockAuth("HR_ADMIN");
       mockCampuses();
       mockTeachingFilterData();
@@ -1658,6 +1673,8 @@ describe("SanctionedStrengthPage", () => {
           vacancy: 3,
           effective_from: "2026-05-01",
           remarks: "Original remark",
+          location_id: null,
+          location_name: null,
         },
       ]);
       mockedUpdateSanctionedStrength.mockResolvedValue({
@@ -1684,14 +1701,17 @@ describe("SanctionedStrengthPage", () => {
       await userEvent.click(
         screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
       );
+      expect(await screen.findByRole("tab", { name: "Basic Info" })).toHaveAttribute("aria-selected", "true");
+
+      await userEvent.click(screen.getByRole("tab", { name: "Strength" }));
 
       await waitFor(() => expect(mockedGetBreakdown).toHaveBeenCalledWith("d-cse"));
 
       // Pre-filled with the *fetched* effective_from/remarks, not a blind
-      // today's-date/blank default -- TeachingStrengthTable's own
-      // TeachingRowActions exists specifically to avoid the data-loss bug
-      // where Save would otherwise silently overwrite a real historical
-      // effective_from with today's date (see that component's docstring).
+      // today's-date/blank default -- the drawer fetches the department
+      // breakdown itself specifically to avoid the data-loss bug where Save
+      // would otherwise silently overwrite a real historical effective_from
+      // with today's date (see SanctionedStrengthDrawer.tsx's own docstring).
       const effectiveFromInput = await screen.findByLabelText("Effective from");
       expect(effectiveFromInput).toHaveValue("2026-05-01");
       expect(screen.getByLabelText("Remarks")).toHaveValue("Original remark");
@@ -1706,6 +1726,7 @@ describe("SanctionedStrengthPage", () => {
           approved_strength: 12,
           effective_from: "2026-05-01",
           remarks: "Original remark",
+          location_id: null,
         }),
       );
     });
@@ -1957,7 +1978,7 @@ describe("SanctionedStrengthPage", () => {
       ).toBeInTheDocument();
     });
 
-    it("hides Edit/Delete for a non-write role but still shows History and the Raise vacancy request link", async () => {
+    it("shows a single 'View' trigger (not Edit) and hides Delete for a non-write role; no per-row Raise vacancy request link", async () => {
       mockAuth("CAMPUS_HOD");
       mockCampuses();
       mockNonTeachingFilterData();
@@ -1972,16 +1993,17 @@ describe("SanctionedStrengthPage", () => {
       expect(
         screen.queryByRole("button", { name: /Delete sanctioned strength for Office Assistant/ }),
       ).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /View history for Office Assistant/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "View sanctioned strength for Office Assistant" }),
+      ).toBeInTheDocument();
 
-      const raiseLink = screen.getByRole("link", { name: "Raise vacancy request" });
-      expect(raiseLink).toHaveAttribute(
-        "href",
-        "/vacancy-requests/new?campus=c-sse&department=d-admin&designation=des-10&maxCount=2",
-      );
+      // Phase H: "Raise vacancy request" moved inside the drawer's own
+      // Recruitment Status tab -- no longer a row-level link, regardless of
+      // vacancy (NON_TEACHING_ROW_1 has vacancy=2).
+      expect(screen.queryByRole("link", { name: "Raise vacancy request" })).not.toBeInTheDocument();
     });
 
-    it("Edit (write role): lazily fetches the department breakdown for the true effective_from/remarks before opening, and PATCHes on Save", async () => {
+    it("Edit (write role): opens the drawer defaulting to Basic Info, and PATCHes the true effective_from/remarks from the Strength tab", async () => {
       mockAuth("HR_ADMIN");
       mockCampuses();
       mockNonTeachingFilterData();
@@ -1996,6 +2018,8 @@ describe("SanctionedStrengthPage", () => {
           vacancy: 2,
           effective_from: "2026-04-01",
           remarks: "Original remark",
+          location_id: null,
+          location_name: null,
         },
       ]);
       mockedUpdateSanctionedStrength.mockResolvedValue({
@@ -2022,6 +2046,9 @@ describe("SanctionedStrengthPage", () => {
       await userEvent.click(
         screen.getByRole("button", { name: "Edit sanctioned strength for Office Assistant" }),
       );
+      expect(await screen.findByRole("tab", { name: "Basic Info" })).toHaveAttribute("aria-selected", "true");
+
+      await userEvent.click(screen.getByRole("tab", { name: "Strength" }));
 
       await waitFor(() => expect(mockedGetBreakdown).toHaveBeenCalledWith("d-admin"));
 
@@ -2039,6 +2066,7 @@ describe("SanctionedStrengthPage", () => {
           approved_strength: 8,
           effective_from: "2026-04-01",
           remarks: "Original remark",
+          location_id: null,
         }),
       );
     });

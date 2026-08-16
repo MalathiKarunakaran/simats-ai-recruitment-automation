@@ -1,18 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, ChevronsUpDown, Pencil } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
 import { listDesignations } from "@/api/designations";
 import { listLocations } from "@/api/locations";
-import { getDepartmentSanctionedStrengthBreakdown } from "@/api/sanctionedStrength";
 import {
   listTeachingStrengthRows,
   type TeachingStrengthSortBy,
 } from "@/api/sanctionedStrengthViews";
-import type { CampusRead, TeachingStrengthRow, TeachingStrengthStatus } from "@/api/types";
+import type { CampusRead, StaffRoleCategory, TeachingStrengthRow, TeachingStrengthStatus } from "@/api/types";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
-import { SanctionedStrengthEditPopover } from "@/components/sanctionedStrength/SanctionedStrengthEditPopover";
-import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength/SanctionedStrengthHistoryDrawer";
+import { SanctionedStrengthDrawer } from "@/components/sanctionedStrength/SanctionedStrengthDrawer";
 
 // Teaching operational view (glowing-zooming-hamming.md Phase E) -- the
 // designation-level, every-row-inline table for categoryFilter === "TEACHING"
@@ -46,16 +43,20 @@ import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength
 //
 // Phase F (glowing-zooming-hamming.md): the row-actions cluster below
 // (`StrengthRowActions`, originally named `TeachingRowActions`) is exported
-// and reused verbatim by NonTeachingStrengthTable.tsx -- its Edit/History/
-// Delete/"Raise vacancy request" logic never actually inspects `category`,
-// it only reads fields both TeachingStrengthRow and NonTeachingStrengthRow
-// carry identically (see api/types.ts's own docstring for why those two
-// stay separate types rather than one shared type). Renamed from
+// and reused verbatim by NonTeachingStrengthTable.tsx -- its logic never
+// actually inspects the row itself for category (only `category` is passed
+// in explicitly by each caller, since neither row type carries its own
+// category field -- see api/types.ts's own docstring for why the two row
+// types stay separate rather than one shared type). Renamed from
 // `TeachingRowActions` to this category-neutral name at export time, same
 // precedent as the backend's own Phase F rename of
 // `teaching_strength_status` -> `strength_row_status`
 // (app/services/sanctioned_strength_views.py) once a second category
 // started using it.
+//
+// Phase H (glowing-zooming-hamming.md): the cluster's own shape changed
+// again -- see StrengthRowActions' own docstring just above its definition
+// for the current (single-drawer-trigger) shape.
 
 const PAGE_SIZE = 50;
 
@@ -111,24 +112,18 @@ function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleDateString() : "—";
 }
 
-// One row's Edit/History/Delete/"Raise vacancy request" cluster --
-// TeachingStrengthRow's own shape doesn't carry effective_from/remarks (the
-// backend's read-model view never exposes them -- see
-// app/services/sanctioned_strength_views.py's docstring for why), so
-// SanctionedStrengthEditPopover (which needs both to pre-fill correctly)
-// can't be mounted directly off this row. Defaulting them client-side (e.g.
-// today's date / blank remarks) would be a real data-loss bug: the popover's
-// Save always sends its local effective_from state, which the backend PATCH
-// applies unconditionally whenever not None (see
-// app/api/v1/routers/sanctioned_strength.py::update_sanctioned_strength) --
-// silently overwriting a real historical effective_from with today's date
-// the moment a user edits *only* Approved. Instead, this wrapper lazily
-// fetches the true DepartmentDesignationBreakdownRow (reusing the existing
-// getDepartmentSanctionedStrengthBreakdown endpoint/query key -- shares a
-// cache hit with SanctionedStrengthPage's own rollup table if that same
-// department happens to already be expanded there) only once the user
-// clicks Edit, then mounts the real popover pre-filled with the correct
-// values and `autoOpen` so the same click already opens it.
+// One row's actions cluster -- Phase H (glowing-zooming-hamming.md)
+// collapsed the previous Edit-popover-trigger + History-button + Delete +
+// "Raise vacancy request"-link cluster down to a single drawer-trigger
+// button (Approved span + one trigger + (canManage ? Delete : nothing)),
+// per the user-confirmed decision that a row's actions collapse to ONE
+// trigger, not two. "Raise vacancy request" moved inside the drawer's own
+// Recruitment Status tab as a CTA there. The trigger opens
+// SanctionedStrengthDrawer in "edit" mode for a write-role (canManage) user
+// or "view" mode (read-only, defaults to the History tab) otherwise --
+// DeleteSanctionedStrengthDialog is untouched by this phase and stays its
+// own separate destructive-action button next to the trigger.
+//
 // The subset of fields this component actually reads -- Pick<> off
 // TeachingStrengthRow (the single source of truth for these field types)
 // rather than a hand-duplicated shape, so this stays structurally
@@ -138,7 +133,9 @@ export type StrengthActionRow = Pick<
   TeachingStrengthRow,
   | "sanctioned_strength_id"
   | "campus_id"
+  | "campus_code"
   | "department_id"
+  | "department_name"
   | "designation_id"
   | "designation_name"
   | "approved"
@@ -146,101 +143,80 @@ export type StrengthActionRow = Pick<
   | "vacancy"
 >;
 
-export function StrengthRowActions({ row, canManage }: { row: StrengthActionRow; canManage: boolean }) {
+export function StrengthRowActions({
+  row,
+  canManage,
+  canViewAuditLog,
+  category,
+  onSaved,
+}: {
+  row: StrengthActionRow;
+  canManage: boolean;
+  canViewAuditLog: boolean;
+  category: StaffRoleCategory;
+  /** Forwarded to SanctionedStrengthDrawer's own onSaved -- lets the caller
+   * (Teaching/Non-Teaching's own table) invalidate its own view-specific
+   * query key, on top of the drawer's built-in breakdown/register
+   * invalidation. */
+  onSaved?: () => void;
+}) {
   const designationName = row.designation_name ?? "this designation";
-  const [detailsRequested, setDetailsRequested] = useState(false);
-
-  const detailsQuery = useQuery({
-    queryKey: ["sanctioned-strength-breakdown", row.department_id],
-    queryFn: () => getDepartmentSanctionedStrengthBreakdown(row.department_id),
-    enabled: detailsRequested,
-  });
-
-  const raiseVacancyLink =
-    row.vacancy > 0 ? (
-      <Link
-        to={`/vacancy-requests/new?campus=${row.campus_id}&department=${row.department_id}&designation=${row.designation_id}&maxCount=${row.vacancy}`}
-        className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-      >
-        Raise vacancy request
-      </Link>
-    ) : null;
-
-  if (!canManage) {
-    return (
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="tabular-nums" aria-label={`Approved for ${designationName}`}>
-          {row.approved}
-        </span>
-        <SanctionedStrengthHistoryDrawer
-          sanctionedStrengthId={row.sanctioned_strength_id}
-          designationName={designationName}
-        />
-        {raiseVacancyLink}
-      </div>
-    );
-  }
-
-  const breakdownRow = detailsQuery.data?.find((candidate) => candidate.designation_id === row.designation_id);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {!detailsRequested ? (
-        <>
-          <span className="tabular-nums" aria-label={`Approved for ${designationName}`}>
-            {row.approved}
-          </span>
-          <button
-            type="button"
-            aria-label={`Edit sanctioned strength for ${designationName}`}
-            onClick={() => setDetailsRequested(true)}
-            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
-        </>
-      ) : detailsQuery.isLoading ? (
-        <span className="text-xs text-muted-foreground">Loading…</span>
-      ) : detailsQuery.isError ? (
-        <span className="text-xs text-destructive">Failed to load edit details.</span>
-      ) : (
-        <SanctionedStrengthEditPopover
-          row={{
-            designation_id: row.designation_id,
-            designation_name: designationName,
-            sanctioned_strength_id: row.sanctioned_strength_id,
-            approved: row.approved,
-            working: row.working,
-            vacancy: row.vacancy,
-            effective_from: breakdownRow?.effective_from ?? null,
-            remarks: breakdownRow?.remarks ?? null,
-          }}
+      <span className="tabular-nums" aria-label={`Approved for ${designationName}`}>
+        {row.approved}
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        aria-label={`${canManage ? "Edit" : "View"} sanctioned strength for ${designationName}`}
+        onClick={() => setDrawerOpen(true)}
+      >
+        {canManage ? "Edit" : "View"}
+      </Button>
+      {canManage ? (
+        <DeleteSanctionedStrengthDialog
+          sanctionedStrengthId={row.sanctioned_strength_id}
+          designationName={designationName}
           departmentId={row.department_id}
-          campusId={row.campus_id}
-          autoOpen
         />
-      )}
-      <SanctionedStrengthHistoryDrawer
-        sanctionedStrengthId={row.sanctioned_strength_id}
-        designationName={designationName}
-      />
-      <DeleteSanctionedStrengthDialog
-        sanctionedStrengthId={row.sanctioned_strength_id}
-        designationName={designationName}
+      ) : null}
+      <SanctionedStrengthDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        mode={canManage ? "edit" : "view"}
+        canManage={canManage}
+        canViewAuditLog={canViewAuditLog}
+        campusId={row.campus_id}
+        campusLabel={row.campus_code ?? row.campus_id}
         departmentId={row.department_id}
+        departmentLabel={row.department_name ?? "this department"}
+        category={category}
+        designationId={row.designation_id}
+        designationName={designationName}
+        onSaved={onSaved}
       />
-      {raiseVacancyLink}
     </div>
   );
 }
 
 export interface TeachingStrengthTableProps {
   canManage: boolean;
+  canViewAuditLog: boolean;
   canFilterByCampus: boolean;
   campuses: CampusRead[] | undefined;
 }
 
-export function TeachingStrengthTable({ canManage, canFilterByCampus, campuses }: TeachingStrengthTableProps) {
+export function TeachingStrengthTable({
+  canManage,
+  canViewAuditLog,
+  canFilterByCampus,
+  campuses,
+}: TeachingStrengthTableProps) {
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
   const [sortBy, setSortBy] = useState<TeachingStrengthSortBy>("department_name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -546,7 +522,13 @@ export function TeachingStrengthTable({ canManage, canFilterByCampus, campuses }
                     <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
                     <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
                     <td className="px-3 py-2">
-                      <StrengthRowActions row={row} canManage={canManage} />
+                      <StrengthRowActions
+                        row={row}
+                        canManage={canManage}
+                        canViewAuditLog={canViewAuditLog}
+                        category="TEACHING"
+                        onSaved={() => queryClient.invalidateQueries({ queryKey: ["teaching-strength-view"] })}
+                      />
                     </td>
                   </tr>
                 );

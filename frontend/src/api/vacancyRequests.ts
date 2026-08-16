@@ -11,9 +11,26 @@ import type {
   VacancyRequestUpdatePayload,
 } from "@/api/types";
 
-export async function listVacancyRequests(status?: VacancyRequestStatus | null): Promise<VacancyRequestRead[]> {
+// Phase H (glowing-zooming-hamming.md) -- optional department_id/
+// designation_id filters, additive as a second params object rather than
+// changing `status`'s own position, so every pre-existing bare
+// listVacancyRequests(status) / listVacancyRequests(null) call site (5 of
+// them, none in this file) keeps compiling unchanged. Mirrors the backend's
+// own additive department_id/designation_id filters on GET /vacancy-requests
+// (app/api/v1/routers/vacancy_requests.py).
+export interface ListVacancyRequestsFilters {
+  departmentId?: string | null;
+  designationId?: string | null;
+}
+
+export async function listVacancyRequests(
+  status?: VacancyRequestStatus | null,
+  filters: ListVacancyRequestsFilters = {},
+): Promise<VacancyRequestRead[]> {
   const params = new URLSearchParams({ limit: "200" });
   if (status) params.set("status", status);
+  if (filters.departmentId) params.set("department_id", filters.departmentId);
+  if (filters.designationId) params.set("designation_id", filters.designationId);
   const response = await apiFetch<PaginatedResponse<VacancyRequestRead>>(`/vacancy-requests?${params.toString()}`);
   return response.items;
 }
