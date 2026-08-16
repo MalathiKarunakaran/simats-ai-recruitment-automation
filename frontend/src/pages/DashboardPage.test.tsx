@@ -54,6 +54,11 @@ function mockKpis(overrides: Partial<DashboardKpis> = {}): void {
     source_wise_breakdown: [{ source: "Reference", count: 10 }],
     rejected_count: 4,
     withdrawn_count: 1,
+    // Sanctioned Strength dashboard tile (Phase I) -- these 3 DO narrow with
+    // role_category, same as total_applications/open_positions above.
+    sanctioned_approved_total: roleCategory ? 8 : 25,
+    sanctioned_working_total: roleCategory ? 6 : 19,
+    sanctioned_vacancy_total: roleCategory ? 2 : 6,
     ...overrides,
   }));
 }
@@ -68,6 +73,60 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Global access: results span all campuses.")).toBeInTheDocument();
     expect(screen.getByText("14.5")).toBeInTheDocument();
     expect(screen.getByText("7")).toBeInTheDocument();
+  });
+
+  it("renders the 3 Sanctioned Strength tiles (approved/working/vacancy) from the API response", async () => {
+    mockKpis();
+
+    renderWithProviders();
+
+    expect(screen.getByText("Sanctioned approved")).toBeInTheDocument();
+    expect(screen.getByText("Sanctioned working")).toBeInTheDocument();
+    expect(screen.getByText("Sanctioned vacancy")).toBeInTheDocument();
+    // Unscoped (no category tab selected) values from mockKpis' default --
+    // scoped to each tile's own card (not a bare page-wide getByText) since
+    // small integers also coincidentally show up as chart axis-tick labels
+    // elsewhere on the page; wait for the query to resolve (labels render
+    // immediately even while loading, values don't).
+    const approvedTile = screen.getByText("Sanctioned approved").closest(".rounded-xl") as HTMLElement;
+    const workingTile = screen.getByText("Sanctioned working").closest(".rounded-xl") as HTMLElement;
+    const vacancyTile = screen.getByText("Sanctioned vacancy").closest(".rounded-xl") as HTMLElement;
+    expect(await within(approvedTile).findByText("25")).toBeInTheDocument();
+    expect(within(workingTile).getByText("19")).toBeInTheDocument();
+    expect(within(vacancyTile).getByText("6")).toBeInTheDocument();
+  });
+
+  it("renders a negative sanctioned_vacancy_total as-is (signed, not floored at 0 or hidden)", async () => {
+    mockKpis({ sanctioned_vacancy_total: -4 });
+
+    renderWithProviders();
+
+    // Scope to the tile itself (rejected_count is also 4 in this mock, via
+    // the unrelated "Rejected vs withdrawn" bar chart's own label) -- the
+    // real minus sign must survive rendering on *this* tile specifically, not
+    // silently drop the "net overstaffed" meaning documented in reporting.py.
+    const title = await screen.findByText("Sanctioned vacancy");
+    const tile = title.closest(".rounded-xl") as HTMLElement;
+    expect(await within(tile).findByText("-4")).toBeInTheDocument();
+    expect(within(tile).queryByText("4")).not.toBeInTheDocument();
+  });
+
+  it("shows the Sanctioned vacancy tooltip explaining the signed-net meaning", async () => {
+    mockKpis();
+    renderWithProviders();
+
+    await waitFor(() => expect(screen.getByText("Sanctioned vacancy")).toBeInTheDocument());
+    const tooltips = screen.getAllByRole("tooltip");
+    expect(tooltips.some((t) => /Negative means net overstaffed overall/.test(t.textContent ?? ""))).toBe(true);
+  });
+
+  it("shows the exactly-staffed zero caption on Sanctioned vacancy instead of the generic 'No activity' text", async () => {
+    mockKpis({ sanctioned_vacancy_total: 0 });
+    renderWithProviders();
+
+    expect(
+      await screen.findByText("Fully staffed -- no net vacancy or overstaffing in this scope"),
+    ).toBeInTheDocument();
   });
 
   it("renders the category-wise split as a 3-row table (applications, open positions, hires) from real-shape data", async () => {
@@ -139,6 +198,19 @@ describe("DashboardPage", () => {
     // replacing the unfiltered 42.
     await waitFor(() => expect(screen.queryByText("42")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByText("12").length).toBeGreaterThan(0));
+
+    // The Sanctioned Strength tiles narrow along with the rest of the KPI
+    // strip -- unscoped 25/19/6 replaced by the category-scoped 8/6/2 (see
+    // mockKpis' own roleCategory branching above). Scoped to each tile's own
+    // card (not a bare page-wide getByText) -- small integers like 8 also
+    // coincidentally show up as chart axis-tick labels elsewhere on the page.
+    const approvedTile = screen.getByText("Sanctioned approved").closest(".rounded-xl") as HTMLElement;
+    const workingTile = screen.getByText("Sanctioned working").closest(".rounded-xl") as HTMLElement;
+    const vacancyTile = screen.getByText("Sanctioned vacancy").closest(".rounded-xl") as HTMLElement;
+    expect(within(approvedTile).queryByText("25")).not.toBeInTheDocument();
+    expect(within(approvedTile).getByText("8")).toBeInTheDocument();
+    expect(within(workingTile).getByText("6")).toBeInTheDocument();
+    expect(within(vacancyTile).getByText("2")).toBeInTheDocument();
 
     // The split card's table content is identical before and after --
     // category_wise_breakdown ignores the role_category param server-side.
@@ -217,8 +289,13 @@ describe("DashboardPage", () => {
     await waitFor(() => expect(screen.getByText("Open positions")).toBeInTheDocument());
     // Text is present twice by design: a visually-hidden sr-only span (for
     // screen readers, always in the DOM) and the visible hover/focus bubble
-    // (role="tooltip") -- both carry the same definition.
-    expect(screen.getByRole("tooltip")).toHaveTextContent(/Open HiringSlot posts in scope \(not requests\)/);
+    // (role="tooltip") -- both carry the same definition. Multiple tiles now
+    // have tooltips (the 3 Sanctioned Strength ones too), so match on content
+    // rather than assuming this is the only tooltip in the DOM.
+    const tooltips = screen.getAllByRole("tooltip");
+    expect(tooltips.some((t) => /Open HiringSlot posts in scope \(not requests\)/.test(t.textContent ?? ""))).toBe(
+      true,
+    );
   });
 
   it("shows one reusable empty state for category-wise split and source-wise split when every bucket is genuinely zero", async () => {
