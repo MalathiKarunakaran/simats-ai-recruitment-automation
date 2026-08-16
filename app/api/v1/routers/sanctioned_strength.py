@@ -21,6 +21,14 @@ them are gated to SANCTIONED_STRENGTH_WRITE_ROLES (not the broader
 `_staff_only` used for plain history reads above) since bulk-upload
 artifacts include the raw uploaded file and every batch's full row detail,
 and only the two write-capable roles have any legitimate use for them.
+
+Phase G adds `GET /views/housekeeping` immediately after the Non-Teaching
+view handler -- same param-validation-then-delegate shape as the two
+handlers above it, delegating to
+`sanctioned_strength_views.list_housekeeping_strength_rows`. No new
+mutating endpoint: this view's own "expand to roster" action reuses Phase
+D's existing `/housekeeping-staff` CRUD unchanged (see that service
+function's own docstring, judgment call #6).
 """
 
 import io
@@ -40,6 +48,7 @@ from app.models.designation import Designation
 from app.models.enums import (
     SANCTIONED_STRENGTH_WRITE_ROLES,
     BulkUploadStatusEnum,
+    HousekeepingShiftEnum,
     SanctionedStrengthChangeSourceEnum,
     StaffRoleCategoryEnum,
     UserRoleEnum,
@@ -62,7 +71,11 @@ from app.schemas.sanctioned_strength_import import (
     BulkUploadUndoResponse,
     BulkUploadValidationResponse,
 )
-from app.schemas.sanctioned_strength_views import NonTeachingStrengthListResponse, TeachingStrengthListResponse
+from app.schemas.sanctioned_strength_views import (
+    HousekeepingStrengthListResponse,
+    NonTeachingStrengthListResponse,
+    TeachingStrengthListResponse,
+)
 from app.services import sanctioned_strength_import, storage
 from app.services import sanctioned_strength_views
 from app.services.audit import log_create, log_delete, log_event, log_update
@@ -276,6 +289,87 @@ def list_non_teaching_strength_view(
         vacancy=vacancy,
     )
     return NonTeachingStrengthListResponse(
+        items=rows, total=total, limit=limit, offset=offset, status_counts=status_counts
+    )
+
+
+@router.get("/views/housekeeping", response_model=HousekeepingStrengthListResponse)
+def list_housekeeping_strength_view(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    sort_by: str = Query("location_name"),
+    sort_dir: str = Query("asc"),
+    campus_code: str | None = Query(None),
+    location_id: uuid.UUID | None = Query(None),
+    block: str | None = Query(None),
+    shift: HousekeepingShiftEnum | None = Query(None),
+    search: str | None = Query(None),
+    row_status: str | None = Query(None, alias="status"),
+    vacancy: int | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> HousekeepingStrengthListResponse:
+    """Phase G (glowing-zooming-hamming.md) -- the Location-grained
+    Housekeeping operational view, one row per Location with at least one
+    current-effective HOUSEKEEPING SanctionedStrength row against it. See
+    app/services/sanctioned_strength_views.py for every field's derivation,
+    the full set of judgment calls this phase resolved, and why this view is
+    NOT a third `category=` value fed into `list_strength_view_rows` the way
+    Non-Teaching was -- it's a genuinely different (Location, not
+    department/designation) grain. Same param-validation-then-delegate shape
+    as `list_teaching_strength_view`/`list_non_teaching_strength_view`
+    above, except `sort_by`/`status` are validated against this view's own
+    `HOUSEKEEPING_STRENGTH_SORT_FIELDS` (a different column set -- no
+    department/designation columns exist here) while `sort_dir`/`status`
+    still reuse the shared `TEACHING_STRENGTH_*` vocabularies (see that
+    module's docstring for why those two are genuinely shared). `shift` gets
+    free enum validation from FastAPI/Pydantic (422 on an invalid value)
+    rather than a manual check, matching
+    app/api/v1/routers/housekeeping_staff.py's own `shift` query param.
+    """
+    if sort_by not in sanctioned_strength_views.HOUSEKEEPING_STRENGTH_SORT_FIELDS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown sort_by '{sort_by}'. Valid values: "
+                f"{', '.join(sanctioned_strength_views.HOUSEKEEPING_STRENGTH_SORT_FIELDS)}."
+            ),
+        )
+    if sort_dir not in sanctioned_strength_views.TEACHING_STRENGTH_SORT_DIRECTIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown sort_dir '{sort_dir}'. Valid values: "
+                f"{', '.join(sanctioned_strength_views.TEACHING_STRENGTH_SORT_DIRECTIONS)}."
+            ),
+        )
+    if row_status is not None and row_status not in sanctioned_strength_views.TEACHING_STRENGTH_STATUS_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown status '{row_status}'. Valid values: "
+                f"{', '.join(sanctioned_strength_views.TEACHING_STRENGTH_STATUS_VALUES)}."
+            ),
+        )
+    validated_campus_code = validate_campus_code(campus_code)
+
+    rows, total, status_counts = sanctioned_strength_views.list_housekeeping_strength_rows(
+        db,
+        scope,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        campus_code=validated_campus_code,
+        location_id=location_id,
+        block=block,
+        shift=shift.value if shift is not None else None,
+        search=search,
+        status=row_status,
+        vacancy=vacancy,
+    )
+    return HousekeepingStrengthListResponse(
         items=rows, total=total, limit=limit, offset=offset, status_counts=status_counts
     )
 

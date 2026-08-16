@@ -29,6 +29,40 @@ generic model (fragile, and not a pattern used anywhere else in this
 codebase's schemas). Two short, near-identical wrapper classes -- each just
 adding `status_counts: dict[str, int]` -- was judged the more maintainable,
 convention-matching choice than either alternative.
+
+Phase G (glowing-zooming-hamming.md) adds `HousekeepingStrengthRow` /
+`HousekeepingStrengthListResponse` for the Location-grained Housekeeping
+view. `HousekeepingStrengthRow` is deliberately **NOT** a subclass of
+`_StrengthViewRowBase`, unlike Teaching/Non-Teaching -- it's a genuinely
+different field set, not a trivial variant: no `department_id`/
+`department_name`/`designation_id`/`designation_name`/`sanctioned_strength_id`
+at all (this view's row can aggregate more than one SanctionedStrength row
+across more than one designation -- there is no single one of any of those
+per row; see app/services/sanctioned_strength_views.py's module docstring,
+Phase G judgment call #5), `approved`/`working` renamed to `required`/
+`available` (this view's own vocabulary, matching the plan's own column
+names for this table), a `shifts: list[str]` field with no Teaching/
+Non-Teaching analogue, and a `vacancy` that is *floored* at 0 (judgment call
+#2 in that same docstring) rather than signed like the shared base class's
+`vacancy` field. Forcing this into `_StrengthViewRowBase` (even as a
+subclass overriding half the fields) would fight the base class's own
+purpose -- documenting one shared 20-field shape -- for no gain, so this row
+is its own independent `BaseModel` instead.
+
+`HousekeepingStrengthRow` deliberately has no `last_join`/`last_resignation`/
+`last_updated` fields (unlike the shared base class) -- flagged here as a
+scope decision, not a silent omission: those three fields' existing
+derivation (per-`(department_id, designation_id)` `Employee` aggregation, see
+`_StrengthViewRowBase`'s own field comments and
+app/services/sanctioned_strength_views.py's Column definitions section) has
+no clean analogue at this view's Location grain (an aggregate over N
+SanctionedStrength rows across possibly-multiple designations, with
+`Employee` not even being the relevant occupancy table for Housekeeping in
+the first place -- `HousekeepingStaff` is). Inventing a new "last join/
+resignation for this location" derivation was out of scope for what the
+Phase G dispatch brief asked for and is flagged here for the human reviewer
+to confirm before merge, per that brief's own instruction to flag rather
+than silently omit.
 """
 
 import uuid
@@ -100,5 +134,49 @@ class NonTeachingStrengthListResponse(PaginatedResponse[NonTeachingStrengthRow])
     """Non-Teaching sibling of `TeachingStrengthListResponse` -- identical
     shape and identical `status_counts` semantics, just parametrized on
     `NonTeachingStrengthRow` instead of `TeachingStrengthRow`."""
+
+    status_counts: dict[str, int]
+
+
+class HousekeepingStrengthRow(BaseModel):
+    """Phase G's Location-grained Housekeeping row -- see this module's
+    docstring for why this is a standalone `BaseModel`, not a
+    `_StrengthViewRowBase` subclass, and for the fields deliberately left
+    out (department_id/designation_id/sanctioned_strength_id,
+    last_join/last_resignation/last_updated)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    campus_id: uuid.UUID | None
+    campus_code: str | None
+    location_id: uuid.UUID
+    location_name: str | None
+    block: str | None
+    floor_venue: str | None
+    # Distinct, sorted HousekeepingShiftEnum values (as strings) present
+    # among this location's active roster -- [] if the roster is empty. See
+    # app/services/sanctioned_strength_views.py's module docstring, Phase G
+    # judgment call #4.
+    shifts: list[str]
+
+    # SUM(approved_strength) across every current-effective HOUSEKEEPING
+    # SanctionedStrength row at this location (judgment call #1).
+    required: int
+    # Live COUNT of active HousekeepingStaff rows at this location, across
+    # every designation there (judgment call #1).
+    available: int
+    # max(required - available, 0) -- floored, unlike Teaching/Non-Teaching's
+    # signed `vacancy` (judgment call #2). `status` below can read
+    # OVERSTAFFED even when this field reads 0.
+    vacancy: int
+    # One of TEACHING_STRENGTH_STATUS_VALUES (reused as-is here too -- see
+    # app/services/sanctioned_strength_views.py's module docstring).
+    status: str
+
+
+class HousekeepingStrengthListResponse(PaginatedResponse[HousekeepingStrengthRow]):
+    """Housekeeping sibling of `TeachingStrengthListResponse` /
+    `NonTeachingStrengthListResponse` -- same additive `status_counts`
+    convention, parametrized on `HousekeepingStrengthRow`."""
 
     status_counts: dict[str, int]
