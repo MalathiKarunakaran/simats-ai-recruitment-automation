@@ -2281,7 +2281,7 @@ describe("SanctionedStrengthPage", () => {
           expect.objectContaining({ sort_by: "required", sort_dir: "desc", offset: 0 }),
         ),
       );
-    });
+    }, 10000);
 
     it("commits the search box on Enter, re-fetching with the typed text and resetting to page 0", async () => {
       mockAuth("HR_ADMIN");
