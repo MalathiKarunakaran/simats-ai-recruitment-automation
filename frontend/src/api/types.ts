@@ -1327,6 +1327,58 @@ export interface NonTeachingStrengthListResponse extends PaginatedResponse<NonTe
   status_counts: Record<string, number>;
 }
 
+// Mirrors app/schemas/sanctioned_strength_views.py::HousekeepingStrengthRow
+// (glowing-zooming-hamming.md Phase G) -- the Location-grained Housekeeping
+// operational view, backing GET /sanctioned-strength/views/housekeeping.
+// Deliberately NOT field-for-field identical to TeachingStrengthRow/
+// NonTeachingStrengthRow (unlike those two, which mirror each other): this
+// row's grain is Location, not (department, designation) -- a single row can
+// aggregate more than one current-effective HOUSEKEEPING SanctionedStrength
+// record (see the backend schema module's own docstring). No
+// sanctioned_strength_id/department_id/department_name/designation_id/
+// designation_name fields exist here at all -- there is no single one of any
+// of those per row -- and `approved`/`working` are renamed to `required`/
+// `available` (this view's own vocabulary, matching the plan's column
+// names). `last_join`/`last_resignation`/`last_updated` are likewise absent
+// (no clean per-location analogue -- see that backend docstring's own
+// explicit scope-decision note).
+export type HousekeepingStrengthStatus = TeachingStrengthStatus;
+
+export interface HousekeepingStrengthRow {
+  campus_id: string | null;
+  campus_code: string | null;
+  location_id: string;
+  location_name: string | null;
+  block: string | null;
+  floor_venue: string | null;
+  // Distinct, sorted HousekeepingShiftEnum values (as strings) present among
+  // this location's active roster -- [] for a location with an active
+  // sanction but zero current roster, never an error.
+  shifts: string[];
+
+  // SUM(approved_strength) across every current-effective HOUSEKEEPING
+  // SanctionedStrength row at this location (a location can have more than
+  // one, e.g. Supervisor + Cleaner both sanctioned at the same place).
+  required: number;
+  // Live COUNT of active HousekeepingStaff rows at this location, across
+  // every designation there (not designation-scoped).
+  available: number;
+  // max(required - available, 0) -- FLOORED at 0, unlike Teaching/
+  // Non-Teaching's deliberately signed `vacancy`. `status` below can read
+  // "OVERSTAFFED" even while this field reads 0, not negative -- see the
+  // backend service module's own docstring, Phase G judgment call #2.
+  vacancy: number;
+  // One of TEACHING_STRENGTH_STATUS_VALUES (reused as-is here too).
+  status: HousekeepingStrengthStatus;
+}
+
+// Mirrors app/schemas/sanctioned_strength_views.py::HousekeepingStrengthListResponse
+// -- same additive status_counts shape as TeachingStrengthListResponse/
+// NonTeachingStrengthListResponse.
+export interface HousekeepingStrengthListResponse extends PaginatedResponse<HousekeepingStrengthRow> {
+  status_counts: Record<string, number>;
+}
+
 // Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthRead.
 export interface SanctionedStrengthRead {
   id: string;

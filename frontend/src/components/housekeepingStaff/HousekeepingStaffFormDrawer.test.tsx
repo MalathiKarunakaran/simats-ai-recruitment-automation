@@ -259,6 +259,63 @@ describe("HousekeepingStaffFormDrawer", () => {
     );
   });
 
+  // glowing-zooming-hamming.md Phase G's additive prop extension --
+  // HousekeepingStrengthTable's own "Add staff to this location" action
+  // pre-fills both fields ahead of the drawer opening, with the campus
+  // locked (canChooseCampus={false}) since the location already fixes it.
+  it("pre-fills campus/location from initialCampusId/initialLocationId in create mode, with the campus locked", async () => {
+    mockedListCampuses.mockResolvedValue([SSE, SCLAS]);
+    mockedListDesignations.mockResolvedValue([HK_DESIGNATION]);
+    mockedListLocations.mockResolvedValue([SSE_LOCATION, SCLAS_LOCATION]);
+    mockedCreate.mockResolvedValue(RECORD);
+
+    renderDrawer({
+      canChooseCampus: false,
+      defaultCampusId: "",
+      initialCampusId: "c-sse",
+      initialLocationId: "l-sse-1",
+    });
+
+    expect(await screen.findByText("Add housekeeping staff")).toBeInTheDocument();
+    // Campus locked to the pre-filled value (plain text, not a picker).
+    expect(screen.queryByRole("combobox", { name: "Campus" })).not.toBeInTheDocument();
+    expect(await screen.findByText("SSE")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Bio ID"), "BIO-002");
+    await userEvent.type(screen.getByLabelText("Name"), "New Staffer");
+    await userEvent.click(screen.getByRole("combobox", { name: "Designation" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Housekeeping Supervisor" }));
+    // Location is already pre-filled to "Central Library" (l-sse-1) --
+    // confirmed via the submitted payload below, not re-selected here.
+    await userEvent.click(screen.getByRole("combobox", { name: "Shift" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Morning" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Add staff" }));
+
+    await waitFor(() =>
+      expect(mockedCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ campus_id: "c-sse", location_id: "l-sse-1" }),
+      ),
+    );
+  }, 10000);
+
+  // HousekeepingStaffListPage.tsx's own usage omits both new props --
+  // confirms the seeding effect's existing behavior (defaultCampusId,
+  // blank location) is unchanged when neither is supplied.
+  it("falls back to defaultCampusId and a blank location when initialCampusId/initialLocationId are omitted", async () => {
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDesignations.mockResolvedValue([HK_DESIGNATION]);
+    mockedListLocations.mockResolvedValue([SSE_LOCATION]);
+
+    renderDrawer({ canChooseCampus: false, defaultCampusId: "c-sse" });
+
+    expect(await screen.findByText("Add housekeeping staff")).toBeInTheDocument();
+    expect(await screen.findByText("SSE")).toBeInTheDocument();
+    // Nothing pre-selected -- the trigger still shows its placeholder text
+    // rather than a resolved location name.
+    expect(screen.getByText("Select a location")).toBeInTheDocument();
+  });
+
   it("surfaces the backend's exact bio_id conflict message inline", async () => {
     mockedListCampuses.mockResolvedValue([SSE]);
     mockedListDesignations.mockResolvedValue([HK_DESIGNATION]);

@@ -13,6 +13,7 @@ import {
 } from "@/api/sanctionedStrength";
 import {
   GLOBAL_SCOPE_ROLES,
+  HOUSEKEEPING_STAFF_MANAGEMENT_ROLES,
   SANCTIONED_STRENGTH_WRITE_ROLES,
   type ApprovalStatus,
   type DepartmentDesignationBreakdownRow,
@@ -24,6 +25,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { AddDesignationRow } from "@/components/sanctionedStrength/AddDesignationRow";
 import { BulkUploadDialog } from "@/components/sanctionedStrength/BulkUploadDialog";
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
+import { HousekeepingStrengthTable } from "@/components/sanctionedStrength/HousekeepingStrengthTable";
 import { NonTeachingStrengthTable } from "@/components/sanctionedStrength/NonTeachingStrengthTable";
 import { SanctionedStrengthEditPopover } from "@/components/sanctionedStrength/SanctionedStrengthEditPopover";
 import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength/SanctionedStrengthHistoryDrawer";
@@ -286,6 +288,14 @@ export function SanctionedStrengthPage() {
   // gated by this -- it's read-only, same as the backend's own history
   // endpoint (staff-only, not write-role-only).
   const canManage = Boolean(user && SANCTIONED_STRENGTH_WRITE_ROLES.includes(user.role));
+  // Phase G: HousekeepingStrengthTable's own Actions/roster-expand mutations
+  // are all HousekeepingStaff writes, never SanctionedStrength writes -- its
+  // canManage mirrors app/api/v1/routers/housekeeping_staff.py's own
+  // `_WRITE_ROLES` (HOUSEKEEPING_STAFF_MANAGEMENT_ROLES), a genuinely
+  // different, broader role set than `canManage` above (which includes
+  // RECRUITMENT_OFFICER, unlike SANCTIONED_STRENGTH_WRITE_ROLES) -- see that
+  // component's own docstring, item 2.
+  const canManageHousekeepingStaff = Boolean(user && HOUSEKEEPING_STAFF_MANAGEMENT_ROLES.includes(user.role));
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses, enabled: canFilterByCampus });
 
   const { data, isLoading, isError, error } = useQuery({
@@ -414,6 +424,23 @@ export function SanctionedStrengthPage() {
             // category so it isn't a single designation-level grain to begin
             // with).
             <NonTeachingStrengthTable canManage={canManage} canFilterByCampus={canFilterByCampus} campuses={campuses} />
+          ) : categoryFilter === "HOUSEKEEPING" ? (
+            // Housekeeping's own operational view (Phase G, glowing-zooming-
+            // hamming.md) -- Location-grained rows (Required/Available/
+            // Vacancy/Shift), a genuinely different grain from Teaching/
+            // Non-Teaching's (department, designation) rows, with its own
+            // expand-to-roster affordance (HousekeepingStaff, not Employee --
+            // see that component's own docstring). "All" still falls
+            // through to the pre-existing department-rollup+expand table
+            // below -- it spans every category, so it isn't a single
+            // designation/location-level grain to begin with. As of this
+            // phase, "All" is the *only* remaining tab using that legacy
+            // table body.
+            <HousekeepingStrengthTable
+              canManage={canManageHousekeepingStaff}
+              canFilterByCampus={canFilterByCampus}
+              campuses={campuses}
+            />
           ) : (
             <>
           <div className="flex flex-wrap items-center gap-3">
