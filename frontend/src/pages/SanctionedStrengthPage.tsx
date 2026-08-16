@@ -24,6 +24,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { AddDesignationRow } from "@/components/sanctionedStrength/AddDesignationRow";
 import { BulkUploadDialog } from "@/components/sanctionedStrength/BulkUploadDialog";
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
+import { NonTeachingStrengthTable } from "@/components/sanctionedStrength/NonTeachingStrengthTable";
 import { SanctionedStrengthEditPopover } from "@/components/sanctionedStrength/SanctionedStrengthEditPopover";
 import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength/SanctionedStrengthHistoryDrawer";
 import { TeachingStrengthTable } from "@/components/sanctionedStrength/TeachingStrengthTable";
@@ -402,6 +403,17 @@ export function SanctionedStrengthPage() {
             // (CategoryTabs' own counts need it), it's just not rendered as a
             // table body while on the Teaching tab.
             <TeachingStrengthTable canManage={canManage} canFilterByCampus={canFilterByCampus} campuses={campuses} />
+          ) : categoryFilter === "NON_TEACHING" ? (
+            // Non-Teaching's own operational view (Phase F, glowing-zooming-
+            // hamming.md) -- same designation-level-rows-with-no-department-
+            // expand shape as Teaching's table, plus its own expand-to-
+            // employees affordance (see NonTeachingStrengthTable's own
+            // docstring). Housekeeping/All still fall through to the
+            // pre-existing department-rollup+expand table below (Housekeeping's
+            // own dedicated view is Phase G's job, and "All" spans every
+            // category so it isn't a single designation-level grain to begin
+            // with).
+            <NonTeachingStrengthTable canManage={canManage} canFilterByCampus={canFilterByCampus} campuses={campuses} />
           ) : (
             <>
           <div className="flex flex-wrap items-center gap-3">

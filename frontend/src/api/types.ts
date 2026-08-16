@@ -1286,6 +1286,47 @@ export interface TeachingStrengthListResponse extends PaginatedResponse<Teaching
   status_counts: Record<string, number>;
 }
 
+// Mirrors app/schemas/sanctioned_strength_views.py::NonTeachingStrengthRow
+// (glowing-zooming-hamming.md Phase F) -- the Non-Teaching sibling of
+// TeachingStrengthRow above, backing GET /sanctioned-strength/views/non-teaching.
+// Field-for-field identical to TeachingStrengthRow (same read-model grain,
+// only the upstream `category` filter differs -- see that backend schema
+// module's own docstring for why the two row schemas are kept as separate
+// (if trivial) types rather than one shared type used directly: distinct
+// names read better in tooling/tests and leave room for one view to grow a
+// view-only field later without disturbing the other). Kept as its own
+// interface here (not `type NonTeachingStrengthRow = TeachingStrengthRow`)
+// for the same reason.
+export type NonTeachingStrengthStatus = TeachingStrengthStatus;
+
+export interface NonTeachingStrengthRow {
+  sanctioned_strength_id: string;
+  campus_id: string;
+  campus_code: string | null;
+  department_id: string;
+  department_name: string | null;
+  designation_id: string;
+  designation_name: string | null;
+  location_id: string | null;
+  location_name: string | null;
+
+  approved: number;
+  working: number;
+  vacancy: number;
+  filled_pct: number | null;
+  status: NonTeachingStrengthStatus;
+
+  last_join: string | null;
+  last_resignation: string | null;
+  last_updated: string;
+}
+
+// Mirrors app/schemas/sanctioned_strength_views.py::NonTeachingStrengthListResponse
+// -- same additive status_counts shape as TeachingStrengthListResponse.
+export interface NonTeachingStrengthListResponse extends PaginatedResponse<NonTeachingStrengthRow> {
+  status_counts: Record<string, number>;
+}
+
 // Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthRead.
 export interface SanctionedStrengthRead {
   id: string;
