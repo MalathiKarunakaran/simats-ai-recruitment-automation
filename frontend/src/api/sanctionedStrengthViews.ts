@@ -1,6 +1,11 @@
 import { apiFetch } from "@/api/client";
 import type { SortDirection } from "@/api/sanctionedStrength";
-import type { TeachingStrengthListResponse, TeachingStrengthStatus } from "@/api/types";
+import type {
+  NonTeachingStrengthListResponse,
+  NonTeachingStrengthStatus,
+  TeachingStrengthListResponse,
+  TeachingStrengthStatus,
+} from "@/api/types";
 
 // New sibling module to api/sanctionedStrength.ts (glowing-zooming-hamming.md
 // Phase E) -- deliberately a separate file rather than an addition to
@@ -76,4 +81,69 @@ export async function listTeachingStrengthRows(
 
   const qs = query.toString();
   return apiFetch<TeachingStrengthListResponse>(`/sanctioned-strength/views/teaching${qs ? `?${qs}` : ""}`);
+}
+
+// Non-Teaching sibling of TeachingStrengthSortBy/ListTeachingStrengthParams/
+// listTeachingStrengthRows above (glowing-zooming-hamming.md Phase F) --
+// GET /sanctioned-strength/views/non-teaching has the identical param set
+// (see app/api/v1/routers/sanctioned_strength.py::list_non_teaching_strength_view,
+// which validates sort_by/sort_dir/status against the exact same
+// TEACHING_STRENGTH_SORT_FIELDS/_SORT_DIRECTIONS/_STATUS_VALUES tuples the
+// Teaching endpoint uses -- see app/services/sanctioned_strength_views.py's
+// own docstring for why those constant names are reused, not duplicated,
+// server-side). Duplicated here (not a shared `type StrengthSortBy = ...`)
+// for the same reason the two row schemas stay distinct types in
+// api/types.ts -- a future divergence between the two views shouldn't force
+// an awkward shared-type edit.
+export type NonTeachingStrengthSortBy =
+  | "campus_code"
+  | "department_name"
+  | "designation_name"
+  | "location_name"
+  | "approved"
+  | "working"
+  | "vacancy"
+  | "filled_pct"
+  | "status"
+  | "last_join"
+  | "last_resignation"
+  | "last_updated";
+
+export interface ListNonTeachingStrengthParams {
+  limit?: number;
+  offset?: number;
+  sort_by?: NonTeachingStrengthSortBy;
+  sort_dir?: SortDirection;
+  campus_code?: string | null;
+  department_id?: string | null;
+  designation_id?: string | null;
+  location_id?: string | null;
+  search?: string | null;
+  status?: NonTeachingStrengthStatus | null;
+  vacancy?: number | null;
+}
+
+// Mirrors GET /sanctioned-strength/views/non-teaching -- returns the full
+// response (not unwrapped to .items), same convention as
+// listTeachingStrengthRows() just above.
+export async function listNonTeachingStrengthRows(
+  params: ListNonTeachingStrengthParams = {},
+): Promise<NonTeachingStrengthListResponse> {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.offset !== undefined) query.set("offset", String(params.offset));
+  if (params.sort_by) query.set("sort_by", params.sort_by);
+  if (params.sort_dir) query.set("sort_dir", params.sort_dir);
+  if (params.campus_code) query.set("campus_code", params.campus_code);
+  if (params.department_id) query.set("department_id", params.department_id);
+  if (params.designation_id) query.set("designation_id", params.designation_id);
+  if (params.location_id) query.set("location_id", params.location_id);
+  if (params.search) query.set("search", params.search);
+  if (params.status) query.set("status", params.status);
+  if (params.vacancy !== undefined && params.vacancy !== null) {
+    query.set("vacancy", String(params.vacancy));
+  }
+
+  const qs = query.toString();
+  return apiFetch<NonTeachingStrengthListResponse>(`/sanctioned-strength/views/non-teaching${qs ? `?${qs}` : ""}`);
 }

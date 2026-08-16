@@ -43,6 +43,19 @@ import { SanctionedStrengthHistoryDrawer } from "@/components/sanctionedStrength
 // render the existing rollup table (their own dedicated views are Phases
 // F/G) -- SanctionedStrengthPage.tsx branches on categoryFilter to choose
 // between the two.
+//
+// Phase F (glowing-zooming-hamming.md): the row-actions cluster below
+// (`StrengthRowActions`, originally named `TeachingRowActions`) is exported
+// and reused verbatim by NonTeachingStrengthTable.tsx -- its Edit/History/
+// Delete/"Raise vacancy request" logic never actually inspects `category`,
+// it only reads fields both TeachingStrengthRow and NonTeachingStrengthRow
+// carry identically (see api/types.ts's own docstring for why those two
+// stay separate types rather than one shared type). Renamed from
+// `TeachingRowActions` to this category-neutral name at export time, same
+// precedent as the backend's own Phase F rename of
+// `teaching_strength_status` -> `strength_row_status`
+// (app/services/sanctioned_strength_views.py) once a second category
+// started using it.
 
 const PAGE_SIZE = 50;
 
@@ -116,7 +129,24 @@ function formatDate(value: string | null): string {
 // department happens to already be expanded there) only once the user
 // clicks Edit, then mounts the real popover pre-filled with the correct
 // values and `autoOpen` so the same click already opens it.
-function TeachingRowActions({ row, canManage }: { row: TeachingStrengthRow; canManage: boolean }) {
+// The subset of fields this component actually reads -- Pick<> off
+// TeachingStrengthRow (the single source of truth for these field types)
+// rather than a hand-duplicated shape, so this stays structurally
+// compatible with both TeachingStrengthRow and NonTeachingStrengthRow
+// (identical field shape, see api/types.ts) without importing the latter.
+export type StrengthActionRow = Pick<
+  TeachingStrengthRow,
+  | "sanctioned_strength_id"
+  | "campus_id"
+  | "department_id"
+  | "designation_id"
+  | "designation_name"
+  | "approved"
+  | "working"
+  | "vacancy"
+>;
+
+export function StrengthRowActions({ row, canManage }: { row: StrengthActionRow; canManage: boolean }) {
   const designationName = row.designation_name ?? "this designation";
   const [detailsRequested, setDetailsRequested] = useState(false);
 
@@ -516,7 +546,7 @@ export function TeachingStrengthTable({ canManage, canFilterByCampus, campuses }
                     <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
                     <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
                     <td className="px-3 py-2">
-                      <TeachingRowActions row={row} canManage={canManage} />
+                      <StrengthRowActions row={row} canManage={canManage} />
                     </td>
                   </tr>
                 );
