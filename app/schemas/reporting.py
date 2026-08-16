@@ -27,6 +27,15 @@ class DashboardKPIResponse(BaseModel):
     source_wise_breakdown: list[dict[str, Any]]
     rejected_count: int
     withdrawn_count: int
+    # Phase I (glowing-zooming-hamming.md) Sanctioned Strength dashboard
+    # tile -- see app/services/reporting.py::_sanctioned_strength_totals for
+    # the aggregation. Unlike category_wise_breakdown, these three DO
+    # respect this response's own role_category filter. sanctioned_vacancy_total
+    # is deliberately signed (not floored at 0) -- a negative value means the
+    # scope in view is net overstaffed overall.
+    sanctioned_approved_total: int
+    sanctioned_working_total: int
+    sanctioned_vacancy_total: int
 
 
 class ReportResponse(BaseModel):
