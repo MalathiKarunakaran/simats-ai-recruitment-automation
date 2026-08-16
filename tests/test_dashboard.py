@@ -236,3 +236,223 @@ def test_candidate_role_forbidden(client, user_factory):
     candidate_user = user_factory(UserRoleEnum.CANDIDATE)
     response = _kpis(client, candidate_user)
     assert response.status_code == 403
+
+
+# --- Phase I (glowing-zooming-hamming.md): sanctioned strength dashboard tile ---
+
+
+def test_sanctioned_strength_totals_teaching_and_housekeeping(
+    client,
+    db_session,
+    published_vacancy_factory,
+    hired_employee_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+    location_factory,
+    housekeeping_staff_factory,
+):
+    # Teaching: approved=5, 1 live Employee at this (department, designation) -> working=1.
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.TEACHING)
+    teaching_designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=vacancy.department)
+    sanctioned_strength_factory(
+        campus=vacancy.campus,
+        department=vacancy.department,
+        designation=teaching_designation,
+        approved_strength=5,
+        created_by=vacancy.hr_admin,
+    )
+    hired = hired_employee_factory(vacancy)
+    hired.employee.designation_id = teaching_designation.id
+    db_session.flush()
+    db_session.commit()
+
+    # Housekeeping: approved=3, 2 active HousekeepingStaff -> working=2 (via
+    # working_count_for's HOUSEKEEPING branch, not the always-empty Employee count).
+    hk_department = vacancy.department  # campus/department reuse is fine, category lives on the designation
+    hk_location = location_factory("SSE")
+    hk_designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=hk_department)
+    sanctioned_strength_factory(
+        campus=vacancy.campus,
+        department=hk_department,
+        designation=hk_designation,
+        approved_strength=3,
+        created_by=vacancy.hr_admin,
+        location_id=hk_location.id,
+    )
+    housekeeping_staff_factory(
+        campus=vacancy.campus, designation=hk_designation, location=hk_location, created_by=vacancy.hr_admin
+    )
+    housekeeping_staff_factory(
+        campus=vacancy.campus, designation=hk_designation, location=hk_location, created_by=vacancy.hr_admin
+    )
+    db_session.commit()
+
+    response = _kpis(client, vacancy.hr_admin)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sanctioned_approved_total"] == 8
+    assert body["sanctioned_working_total"] == 3
+    assert body["sanctioned_vacancy_total"] == 5
+
+
+def test_sanctioned_strength_vacancy_total_is_signed_not_floored(
+    client,
+    db_session,
+    campus_factory,
+    department_factory,
+    designation_factory,
+    location_factory,
+    user_factory,
+    sanctioned_strength_factory,
+    housekeeping_staff_factory,
+):
+    """One overstaffed row (working > approved) and one understaffed row --
+    the net total must reflect the overstaffed row's negative contribution,
+    not have it floored at 0 before summing (which would overstate the
+    aggregate: max(2-5,0) + max(5-1,0) = 0 + 4 = 4, vs the honest 7-6=1)."""
+    campus = campus_factory("SSE")
+    department = department_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    overstaffed_location = location_factory("SSE")
+    overstaffed_designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    sanctioned_strength_factory(
+        campus=campus,
+        department=department,
+        designation=overstaffed_designation,
+        approved_strength=2,
+        created_by=hr_admin,
+        location_id=overstaffed_location.id,
+    )
+    for _ in range(5):
+        housekeeping_staff_factory(
+            campus=campus, designation=overstaffed_designation, location=overstaffed_location, created_by=hr_admin
+        )
+
+    understaffed_location = location_factory("SSE")
+    understaffed_designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    sanctioned_strength_factory(
+        campus=campus,
+        department=department,
+        designation=understaffed_designation,
+        approved_strength=5,
+        created_by=hr_admin,
+        location_id=understaffed_location.id,
+    )
+    housekeeping_staff_factory(
+        campus=campus, designation=understaffed_designation, location=understaffed_location, created_by=hr_admin
+    )
+    db_session.commit()
+
+    response = _kpis(client, hr_admin)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sanctioned_approved_total"] == 7
+    assert body["sanctioned_working_total"] == 6
+    assert body["sanctioned_vacancy_total"] == 1  # not 4, the floor-per-row-then-sum figure
+
+
+def test_sanctioned_strength_totals_respect_role_category_filter(
+    client,
+    db_session,
+    published_vacancy_factory,
+    hired_employee_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+    location_factory,
+    housekeeping_staff_factory,
+):
+    """Unlike category_wise_breakdown, these three totals narrow with the
+    endpoint's own role_category filter."""
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.TEACHING)
+    teaching_designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=vacancy.department)
+    sanctioned_strength_factory(
+        campus=vacancy.campus,
+        department=vacancy.department,
+        designation=teaching_designation,
+        approved_strength=5,
+        created_by=vacancy.hr_admin,
+    )
+    hired = hired_employee_factory(vacancy)
+    hired.employee.designation_id = teaching_designation.id
+    db_session.flush()
+
+    hk_location = location_factory("SSE")
+    hk_designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=vacancy.department)
+    sanctioned_strength_factory(
+        campus=vacancy.campus,
+        department=vacancy.department,
+        designation=hk_designation,
+        approved_strength=3,
+        created_by=vacancy.hr_admin,
+        location_id=hk_location.id,
+    )
+    housekeeping_staff_factory(
+        campus=vacancy.campus, designation=hk_designation, location=hk_location, created_by=vacancy.hr_admin
+    )
+    housekeeping_staff_factory(
+        campus=vacancy.campus, designation=hk_designation, location=hk_location, created_by=vacancy.hr_admin
+    )
+    db_session.commit()
+
+    teaching_response = _kpis(client, vacancy.hr_admin, role_category="TEACHING")
+    teaching_body = teaching_response.json()
+    assert teaching_body["sanctioned_approved_total"] == 5
+    assert teaching_body["sanctioned_working_total"] == 1
+    assert teaching_body["sanctioned_vacancy_total"] == 4
+
+    housekeeping_response = _kpis(client, vacancy.hr_admin, role_category="HOUSEKEEPING")
+    housekeeping_body = housekeeping_response.json()
+    assert housekeeping_body["sanctioned_approved_total"] == 3
+    assert housekeeping_body["sanctioned_working_total"] == 2
+    assert housekeeping_body["sanctioned_vacancy_total"] == 1
+
+
+def test_sanctioned_strength_totals_respect_campus_scope(
+    client,
+    db_session,
+    campus_factory,
+    department_factory,
+    designation_factory,
+    user_factory,
+    sanctioned_strength_factory,
+):
+    """A non-global role's totals never include another campus's
+    SanctionedStrength rows."""
+    sse_campus = campus_factory("SSE")
+    sse_department = department_factory("SSE")
+    sse_designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=sse_department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    sanctioned_strength_factory(
+        campus=sse_campus,
+        department=sse_department,
+        designation=sse_designation,
+        approved_strength=5,
+        created_by=hr_admin,
+    )
+
+    scad_campus = campus_factory("SCAD")
+    scad_department = department_factory("SCAD")
+    scad_designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=scad_department)
+    sanctioned_strength_factory(
+        campus=scad_campus,
+        department=scad_department,
+        designation=scad_designation,
+        approved_strength=9,
+        created_by=hr_admin,
+    )
+    db_session.commit()
+
+    sse_hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    response = _kpis(client, sse_hod)
+    assert response.status_code == 200
+    body = response.json()
+    assert "home campus" in body["scope_note"]
+    assert body["sanctioned_approved_total"] == 5
+    assert body["sanctioned_working_total"] == 0
+    assert body["sanctioned_vacancy_total"] == 5
+
+    # A global caller (HR_ADMIN) sees both campuses' rows summed together.
+    global_response = _kpis(client, hr_admin)
+    global_body = global_response.json()
+    assert global_body["sanctioned_approved_total"] == 14

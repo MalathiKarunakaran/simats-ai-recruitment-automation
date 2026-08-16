@@ -47,6 +47,19 @@ Metric definitions (documented since none of these are literal DB fields):
   total_applications from each response. open_positions/hires are point-in-
   time and were never date-filtered even for the single-category top-line
   stats, so the breakdown doesn't date-filter them either, for consistency.
+- sanctioned_approved_total / sanctioned_working_total / sanctioned_vacancy_total
+  (Phase I, glowing-zooming-hamming.md): the Sanctioned Strength dashboard
+  tile, built by `_sanctioned_strength_totals` -- SUM(approved_strength) /
+  SUM(working_count_for(...)) across every current-effective
+  SanctionedStrength row in scope (via `current_effective_rows`, same
+  resolver `sanctioned_strength_reconciliation_report` uses), and
+  approved_total - working_total for the vacancy figure. Unlike
+  category_wise_breakdown above, these three DO respect this call's own
+  role_category filter (they're top-strip KPI tiles, not the always-all-3
+  card). sanctioned_vacancy_total is deliberately signed, not floored at 0
+  per row before summing -- see `_sanctioned_strength_totals`'s own
+  docstring for why a negative aggregate (net overstaffed) is the honest
+  answer here.
 - source_wise_breakdown: applications bucketed by Candidate.source via a
   case-insensitive substring match ("referr..." -> Reference, "...mail..."
   -> Mail, anything else -> Other). Candidate.source is deliberately free
@@ -223,6 +236,52 @@ def _time_to_hire_days(
         days = (joining_record.actual_joining_date - application.applied_at.date()).days
         results.append({"campus_code": campus.code, "role_category": vacancy_request.role_category.value, "days": days})
     return results
+
+
+def _sanctioned_strength_totals(
+    db: Session,
+    campus_id_filter,
+    role_category: StaffRoleCategoryEnum | None,
+) -> tuple[int, int, int]:
+    """Phase I (glowing-zooming-hamming.md) dashboard tile. Reuses
+    `current_effective_rows`/`working_count_for` (this module's own
+    sanctioned-strength resolvers -- the exact per-row call shape
+    `sanctioned_strength_reconciliation_report` above already makes, so a
+    HOUSEKEEPING row's working count reflects live `HousekeepingStaff`, not
+    `Employee`) rather than a parallel computation.
+
+    `sanctioned_vacancy_total = sanctioned_approved_total -
+    sanctioned_working_total`, computed from the two summed totals --
+    deliberately NOT the sum of each row's own vacancy floored at 0 first
+    (unlike vacancy_register.py's per-row `vacancy_count`, or this module's
+    own reconciliation report's `over_by`, both of which describe a single
+    key's own local vacancy/overcommit and so floor so "no vacancy" and
+    "overstaffed" both read as 0). Flooring each row first and summing after
+    would silently discard every overstaffed row's negative contribution
+    instead of letting it net against real vacancies elsewhere, and would
+    systematically overstate this aggregate. The plain
+    `approved_total - working_total` is the honest net figure for a single
+    top-line dashboard number -- a negative result means the scope (this
+    campus, or system-wide) is net overstaffed overall, not that there are
+    no vacancies.
+    """
+    current_rows = current_effective_rows(db, campus_id=campus_id_filter)
+    if role_category is not None:
+        current_rows = [row for row in current_rows if row.category == role_category]
+
+    approved_total = sum(row.approved_strength for row in current_rows)
+    working_total = sum(
+        working_count_for(
+            db,
+            department_id=row.department_id,
+            designation_id=row.designation_id,
+            category=row.category,
+            location_id=row.location_id,
+        )
+        for row in current_rows
+    )
+    vacancy_total = approved_total - working_total
+    return approved_total, working_total, vacancy_total
 
 
 def get_dashboard_kpis(
@@ -487,6 +546,14 @@ def get_dashboard_kpis(
     # _APPROVED_OR_BEYOND_STATUSES.
     vacancy_closure_rate_pct = round(closed / ever_approved * 100, 1) if ever_approved else None
 
+    # Phase I (glowing-zooming-hamming.md) -- unlike category_wise_breakdown
+    # above, these three respect this call's own role_category filter, same
+    # as every other top-line KPI field (open_positions, interviews_today,
+    # ...); they're top-strip tiles, not the always-all-3-categories card.
+    sanctioned_approved_total, sanctioned_working_total, sanctioned_vacancy_total = _sanctioned_strength_totals(
+        db, campus_id_filter, role_category
+    )
+
     return {
         "scope_note": scope_note,
         "total_applications": total_applications,
@@ -501,6 +568,9 @@ def get_dashboard_kpis(
         "source_wise_breakdown": source_wise_breakdown,
         "rejected_count": rejected_count,
         "withdrawn_count": withdrawn_count,
+        "sanctioned_approved_total": sanctioned_approved_total,
+        "sanctioned_working_total": sanctioned_working_total,
+        "sanctioned_vacancy_total": sanctioned_vacancy_total,
     }
 
 
