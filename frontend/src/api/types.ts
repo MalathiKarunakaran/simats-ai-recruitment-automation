@@ -181,6 +181,17 @@ export interface DashboardKpis {
   source_wise_breakdown: SourceBreakdownRow[];
   rejected_count: number;
   withdrawn_count: number;
+  // Phase I (glowing-zooming-hamming.md) Sanctioned Strength dashboard tile.
+  // Mirrors app/schemas/reporting.py::DashboardKPIResponse -- these DO
+  // respect this same call's role_category param (unlike
+  // category_wise_breakdown above, which never narrows).
+  sanctioned_approved_total: number;
+  sanctioned_working_total: number;
+  // Deliberately signed, not floored at 0 -- a negative value means the
+  // scope in view is net overstaffed overall. Render as-is; don't clamp or
+  // hide the sign. See app/services/reporting.py::_sanctioned_strength_totals
+  // for the full reasoning.
+  sanctioned_vacancy_total: number;
 }
 
 // Mirrors app/schemas/department.py::DepartmentRead. code/category/parent_group

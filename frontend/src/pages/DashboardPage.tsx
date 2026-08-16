@@ -15,7 +15,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 
-const KPI_CARDS: { key: keyof DashboardKpis; label: string; accent: StatAccent; tooltip?: string }[] = [
+const KPI_CARDS: {
+  key: keyof DashboardKpis;
+  label: string;
+  accent: StatAccent;
+  tooltip?: string;
+  /** Overrides the strip's shared "No activity in this scope yet" default --
+   * some of these tiles have a zero value that means something more specific
+   * than "nothing happened here". */
+  zeroCaption?: string;
+}[] = [
   { key: "total_applications", label: "Total applications", accent: "gold" },
   {
     key: "open_positions",
@@ -37,7 +46,52 @@ const KPI_CARDS: { key: keyof DashboardKpis; label: string; accent: StatAccent; 
   { key: "offers_pending", label: "Offers pending", accent: "orange" },
   { key: "average_time_to_hire_days", label: "Avg. time to hire (days)", accent: "gold" },
   { key: "vacancy_closure_rate_pct", label: "Vacancy closure rate (%)", accent: "green" },
+  // Phase I (glowing-zooming-hamming.md) Sanctioned Strength tiles. "none"
+  // (unused by any of the 7 tiles above) intentionally sets these two apart
+  // as a distinct neutral-toned group rather than reusing gold/green/orange,
+  // which already carry "activity" connotations that don't fit a headcount
+  // register. All 3 respect the category tabs above (role_category), same as
+  // open_positions etc. -- unlike the always-all-3-categories split card.
+  {
+    key: "sanctioned_approved_total",
+    label: "Sanctioned approved",
+    accent: "none",
+    tooltip:
+      "Sum of approved_strength across every current-effective Sanctioned Strength row in scope (respects the category tabs above).",
+  },
+  {
+    key: "sanctioned_working_total",
+    label: "Sanctioned working",
+    accent: "none",
+    tooltip:
+      "Live headcount currently working against those same rows -- Employees for Teaching/Non-Teaching, active Housekeeping Staff for Housekeeping.",
+    zeroCaption: "No staff currently working against sanctioned strength in this scope",
+  },
+  {
+    key: "sanctioned_vacancy_total",
+    label: "Sanctioned vacancy",
+    // Static fallback only (used while loading / non-numeric) -- the real
+    // accent below reacts to the value's sign so a negative "net
+    // overstaffed" figure doesn't read as a rendering glitch next to 9
+    // otherwise-nonnegative tiles.
+    accent: "gold",
+    tooltip:
+      "Sanctioned approved minus sanctioned working, net across scope -- NOT the sum of each row's vacancy floored at 0. Negative means net overstaffed overall, not \"no vacancy\".",
+    zeroCaption: "Fully staffed -- no net vacancy or overstaffing in this scope",
+  },
 ];
+
+/** sanctioned_vacancy_total is the one KPI that can legitimately go negative
+ * (net overstaffed) -- everything else on this strip is a nonnegative count.
+ * Color-coding by sign (gold = real vacancy to recruit for, green = exactly
+ * staffed, orange = overstaffed) makes the sign read as meaningful, not as a
+ * rendering bug, without needing a new StatAccent variant. */
+function vacancyAccent(value: number | string | null | undefined, fallback: StatAccent): StatAccent {
+  if (typeof value !== "number") return fallback;
+  if (value < 0) return "orange";
+  if (value === 0) return "green";
+  return "gold";
+}
 
 const TODAY_SCOPED_KEYS: (keyof DashboardKpis)[] = ["interviews_today", "joinings_today"];
 
@@ -151,18 +205,21 @@ export function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
-        {KPI_CARDS.map(({ key, label, accent, tooltip }) => (
-          <StatTile
-            key={key}
-            label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
-            value={isLoading ? undefined : (data?.[key] as number | string | null | undefined)}
-            isLoading={isLoading}
-            accent={accent}
-            zeroCaption="No activity in this scope yet"
-            tooltip={tooltip}
-          />
-        ))}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-5">
+        {KPI_CARDS.map(({ key, label, accent, tooltip, zeroCaption }) => {
+          const value = isLoading ? undefined : (data?.[key] as number | string | null | undefined);
+          return (
+            <StatTile
+              key={key}
+              label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
+              value={value}
+              isLoading={isLoading}
+              accent={key === "sanctioned_vacancy_total" ? vacancyAccent(value, accent) : accent}
+              zeroCaption={zeroCaption ?? "No activity in this scope yet"}
+              tooltip={tooltip}
+            />
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
