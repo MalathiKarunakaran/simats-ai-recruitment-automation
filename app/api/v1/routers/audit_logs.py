@@ -28,6 +28,13 @@ def list_audit_logs(
     offset: int = Query(0, ge=0),
     actor_user_id: uuid.UUID | None = None,
     entity_type: str | None = None,
+    # Phase H (glowing-zooming-hamming.md) -- entity_id filter, added for the
+    # Sanctioned Strength drawer's Audit Log tab (one entity's full history,
+    # not just its type). Additive: combines by AND with entity_type exactly
+    # like every other filter on this endpoint, so passing both narrows to
+    # "this specific entity of this specific type" -- no existing caller
+    # passes it, so omitting it is a no-op.
+    entity_id: uuid.UUID | None = None,
     campus_id: uuid.UUID | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
@@ -49,6 +56,8 @@ def list_audit_logs(
         query = query.filter(AuditLog.actor_user_id == actor_user_id)
     if entity_type is not None:
         query = query.filter(AuditLog.entity_type == entity_type)
+    if entity_id is not None:
+        query = query.filter(AuditLog.entity_id == entity_id)
     if start_date is not None:
         query = query.filter(AuditLog.created_at >= datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc))
     if end_date is not None:

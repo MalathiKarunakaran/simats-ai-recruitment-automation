@@ -852,3 +852,213 @@ def test_list_approved_vacancies_filters_by_vacancy_request_id(client, user_fact
     body = response.json()
     assert body["total"] == 1
     assert body["items"][0]["id"] == str(vacancy_a.approved_vacancy.id)
+
+
+# --- department_id/designation_id filters on list (Phase H, glowing-zooming-hamming.md) ---
+
+
+def test_list_vacancy_requests_filters_by_department_id(client, user_factory, department_factory):
+    department_a = department_factory("SSE", "Department A")
+    department_b = department_factory("SSE", "Department B")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    create_a = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department_a.id, campus_id=str(department_a.campus_id)),
+    )
+    assert create_a.status_code == 201
+    client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department_b.id, campus_id=str(department_b.campus_id)),
+    )
+
+    response = client.get(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        params={"department_id": str(department_a.id)},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == create_a.json()["id"]
+    assert all(item["department_id"] == str(department_a.id) for item in body["items"])
+
+
+def test_list_vacancy_requests_filters_by_designation_id(
+    client, user_factory, department_factory, designation_factory
+):
+    department = department_factory("SSE")
+    designation_a = designation_factory(department=department)
+    designation_b = designation_factory(department=department)
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    create_a = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(
+            department.id, campus_id=str(department.campus_id), designation_id=str(designation_a.id)
+        ),
+    )
+    assert create_a.status_code == 201
+    client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(
+            department.id, campus_id=str(department.campus_id), designation_id=str(designation_b.id)
+        ),
+    )
+
+    response = client.get(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        params={"designation_id": str(designation_a.id)},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == create_a.json()["id"]
+
+
+def test_list_vacancy_requests_filters_combine_department_and_designation_id(
+    client, user_factory, department_factory, designation_factory
+):
+    department_a = department_factory("SSE", "Department A")
+    department_b = department_factory("SSE", "Department B")
+    # designation_id on VacancyRequest is a plain FK, independent of
+    # Designation's own department M2M -- created with no department binding
+    # at all so it's usable against either department below without touching
+    # that unrelated relationship.
+    designation = designation_factory()
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    create_a = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(
+            department_a.id, campus_id=str(department_a.campus_id), designation_id=str(designation.id)
+        ),
+    )
+    assert create_a.status_code == 201
+    create_b = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(
+            department_b.id, campus_id=str(department_b.campus_id), designation_id=str(designation.id)
+        ),
+    )
+    assert create_b.status_code == 201
+
+    # Same designation_id spans both requests, but department_id narrows to
+    # exactly the one raised against department_a -- combined AND, not OR.
+    response = client.get(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        params={"department_id": str(department_a.id), "designation_id": str(designation.id)},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == create_a.json()["id"]
+
+
+def test_list_vacancy_requests_status_filter_still_works_alongside_new_filters(
+    client, user_factory, department_factory
+):
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    create_draft = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    assert create_draft.status_code == 201
+
+    create_submitted = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    submitted_id = create_submitted.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{submitted_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.get(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        params={"status": "DRAFT", "department_id": str(department.id)},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == create_draft.json()["id"]
+
+    response_submitted = client.get(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        params={"status": "SUBMITTED", "department_id": str(department.id)},
+    )
+    assert response_submitted.json()["total"] == 1
+    assert response_submitted.json()["items"][0]["id"] == submitted_id
+
+
+def test_list_vacancy_requests_campus_scope_isolation_holds_with_new_filters(
+    client, user_factory, department_factory
+):
+    department_sse = department_factory("SSE")
+    department_scad = department_factory("SCAD")
+    hod_sse = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    hod_scad = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SCAD")
+
+    client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod_sse),
+        json=_create_payload(department_sse.id, campus_id=str(department_sse.campus_id)),
+    )
+    other_campus_create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod_scad),
+        json=_create_payload(department_scad.id, campus_id=str(department_scad.campus_id)),
+    )
+    assert other_campus_create.status_code == 201
+
+    # hod_sse is campus-scoped to SSE; even without a department_id filter,
+    # SCAD's vacancy request must never appear for them.
+    response = client.get("/api/v1/vacancy-requests", headers=auth_headers(client, hod_sse))
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()["items"]}
+    assert other_campus_create.json()["id"] not in ids
+
+    # Passing the other campus's own department_id doesn't leak it either --
+    # campus scope narrows the base query before department_id is applied.
+    response_with_filter = client.get(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod_sse),
+        params={"department_id": str(department_scad.id)},
+    )
+    assert response_with_filter.status_code == 200
+    assert response_with_filter.json()["total"] == 0
+
+
+def test_super_admin_department_id_filter_is_global_across_campuses(client, user_factory, department_factory):
+    department_sse = department_factory("SSE")
+    hod_sse = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod_sse),
+        json=_create_payload(department_sse.id, campus_id=str(department_sse.campus_id)),
+    )
+    assert create.status_code == 201
+
+    response = client.get(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, super_admin),
+        params={"department_id": str(department_sse.id)},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == create.json()["id"]
