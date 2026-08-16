@@ -188,6 +188,81 @@ See tests/test_sanctioned_strength_views.py for one regression test per
 state plus a dedicated test proving this exact ordering when more than one
 condition applies at once (an overstaffed key with a pending request must
 still read OVERSTAFFED, not APPROVAL_PENDING).
+
+Phase G (glowing-zooming-hamming.md) adds `list_housekeeping_strength_rows`
+-- a *third*, genuinely different-grain sibling, not a third `category=`
+value fed into `list_strength_view_rows`. Every judgment call below was
+flagged as ambiguous in the Phase G dispatch brief and resolved here, not
+left implicit:
+
+1. **Row grain is Location, not (department, designation), and is a real
+   aggregate**: a single Location can have more than one HOUSEKEEPING
+   `SanctionedStrength` row sanctioned against it (e.g. "Housekeeping
+   Supervisor" and "Cleaner" both assigned to the same Location) -- this
+   view's `required` figure is the **SUM** of `approved_strength` across
+   every current-effective HOUSEKEEPING row whose `location_id` matches, and
+   `available` is a **COUNT** of active `HousekeepingStaff` rows at that
+   location across *every* designation there, not designation-scoped. This
+   is why `working_count_for` (designation-scoped by construction -- see its
+   own docstring) is never called here: it answers a narrower question than
+   this view needs, so this view runs its own batched
+   `HousekeepingStaff.location_id` GROUP BY instead of reusing it.
+2. **`vacancy` is floored at 0, unlike Teaching/Non-Teaching's deliberately
+   signed `vacancy`** (see this module's own Column definitions section
+   above for why theirs is signed) -- this view instead follows
+   vacancy_register.py's own floor-at-zero convention (`vacancy_count =
+   max(approved_count - working_count, 0)`, with OVERSTAFFED detected
+   *separately* from the unfloored `working_count > approved_count`
+   comparison, never inferred from the floored field -- see that module's
+   result-building loop around its `vacancy_count`/`row_recruitment_status`
+   lines). The raw signed `required - available` is computed and fed into
+   `strength_row_status` for status purposes only; the row's own `vacancy`
+   field only ever exposes the floored value. This means a location can read
+   `status == "OVERSTAFFED"` while its own `vacancy` field reads `0`, not a
+   negative number -- a deliberate, tested divergence from how Teaching/
+   Non-Teaching rows read (there, a negative `vacancy` and OVERSTAFFED status
+   always agree by construction, since the same signed number feeds both).
+3. **`strength_row_status` is reused as-is** (it already never inspects
+   category, only the resolved `vacancy`/`is_inactive`/`has_pending_request`
+   values -- see its own docstring). For this aggregate grain:
+   `is_inactive` = `Location.is_active is False` (the location itself, since
+   `current_effective_rows` already only ever returns `is_active=True`
+   SanctionedStrength rows -- same "practically reachable trigger" honesty
+   note this module's Column definitions section already makes for Teaching/
+   Non-Teaching, extended here to the Location-grained case).
+   `has_pending_request` = true if **any** in-flight VacancyRequest exists
+   for **any** of the (campus, department, designation) keys contributing to
+   that location's `required` sum -- batched the same way
+   `list_strength_view_rows`'s own `in_flight_rows` query is (same
+   `VACANCY_REQUEST_IN_FLIGHT_STATUSES` set), just checked across a *set* of
+   keys per location instead of a single key.
+4. **`shifts` is derived, not sourced from `SanctionedStrength`** (which has
+   no shift dimension at all -- only `HousekeepingStaff` does): each row's
+   `shifts` is the distinct, sorted list of `HousekeepingShiftEnum` values
+   actually present among that location's active roster (e.g.
+   `["EVENING", "MORNING"]`), read off the same batched
+   `HousekeepingStaff`-per-location query `available` already uses -- not a
+   further per-shift row split, which would require inventing a false
+   per-shift `required` split the source data simply doesn't have. A
+   location with an active sanction but zero current roster gets `shifts:
+   []`, not an error.
+5. **No `department_id`/`designation_id`/`sanctioned_strength_id` field on
+   this row, ever** -- there is no single one of any of those per row here
+   (a row can aggregate several). Kept out at the schema level
+   (`HousekeepingStrengthRow` in app/schemas/sanctioned_strength_views.py is
+   NOT a subclass of `_StrengthViewRowBase`, which carries exactly those
+   three fields), not just left unrendered by the frontend's choice -- see
+   that schema's own docstring.
+6. **No per-row "Edit Required" mutating endpoint added in this phase** --
+   this view's own expand-to-roster action reuses Phase D's existing
+   `GET/POST/PATCH/DELETE /housekeeping-staff` (filtered by `location_id`)
+   unchanged; a unified "edit sanctioned strength for this row" action is
+   Phase H's concern, not this one.
+
+See tests/test_housekeeping_strength_views.py for coverage of every
+judgment call above, in addition to the usual filter/sort/pagination/
+status_counts/campus-scope-isolation coverage this module's existing tests
+already establish a pattern for.
 """
 
 import uuid
@@ -201,6 +276,7 @@ from app.models.department import Department
 from app.models.designation import Designation
 from app.models.employee import Employee
 from app.models.enums import VACANCY_REQUEST_IN_FLIGHT_STATUSES, StaffRoleCategoryEnum
+from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.location import Location
 from app.models.vacancy_request import VacancyRequest
 from app.services.sanctioned_strength import current_effective_rows, working_count_for
@@ -227,6 +303,23 @@ TEACHING_STRENGTH_STATUS_VALUES: tuple[str, ...] = (
     "OVERSTAFFED",
     "APPROVAL_PENDING",
     "INACTIVE",
+)
+
+# Phase G: this view's own column set is genuinely different (Location-
+# grained, no department/designation at all) -- not reused from
+# TEACHING_STRENGTH_SORT_FIELDS, unlike TEACHING_STRENGTH_SORT_DIRECTIONS /
+# TEACHING_STRENGTH_STATUS_VALUES just above, which *are* reused as-is (see
+# this module's docstring's Phase F naming-choices section for why the
+# sort-direction and status vocabularies are genuinely shared while the
+# sortable-field set is not).
+HOUSEKEEPING_STRENGTH_SORT_FIELDS: tuple[str, ...] = (
+    "location_name",
+    "block",
+    "floor_venue",
+    "required",
+    "available",
+    "vacancy",
+    "status",
 )
 
 
@@ -512,3 +605,229 @@ def list_teaching_strength_rows(
         status=status,
         vacancy=vacancy,
     )
+
+
+def list_housekeeping_strength_rows(
+    db: Session,
+    scope: CampusScope,
+    *,
+    limit: int,
+    offset: int,
+    sort_by: str,
+    sort_dir: str,
+    campus_code: str | None = None,
+    location_id: uuid.UUID | None = None,
+    block: str | None = None,
+    shift: str | None = None,
+    search: str | None = None,
+    status: str | None = None,
+    vacancy: int | None = None,
+) -> tuple[list[dict], int, dict[str, int]]:
+    """Phase G (glowing-zooming-hamming.md) -- the Location-grained
+    Housekeeping operational view: one row per Location that has at least one
+    current-effective HOUSEKEEPING SanctionedStrength row against it. See
+    this module's docstring's "Phase G" section for the full reasoning behind
+    every judgment call summarized in the derivations below.
+
+    `required` = SUM(approved_strength) across every current-effective
+    HOUSEKEEPING SanctionedStrength row whose location_id matches (one
+    Location can have more than one such row -- different designations
+    sanctioned at the same place).
+
+    `available` = live COUNT of active HousekeepingStaff rows at that
+    location, across every designation there -- not designation-scoped
+    (deliberately not `working_count_for`, which is designation-scoped by
+    design; see that function's own docstring for why it doesn't fit this
+    view's grain).
+
+    `vacancy` = `max(required - available, 0)` -- floored, unlike Teaching/
+    Non-Teaching's deliberately-signed `vacancy`. The raw signed
+    `required - available` is still computed (as `raw_vacancy` below) and fed
+    into `strength_row_status`, so a location where `available > required`
+    still reads `status == "OVERSTAFFED"` even though its own `vacancy`
+    field reads `0`, not negative.
+
+    `shifts` = sorted distinct `HousekeepingShiftEnum` values (as strings)
+    present among that location's active roster -- `[]` for a location with
+    an active sanction but zero current roster, never an error.
+
+    `status` = `strength_row_status(vacancy=raw_vacancy,
+    is_inactive=<Location.is_active is False>,
+    has_pending_request=<any in-flight VacancyRequest for any (campus,
+    department, designation) key contributing to this location>)` -- the
+    same category-agnostic function Teaching/Non-Teaching use, just fed this
+    view's own aggregate inputs.
+
+    `search` matches (case-insensitive substring) against the location's
+    `name` and `block_building` -- there is no `bio_id` at this grain (that's
+    a HousekeepingStaff-level identifier), so unlike
+    app/api/v1/routers/housekeeping_staff.py's own name/bio_id search, this
+    searches name/block instead; a judgment call flagged for reviewer since
+    the plan only explicitly named "location name" here ("plus maybe
+    block"). `block` (the dedicated filter param) matches the same
+    case-insensitive-substring semantics as housekeeping_staff.py's own
+    `HousekeepingStaff.block.ilike(f"%{block}%")` filter, applied in Python
+    rather than as a SQL ilike -- this module's whole design is batched-
+    query-then-Python-filter (see the module docstring's opening paragraph),
+    not per-filter SQL predicates, so matching semantics (not
+    implementation mechanism) is what "mirroring ... exactly" means here.
+    `shift` filters to locations whose derived `shifts` list contains the
+    given value.
+
+    `status_counts` is snapshotted just before the `status` filter is
+    applied, same convention as `list_strength_view_rows`'s own
+    `status_counts` (see that function's docstring for why it's named
+    `status_counts`, not `category_counts`, here too -- this view has no
+    `category` dimension.
+
+    total is the count of rows matching every filter (including the
+    Python-computed `status`/`vacancy` filters), before offset/limit
+    slicing.
+    """
+    campus_id_filter, _scope_note = resolve_campus_filter(db, scope, campus_code)
+
+    effective_rows = current_effective_rows(db, campus_id=campus_id_filter)
+    hk_rows = [
+        row
+        for row in effective_rows
+        if row.category == StaffRoleCategoryEnum.HOUSEKEEPING and row.location_id is not None
+    ]
+    if location_id is not None:
+        hk_rows = [row for row in hk_rows if row.location_id == location_id]
+
+    if not hk_rows:
+        empty_counts = {code: 0 for code in TEACHING_STRENGTH_STATUS_VALUES}
+        empty_counts["ALL"] = 0
+        return [], 0, empty_counts
+
+    # Judgment call #1 (module docstring): group every contributing
+    # SanctionedStrength row by location_id, summing approved_strength into
+    # `required`, and collecting each location's *set* of contributing
+    # (campus, department, designation) keys for the batched in-flight
+    # VacancyRequest lookup below.
+    required_by_location: dict[uuid.UUID, int] = {}
+    keys_by_location: dict[uuid.UUID, set[tuple[uuid.UUID, uuid.UUID, uuid.UUID]]] = {}
+    for row in hk_rows:
+        required_by_location[row.location_id] = (
+            required_by_location.get(row.location_id, 0) + row.approved_strength
+        )
+        keys_by_location.setdefault(row.location_id, set()).add(
+            (row.campus_id, row.department_id, row.designation_id)
+        )
+
+    location_ids = set(required_by_location)
+    designation_ids = {row.designation_id for row in hk_rows}
+
+    location_by_id = {loc.id: loc for loc in db.query(Location).filter(Location.id.in_(location_ids)).all()}
+    location_campus_ids = {loc.campus_id for loc in location_by_id.values()}
+    campus_code_by_id = dict(
+        db.query(Campus.id, Campus.code).filter(Campus.id.in_(location_campus_ids)).all()
+    )
+
+    # Batched Available count + shifts-present, per location -- judgment
+    # calls #1/#4: COUNT(*) grouped by location_id only (never
+    # designation_id), and the distinct shift values seen at that location,
+    # from one query over the active roster.
+    staff_rows = (
+        db.query(HousekeepingStaff.location_id, HousekeepingStaff.shift)
+        .filter(HousekeepingStaff.location_id.in_(location_ids), HousekeepingStaff.is_active.is_(True))
+        .all()
+    )
+    available_by_location: dict[uuid.UUID, int] = {}
+    shifts_by_location: dict[uuid.UUID, set[str]] = {}
+    for loc_id, staff_shift in staff_rows:
+        available_by_location[loc_id] = available_by_location.get(loc_id, 0) + 1
+        shifts_by_location.setdefault(loc_id, set()).add(staff_shift.value)
+
+    # Batched "is there an in-flight VacancyRequest for any key contributing
+    # to this location" lookup -- same shape/status set as
+    # list_strength_view_rows's own in_flight_rows, checked per-location
+    # against a *set* of keys (judgment call #3) rather than a single key.
+    in_flight_rows = (
+        db.query(
+            VacancyRequest.campus_id,
+            VacancyRequest.department_id,
+            VacancyRequest.designation_id,
+            func.count(VacancyRequest.id),
+        )
+        .filter(
+            VacancyRequest.designation_id.in_(designation_ids),
+            VacancyRequest.status.in_(VACANCY_REQUEST_IN_FLIGHT_STATUSES),
+        )
+        .group_by(VacancyRequest.campus_id, VacancyRequest.department_id, VacancyRequest.designation_id)
+        .all()
+    )
+    in_flight_count_by_key: dict[tuple[uuid.UUID, uuid.UUID, uuid.UUID], int] = {
+        (c_id, d_id, g_id): count for c_id, d_id, g_id, count in in_flight_rows
+    }
+
+    pattern = search.strip().lower() if search else None
+    block_pattern = block.strip().lower() if block else None
+
+    results: list[dict] = []
+    for loc_id, required in required_by_location.items():
+        location = location_by_id.get(loc_id)
+        location_name = location.name if location is not None else None
+        location_block = location.block_building if location is not None else None
+        location_floor_venue = location.floor_venue if location is not None else None
+        location_campus_id = location.campus_id if location is not None else None
+
+        if block_pattern and block_pattern not in (location_block or "").lower():
+            continue
+        if pattern:
+            haystack = f"{location_name or ''} {location_block or ''}".lower()
+            if pattern not in haystack:
+                continue
+
+        shifts = sorted(shifts_by_location.get(loc_id, set()))
+        if shift is not None and shift not in shifts:
+            continue
+
+        available = available_by_location.get(loc_id, 0)
+        raw_vacancy = required - available
+        row_vacancy = max(raw_vacancy, 0)
+
+        is_inactive = location is not None and not location.is_active
+        has_pending_request = any(
+            in_flight_count_by_key.get(key, 0) > 0 for key in keys_by_location.get(loc_id, set())
+        )
+        row_status = strength_row_status(
+            vacancy=raw_vacancy, is_inactive=is_inactive, has_pending_request=has_pending_request
+        )
+
+        results.append(
+            {
+                "location_id": loc_id,
+                "campus_id": location_campus_id,
+                "campus_code": campus_code_by_id.get(location_campus_id) if location_campus_id else None,
+                "location_name": location_name,
+                "block": location_block,
+                "floor_venue": location_floor_venue,
+                "shifts": shifts,
+                "required": required,
+                "available": available,
+                "vacancy": row_vacancy,
+                "status": row_status,
+            }
+        )
+
+    if vacancy is not None:
+        results = [r for r in results if r["vacancy"] == vacancy]
+
+    # Snapshot per-status counts here -- every filter except `status` itself
+    # has now been applied (see list_strength_view_rows's own docstring for
+    # why this is named status_counts here too).
+    status_counts: dict[str, int] = {code: 0 for code in TEACHING_STRENGTH_STATUS_VALUES}
+    for r in results:
+        status_counts[r["status"]] += 1
+    status_counts["ALL"] = len(results)
+
+    if status is not None:
+        results = [r for r in results if r["status"] == status]
+
+    reverse = sort_dir == "desc"
+    results.sort(key=lambda r: _sort_key(r[sort_by], reverse), reverse=reverse)
+
+    total = len(results)
+    page = results[offset : offset + limit]
+    return page, total, status_counts
