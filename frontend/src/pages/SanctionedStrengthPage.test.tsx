@@ -1740,6 +1740,42 @@ describe("SanctionedStrengthPage", () => {
       );
     });
 
+    it("Delete: refetches this view's own query (not just the legacy register) so the row actually disappears -- regression test for a real live bug", async () => {
+      // Live-reported bug (2026-08-17): deleting from this dedicated Teaching
+      // view succeeded server-side but the row never disappeared, because
+      // DeleteSanctionedStrengthDialog only invalidated the legacy rollup
+      // table's own query keys (sanctioned-strength-breakdown/-register),
+      // never this view's own `teaching-strength-view` key. Fixed by
+      // threading StrengthRowActions' existing onSaved callback into the
+      // dialog's new onDeleted prop -- this test proves the row is gone
+      // after a real refetch, not just that the API call fired.
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValueOnce(paginatedTeaching([TEACHING_ROW_1]));
+      mockedDeleteSanctionedStrength.mockResolvedValue(undefined);
+
+      renderPage(["/sanctioned-strength"]);
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      // Once the row is actually deleted, a real refetch would return the
+      // empty view -- this is what proves the invalidation fired, not just
+      // that the DELETE call was made.
+      mockedListTeachingStrengthRows.mockResolvedValueOnce(paginatedTeaching([]));
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Delete sanctioned strength for Assistant Professor" }),
+      );
+      await userEvent.click(await screen.findByRole("button", { name: "Confirm delete" }));
+
+      await waitFor(() => expect(mockedDeleteSanctionedStrength).toHaveBeenCalledWith("ts-1"));
+      // The bug this regresses against: without the fix, this assertion
+      // times out because mockedListTeachingStrengthRows is never called a
+      // second time and "Assistant Professor" never leaves the screen.
+      await waitFor(() => expect(mockedListTeachingStrengthRows).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument());
+    });
+
     it("shows a genuine 'no designations found' empty state when no filters are active, and a filters-narrowed variant otherwise", async () => {
       mockAuth("HR_ADMIN");
       mockCampuses();
@@ -2078,6 +2114,32 @@ describe("SanctionedStrengthPage", () => {
           location_id: null,
         }),
       );
+    });
+
+    it("Delete: refetches this view's own query (not just the legacy register) so the row actually disappears -- same regression as Teaching's own test above", async () => {
+      // Same live-reported bug as Teaching's own version of this test --
+      // StrengthRowActions is shared between both tables, so this proves
+      // NonTeachingStrengthTable's own `onSaved` (invalidating
+      // non-teaching-strength-view) reaches the Delete path too, not just Edit.
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockNonTeachingFilterData();
+      mockedListNonTeachingStrengthRows.mockResolvedValueOnce(paginatedNonTeaching([NON_TEACHING_ROW_1]));
+      mockedDeleteSanctionedStrength.mockResolvedValue(undefined);
+
+      renderPage(["/sanctioned-strength?category=non-teaching"]);
+      await waitFor(() => expect(screen.getByText("Office Assistant")).toBeInTheDocument());
+
+      mockedListNonTeachingStrengthRows.mockResolvedValueOnce(paginatedNonTeaching([]));
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Delete sanctioned strength for Office Assistant" }),
+      );
+      await userEvent.click(await screen.findByRole("button", { name: "Confirm delete" }));
+
+      await waitFor(() => expect(mockedDeleteSanctionedStrength).toHaveBeenCalledWith("nts-1"));
+      await waitFor(() => expect(mockedListNonTeachingStrengthRows).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByText("Office Assistant")).not.toBeInTheDocument());
     });
 
     it("shows a genuine 'no designations found' empty state when no filters are active, and a filters-narrowed variant otherwise", async () => {

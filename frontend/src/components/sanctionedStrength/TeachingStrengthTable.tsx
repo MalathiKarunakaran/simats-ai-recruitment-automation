@@ -182,6 +182,11 @@ export function StrengthRowActions({
           sanctionedStrengthId={row.sanctioned_strength_id}
           designationName={designationName}
           departmentId={row.department_id}
+          // The same view-scoped invalidation callback already threaded to
+          // SanctionedStrengthDrawer below -- see DeleteSanctionedStrengthDialog's
+          // own docstring for the bug this fixes (delete succeeded but the
+          // row never disappeared from Teaching/Non-Teaching's own view).
+          onDeleted={onSaved}
         />
       ) : null}
       <SanctionedStrengthDrawer
