@@ -20,6 +20,7 @@ const PAST = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
 const WITHIN_WINDOW: BulkUploadLogRead = {
   id: "bu-1",
   filename: "batch-1.xlsx",
+  entity_type: "SANCTIONED_STRENGTH",
   uploaded_by_id: "11111111-2222-3333-4444-555555555555",
   uploaded_at: "2026-08-10T10:00:00Z",
   rows_total: 10,
@@ -51,11 +52,11 @@ function paginated(items: BulkUploadLogRead[], total = items.length) {
   return { items, total, limit: 20, offset: 0 };
 }
 
-function renderTab() {
+function renderTab(entityType: "SANCTIONED_STRENGTH" | "LOCATION" | "HOUSEKEEPING_STAFF" = "SANCTIONED_STRENGTH") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <UploadHistoryTab />
+      <UploadHistoryTab entityType={entityType} />
     </QueryClientProvider>,
   );
 }
@@ -70,6 +71,17 @@ describe("UploadHistoryTab", () => {
     expect(screen.getByText("11111111")).toBeInTheDocument();
     expect(screen.getByText(/10 total \(4 created, 5 updated, 1 rejected\)/)).toBeInTheDocument();
     expect(screen.getByText("Completed")).toBeInTheDocument();
+  });
+
+  it("scopes the shared bulk-uploads list to this component's own entityType (Phase J)", async () => {
+    mockedList.mockResolvedValue(paginated([{ ...WITHIN_WINDOW, entity_type: "LOCATION" }]));
+
+    renderTab("LOCATION");
+    await screen.findByText("batch-1.xlsx");
+
+    expect(mockedList).toHaveBeenCalledWith(
+      expect.objectContaining({ entity_type: "LOCATION", limit: 20, offset: 0 }),
+    );
   });
 
   it("offers Undo only for a batch still within its 24h window", async () => {
@@ -97,7 +109,7 @@ describe("UploadHistoryTab", () => {
 
   it("confirms and calls undo via the confirm dialog", async () => {
     mockedList.mockResolvedValue(paginated([WITHIN_WINDOW]));
-    mockedUndo.mockResolvedValue({ id: "bu-1", status: "UNDONE", reverted_history_count: 3 });
+    mockedUndo.mockResolvedValue({ id: "bu-1", status: "UNDONE", reverted_history_count: 3, not_reverted_count: 0 });
 
     renderTab();
     await screen.findByText("batch-1.xlsx");
@@ -106,6 +118,33 @@ describe("UploadHistoryTab", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Confirm undo" }));
 
     await waitFor(() => expect(mockedUndo).toHaveBeenCalledWith("bu-1"));
+  });
+
+  it("uses entity-appropriate undo copy for Location, not Sanctioned Strength's own 'go back to their prior value' wording", async () => {
+    mockedList.mockResolvedValue(paginated([{ ...WITHIN_WINDOW, entity_type: "LOCATION" }]));
+
+    renderTab("LOCATION");
+    await screen.findByText("batch-1.xlsx");
+    await userEvent.click(screen.getByRole("button", { name: "Undo upload batch-1.xlsx" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/cannot be automatically reverted/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/go back to their prior value/)).not.toBeInTheDocument();
+  });
+
+  it("surfaces not_reverted_count instead of silently closing when the undo response reports skipped rows", async () => {
+    mockedList.mockResolvedValue(paginated([{ ...WITHIN_WINDOW, entity_type: "LOCATION" }]));
+    mockedUndo.mockResolvedValue({ id: "bu-1", status: "UNDONE", reverted_history_count: 2, not_reverted_count: 1 });
+
+    renderTab("LOCATION");
+    await screen.findByText("batch-1.xlsx");
+    await userEvent.click(screen.getByRole("button", { name: "Undo upload batch-1.xlsx" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Confirm undo" }));
+
+    expect(await screen.findByText(/1 row\(s\) that this batch updated/)).toBeInTheDocument();
+    // Still open (a "Done" button, not the confirm dialog re-appearing) --
+    // never a silent auto-close on a partial undo.
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
   });
 
   it("surfaces the backend's expired-window 409 message inline in the confirm dialog, not a generic failure", async () => {

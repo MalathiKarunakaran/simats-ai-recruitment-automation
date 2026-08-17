@@ -2,6 +2,7 @@ import { apiFetch, apiFetchBlob } from "@/api/client";
 import type {
   ApprovalStatus,
   BulkUploadCommitResponse,
+  BulkUploadEntityType,
   BulkUploadLogRead,
   BulkUploadUndoResponse,
   BulkUploadValidationResponse,
@@ -237,6 +238,14 @@ export async function downloadSanctionedStrengthBulkUploadErrorReport(bulkUpload
 export interface ListBulkUploadsParams {
   limit?: number;
   offset?: number;
+  // Phase J (glowing-zooming-hamming.md) -- filters batches down to one
+  // entity type. Omitted entirely means "every entity", same optional-filter
+  // convention as every other list endpoint in this codebase. Every caller
+  // of this shared endpoint now passes this explicitly (see
+  // UploadHistoryTab's own `entityType` prop) so Location/HousekeepingStaff
+  // batches don't bleed into Sanctioned Strength's own "Upload history" tab
+  // (and vice versa) now that all 3 entities share this one batch log table.
+  entity_type?: BulkUploadEntityType;
 }
 
 // Mirrors GET /sanctioned-strength/bulk-uploads -- newest-first, for the
@@ -247,6 +256,7 @@ export async function listSanctionedStrengthBulkUploads(
   const query = new URLSearchParams();
   query.set("limit", String(params.limit ?? 50));
   query.set("offset", String(params.offset ?? 0));
+  if (params.entity_type) query.set("entity_type", params.entity_type);
   return apiFetch<PaginatedResponse<BulkUploadLogRead>>(`/sanctioned-strength/bulk-uploads?${query.toString()}`);
 }
 

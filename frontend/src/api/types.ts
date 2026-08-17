@@ -1530,11 +1530,24 @@ export interface BulkUploadCommitResponse extends BulkUploadValidationResponse {
 // Mirrors app/models/enums.py::BulkUploadStatusEnum.
 export type BulkUploadStatus = "COMPLETED" | "UNDONE";
 
+// Mirrors app/models/enums.py::BulkUploadEntityTypeEnum (Phase J,
+// glowing-zooming-hamming.md) -- which master-data entity a given
+// BulkUploadLog batch imported. SANCTIONED_STRENGTH is the pre-existing
+// value; LOCATION/HOUSEKEEPING_STAFF are new this phase. Used both as the
+// `entity_type` filter on GET /sanctioned-strength/bulk-uploads (so each
+// entity's own "Upload history" view only shows its own batches -- see
+// UploadHistoryTab's new `entityType` prop) and as the value the 4 shared
+// endpoints dispatch on server-side.
+export type BulkUploadEntityType = "SANCTIONED_STRENGTH" | "LOCATION" | "HOUSEKEEPING_STAFF";
+
 // Mirrors BulkUploadLogRead -- one row per past bulk upload, for the "Upload
-// history" tab.
+// history" tab/dialog. `entity_type` (Phase J) is new -- the backend has
+// always scoped a batch to exactly one entity type; this field just exposes
+// it to the frontend.
 export interface BulkUploadLogRead {
   id: string;
   filename: string;
+  entity_type: BulkUploadEntityType;
   uploaded_by_id: string;
   uploaded_at: string;
   rows_total: number;
@@ -1548,9 +1561,83 @@ export interface BulkUploadLogRead {
   undone_by_id: string | null;
 }
 
-// Mirrors BulkUploadUndoResponse.
+// Mirrors BulkUploadUndoResponse. `not_reverted_count` (Phase J) is always 0
+// for Sanctioned Strength's own undo (every touched row has a real prior
+// value to replay via SanctionedStrengthHistory). It can be > 0 for
+// Location/HousekeepingStaff batches, whose undo can only revert rows the
+// batch *created* -- rows it *updated* have no stored prior value anywhere
+// to revert to (see app/models/bulk_upload_row_log.py's own docstring) and
+// are counted here rather than silently skipped.
 export interface BulkUploadUndoResponse {
   id: string;
   status: BulkUploadStatus;
   reverted_history_count: number;
+  not_reverted_count: number;
+}
+
+// --- Location / HousekeepingStaff bulk upload (Phase J,
+// glowing-zooming-hamming.md) ------------------------------------------------
+// Mirrors app/schemas/location_import.py / app/schemas/
+// housekeeping_staff_import.py -- own row-preview/validation/commit shapes
+// per entity (different row fields), same pattern as
+// BulkUploadRowPreview/BulkUploadValidationResponse/BulkUploadCommitResponse
+// above for Sanctioned Strength. BulkUploadRowStatus is shared (same
+// created/updated/unchanged/rejected vocabulary for all 3 entities).
+
+// Mirrors LocationBulkUploadRowPreview.
+export interface LocationBulkUploadRowPreview {
+  row_number: number;
+  status: BulkUploadRowStatus;
+  error_reason: string | null;
+  campus_code: string | null;
+  location_name: string | null;
+  block_building: string | null;
+  floor_venue: string | null;
+  category: StaffRoleCategory | null;
+}
+
+// Mirrors LocationBulkUploadValidationResponse.
+export interface LocationBulkUploadValidationResponse {
+  total: number;
+  created_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  rejected_count: number;
+  rows: LocationBulkUploadRowPreview[];
+}
+
+// Mirrors LocationBulkUploadCommitResponse.
+export interface LocationBulkUploadCommitResponse extends LocationBulkUploadValidationResponse {
+  bulk_upload_log_id: string;
+}
+
+// Mirrors HousekeepingStaffBulkUploadRowPreview.
+export interface HousekeepingStaffBulkUploadRowPreview {
+  row_number: number;
+  status: BulkUploadRowStatus;
+  error_reason: string | null;
+  campus_code: string | null;
+  bio_id: string | null;
+  name: string | null;
+  designation_name: string | null;
+  location_name: string | null;
+  block: string | null;
+  floor_venue: string | null;
+  shift: HousekeepingShift | null;
+  supervisor: string | null;
+}
+
+// Mirrors HousekeepingStaffBulkUploadValidationResponse.
+export interface HousekeepingStaffBulkUploadValidationResponse {
+  total: number;
+  created_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  rejected_count: number;
+  rows: HousekeepingStaffBulkUploadRowPreview[];
+}
+
+// Mirrors HousekeepingStaffBulkUploadCommitResponse.
+export interface HousekeepingStaffBulkUploadCommitResponse extends HousekeepingStaffBulkUploadValidationResponse {
+  bulk_upload_log_id: string;
 }

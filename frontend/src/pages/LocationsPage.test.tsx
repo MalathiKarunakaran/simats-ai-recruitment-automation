@@ -7,12 +7,17 @@ import { describe, expect, it, vi } from "vitest";
 import * as campusesApi from "@/api/campuses";
 import { ApiError } from "@/api/client";
 import * as locationsApi from "@/api/locations";
+import * as sanctionedStrengthApi from "@/api/sanctionedStrength";
 import type { CampusRead, LocationRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import { LocationsPage } from "@/pages/LocationsPage";
 
 vi.mock("@/api/campuses");
 vi.mock("@/api/locations");
+// Phase J (glowing-zooming-hamming.md) -- LocationBulkUploadDialog/the
+// Upload history dialog both pull from this module too (the shared
+// error-report download and the shared bulk-uploads list respectively).
+vi.mock("@/api/sanctionedStrength");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -24,6 +29,7 @@ const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedCreateLocation = vi.mocked(locationsApi.createLocation);
 const mockedUpdateLocation = vi.mocked(locationsApi.updateLocation);
 const mockedDeleteLocation = vi.mocked(locationsApi.deleteLocation);
+const mockedListBulkUploads = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthBulkUploads);
 
 function mockUser(role: UserRead["role"], campusId: string | null = null) {
   mockedUseAuth.mockReturnValue({
@@ -194,7 +200,7 @@ describe("LocationsPage", () => {
     expect(screen.getByRole("tab", { name: "Teaching (1)" })).toBeInTheDocument();
   });
 
-  it("hides New location and Edit for a role without LOCATION_MANAGEMENT_ROLES", async () => {
+  it("hides New location, Bulk upload, Upload history and Edit for a role without LOCATION_MANAGEMENT_ROLES", async () => {
     mockUser("CAMPUS_HOD", "c-sse");
     mockedListCampuses.mockResolvedValue([SSE]);
     mockedListLocations.mockResolvedValue([LIBRARY]);
@@ -203,6 +209,8 @@ describe("LocationsPage", () => {
 
     await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "New location" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bulk upload" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload history" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
@@ -215,6 +223,35 @@ describe("LocationsPage", () => {
 
     await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "New location" })).toBeInTheDocument();
+  });
+
+  it("shows Bulk upload and Upload history for a canManage user, gated the same as New location (Phase J)", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListLocations.mockResolvedValue([LIBRARY]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Bulk upload" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload history" })).toBeInTheDocument();
+  });
+
+  it("opens the Upload history dialog scoped to Location's own bulk-upload batches", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListLocations.mockResolvedValue([LIBRARY]);
+    mockedListBulkUploads.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Upload history" }));
+
+    expect(await screen.findByText("Location bulk upload history")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockedListBulkUploads).toHaveBeenCalledWith(expect.objectContaining({ entity_type: "LOCATION" })),
+    );
   });
 
   it("creates a location with block/floor/category for HR Admin", async () => {

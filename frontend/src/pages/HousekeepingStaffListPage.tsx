@@ -11,9 +11,12 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
+import { HousekeepingStaffBulkUploadDialog } from "@/components/housekeepingStaff/HousekeepingStaffBulkUploadDialog";
 import { HousekeepingStaffFormDrawer } from "@/components/housekeepingStaff/HousekeepingStaffFormDrawer";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 
 // Bare list page (glowing-zooming-hamming.md Phase D) -- sufficient to
 // live-verify the roster CRUD + HousekeepingStaffFormDrawer, deliberately
@@ -36,6 +39,10 @@ export function HousekeepingStaffListPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<HousekeepingStaffRead | null>(null);
+  // Phase J (glowing-zooming-hamming.md) -- same "Dialog, not a page Tab"
+  // choice as LocationsPage's own historyDialogOpen (see that page's own
+  // comment for why): this page has no Tabs section to extend either.
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
 
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   const [activeFilter, setActiveFilter] = useState<"ALL" | "true" | "false">("true");
@@ -97,7 +104,31 @@ export function HousekeepingStaffListPage() {
       <PageHeader
         title="Housekeeping Staff"
         description="The Housekeeping staff roster -- Bio ID, designation, location, block/floor, shift, and supervisor, per staff member."
-        actions={canManage ? <Button onClick={openCreateDrawer}>Add staff</Button> : undefined}
+        actions={
+          canManage ? (
+            <>
+              {/* Phase J (glowing-zooming-hamming.md) -- gated on the same
+                  canManage (HOUSEKEEPING_STAFF_MANAGEMENT_ROLES) check as
+                  Add staff/Edit/Delete below, mirroring the backend's own
+                  _WRITE_ROLES gate on /housekeeping-staff/bulk-upload/*. */}
+              <HousekeepingStaffBulkUploadDialog />
+              <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline" size="sm">
+                    Upload history
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-4xl">
+                  <DialogHeader>
+                    <DialogTitle>Housekeeping staff bulk upload history</DialogTitle>
+                  </DialogHeader>
+                  <UploadHistoryTab entityType="HOUSEKEEPING_STAFF" />
+                </DialogContent>
+              </Dialog>
+              <Button onClick={openCreateDrawer}>Add staff</Button>
+            </>
+          ) : undefined
+        }
       />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
