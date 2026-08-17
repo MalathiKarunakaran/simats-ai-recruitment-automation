@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
 import { SanctionedStrengthDrawer } from "@/components/sanctionedStrength/SanctionedStrengthDrawer";
+import { StrengthKpiSummary } from "@/components/sanctionedStrength/StrengthKpiSummary";
 
 // Teaching operational view (glowing-zooming-hamming.md Phase E) -- the
 // designation-level, every-row-inline table for categoryFilter === "TEACHING"
@@ -326,6 +327,17 @@ export function TeachingStrengthTable({
 
   return (
     <>
+      <StrengthKpiSummary
+        variant="APPROVED_WORKING"
+        totalRecords={data?.status_counts.ALL}
+        approvedOrRequired={data?.approved_total}
+        workingOrAvailable={data?.working_total}
+        vacancyTotal={data?.vacancy_total}
+        fullyStaffed={data?.status_counts.FULLY_STAFFED}
+        recruitmentRequired={data?.status_counts.VACANCY_RECRUITMENT_REQUIRED}
+        isLoading={isLoading}
+      />
+
       <div className="flex flex-wrap items-center gap-3">
         <Input
           value={searchInput}
