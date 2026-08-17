@@ -12,6 +12,7 @@ import {
   type NonTeachingStrengthSortBy,
 } from "@/api/sanctionedStrengthViews";
 import type { CampusRead, EmployeeRead, NonTeachingStrengthRow, NonTeachingStrengthStatus } from "@/api/types";
+import { StrengthKpiSummary } from "@/components/sanctionedStrength/StrengthKpiSummary";
 import { StrengthRowActions } from "@/components/sanctionedStrength/TeachingStrengthTable";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -288,6 +289,17 @@ export function NonTeachingStrengthTable({
 
   return (
     <>
+      <StrengthKpiSummary
+        variant="APPROVED_WORKING"
+        totalRecords={data?.status_counts.ALL}
+        approvedOrRequired={data?.approved_total}
+        workingOrAvailable={data?.working_total}
+        vacancyTotal={data?.vacancy_total}
+        fullyStaffed={data?.status_counts.FULLY_STAFFED}
+        recruitmentRequired={data?.status_counts.VACANCY_RECRUITMENT_REQUIRED}
+        isLoading={isLoading}
+      />
+
       <div className="flex flex-wrap items-center gap-3">
         <Input
           value={searchInput}

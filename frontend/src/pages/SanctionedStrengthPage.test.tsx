@@ -184,10 +184,18 @@ const TEACHING_ROW_2: TeachingStrengthRow = {
   last_updated: "2026-07-15T09:00:00Z",
 };
 
+// Phase K (glowing-zooming-hamming.md) KPI summary fields -- optional 4th
+// param defaults to plain sums over `items` (same "derive a sane default
+// from the fixture rows, let individual tests override it" convention as
+// `statusCounts` above) so every pre-existing call site keeps working
+// unchanged while the new KPI-summary-specific tests below pass explicit,
+// deliberately-signed totals (e.g. a negative vacancy_total that isn't
+// derivable from any single positive-vacancy row).
 function paginatedTeaching(
   items: TeachingStrengthRow[],
   total = items.length,
   statusCounts?: Record<string, number>,
+  kpiTotals?: { approved_total: number; working_total: number; vacancy_total: number },
 ): TeachingStrengthListResponse {
   return {
     items,
@@ -202,6 +210,9 @@ function paginatedTeaching(
       INACTIVE: items.filter((r) => r.status === "INACTIVE").length,
       ALL: items.length,
     },
+    approved_total: kpiTotals?.approved_total ?? items.reduce((sum, r) => sum + r.approved, 0),
+    working_total: kpiTotals?.working_total ?? items.reduce((sum, r) => sum + r.working, 0),
+    vacancy_total: kpiTotals?.vacancy_total ?? items.reduce((sum, r) => sum + r.vacancy, 0),
   };
 }
 
@@ -267,10 +278,12 @@ const NON_TEACHING_ROW_2: NonTeachingStrengthRow = {
   last_updated: "2026-07-20T09:00:00Z",
 };
 
+// Same Phase K optional-4th-param convention as paginatedTeaching() above.
 function paginatedNonTeaching(
   items: NonTeachingStrengthRow[],
   total = items.length,
   statusCounts?: Record<string, number>,
+  kpiTotals?: { approved_total: number; working_total: number; vacancy_total: number },
 ): NonTeachingStrengthListResponse {
   return {
     items,
@@ -285,6 +298,9 @@ function paginatedNonTeaching(
       INACTIVE: items.filter((r) => r.status === "INACTIVE").length,
       ALL: items.length,
     },
+    approved_total: kpiTotals?.approved_total ?? items.reduce((sum, r) => sum + r.approved, 0),
+    working_total: kpiTotals?.working_total ?? items.reduce((sum, r) => sum + r.working, 0),
+    vacancy_total: kpiTotals?.vacancy_total ?? items.reduce((sum, r) => sum + r.vacancy, 0),
   };
 }
 
@@ -364,11 +380,18 @@ const HOUSEKEEPING_ROW_2: HousekeepingStrengthRow = {
   status: "OVERSTAFFED",
 };
 
+// Same Phase K optional-4th-param convention as paginatedTeaching() above --
+// note the default vacancy_total here follows HousekeepingStrengthListResponse's
+// own documented derivation (required_total - available_total, NOT a sum of
+// each row's own floored `vacancy`), same as the real backend.
 function paginatedHousekeeping(
   items: HousekeepingStrengthRow[],
   total = items.length,
   statusCounts?: Record<string, number>,
+  kpiTotals?: { required_total: number; available_total: number; vacancy_total: number },
 ): HousekeepingStrengthListResponse {
+  const requiredTotal = kpiTotals?.required_total ?? items.reduce((sum, r) => sum + r.required, 0);
+  const availableTotal = kpiTotals?.available_total ?? items.reduce((sum, r) => sum + r.available, 0);
   return {
     items,
     total,
@@ -382,6 +405,9 @@ function paginatedHousekeeping(
       INACTIVE: items.filter((r) => r.status === "INACTIVE").length,
       ALL: items.length,
     },
+    required_total: requiredTotal,
+    available_total: availableTotal,
+    vacancy_total: kpiTotals?.vacancy_total ?? requiredTotal - availableTotal,
   };
 }
 
@@ -428,6 +454,22 @@ const HOUSEKEEPING_STAFF_1: HousekeepingStaffRead = {
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
+
+// Locates one of StrengthKpiSummary's own tiles by its label (Phase K,
+// glowing-zooming-hamming.md) -- "Approved"/"Working" collide with real
+// visible text elsewhere on these tables (their own sortable column
+// headers carry the identical label), so a bare screen.getByText(label)
+// can match more than one element once the KPI summary row is on-screen
+// too. Filters getAllByText's matches down to the one that's actually
+// inside a StatTile Card (".rounded-xl", same selector convention
+// DashboardPage.test.tsx's own KPI-tile tests already use) rather than a
+// <th>/<button> column header.
+function getKpiTile(label: string): HTMLElement {
+  const matches = screen.getAllByText(label);
+  const tile = matches.map((el) => el.closest(".rounded-xl")).find((el): el is HTMLElement => el !== null);
+  if (!tile) throw new Error(`No KPI tile found for label "${label}"`);
+  return tile;
+}
 
 function mockAuth(role: UserRole) {
   mockedUseAuth.mockReturnValue({
@@ -1469,6 +1511,50 @@ describe("SanctionedStrengthPage", () => {
       expect(screen.queryByText("Vacancy Exists")).not.toBeInTheDocument();
     });
 
+    it("renders the KPI summary tiles from the view's own aggregate totals, including a negative vacancy_total rendered as signed (not floored or hidden)", async () => {
+      // Phase K (glowing-zooming-hamming.md) -- the live UI-consistency gap
+      // this phase fixes. approved_total/working_total deliberately differ
+      // from a naive sum of TEACHING_ROW_1 alone (10/7) to prove these 3
+      // tiles read the response's own *_total fields, not something
+      // recomputed from the currently-rendered page of rows. vacancy_total
+      // is negative (net overstaffed across the filtered scope) -- same
+      // signed-number handling as DashboardPage.tsx's own
+      // sanctioned_vacancy_total tile (DashboardPage.test.tsx's "renders a
+      // negative sanctioned_vacancy_total as-is" test).
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(
+        paginatedTeaching(
+          [TEACHING_ROW_1],
+          42,
+          { VACANCY_RECRUITMENT_REQUIRED: 5, FULLY_STAFFED: 30, OVERSTAFFED: 7, APPROVAL_PENDING: 0, INACTIVE: 0, ALL: 42 },
+          { approved_total: 120, working_total: 124, vacancy_total: -4 },
+        ),
+      );
+
+      renderPage(["/sanctioned-strength"]);
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      const totalTile = getKpiTile("Total Records");
+      const approvedTile = getKpiTile("Approved");
+      const workingTile = getKpiTile("Working");
+      const vacancyTile = getKpiTile("Vacancies");
+      const fullyStaffedTile = getKpiTile("Fully Staffed");
+      const recruitmentTile = getKpiTile("Recruitment Required");
+
+      expect(within(totalTile).getByText("42")).toBeInTheDocument();
+      expect(within(approvedTile).getByText("120")).toBeInTheDocument();
+      expect(within(workingTile).getByText("124")).toBeInTheDocument();
+      expect(within(fullyStaffedTile).getByText("30")).toBeInTheDocument();
+      expect(within(recruitmentTile).getByText("5")).toBeInTheDocument();
+
+      // The real minus sign must survive rendering on this tile specifically
+      // -- signed, not floored at 0, not hidden.
+      expect(within(vacancyTile).getByText("-4")).toBeInTheDocument();
+      expect(within(vacancyTile).queryByText("4")).not.toBeInTheDocument();
+    });
+
     it("renders every Teaching column inline for a row, with no expand affordance anywhere on the table", async () => {
       mockAuth("HR_ADMIN");
       mockCampuses();
@@ -1539,13 +1625,18 @@ describe("SanctionedStrengthPage", () => {
       renderPage(["/sanctioned-strength"]);
 
       await waitFor(() => expect(screen.getByText("Row A")).toBeInTheDocument());
-      // Exact wording per app/services/sanctioned_strength_views.py's own
-      // module docstring -- not invented client-side.
-      expect(screen.getByText("Vacancy/Recruitment Required")).toBeInTheDocument();
-      expect(screen.getByText("Fully Staffed")).toBeInTheDocument();
-      expect(screen.getByText("Overstaffed")).toBeInTheDocument();
-      expect(screen.getByText("Approval Pending")).toBeInTheDocument();
-      expect(screen.getByText("Inactive")).toBeInTheDocument();
+      // Scoped to the table (not a bare page-wide screen.getByText) --
+      // Phase K's own StrengthKpiSummary row above this table renders a
+      // "Fully Staffed" KPI tile label too, so an unscoped query here would
+      // now match 2 elements. Exact wording per
+      // app/services/sanctioned_strength_views.py's own module docstring --
+      // not invented client-side.
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("Vacancy/Recruitment Required")).toBeInTheDocument();
+      expect(within(table).getByText("Fully Staffed")).toBeInTheDocument();
+      expect(within(table).getByText("Overstaffed")).toBeInTheDocument();
+      expect(within(table).getByText("Approval Pending")).toBeInTheDocument();
+      expect(within(table).getByText("Inactive")).toBeInTheDocument();
     });
 
     it("wires Department/Designation/Location/Status/Vacancy filters and column sorting to the real endpoint's query params", async () => {
@@ -1821,6 +1912,35 @@ describe("SanctionedStrengthPage", () => {
       expect(mockedListTeachingStrengthRows).not.toHaveBeenCalled();
     });
 
+    it("renders the KPI summary tiles from the view's own aggregate totals (Phase K)", async () => {
+      // Sibling of Teaching's own version of this test above -- same
+      // approved_total/working_total/vacancy_total wiring, a positive
+      // (real, unmet) vacancy_total here for variety (Teaching's and
+      // Housekeeping's own versions cover the negative "net overstaffed"
+      // case).
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockNonTeachingFilterData();
+      mockedListNonTeachingStrengthRows.mockResolvedValue(
+        paginatedNonTeaching(
+          [NON_TEACHING_ROW_1],
+          18,
+          { VACANCY_RECRUITMENT_REQUIRED: 6, FULLY_STAFFED: 10, OVERSTAFFED: 2, APPROVAL_PENDING: 0, INACTIVE: 0, ALL: 18 },
+          { approved_total: 50, working_total: 41, vacancy_total: 9 },
+        ),
+      );
+
+      renderPage(["/sanctioned-strength?category=non-teaching"]);
+      await waitFor(() => expect(screen.getByText("Office Assistant")).toBeInTheDocument());
+
+      expect(within(getKpiTile("Total Records")).getByText("18")).toBeInTheDocument();
+      expect(within(getKpiTile("Approved")).getByText("50")).toBeInTheDocument();
+      expect(within(getKpiTile("Working")).getByText("41")).toBeInTheDocument();
+      expect(within(getKpiTile("Vacancies")).getByText("9")).toBeInTheDocument();
+      expect(within(getKpiTile("Fully Staffed")).getByText("10")).toBeInTheDocument();
+      expect(within(getKpiTile("Recruitment Required")).getByText("6")).toBeInTheDocument();
+    });
+
     it("renders the plan's narrower Non-Teaching column set inline, with a leading expand chevron and Block resolved from the joined location", async () => {
       mockAuth("HR_ADMIN");
       mockCampuses();
@@ -1881,11 +2001,15 @@ describe("SanctionedStrengthPage", () => {
       renderPage(["/sanctioned-strength?category=non-teaching"]);
 
       await waitFor(() => expect(screen.getByText("Row A")).toBeInTheDocument());
-      expect(screen.getByText("Vacancy/Recruitment Required")).toBeInTheDocument();
-      expect(screen.getByText("Fully Staffed")).toBeInTheDocument();
-      expect(screen.getByText("Overstaffed")).toBeInTheDocument();
-      expect(screen.getByText("Approval Pending")).toBeInTheDocument();
-      expect(screen.getByText("Inactive")).toBeInTheDocument();
+      // Scoped to the table -- same "Fully Staffed" collision with Phase K's
+      // own StrengthKpiSummary tile label as Teaching's own version of this
+      // test above.
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("Vacancy/Recruitment Required")).toBeInTheDocument();
+      expect(within(table).getByText("Fully Staffed")).toBeInTheDocument();
+      expect(within(table).getByText("Overstaffed")).toBeInTheDocument();
+      expect(within(table).getByText("Approval Pending")).toBeInTheDocument();
+      expect(within(table).getByText("Inactive")).toBeInTheDocument();
     });
 
     it("wires Department/Designation/Location/Status/Vacancy filters and column sorting to the real endpoint's query params", async () => {
@@ -2189,6 +2313,41 @@ describe("SanctionedStrengthPage", () => {
       expect(mockedListNonTeachingStrengthRows).not.toHaveBeenCalled();
     });
 
+    it("renders the KPI summary tiles with Required/Available labels and a negative vacancy_total rendered as signed (not floored or hidden)", async () => {
+      // Phase K -- Housekeeping's own variant ("REQUIRED_AVAILABLE") of
+      // Teaching's/Non-Teaching's version of this test above. vacancy_total
+      // here is `required_total - available_total` per
+      // HousekeepingStrengthListResponse's own documented derivation --
+      // NOT the sum of each row's own floored `vacancy` (HOUSEKEEPING_ROW_1's
+      // own row-level vacancy is 2, positive, yet the view-level total below
+      // is deliberately negative to prove this tile reads the response's own
+      // vacancy_total field, not something recomputed from row data).
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockHousekeepingFilterData();
+      mockedListHousekeepingStrengthRows.mockResolvedValue(
+        paginatedHousekeeping(
+          [HOUSEKEEPING_ROW_1],
+          25,
+          { VACANCY_RECRUITMENT_REQUIRED: 8, FULLY_STAFFED: 14, OVERSTAFFED: 3, APPROVAL_PENDING: 0, INACTIVE: 0, ALL: 25 },
+          { required_total: 60, available_total: 64, vacancy_total: -4 },
+        ),
+      );
+
+      renderPage(["/sanctioned-strength?category=housekeeping"]);
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+
+      expect(within(getKpiTile("Total Records")).getByText("25")).toBeInTheDocument();
+      expect(within(getKpiTile("Required")).getByText("60")).toBeInTheDocument();
+      expect(within(getKpiTile("Available")).getByText("64")).toBeInTheDocument();
+      expect(within(getKpiTile("Fully Staffed")).getByText("14")).toBeInTheDocument();
+      expect(within(getKpiTile("Recruitment Required")).getByText("8")).toBeInTheDocument();
+
+      const vacancyTile = getKpiTile("Vacancies");
+      expect(within(vacancyTile).getByText("-4")).toBeInTheDocument();
+      expect(within(vacancyTile).queryByText("4")).not.toBeInTheDocument();
+    });
+
     it("renders the Location/Block/Floor-Venue/Required/Available/Vacancy/Shift/Status columns inline, with a leading expand chevron and NO Department/Designation column anywhere", async () => {
       mockAuth("HR_ADMIN");
       mockCampuses();
@@ -2277,11 +2436,15 @@ describe("SanctionedStrengthPage", () => {
       renderPage(["/sanctioned-strength?category=housekeeping"]);
 
       await waitFor(() => expect(screen.getByText("Row A")).toBeInTheDocument());
-      expect(screen.getByText("Vacancy/Recruitment Required")).toBeInTheDocument();
-      expect(screen.getByText("Fully Staffed")).toBeInTheDocument();
-      expect(screen.getByText("Overstaffed")).toBeInTheDocument();
-      expect(screen.getByText("Approval Pending")).toBeInTheDocument();
-      expect(screen.getByText("Inactive")).toBeInTheDocument();
+      // Scoped to the table -- same "Fully Staffed" collision with Phase K's
+      // own StrengthKpiSummary tile label as Teaching/Non-Teaching's own
+      // versions of this test above.
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("Vacancy/Recruitment Required")).toBeInTheDocument();
+      expect(within(table).getByText("Fully Staffed")).toBeInTheDocument();
+      expect(within(table).getByText("Overstaffed")).toBeInTheDocument();
+      expect(within(table).getByText("Approval Pending")).toBeInTheDocument();
+      expect(within(table).getByText("Inactive")).toBeInTheDocument();
     });
 
     it("wires Location/Block/Shift/Status/Vacancy filters and column sorting to the real endpoint's query params", async () => {

@@ -1317,8 +1317,21 @@ export interface TeachingStrengthRow {
 // "APPROVAL_PENDING": n, "INACTIVE": n, "ALL": n} across every active filter
 // except `status` itself, so a status-tabs-style UI's count doesn't collapse
 // when a different status is selected.
+//
+// `approved_total`/`working_total`/`vacancy_total` (Phase K,
+// glowing-zooming-hamming.md) back the KPI summary row shown above this
+// view's table (components/sanctionedStrength/StrengthKpiSummary.tsx) --
+// snapshotted at the same point as `status_counts` (every filter except
+// `status` already applied), not recomputed client-side from the current
+// page's own rows. `vacancy_total` is a plain sum of each row's own
+// already-signed `vacancy` field, so it can legitimately be negative (net
+// overstaffed across the filtered scope) -- see the backend schema module's
+// own docstring.
 export interface TeachingStrengthListResponse extends PaginatedResponse<TeachingStrengthRow> {
   status_counts: Record<string, number>;
+  approved_total: number;
+  working_total: number;
+  vacancy_total: number;
 }
 
 // Mirrors app/schemas/sanctioned_strength_views.py::NonTeachingStrengthRow
@@ -1357,9 +1370,14 @@ export interface NonTeachingStrengthRow {
 }
 
 // Mirrors app/schemas/sanctioned_strength_views.py::NonTeachingStrengthListResponse
-// -- same additive status_counts shape as TeachingStrengthListResponse.
+// -- same additive status_counts shape as TeachingStrengthListResponse, plus
+// the same Phase K `approved_total`/`working_total`/`vacancy_total` KPI
+// summary fields (see that interface's own docstring above).
 export interface NonTeachingStrengthListResponse extends PaginatedResponse<NonTeachingStrengthRow> {
   status_counts: Record<string, number>;
+  approved_total: number;
+  working_total: number;
+  vacancy_total: number;
 }
 
 // Mirrors app/schemas/sanctioned_strength_views.py::HousekeepingStrengthRow
@@ -1409,9 +1427,22 @@ export interface HousekeepingStrengthRow {
 
 // Mirrors app/schemas/sanctioned_strength_views.py::HousekeepingStrengthListResponse
 // -- same additive status_counts shape as TeachingStrengthListResponse/
-// NonTeachingStrengthListResponse.
+// NonTeachingStrengthListResponse. `required_total`/`available_total`/
+// `vacancy_total` (Phase K) are this view's own KPI summary fields,
+// snapshotted at the same point as `status_counts`. `vacancy_total` is
+// deliberately **NOT** the sum of each row's own floored `vacancy` field --
+// it is `required_total - available_total`, computed from the two raw sums
+// directly (mirrors `app/services/reporting.py`'s Phase I dashboard-tile
+// derivation exactly) -- see the backend schema module's own docstring for
+// why flooring each row first and summing would systematically overstate
+// the aggregate. A negative `vacancy_total` here honestly means "net
+// overstaffed across this filtered scope", same signed-number handling as
+// Teaching/Non-Teaching's own `vacancy_total` above.
 export interface HousekeepingStrengthListResponse extends PaginatedResponse<HousekeepingStrengthRow> {
   status_counts: Record<string, number>;
+  required_total: number;
+  available_total: number;
+  vacancy_total: number;
 }
 
 // Mirrors app/schemas/sanctioned_strength.py::SanctionedStrengthRead.

@@ -19,6 +19,7 @@ import type {
 } from "@/api/types";
 import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 import { HousekeepingStaffFormDrawer } from "@/components/housekeepingStaff/HousekeepingStaffFormDrawer";
+import { StrengthKpiSummary } from "@/components/sanctionedStrength/StrengthKpiSummary";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -400,6 +401,17 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
 
   return (
     <>
+      <StrengthKpiSummary
+        variant="REQUIRED_AVAILABLE"
+        totalRecords={data?.status_counts.ALL}
+        approvedOrRequired={data?.required_total}
+        workingOrAvailable={data?.available_total}
+        vacancyTotal={data?.vacancy_total}
+        fullyStaffed={data?.status_counts.FULLY_STAFFED}
+        recruitmentRequired={data?.status_counts.VACANCY_RECRUITMENT_REQUIRED}
+        isLoading={isLoading}
+      />
+
       <div className="flex flex-wrap items-center gap-3">
         <Input
           value={searchInput}
