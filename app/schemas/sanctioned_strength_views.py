@@ -63,6 +63,27 @@ resignation for this location" derivation was out of scope for what the
 Phase G dispatch brief asked for and is flagged here for the human reviewer
 to confirm before merge, per that brief's own instruction to flag rather
 than silently omit.
+
+Phase K (glowing-zooming-hamming.md) adds the aggregate KPI summary fields
+(Approved/Required, Working/Available, Vacancy totals) to all 3 list-response
+classes below, additive alongside the existing `status_counts` field. Total
+Records / Fully Staffed / Recruitment Required are deliberately NOT
+duplicated here -- a caller reads those straight off the existing
+`status_counts` dict (`status_counts["ALL"]`, `status_counts["FULLY_STAFFED"]`,
+`status_counts["VACANCY_RECRUITMENT_REQUIRED"]`). Each of the 3 response
+classes gets its own explicitly-named fields (`approved_total`/
+`working_total`/`vacancy_total` for Teaching/Non-Teaching,
+`required_total`/`available_total`/`vacancy_total` for Housekeeping) rather
+than a shared base class -- matching this module's own stated preference
+(see `NonTeachingStrengthListResponse`'s docstring just below: "identical
+shape... just parametrized") for light duplication across these 3 response
+classes over a shared non-generic base, for the same
+Pydantic-v2-generics-don't-compose reason given there. See
+app/services/sanctioned_strength_views.py's own docstrings
+(`list_strength_view_rows`/`list_housekeeping_strength_rows`) for each
+total's exact derivation, in particular why Housekeeping's `vacancy_total`
+is computed as `required_total - available_total` directly rather than by
+summing each row's own already-floored `vacancy` field.
 """
 
 import uuid
@@ -125,17 +146,29 @@ class TeachingStrengthListResponse(PaginatedResponse[TeachingStrengthRow]):
     filter except `status` itself -- see
     app/services/sanctioned_strength_views.py::list_strength_view_rows
     for why this is named `status_counts` rather than reusing
-    vacancy_register.py's `category_counts` name."""
+    vacancy_register.py's `category_counts` name.
+
+    `approved_total`/`working_total`/`vacancy_total` (Phase K) are the
+    aggregate KPI summary shown above the table, snapshotted at the same
+    point as `status_counts` (every filter except `status` already applied).
+    `vacancy_total` is a plain sum of each row's own already-signed
+    `vacancy` field -- see `list_strength_view_rows`'s own docstring."""
 
     status_counts: dict[str, int]
+    approved_total: int
+    working_total: int
+    vacancy_total: int
 
 
 class NonTeachingStrengthListResponse(PaginatedResponse[NonTeachingStrengthRow]):
     """Non-Teaching sibling of `TeachingStrengthListResponse` -- identical
-    shape and identical `status_counts` semantics, just parametrized on
-    `NonTeachingStrengthRow` instead of `TeachingStrengthRow`."""
+    shape and identical `status_counts`/KPI-total semantics, just
+    parametrized on `NonTeachingStrengthRow` instead of `TeachingStrengthRow`."""
 
     status_counts: dict[str, int]
+    approved_total: int
+    working_total: int
+    vacancy_total: int
 
 
 class HousekeepingStrengthRow(BaseModel):
@@ -177,6 +210,23 @@ class HousekeepingStrengthRow(BaseModel):
 class HousekeepingStrengthListResponse(PaginatedResponse[HousekeepingStrengthRow]):
     """Housekeeping sibling of `TeachingStrengthListResponse` /
     `NonTeachingStrengthListResponse` -- same additive `status_counts`
-    convention, parametrized on `HousekeepingStrengthRow`."""
+    convention, parametrized on `HousekeepingStrengthRow`.
+
+    `required_total`/`available_total`/`vacancy_total` (Phase K) are this
+    view's own KPI summary, snapshotted at the same point as
+    `status_counts`. `vacancy_total` is deliberately **NOT** the sum of each
+    row's own floored `vacancy` field -- it is `required_total -
+    available_total`, computed from the two raw sums directly, mirroring
+    `app/services/reporting.py`'s `_sanctioned_strength_totals()` (the Phase
+    I dashboard tile) exactly. See
+    `list_housekeeping_strength_rows`'s own docstring for the full
+    reasoning: flooring each row first and summing would systematically
+    overstate the aggregate by discarding every overstaffed location's
+    negative contribution instead of netting it against real vacancies
+    elsewhere -- a negative `vacancy_total` here honestly means "net
+    overstaffed across this filtered scope"."""
 
     status_counts: dict[str, int]
+    required_total: int
+    available_total: int
+    vacancy_total: int

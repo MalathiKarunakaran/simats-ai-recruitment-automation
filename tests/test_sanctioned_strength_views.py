@@ -544,3 +544,97 @@ def test_invalid_status_is_422(client, user_factory):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     response = _list(client, hr_admin, status="BOGUS")
     assert response.status_code == 422
+
+
+# --- KPI summary totals (glowing-zooming-hamming.md Phase K) -------------------
+#
+# approved_total/working_total/vacancy_total, additive alongside the existing
+# status_counts field -- see app/services/sanctioned_strength_views.py's
+# list_strength_view_rows docstring for the exact snapshot point (same as
+# status_counts: every filter except `status` itself applied).
+
+
+def test_kpi_totals_sum_correctly_across_multiple_rows(
+    client,
+    published_vacancy_factory,
+    hired_employee_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+    db_session,
+):
+    """Two designations with a mix of approved/working values -- totals must
+    be the sums across both rows, not just the last row or the first page."""
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1, role_category=StaffRoleCategoryEnum.TEACHING)
+    hired = hired_employee_factory(vacancy)
+
+    designation_a = designation_factory(StaffRoleCategoryEnum.TEACHING, department=vacancy.department)
+    hired.employee.designation_id = designation_a.id
+    db_session.flush()
+    sanctioned_strength_factory(
+        campus=vacancy.campus, department=vacancy.department, designation=designation_a,
+        approved_strength=5, created_by=vacancy.hr_admin,
+    )
+
+    designation_b = designation_factory(StaffRoleCategoryEnum.TEACHING, department=vacancy.department)
+    sanctioned_strength_factory(
+        campus=vacancy.campus, department=vacancy.department, designation=designation_b,
+        approved_strength=3, created_by=vacancy.hr_admin,
+    )
+
+    body = _list(client, vacancy.hr_admin, department_id=str(vacancy.department.id)).json()
+    assert body["approved_total"] == 8  # 5 + 3
+    assert body["working_total"] == 1  # 1 + 0
+    assert body["vacancy_total"] == 7  # (5 - 1) + (3 - 0)
+
+
+def test_kpi_totals_respect_active_filters(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory
+):
+    """Narrowing to one department via the department_id filter must narrow
+    the totals to match, exactly as status_counts already does -- not sum
+    across every department in scope."""
+    campus = campus_factory("SPIER")
+    dept_a = department_factory("SPIER", name=f"KPI Dept A {uuid.uuid4().hex[:6]}", category=StaffRoleCategoryEnum.TEACHING)
+    dept_b = department_factory("SPIER", name=f"KPI Dept B {uuid.uuid4().hex[:6]}", category=StaffRoleCategoryEnum.TEACHING)
+    designation_a = designation_factory(StaffRoleCategoryEnum.TEACHING, name="KPI Role A", department=dept_a)
+    designation_b = designation_factory(StaffRoleCategoryEnum.TEACHING, name="KPI Role B", department=dept_b)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    sanctioned_strength_factory(
+        campus=campus, department=dept_a, designation=designation_a, approved_strength=4, created_by=hr_admin
+    )
+    sanctioned_strength_factory(
+        campus=campus, department=dept_b, designation=designation_b, approved_strength=9, created_by=hr_admin
+    )
+
+    scoped = _list(client, hr_admin, department_id=str(dept_a.id)).json()
+    assert scoped["approved_total"] == 4
+    assert scoped["vacancy_total"] == 4
+
+
+def test_kpi_totals_not_affected_by_status_filter(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory
+):
+    """Same "every filter except status" semantics status_counts already
+    has -- filtering to status=FULLY_STAFFED must still show totals across
+    every status, not just the fully-staffed rows."""
+    campus = campus_factory("SPIER")
+    department = department_factory("SPIER", name=f"KPI Status Dept {uuid.uuid4().hex[:6]}", category=StaffRoleCategoryEnum.TEACHING)
+    designation_vacant = designation_factory(StaffRoleCategoryEnum.TEACHING, name="KPI Vacant Role", department=department)
+    designation_full = designation_factory(StaffRoleCategoryEnum.TEACHING, name="KPI Full Role", department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_vacant, approved_strength=3, created_by=hr_admin
+    )
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_full, approved_strength=0, created_by=hr_admin
+    )
+
+    unfiltered = _list(client, hr_admin, department_id=str(department.id)).json()
+    filtered = _list(
+        client, hr_admin, department_id=str(department.id), status="FULLY_STAFFED"
+    ).json()
+
+    assert filtered["total"] == 1  # only the FULLY_STAFFED row in the page
+    assert filtered["approved_total"] == unfiltered["approved_total"] == 3
+    assert filtered["working_total"] == unfiltered["working_total"] == 0
+    assert filtered["vacancy_total"] == unfiltered["vacancy_total"] == 3

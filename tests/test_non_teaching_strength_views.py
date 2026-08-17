@@ -234,3 +234,31 @@ def test_invalid_status_is_422(client, user_factory):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     response = _list(client, hr_admin, status="BOGUS")
     assert response.status_code == 422
+
+
+def test_kpi_totals_present_and_sum_correctly(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory
+):
+    """approved_total/working_total/vacancy_total (Phase K) -- the shared
+    list_strength_view_rows code path this view delegates into is already
+    exhaustively covered by test_sanctioned_strength_views.py's own KPI
+    tests; this just proves the Non-Teaching router handler actually wires
+    the 3 new fields through to its own response schema."""
+    campus = campus_factory("SPIER")
+    department = department_factory(
+        "SPIER", name=f"NT KPI Dept {uuid.uuid4().hex[:6]}", category=StaffRoleCategoryEnum.NON_TEACHING
+    )
+    designation_a = designation_factory(StaffRoleCategoryEnum.NON_TEACHING, name="NT KPI Role A", department=department)
+    designation_b = designation_factory(StaffRoleCategoryEnum.NON_TEACHING, name="NT KPI Role B", department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_a, approved_strength=2, created_by=hr_admin
+    )
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_b, approved_strength=6, created_by=hr_admin
+    )
+
+    body = _list(client, hr_admin, department_id=str(department.id)).json()
+    assert body["approved_total"] == 8
+    assert body["working_total"] == 0
+    assert body["vacancy_total"] == 8

@@ -364,16 +364,17 @@ def list_strength_view_rows(
     search: str | None = None,
     status: str | None = None,
     vacancy: int | None = None,
-) -> tuple[list[dict], int, dict[str, int]]:
+) -> tuple[list[dict], int, dict[str, int], int, int, int]:
     """Phase F (glowing-zooming-hamming.md) generalization of Phase E's
     TEACHING-only `list_teaching_strength_rows` -- returns (page_rows, total,
-    status_counts), one row per current-effective SanctionedStrength row
-    whose category matches the given `category` (TEACHING or NON_TEACHING --
-    HOUSEKEEPING is deliberately out of scope for this function: Phase G's
-    Housekeeping view is grouped by Location, not (department, designation),
-    a genuinely different grain, per this repo's plan document). Every
-    mechanic below (batched Department/Designation/Campus/Location lookups,
-    in-flight VacancyRequest lookup, last_join/last_resignation/last_updated
+    status_counts, approved_total, working_total, vacancy_total), one row
+    per current-effective SanctionedStrength row whose category matches the
+    given `category` (TEACHING or NON_TEACHING -- HOUSEKEEPING is
+    deliberately out of scope for this function: Phase G's Housekeeping view
+    is grouped by Location, not (department, designation), a genuinely
+    different grain, per this repo's plan document). Every mechanic below
+    (batched Department/Designation/Campus/Location lookups, in-flight
+    VacancyRequest lookup, last_join/last_resignation/last_updated
     aggregation, status_counts snapshot, filters, sort, pagination) is
     unchanged from Phase E -- only the hardcoded `StaffRoleCategoryEnum.TEACHING`
     filter and the hardcoded `working_count_for(..., category=TEACHING)` call
@@ -394,6 +395,17 @@ def list_strength_view_rows(
     nothing -- `status` is this view's actual tabbable dimension, so that's
     what gets the pre-filter-cut count snapshot.
 
+    `approved_total`/`working_total`/`vacancy_total` (glowing-zooming-hamming.md
+    Phase K) are the aggregate KPI summary a caller shows above the table,
+    snapshotted at the exact same point as `status_counts` -- every filter
+    except `status` itself already applied. `vacancy_total` is the plain sum
+    of each row's own already-signed `vacancy` field (see this module's
+    Column definitions section for why `vacancy` is signed, not floored, at
+    this grain) -- a plain sum is correct here and needs no special-casing,
+    unlike Housekeeping's floored per-row `vacancy` (see
+    `list_housekeeping_strength_rows`'s own docstring for why its aggregate
+    is computed differently).
+
     total is the count of rows matching every filter (including the
     Python-computed `status`/`vacancy` filters), before offset/limit
     slicing.
@@ -410,7 +422,7 @@ def list_strength_view_rows(
     if not category_rows:
         empty_counts = {code: 0 for code in TEACHING_STRENGTH_STATUS_VALUES}
         empty_counts["ALL"] = 0
-        return [], 0, empty_counts
+        return [], 0, empty_counts, 0, 0, 0
 
     department_ids = {row.department_id for row in category_rows}
     designation_ids = {row.designation_id for row in category_rows}
@@ -554,6 +566,19 @@ def list_strength_view_rows(
         status_counts[r["status"]] += 1
     status_counts["ALL"] = len(results)
 
+    # KPI summary totals (glowing-zooming-hamming.md Phase K) -- snapshotted
+    # at the exact same point as status_counts just above: every filter
+    # except `status` itself has already been applied, so these totals
+    # update with Campus/Department/Location/Vacancy filters exactly the way
+    # status_counts already does, but are unaffected by the `status` filter
+    # applied just below. Each row's own `vacancy` is already signed (not
+    # floored) at this grain -- see this module's Column definitions section
+    # -- so a plain sum is correct here and needs no special handling, unlike
+    # Housekeeping's floored `vacancy` (see list_housekeeping_strength_rows).
+    approved_total = sum(r["approved"] for r in results)
+    working_total = sum(r["working"] for r in results)
+    vacancy_total = sum(r["vacancy"] for r in results)
+
     if status is not None:
         results = [r for r in results if r["status"] == status]
 
@@ -562,7 +587,7 @@ def list_strength_view_rows(
 
     total = len(results)
     page = results[offset : offset + limit]
-    return page, total, status_counts
+    return page, total, status_counts, approved_total, working_total, vacancy_total
 
 
 def list_teaching_strength_rows(
@@ -580,7 +605,7 @@ def list_teaching_strength_rows(
     search: str | None = None,
     status: str | None = None,
     vacancy: int | None = None,
-) -> tuple[list[dict], int, dict[str, int]]:
+) -> tuple[list[dict], int, dict[str, int], int, int, int]:
     """Phase E's original entry point, kept as a thin wrapper around the
     Phase F generalization (`list_strength_view_rows`) rather than renamed or
     removed -- see this module's docstring's "Phase F naming/refactor
@@ -588,7 +613,9 @@ def list_teaching_strength_rows(
     router handler, `tests/test_sanctioned_strength_views.py`'s Phase E
     tests) keeps calling this exact name with this exact signature, and gets
     byte-for-byte the same behavior as before this refactor -- this wrapper
-    is the thing that guarantees that, not just a convention."""
+    is the thing that guarantees that, not just a convention. Phase K's
+    (approved_total, working_total, vacancy_total) tuple members pass
+    through the same way."""
     return list_strength_view_rows(
         db,
         scope,
@@ -622,7 +649,7 @@ def list_housekeeping_strength_rows(
     search: str | None = None,
     status: str | None = None,
     vacancy: int | None = None,
-) -> tuple[list[dict], int, dict[str, int]]:
+) -> tuple[list[dict], int, dict[str, int], int, int, int]:
     """Phase G (glowing-zooming-hamming.md) -- the Location-grained
     Housekeeping operational view: one row per Location that has at least one
     current-effective HOUSEKEEPING SanctionedStrength row against it. See
@@ -680,6 +707,27 @@ def list_housekeeping_strength_rows(
     `status_counts`, not `category_counts`, here too -- this view has no
     `category` dimension.
 
+    `required_total`/`available_total`/`vacancy_total` (glowing-zooming-hamming.md
+    Phase K) are the aggregate KPI summary a caller shows above the table,
+    snapshotted at the same point as `status_counts` -- every filter except
+    `status` itself already applied. `required_total` and `available_total`
+    are plain sums of each row's own `required`/`available` fields.
+    `vacancy_total`, however, is **NOT** the sum of each row's own already-
+    floored `vacancy` field -- it is computed directly from the two raw sums
+    as `required_total - available_total`. This mirrors
+    `app/services/reporting.py`'s `_sanctioned_strength_totals()` (the Phase
+    I dashboard-KPI tile) exactly, for the same reason documented there:
+    flooring each row's vacancy at 0 before summing would silently discard
+    every overstaffed location's negative contribution instead of letting it
+    net against real vacancies elsewhere, systematically overstating the
+    aggregate (e.g. two locations with raw vacancy -3 and +5 would floor-sum
+    to 0 + 5 = 5, not the honest net 2). A negative `vacancy_total` here
+    honestly means "net overstaffed across this filtered scope" -- this is a
+    deliberate divergence from this view's own per-row `vacancy` field
+    (floored, per judgment call #2 above), the same divergence
+    `_sanctioned_strength_totals()` has from vacancy_register.py's own
+    per-row `vacancy_count`.
+
     total is the count of rows matching every filter (including the
     Python-computed `status`/`vacancy` filters), before offset/limit
     slicing.
@@ -698,7 +746,7 @@ def list_housekeeping_strength_rows(
     if not hk_rows:
         empty_counts = {code: 0 for code in TEACHING_STRENGTH_STATUS_VALUES}
         empty_counts["ALL"] = 0
-        return [], 0, empty_counts
+        return [], 0, empty_counts, 0, 0, 0
 
     # Judgment call #1 (module docstring): group every contributing
     # SanctionedStrength row by location_id, summing approved_strength into
@@ -822,6 +870,14 @@ def list_housekeeping_strength_rows(
         status_counts[r["status"]] += 1
     status_counts["ALL"] = len(results)
 
+    # KPI summary totals (glowing-zooming-hamming.md Phase K) -- see this
+    # function's own docstring for why vacancy_total is computed from the two
+    # raw sums directly, not by summing each row's own already-floored
+    # `vacancy` field.
+    required_total = sum(r["required"] for r in results)
+    available_total = sum(r["available"] for r in results)
+    vacancy_total = required_total - available_total
+
     if status is not None:
         results = [r for r in results if r["status"] == status]
 
@@ -830,4 +886,4 @@ def list_housekeeping_strength_rows(
 
     total = len(results)
     page = results[offset : offset + limit]
-    return page, total, status_counts
+    return page, total, status_counts, required_total, available_total, vacancy_total
