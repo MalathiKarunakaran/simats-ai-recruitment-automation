@@ -29,6 +29,23 @@ handlers above it, delegating to
 mutating endpoint: this view's own "expand to roster" action reuses Phase
 D's existing `/housekeeping-staff` CRUD unchanged (see that service
 function's own docstring, judgment call #6).
+
+Phase J (glowing-zooming-hamming.md) extends the bulk-upload machinery to
+Location and HousekeepingStaff imports. The entity-specific write endpoints
+for those two (`/locations/bulk-upload/*`, `/housekeeping-staff/bulk-upload/*`)
+live in their own routers (locations.py/housekeeping_staff.py) -- only the 4
+endpoints that were already entity-agnostic in shape stay here and gain an
+`if/elif` dispatch on `BulkUploadLog.entity_type`: `list_bulk_uploads`
+(new optional `entity_type` filter), `download_bulk_upload_error_report`
+(re-validates via the right service module), `download_bulk_upload_original_file`
+(no dispatch needed -- raw byte proxy, already entity-agnostic), and
+`undo_bulk_upload` (SANCTIONED_STRENGTH keeps its pre-existing
+SanctionedStrengthHistory-based undo unchanged; LOCATION/HOUSEKEEPING_STAFF
+use the new `BulkUploadRowLog`-based undo, deliberately narrower in scope --
+see that model's own docstring). This means a Location bulk-upload's
+history/undo lives under a `/sanctioned-strength/bulk-uploads/*` URL -- a
+deliberate, if slightly awkward-sounding, naming compromise in favor of
+genuine code reuse over 2 more duplicated endpoint families.
 """
 
 import io
@@ -42,17 +59,20 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db, require_roles
 from app.models.bulk_upload_log import BulkUploadLog
+from app.models.bulk_upload_row_log import BulkUploadRowLog
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.designation import Designation
 from app.models.enums import (
     SANCTIONED_STRENGTH_WRITE_ROLES,
+    BulkUploadEntityTypeEnum,
     BulkUploadStatusEnum,
     HousekeepingShiftEnum,
     SanctionedStrengthChangeSourceEnum,
     StaffRoleCategoryEnum,
     UserRoleEnum,
 )
+from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.location import Location
 from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengthHistory
 from app.models.user import User
@@ -76,7 +96,7 @@ from app.schemas.sanctioned_strength_views import (
     NonTeachingStrengthListResponse,
     TeachingStrengthListResponse,
 )
-from app.services import sanctioned_strength_import, storage
+from app.services import housekeeping_staff_import, location_import, sanctioned_strength_import, storage
 from app.services import sanctioned_strength_views
 from app.services.audit import log_create, log_delete, log_event, log_update
 from app.services.reporting import validate_campus_code
@@ -88,8 +108,27 @@ router = APIRouter(prefix="/sanctioned-strength", tags=["sanctioned-strength"])
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _MAX_BULK_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB, same cap as migration.py's tracker-workbook import
 
+# Phase J (glowing-zooming-hamming.md) -- the 4 shared, entity-agnostic
+# bulk-upload endpoints below (list/error-report/original-file/undo) must
+# admit RECRUITMENT_OFFICER too, since Location's and HousekeepingStaff's
+# own bulk-upload *write* endpoints (locations.py/housekeeping_staff.py)
+# already do -- otherwise a RECRUITMENT_OFFICER could commit a Location bulk
+# upload but then get a 403 trying to view/undo their own batch through
+# these shared endpoints. Deliberately broader than
+# SANCTIONED_STRENGTH_WRITE_ROLES/`_write_only` below, which stays scoped to
+# the 3 Sanctioned-Strength-only endpoints (template/validate/commit) where
+# only SUPER_ADMIN/HR_ADMIN may write. (The union of all 3 entities' write
+# roles happens to equal this same 3-role set, since Location's and
+# HousekeepingStaff's write roles are already supersets of
+# SANCTIONED_STRENGTH_WRITE_ROLES.)
+_SHARED_BULK_UPLOAD_ROLES = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_OFFICER)
+
 
 def _write_only(current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES))) -> User:
+    return current_user
+
+
+def _shared_bulk_upload_write(current_user: User = Depends(require_roles(*_SHARED_BULK_UPLOAD_ROLES))) -> User:
     return current_user
 
 
@@ -677,6 +716,7 @@ def commit_bulk_upload(
     now = datetime.now(timezone.utc)
     log = BulkUploadLog(
         filename=file.filename or "upload",
+        entity_type=BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH,
         uploaded_by_id=current_user.id,
         rows_total=validation.total,
         rows_created=validation.created_count,
@@ -738,15 +778,22 @@ def commit_bulk_upload(
 
 @router.get("/bulk-uploads", response_model=PaginatedResponse[BulkUploadLogRead])
 def list_bulk_uploads(
+    entity_type: BulkUploadEntityTypeEnum | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_write_only),
+    current_user: User = Depends(_shared_bulk_upload_write),
 ) -> PaginatedResponse[BulkUploadLogRead]:
     """Not campus-scoped -- a single upload batch can span rows across
     multiple campuses, so there is no single `campus_id` to gate on (unlike
-    the single-resource SanctionedStrength endpoints above)."""
-    query = db.query(BulkUploadLog).order_by(BulkUploadLog.uploaded_at.desc())
+    the single-resource SanctionedStrength endpoints above). `entity_type`
+    (Phase J) is an optional filter, additive same as every other list-filter
+    added this epic -- omitting it returns every batch regardless of which
+    entity it imported."""
+    query = db.query(BulkUploadLog)
+    if entity_type is not None:
+        query = query.filter(BulkUploadLog.entity_type == entity_type)
+    query = query.order_by(BulkUploadLog.uploaded_at.desc())
     total = query.count()
     items = query.offset(offset).limit(limit).all()
     return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
@@ -759,12 +806,26 @@ def _get_bulk_upload_log_or_404(db: Session, bulk_upload_log_id: uuid.UUID) -> B
     return log
 
 
+def _import_module_for(entity_type: BulkUploadEntityTypeEnum):
+    """Phase J -- the plain `if/elif` dispatch on `entity_type` the 4 shared
+    endpoints below use, matching this codebase's own preference for
+    explicit code over indirection at this scale (3 known values, not a
+    registry)."""
+    if entity_type == BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH:
+        return sanctioned_strength_import
+    if entity_type == BulkUploadEntityTypeEnum.LOCATION:
+        return location_import
+    if entity_type == BulkUploadEntityTypeEnum.HOUSEKEEPING_STAFF:
+        return housekeeping_staff_import
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unknown bulk upload entity type")
+
+
 @router.get("/bulk-upload/{bulk_upload_log_id}/error-report")
 def download_bulk_upload_error_report(
     bulk_upload_log_id: uuid.UUID,
     db: Session = Depends(get_db),
     minio_client: Minio = Depends(get_minio_client),
-    current_user: User = Depends(_write_only),
+    current_user: User = Depends(_shared_bulk_upload_write),
 ) -> StreamingResponse:
     """Re-downloads the original file from MinIO and re-runs `validate_rows`
     against *current* DB state (rather than caching the original per-row
@@ -773,18 +834,23 @@ def download_bulk_upload_error_report(
     feature. This means a reason can theoretically read slightly differently
     if master data changed since the original upload (e.g. a department was
     renamed) -- an accepted, documented edge case, not a bug.
+
+    Phase J -- dispatches to the right service module via `log.entity_type`
+    (`_import_module_for`) so this one endpoint serves all 3 entity types'
+    error reports.
     """
     log = _get_bulk_upload_log_or_404(db, bulk_upload_log_id)
     if log.stored_file_object_key is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Original file not available")
 
+    module = _import_module_for(log.entity_type)
     data = storage.download_bulk_upload_file_bytes(minio_client, log.stored_file_object_key)
-    raw_rows = sanctioned_strength_import.parse_rows(data, log.filename)
-    validation = sanctioned_strength_import.validate_rows(db, raw_rows)
+    raw_rows = module.parse_rows(data, log.filename)
+    validation = module.validate_rows(db, raw_rows)
     rejected_rows = [row for row in validation.rows if row.status == "rejected"]
 
-    xlsx_bytes = sanctioned_strength_import.build_error_report_xlsx(log, rejected_rows)
-    filename = f"sanctioned-strength-bulk-upload-{log.id}-errors.xlsx"
+    xlsx_bytes = module.build_error_report_xlsx(log, rejected_rows)
+    filename = f"{log.entity_type.value.lower()}-bulk-upload-{log.id}-errors.xlsx"
     return StreamingResponse(
         io.BytesIO(xlsx_bytes),
         media_type=_XLSX_MEDIA_TYPE,
@@ -797,7 +863,7 @@ def download_bulk_upload_original_file(
     bulk_upload_log_id: uuid.UUID,
     db: Session = Depends(get_db),
     minio_client: Minio = Depends(get_minio_client),
-    current_user: User = Depends(_write_only),
+    current_user: User = Depends(_shared_bulk_upload_write),
 ) -> StreamingResponse:
     """Proxied download, same shape as candidates.py's resume download --
     never a presigned URL (see app/services/storage.py)."""
@@ -814,22 +880,17 @@ def download_bulk_upload_original_file(
     )
 
 
-@router.post("/bulk-uploads/{bulk_upload_log_id}/undo", response_model=BulkUploadUndoResponse)
-def undo_bulk_upload(
-    bulk_upload_log_id: uuid.UUID,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(_write_only),
+def _undo_sanctioned_strength(
+    db: Session, *, log: BulkUploadLog, current_user: User, request: Request
 ) -> BulkUploadUndoResponse:
-    """Reverts every SanctionedStrengthHistory row this batch touched, only
-    within the stored 24h `undo_deadline`. For a row this batch *updated*
-    (`old_value` is a real prior number), reverting means writing that
-    `old_value` back onto the live row. For a row this batch *created*
-    (`old_value` is NULL -- there was no prior sanctioned row at all), there
-    is no valid number to "write back" (approved_strength is NOT NULL and
-    CHECK >= 0) -- undoing a CREATE instead soft-deletes the row it created
-    (`is_active=False`), which is the only meaningful way to undo a row's
-    entire existence. Each reverted row gets a fresh
+    """Reverts every SanctionedStrengthHistory row this batch touched. For a
+    row this batch *updated* (`old_value` is a real prior number), reverting
+    means writing that `old_value` back onto the live row. For a row this
+    batch *created* (`old_value` is NULL -- there was no prior sanctioned row
+    at all), there is no valid number to "write back" (approved_strength is
+    NOT NULL and CHECK >= 0) -- undoing a CREATE instead soft-deletes the row
+    it created (`is_active=False`), which is the only meaningful way to undo
+    a row's entire existence. Each reverted row gets a fresh
     SanctionedStrengthHistory entry (source=MANUAL, since the undo itself is
     a manual admin action, still linked back to this batch's
     bulk_upload_log_id for traceability) -- never a silent mutation.
@@ -840,19 +901,9 @@ def undo_bulk_upload(
     edit -- the 24h window bounds how often this can realistically happen,
     and the plan doesn't ask for finer-grained conflict detection.
     """
-    log = _get_bulk_upload_log_or_404(db, bulk_upload_log_id)
-    if log.status == BulkUploadStatusEnum.UNDONE:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This upload has already been undone")
-
-    now = datetime.now(timezone.utc)
-    if now > log.undo_deadline:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="The 24-hour undo window for this upload has expired"
-        )
-
     history_rows = (
         db.query(SanctionedStrengthHistory)
-        .filter(SanctionedStrengthHistory.bulk_upload_log_id == bulk_upload_log_id)
+        .filter(SanctionedStrengthHistory.bulk_upload_log_id == log.id)
         .all()
     )
 
@@ -892,10 +943,6 @@ def undo_bulk_upload(
             )
         reverted += 1
 
-    log.status = BulkUploadStatusEnum.UNDONE
-    log.undone_at = now
-    log.undone_by_id = current_user.id
-
     log_event(
         db,
         actor=current_user,
@@ -905,7 +952,96 @@ def undo_bulk_upload(
         after_state={"reverted_history_count": reverted},
         request=request,
     )
+
+    return BulkUploadUndoResponse(id=log.id, status=log.status, reverted_history_count=reverted, not_reverted_count=0)
+
+
+def _undo_row_log_based(
+    db: Session, *, log: BulkUploadLog, current_user: User, request: Request
+) -> BulkUploadUndoResponse:
+    """Phase J undo for LOCATION/HOUSEKEEPING_STAFF batches -- deliberately
+    narrower in scope than Sanctioned Strength's own undo above. Neither
+    entity has a permanent old-value history table, so there is no way to
+    revert a row this batch *updated* back to what it looked like before
+    (`BulkUploadRowLog` only records whether a row was created or updated,
+    not the prior values) -- see app/models/bulk_upload_row_log.py's own
+    docstring for why re-deriving this after the fact from the stored file
+    doesn't work either. Only rows this batch *created*
+    (`was_created=True`) can be safely undone, by soft-deleting them
+    (`is_active=False`, each entity's own established soft-delete
+    convention). Rows this batch updated are skipped and counted in
+    `not_reverted_count` so the caller can surface "N of M rows could not be
+    reverted" rather than silently doing nothing for them.
+    """
+    row_logs = db.query(BulkUploadRowLog).filter(BulkUploadRowLog.bulk_upload_log_id == log.id).all()
+
+    model = Location if log.entity_type == BulkUploadEntityTypeEnum.LOCATION else HousekeepingStaff
+
+    reverted = 0
+    not_reverted = 0
+    for entry in row_logs:
+        if not entry.was_created:
+            not_reverted += 1
+            continue
+        entity = db.get(model, entry.entity_id)
+        if entity is None:
+            # Entity was hard-deleted out-of-band, which nothing in this
+            # codebase does -- defensive, not expected in practice.
+            continue
+        entity.is_active = False
+        if hasattr(entity, "updated_by_id"):
+            entity.updated_by_id = current_user.id
+        reverted += 1
+
+    log_event(
+        db,
+        actor=current_user,
+        action=f"{log.entity_type.value}_BULK_UPLOAD_UNDONE",
+        entity_type="BulkUploadLog",
+        entity_id=log.id,
+        after_state={"reverted_count": reverted, "not_reverted_count": not_reverted},
+        request=request,
+    )
+
+    return BulkUploadUndoResponse(
+        id=log.id, status=log.status, reverted_history_count=reverted, not_reverted_count=not_reverted
+    )
+
+
+@router.post("/bulk-uploads/{bulk_upload_log_id}/undo", response_model=BulkUploadUndoResponse)
+def undo_bulk_upload(
+    bulk_upload_log_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_shared_bulk_upload_write),
+) -> BulkUploadUndoResponse:
+    """Only within the stored 24h `undo_deadline`. Dispatches on
+    `log.entity_type` (Phase J): SANCTIONED_STRENGTH keeps its pre-existing
+    SanctionedStrengthHistory-based undo (`_undo_sanctioned_strength`)
+    unchanged; LOCATION/HOUSEKEEPING_STAFF use the new, deliberately
+    narrower `BulkUploadRowLog`-based undo (`_undo_row_log_based`) -- see
+    that function's own docstring for why.
+    """
+    log = _get_bulk_upload_log_or_404(db, bulk_upload_log_id)
+    if log.status == BulkUploadStatusEnum.UNDONE:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This upload has already been undone")
+
+    now = datetime.now(timezone.utc)
+    if now > log.undo_deadline:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="The 24-hour undo window for this upload has expired"
+        )
+
+    log.status = BulkUploadStatusEnum.UNDONE
+    log.undone_at = now
+    log.undone_by_id = current_user.id
+
+    if log.entity_type == BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH:
+        response = _undo_sanctioned_strength(db, log=log, current_user=current_user, request=request)
+    else:
+        response = _undo_row_log_based(db, log=log, current_user=current_user, request=request)
+
     db.commit()
     db.refresh(log)
 
-    return BulkUploadUndoResponse(id=log.id, status=log.status, reverted_history_count=reverted)
+    return response

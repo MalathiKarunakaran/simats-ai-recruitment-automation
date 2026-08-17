@@ -6,16 +6,24 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
-from app.models.enums import BulkUploadStatusEnum
+from app.models.enums import BulkUploadEntityTypeEnum, BulkUploadStatusEnum
 
 
 class BulkUploadLog(Base):
-    """One row per Sanctioned Strength bulk-upload commit (Phase F) --
-    summarizes the batch (row-status counts) and anchors "undo last upload"
-    within a 24h window: every SanctionedStrengthHistory row this batch
+    """One row per bulk-upload commit -- originally Sanctioned-Strength-only
+    (Phase F), extended in Phase J (glowing-zooming-hamming.md) to also cover
+    Location and HousekeepingStaff imports via the `entity_type`
+    discriminator column below, rather than 2 more near-duplicate log tables.
+    Summarizes the batch (row-status counts) and anchors "undo last upload"
+    within a 24h window.
+
+    For SANCTIONED_STRENGTH, every SanctionedStrengthHistory row this batch
     touched carries this row's id (SanctionedStrengthHistory.bulk_upload_log_id),
-    which is what lets undo revert them without any other new
-    infrastructure."""
+    which is what lets undo revert them without any other new infrastructure.
+    LOCATION/HOUSEKEEPING_STAFF have no equivalent permanent old-value history
+    table, so their undo scope instead relies on `BulkUploadRowLog` (see that
+    model's own docstring for why re-deriving created-vs-updated from the
+    stored file after the fact does not work)."""
 
     __tablename__ = "bulk_upload_log"
 
@@ -23,6 +31,17 @@ class BulkUploadLog(Base):
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Phase J -- discriminates which entity this batch imported. NOT NULL
+    # with a server_default of the pre-existing behavior (SANCTIONED_STRENGTH)
+    # so every pre-Phase-J row backfills correctly with zero manual data
+    # migration, matching this codebase's own "green-field additive column"
+    # convention (see e.g. 68191fc833d8_sanctioned_strength_location_id.py).
+    entity_type: Mapped[BulkUploadEntityTypeEnum] = mapped_column(
+        Enum(BulkUploadEntityTypeEnum, name="bulk_upload_entity_type_enum"),
+        nullable=False,
+        default=BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH,
+        server_default=BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH.value,
+    )
     uploaded_by_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )

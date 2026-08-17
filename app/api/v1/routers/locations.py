@@ -11,24 +11,51 @@ deliberate RBAC deviation: write access here also includes
 RECRUITMENT_OFFICER, mapping the original spec's "HR Assistant" role onto
 this codebase's existing RECRUITMENT_OFFICER role (plan decision 4) -- a
 broader write set than Department's own `_WRITE_ROLES`.
+
+Phase J (glowing-zooming-hamming.md) adds `/locations/bulk-upload/*`
+(template/validate/commit) at the bottom of this file, mirroring
+`sanctioned_strength.py`'s own `/sanctioned-strength/bulk-upload/*` shape
+exactly (see app/services/location_import.py for the validate/commit logic),
+gated on this router's own `_WRITE_ROLES` (not the narrower, Sanctioned-
+Strength-specific `SANCTIONED_STRENGTH_WRITE_ROLES`). The batch-level
+history/error-report/original-file/undo endpoints are NOT duplicated here --
+they stay in sanctioned_strength.py's already entity-agnostic
+`/sanctioned-strength/bulk-uploads*` family (dispatched by
+`BulkUploadLog.entity_type`), a deliberate, if slightly awkward-sounding,
+naming compromise in favor of genuine code reuse.
 """
 
+import io
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
+from minio import Minio
 from sqlalchemy.orm import Session
 
 from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db, require_roles
+from app.models.bulk_upload_log import BulkUploadLog
 from app.models.campus import Campus
-from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
+from app.models.enums import BulkUploadEntityTypeEnum, BulkUploadStatusEnum, StaffRoleCategoryEnum, UserRoleEnum
 from app.models.location import Location
 from app.models.sanctioned_strength import SanctionedStrength
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.location import LocationCreate, LocationRead, LocationUpdate
-from app.services.audit import log_create, log_delete, log_update
+from app.schemas.location_import import (
+    LocationBulkUploadCommitResponse,
+    LocationBulkUploadRowPreview,
+    LocationBulkUploadValidationResponse,
+)
+from app.services import location_import, storage
+from app.services.audit import log_create, log_delete, log_event, log_update
+from app.services.storage import get_minio_client
 
 router = APIRouter(prefix="/locations", tags=["locations"])
+
+_XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_MAX_BULK_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB, same cap as sanctioned_strength.py's own bulk upload
 
 # Same shape as departments.py's _WRITE_ROLES, plus RECRUITMENT_OFFICER --
 # a deliberate, plan-confirmed deviation (glowing-zooming-hamming.md decision
@@ -210,3 +237,149 @@ def delete_location(
         request=request,
     )
     db.commit()
+
+
+# --- Phase J: bulk upload (validate -> preview -> commit) -------------------
+#
+# Same shape as sanctioned_strength.py's own /bulk-upload/* family -- see
+# app/services/location_import.py for the validate/commit logic. The
+# batch-level history/error-report/original-file/undo endpoints deliberately
+# stay in sanctioned_strength.py (see this module's own docstring).
+
+
+def _read_upload_bytes(file: UploadFile) -> bytes:
+    if not (file.filename or "").lower().endswith((".xlsx", ".csv")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only .xlsx or .csv files are accepted")
+    data = file.file.read()
+    if len(data) > _MAX_BULK_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File exceeds the 10 MB limit")
+    return data
+
+
+def _row_to_preview(row: location_import.ImportRowResult) -> LocationBulkUploadRowPreview:
+    return LocationBulkUploadRowPreview(
+        row_number=row.row_number,
+        status=row.status,
+        error_reason=row.error_reason,
+        campus_code=row.campus_code,
+        location_name=row.location_name,
+        block_building=row.block_building,
+        floor_venue=row.floor_venue,
+        category=row.category,
+    )
+
+
+@router.get("/bulk-upload/template")
+def download_location_bulk_upload_template(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+) -> StreamingResponse:
+    xlsx_bytes = location_import.build_bulk_upload_template_xlsx(db)
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type=_XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="location_bulk_upload_template.xlsx"'},
+    )
+
+
+@router.post("/bulk-upload/validate", response_model=LocationBulkUploadValidationResponse)
+def validate_location_bulk_upload(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+) -> LocationBulkUploadValidationResponse:
+    """Parses+validates every row **without writing anything to the DB** --
+    a pure preview, same no-server-side-cache contract as
+    sanctioned_strength.py's own validate endpoint."""
+    data = _read_upload_bytes(file)
+    raw_rows = location_import.parse_rows(data, file.filename)
+    validation = location_import.validate_rows(db, raw_rows)
+    return LocationBulkUploadValidationResponse(
+        total=validation.total,
+        created_count=validation.created_count,
+        updated_count=validation.updated_count,
+        unchanged_count=validation.unchanged_count,
+        rejected_count=validation.rejected_count,
+        rows=[_row_to_preview(row) for row in validation.rows],
+    )
+
+
+@router.post("/bulk-upload/commit", response_model=LocationBulkUploadCommitResponse)
+def commit_location_bulk_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    minio_client: Minio = Depends(get_minio_client),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+) -> LocationBulkUploadCommitResponse:
+    """Re-validates the re-uploaded file defensively, then applies every
+    non-rejected row's UPSERT in one DB transaction -- same all-or-nothing
+    contract as sanctioned_strength.py's own commit endpoint. Writes exactly
+    one BulkUploadLog row (entity_type=LOCATION) plus one BulkUploadRowLog
+    row per non-rejected row (see app/services/location_import.py for why),
+    and stores the original file bytes in the `MINIO_BUCKET_BULK_UPLOADS`
+    bucket.
+    """
+    data = _read_upload_bytes(file)
+    raw_rows = location_import.parse_rows(data, file.filename)
+    validation = location_import.validate_rows(db, raw_rows)
+
+    now = datetime.now(timezone.utc)
+    log = BulkUploadLog(
+        filename=file.filename or "upload",
+        entity_type=BulkUploadEntityTypeEnum.LOCATION,
+        uploaded_by_id=current_user.id,
+        rows_total=validation.total,
+        rows_created=validation.created_count,
+        rows_updated=validation.updated_count,
+        rows_rejected=validation.rejected_count,
+        status=BulkUploadStatusEnum.COMPLETED,
+        undo_deadline=now + timedelta(hours=24),
+    )
+    db.add(log)
+
+    try:
+        db.flush()  # assigns log.id, needed for the MinIO key and row-log FK
+
+        storage_key = storage.upload_bulk_upload_file(
+            minio_client,
+            bulk_upload_log_id=log.id,
+            filename=file.filename or "upload",
+            data=data,
+            content_type=file.content_type or "application/octet-stream",
+        )
+        log.stored_file_object_key = storage_key
+
+        location_import.commit_rows(db, validation=validation, bulk_upload_log_id=log.id)
+
+        log_event(
+            db,
+            actor=current_user,
+            action="LOCATION_BULK_UPLOAD_COMMITTED",
+            entity_type="BulkUploadLog",
+            entity_id=log.id,
+            after_state={
+                "filename": log.filename,
+                "rows_total": log.rows_total,
+                "rows_created": log.rows_created,
+                "rows_updated": log.rows_updated,
+                "rows_rejected": log.rows_rejected,
+            },
+            request=request,
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+    db.commit()
+    db.refresh(log)
+
+    return LocationBulkUploadCommitResponse(
+        total=validation.total,
+        created_count=validation.created_count,
+        updated_count=validation.updated_count,
+        unchanged_count=validation.unchanged_count,
+        rejected_count=validation.rejected_count,
+        rows=[_row_to_preview(row) for row in validation.rows],
+        bulk_upload_log_id=log.id,
+    )
