@@ -8,6 +8,7 @@ import * as campusesApi from "@/api/campuses";
 import * as designationsApi from "@/api/designations";
 import * as housekeepingStaffApi from "@/api/housekeepingStaff";
 import * as locationsApi from "@/api/locations";
+import * as sanctionedStrengthApi from "@/api/sanctionedStrength";
 import type { CampusRead, DesignationRead, HousekeepingStaffRead, LocationRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import { HousekeepingStaffListPage } from "@/pages/HousekeepingStaffListPage";
@@ -16,6 +17,10 @@ vi.mock("@/api/campuses");
 vi.mock("@/api/designations");
 vi.mock("@/api/locations");
 vi.mock("@/api/housekeepingStaff");
+// Phase J (glowing-zooming-hamming.md) -- HousekeepingStaffBulkUploadDialog/
+// the Upload history dialog both pull from this module too (the shared
+// error-report download and the shared bulk-uploads list respectively).
+vi.mock("@/api/sanctionedStrength");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -27,6 +32,7 @@ const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
 const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedListHousekeepingStaff = vi.mocked(housekeepingStaffApi.listHousekeepingStaff);
 const mockedDeleteHousekeepingStaff = vi.mocked(housekeepingStaffApi.deleteHousekeepingStaff);
+const mockedListBulkUploads = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthBulkUploads);
 
 function mockUser(role: UserRead["role"], campusId: string | null = null) {
   mockedUseAuth.mockReturnValue({
@@ -189,7 +195,7 @@ describe("HousekeepingStaffListPage", () => {
     expect(screen.queryByRole("combobox", { name: "Campus filter" })).not.toBeInTheDocument();
   });
 
-  it("hides Add staff/Edit/Delete for a role without HOUSEKEEPING_STAFF_MANAGEMENT_ROLES", async () => {
+  it("hides Add staff/Bulk upload/Upload history/Edit/Delete for a role without HOUSEKEEPING_STAFF_MANAGEMENT_ROLES", async () => {
     mockUser("CAMPUS_HOD", "c-sse");
     mockCommonLists();
     mockedListHousekeepingStaff.mockResolvedValue([KAMALA]);
@@ -198,6 +204,8 @@ describe("HousekeepingStaffListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Kamala Devi")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Add staff" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bulk upload" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload history" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete housekeeping staff Kamala Devi" })).not.toBeInTheDocument();
   });
@@ -210,6 +218,36 @@ describe("HousekeepingStaffListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Add staff" })).toBeInTheDocument());
+  });
+
+  it("shows Bulk upload and Upload history for a canManage user, gated the same as Add staff (Phase J)", async () => {
+    mockUser("HR_ADMIN");
+    mockCommonLists();
+    mockedListHousekeepingStaff.mockResolvedValue([KAMALA]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Bulk upload" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Upload history" })).toBeInTheDocument();
+  });
+
+  it("opens the Upload history dialog scoped to HousekeepingStaff's own bulk-upload batches", async () => {
+    mockUser("HR_ADMIN");
+    mockCommonLists();
+    mockedListHousekeepingStaff.mockResolvedValue([KAMALA]);
+    mockedListBulkUploads.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Upload history" })).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Upload history" }));
+
+    expect(await screen.findByText("Housekeeping staff bulk upload history")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockedListBulkUploads).toHaveBeenCalledWith(
+        expect.objectContaining({ entity_type: "HOUSEKEEPING_STAFF" }),
+      ),
+    );
   });
 
   it("opens the drawer in edit mode with the row's data pre-filled", async () => {

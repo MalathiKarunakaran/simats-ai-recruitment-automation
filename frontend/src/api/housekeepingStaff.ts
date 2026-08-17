@@ -1,5 +1,7 @@
-import { apiFetch } from "@/api/client";
+import { apiFetch, apiFetchBlob } from "@/api/client";
 import type {
+  HousekeepingStaffBulkUploadCommitResponse,
+  HousekeepingStaffBulkUploadValidationResponse,
   HousekeepingStaffCreatePayload,
   HousekeepingStaffRead,
   HousekeepingStaffUpdatePayload,
@@ -55,4 +57,53 @@ export async function updateHousekeepingStaff(
 // is the leaf of the chain -- nothing references a HousekeepingStaff row).
 export async function deleteHousekeepingStaff(id: string): Promise<void> {
   await apiFetch<void>(`/housekeeping-staff/${id}`, { method: "DELETE" });
+}
+
+// --- Bulk upload (Phase J, glowing-zooming-hamming.md) -----------------------
+// Mirrors the entity-specific `/housekeeping-staff/bulk-upload/*` endpoints
+// in app/api/v1/routers/housekeeping_staff.py (template/validate/commit --
+// gated HOUSEKEEPING_STAFF_MANAGEMENT_ROLES server-side, same _WRITE_ROLES
+// as create/update/delete above). The batch-level history/error-report/
+// original-file/undo endpoints deliberately stay in api/sanctionedStrength.ts
+// (already entity-agnostic on the backend) rather than being duplicated
+// here; HousekeepingStaffBulkUploadDialog imports those 4 directly from
+// there instead.
+
+/** Downloads the live-generated bulk-upload template (same Blob-download
+ * pattern as downloadSanctionedStrengthBulkUploadTemplate). */
+export async function downloadHousekeepingStaffBulkUploadTemplate(): Promise<void> {
+  const blob = await apiFetchBlob("/housekeeping-staff/bulk-upload/template");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "housekeeping_staff_bulk_upload_template.xlsx";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// Mirrors POST /housekeeping-staff/bulk-upload/validate -- read-only, no DB
+// writes; returns the per-row preview + summary counts.
+export async function validateHousekeepingStaffBulkUpload(
+  file: File,
+): Promise<HousekeepingStaffBulkUploadValidationResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<HousekeepingStaffBulkUploadValidationResponse>("/housekeeping-staff/bulk-upload/validate", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+// Mirrors POST /housekeeping-staff/bulk-upload/commit -- re-sends the same
+// File the caller validated (the backend re-validates defensively rather
+// than trusting the earlier preview).
+export async function commitHousekeepingStaffBulkUpload(
+  file: File,
+): Promise<HousekeepingStaffBulkUploadCommitResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<HousekeepingStaffBulkUploadCommitResponse>("/housekeeping-staff/bulk-upload/commit", {
+    method: "POST",
+    body: formData,
+  });
 }

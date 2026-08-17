@@ -7,6 +7,7 @@ import { createLocation, deleteLocation, listLocations, updateLocation } from "@
 import { GLOBAL_SCOPE_ROLES, LOCATION_MANAGEMENT_ROLES, type LocationRead, type StaffRoleCategory } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { LocationBulkUploadDialog } from "@/components/locations/LocationBulkUploadDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
@@ -22,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CategoryTabs } from "@/components/domain/CategoryTabs";
+import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 
@@ -46,6 +48,12 @@ export function LocationsPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const name = useFieldValidation("", required("Location name is required"));
   const [error, setError] = useState<string | null>(null);
+  // Phase J (glowing-zooming-hamming.md) -- "Upload history" is a plain
+  // Dialog wrapping the now-generalized UploadHistoryTab, not a page Tab:
+  // unlike SanctionedStrengthPage, this page has no existing Tabs section to
+  // add a third tab to, and a whole page-level mode switch would be
+  // disproportionate to an occasional "check past bulk uploads" action.
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
 
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   // URL-persisted via ?category=... (see hooks/useCategoryTabState.ts) so
@@ -185,10 +193,29 @@ export function LocationsPage() {
         description="The location master -- campus, block/building, floor/venue, and category, per location."
         actions={
           canManage ? (
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={openCreateDialog}>New location</Button>
-              </DialogTrigger>
+            <>
+              {/* Phase J (glowing-zooming-hamming.md) -- gated on the same
+                  canManage (LOCATION_MANAGEMENT_ROLES) check as New
+                  location/Edit/Delete below, mirroring the backend's own
+                  _WRITE_ROLES gate on /locations/bulk-upload/*. */}
+              <LocationBulkUploadDialog />
+              <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline" size="sm">
+                    Upload history
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-4xl">
+                  <DialogHeader>
+                    <DialogTitle>Location bulk upload history</DialogTitle>
+                  </DialogHeader>
+                  <UploadHistoryTab entityType="LOCATION" />
+                </DialogContent>
+              </Dialog>
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={openCreateDialog}>New location</Button>
+                </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>{editingId ? "Edit location" : "New location"}</DialogTitle>
@@ -296,7 +323,8 @@ export function LocationsPage() {
                   </Button>
                 </DialogFooter>
               </DialogContent>
-            </Dialog>
+              </Dialog>
+            </>
           ) : undefined
         }
       />

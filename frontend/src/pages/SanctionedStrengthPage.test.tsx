@@ -1404,6 +1404,7 @@ describe("SanctionedStrengthPage", () => {
           {
             id: "bu-1",
             filename: "sanctioned-strength-batch.xlsx",
+            entity_type: "SANCTIONED_STRENGTH",
             uploaded_by_id: "11111111-2222-3333-4444-555555555555",
             uploaded_at: "2026-08-10T10:00:00Z",
             rows_total: 5,
@@ -1429,6 +1430,14 @@ describe("SanctionedStrengthPage", () => {
 
       expect(await screen.findByText("sanctioned-strength-batch.xlsx")).toBeInTheDocument();
       expect(screen.queryByText("Computer Science")).not.toBeInTheDocument();
+      // Phase J (glowing-zooming-hamming.md) regression fix -- this page's
+      // own Upload history tab must explicitly scope to SANCTIONED_STRENGTH
+      // now that Location/HousekeepingStaff batches share the same
+      // underlying bulk_upload_log table, or their batches would bleed in
+      // here too.
+      expect(mockedListBulkUploads).toHaveBeenCalledWith(
+        expect.objectContaining({ entity_type: "SANCTIONED_STRENGTH" }),
+      );
     });
   });
 

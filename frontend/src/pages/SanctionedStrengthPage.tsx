@@ -470,7 +470,14 @@ export function SanctionedStrengthPage() {
       ) : null}
 
       {section === "history" && canManage ? (
-        <UploadHistoryTab />
+        // Phase J (glowing-zooming-hamming.md) -- UploadHistoryTab now
+        // serves all 3 bulk-upload entities; explicitly scope this page's
+        // own tab to SANCTIONED_STRENGTH so a Location/HousekeepingStaff
+        // batch never bleeds in here now that they share one batch log
+        // table (a real regression this phase fixes, not just future-
+        // proofing -- omitting this filter used to be harmless when
+        // Sanctioned Strength was the only bulk-upload entity that existed).
+        <UploadHistoryTab entityType="SANCTIONED_STRENGTH" />
       ) : (
         <>
           <CategoryTabs
