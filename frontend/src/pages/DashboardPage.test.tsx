@@ -240,6 +240,21 @@ describe("DashboardPage", () => {
     expect(within(campusTable!).getByText("5")).toBeInTheDocument();
   });
 
+  // UI redesign Phase 2: exactly one tile on this page consumes StatTile's
+  // `hero` prop (the gradient ring/glow, marked via `data-hero="true"` on
+  // the underlying Card) -- total_applications, and no other KPI tile
+  // (including the Phase I Sanctioned Strength trio).
+  it("marks only the Total applications tile as the hero KPI tile", async () => {
+    mockKpis();
+    const { container } = renderWithProviders();
+
+    await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+
+    const heroTiles = container.querySelectorAll('[data-hero="true"]');
+    expect(heroTiles).toHaveLength(1);
+    expect(within(heroTiles[0] as HTMLElement).getByText("Total applications")).toBeInTheDocument();
+  });
+
   it("shows an error message when the request fails", async () => {
     mockedGetDashboardKpis.mockRejectedValue(new Error("Failed to load"));
 

@@ -248,7 +248,27 @@ export function AppShell({ children }: { children?: ReactNode }) {
       >
         <div className="gear-edge" />
         <div className={cn("flex items-center gap-2.5 px-4 py-4", collapsed && "justify-center px-0")}>
-          <img src={simatsSeal} alt="SIMATS" className="h-9 w-9 shrink-0 object-contain" />
+          {/* UI redesign Phase 2: thin signature-gradient ring around the seal
+              -- consumes --brand-signature-gradient (index.css) via the same
+              "padded gradient background, inner circle painted with --card"
+              trick as the approved mockup's `.mark`/`.mark span` pair, just
+              expressed as Tailwind classes instead of a new global CSS rule.
+              The outer span is the gradient disc; padding (2.5px) is the
+              ring's visible thickness, and the inner span paints over the
+              gradient's center with the card surface so only a thin colored
+              border reads, not a filled disc -- verified against both
+              --card values (light #ffffff, dark #1e293b) since that's what
+              makes the ring legible rather than a solid blob. Purely a
+              wrapper around the existing <img>; collapsed/expanded behavior
+              (this mark stays visible either way) is unchanged. */}
+          <span
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full p-[2.5px]"
+            style={{ background: "var(--brand-signature-gradient)" }}
+          >
+            <span className="grid h-full w-full place-items-center rounded-full bg-card">
+              <img src={simatsSeal} alt="SIMATS" className="h-full w-full object-contain" />
+            </span>
+          </span>
           {!collapsed ? (
             <div className="leading-tight">
               <div className="font-display text-sm font-bold tracking-normal">SIMATS</div>

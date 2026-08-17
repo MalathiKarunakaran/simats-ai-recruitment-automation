@@ -31,15 +31,57 @@ interface StatTileProps {
    * adding for a single info bubble ("no new UI framework" per the ticket's
    * own constraints). */
   tooltip?: string;
+  /** UI redesign Phase 2: marks this tile as the page's ONE hero KPI --
+   * consumes `--brand-signature-gradient` (index.css) as a thin ring around
+   * the card plus a subtle corner glow, mirroring the sidebar logo mark's
+   * use of the same token ("one signature, spent in one place" -- see the
+   * token's own docstring in index.css). Optional and defaulted to false so
+   * every existing call site (VacancyRequestsListPage, StrengthKpiSummary,
+   * DashboardPage's other 8 tiles) renders exactly as before with no prop
+   * change required. Purely decorative: never affects content layout. */
+  hero?: boolean;
 }
 
-export function StatTile({ label, value, isLoading = false, accent = "none", zeroCaption, tooltip }: StatTileProps) {
+export function StatTile({
+  label,
+  value,
+  isLoading = false,
+  accent = "none",
+  zeroCaption,
+  tooltip,
+  hero = false,
+}: StatTileProps) {
   const isZero = !isLoading && (value === 0 || value === "0");
   const isEmpty = !isLoading && (value === null || value === undefined);
 
-  return (
-    <Card className={cn(accent !== "none" && "border-l-4", ACCENT_BORDER[accent])}>
-      <CardHeader className="flex flex-row items-center gap-1 p-3 pb-1">
+  const tile = (
+    <Card
+      data-hero={hero ? "true" : undefined}
+      className={cn(
+        "relative overflow-hidden",
+        // The gradient ring wrapper below already supplies the hero card's
+        // outer edge, so the usual left-accent stripe and default gray
+        // border are skipped entirely for hero (rather than layered
+        // underneath) -- avoids two competing `border-*` utilities landing
+        // on the same element with no defined precedence between them.
+        !hero && accent !== "none" && "border-l-4",
+        !hero && ACCENT_BORDER[accent],
+        hero && "border-transparent",
+      )}
+    >
+      {hero ? (
+        // Decorative corner glow: a blurred, low-opacity smear of the same
+        // signature gradient, clipped by the card's own `overflow-hidden`
+        // and taken out of layout flow entirely so it can never nudge the
+        // label/value beneath it (constraint: "must not affect the tile's
+        // actual content layout/spacing").
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full opacity-[0.18] blur-2xl"
+          style={{ background: "var(--brand-signature-gradient)" }}
+        />
+      ) : null}
+      <CardHeader className="relative flex flex-row items-center gap-1 p-3 pb-1">
         <CardTitle className="text-[11px] leading-tight">{label}</CardTitle>
         {tooltip ? (
           <span tabIndex={0} className="group relative inline-flex shrink-0 outline-none">
@@ -54,7 +96,7 @@ export function StatTile({ label, value, isLoading = false, accent = "none", zer
           </span>
         ) : null}
       </CardHeader>
-      <CardContent className="p-3 pt-0">
+      <CardContent className="relative p-3 pt-0">
         {isLoading ? (
           <div
             role="status"
@@ -74,5 +116,25 @@ export function StatTile({ label, value, isLoading = false, accent = "none", zer
         )}
       </CardContent>
     </Card>
+  );
+
+  if (!hero) return tile;
+
+  // Gradient-ring technique: an outer padded wrapper painted with the
+  // signature gradient, with the card sitting flush inside it -- the same
+  // "padding = ring thickness" trick as the sidebar logo mark
+  // (AppShell.tsx), adapted from a circle to this card's own rounded-rect
+  // radius (--radius-card, index.css) so the ring traces the card's actual
+  // corners instead of a fixed pill/circle shape. Chosen over the mockup's
+  // `::before` + `mask-composite: exclude` approach because it stays plain
+  // Tailwind/inline-style (no extra global CSS rule needed for one call
+  // site) and composes cleanly with Card's own hover lift/shadow transition.
+  return (
+    <div
+      className="rounded-[var(--radius-card)] p-[2px]"
+      style={{ background: "var(--brand-signature-gradient)" }}
+    >
+      {tile}
+    </div>
   );
 }
