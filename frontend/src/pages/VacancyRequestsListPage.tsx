@@ -23,7 +23,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { AccordionItem } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -709,7 +709,15 @@ export function VacancyRequestsListPage() {
           ) : null}
         </div>
       ) : viewMode === "FLAT" ? (
-        <div className="overflow-x-auto rounded-lg border border-border">
+        // UI redesign Phase 3 -- Card replaces the old bare
+        // rounded-lg/border-border wrapper for the new radius/shadow
+        // language. Scoped to just this FLAT-view table, not the whole
+        // isLoading/isEmpty/FLAT/GROUPED ternary: the other 3 branches
+        // already have their own appropriate treatments (isEmpty's dashed
+        // empty-state box, GROUPED's accordion + DepartmentSummaryCard grid)
+        // that a single outer Card would only clash with, not improve.
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
           <table className="w-full min-w-[1080px] table-fixed text-sm">
             <colgroup>
               <col className="w-24" />
@@ -794,7 +802,8 @@ export function VacancyRequestsListPage() {
               })}
             </tbody>
           </table>
-        </div>
+          </CardContent>
+        </Card>
       ) : (
         <div className="flex flex-col gap-3">
           {parentGroupSections.map(([groupLabel, cards]) => {

@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { LocationBulkUploadDialog } from "@/components/locations/LocationBulkUploadDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 import {
   Dialog,
@@ -366,64 +367,73 @@ export function LocationsPage() {
         </Select>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : visibleLocations.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {filtersActive ? "No locations match the current filters." : "No locations found."}
-        </p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Name</th>
-              <th className="py-2 font-medium">Block / Building</th>
-              <th className="py-2 font-medium">Floor / Venue</th>
-              <th className="py-2 font-medium">Campus</th>
-              <th className="py-2 font-medium">Category</th>
-              <th className="py-2 font-medium">Status</th>
-              {canManage ? <th className="py-2 font-medium">Actions</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleLocations.map((location) => (
-              <tr key={location.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                <td className="py-2 font-medium text-foreground">{location.name}</td>
-                <td className="py-2">{location.block_building ?? "—"}</td>
-                <td className="py-2">{location.floor_venue ?? "—"}</td>
-                <td className="py-2 font-mono text-xs">{campusById.get(location.campus_id)?.code ?? "—"}</td>
-                <td className="py-2">{location.category ? location.category.replace(/_/g, " ") : "—"}</td>
-                <td className="py-2">
-                  <Badge variant={location.is_active ? "success" : "destructive"}>
-                    {location.is_active ? "Active" : "Inactive"}
-                  </Badge>
-                </td>
-                {canManage ? (
-                  <td className="py-2">
-                    <div className="flex items-center gap-1.5">
-                      <Button variant="outline" size="sm" onClick={() => openEditDialog(location)}>
-                        Edit
-                      </Button>
-                      <DeleteConfirmDialog
-                        triggerAriaLabel={`Delete location ${location.name}`}
-                        title="Delete location"
-                        description={
-                          <>
-                            Remove <span className="font-medium text-foreground">{location.name}</span>? This is a
-                            soft delete -- the location stays visible (as Inactive) and can be reactivated later.
-                          </>
-                        }
-                        onDelete={() => deleteLocation(location.id)}
-                        onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["locations"] })}
-                      />
-                    </div>
-                  </td>
-                ) : null}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
+          empty/table states, not just the loaded table. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : visibleLocations.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              {filtersActive ? "No locations match the current filters." : "No locations found."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Name</th>
+                    <th className="py-2 font-medium">Block / Building</th>
+                    <th className="py-2 font-medium">Floor / Venue</th>
+                    <th className="py-2 font-medium">Campus</th>
+                    <th className="py-2 font-medium">Category</th>
+                    <th className="py-2 font-medium">Status</th>
+                    {canManage ? <th className="py-2 font-medium">Actions</th> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleLocations.map((location) => (
+                    <tr key={location.id} className="border-b border-border last:border-0 hover:bg-accent/50">
+                      <td className="py-2 font-medium text-foreground">{location.name}</td>
+                      <td className="py-2">{location.block_building ?? "—"}</td>
+                      <td className="py-2">{location.floor_venue ?? "—"}</td>
+                      <td className="py-2 font-mono text-xs">{campusById.get(location.campus_id)?.code ?? "—"}</td>
+                      <td className="py-2">{location.category ? location.category.replace(/_/g, " ") : "—"}</td>
+                      <td className="py-2">
+                        <Badge variant={location.is_active ? "success" : "destructive"}>
+                          {location.is_active ? "Active" : "Inactive"}
+                        </Badge>
+                      </td>
+                      {canManage ? (
+                        <td className="py-2">
+                          <div className="flex items-center gap-1.5">
+                            <Button variant="outline" size="sm" onClick={() => openEditDialog(location)}>
+                              Edit
+                            </Button>
+                            <DeleteConfirmDialog
+                              triggerAriaLabel={`Delete location ${location.name}`}
+                              title="Delete location"
+                              description={
+                                <>
+                                  Remove <span className="font-medium text-foreground">{location.name}</span>? This
+                                  is a soft delete -- the location stays visible (as Inactive) and can be
+                                  reactivated later.
+                                </>
+                              }
+                              onDelete={() => deleteLocation(location.id)}
+                              onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["locations"] })}
+                            />
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

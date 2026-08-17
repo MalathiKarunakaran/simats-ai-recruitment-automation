@@ -6,6 +6,7 @@ import { listCampuses } from "@/api/campuses";
 import { GLOBAL_SCOPE_ROLES } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
+import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Mirrors the backend's own read-role gate exactly
@@ -96,35 +97,44 @@ export function ActivityLogPage() {
         <DateRangeControl value={dateRange} onChange={setDateRange} ariaLabel="Date range" />
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !entries || entries.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No activity recorded in this scope yet.</p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">When</th>
-              <th className="py-2 font-medium">Actor</th>
-              <th className="py-2 font-medium">Action</th>
-              <th className="py-2 font-medium">Entity</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) => (
-              <tr key={entry.id} className="border-b border-border last:border-0">
-                <td className="py-2 whitespace-nowrap">{new Date(entry.created_at).toLocaleString()}</td>
-                <td className="py-2">{entry.actor_role_snapshot?.replace(/_/g, " ") ?? "System"}</td>
-                <td className="py-2 font-mono text-xs">{entry.action}</td>
-                <td className="py-2 text-muted-foreground">
-                  {entry.entity_type ?? "—"}
-                  {entry.entity_id ? ` · ${entry.entity_id.slice(0, 8)}` : ""}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {/* UI redesign Phase 3 -- the loading/empty/table states share one
+          Card boundary regardless of which is currently rendered, rather
+          than only wrapping the table once data loads. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : !entries || entries.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">No activity recorded in this scope yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">When</th>
+                    <th className="py-2 font-medium">Actor</th>
+                    <th className="py-2 font-medium">Action</th>
+                    <th className="py-2 font-medium">Entity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map((entry) => (
+                    <tr key={entry.id} className="border-b border-border last:border-0">
+                      <td className="py-2 whitespace-nowrap">{new Date(entry.created_at).toLocaleString()}</td>
+                      <td className="py-2">{entry.actor_role_snapshot?.replace(/_/g, " ") ?? "System"}</td>
+                      <td className="py-2 font-mono text-xs">{entry.action}</td>
+                      <td className="py-2 text-muted-foreground">
+                        {entry.entity_type ?? "—"}
+                        {entry.entity_id ? ` · ${entry.entity_id.slice(0, 8)}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
