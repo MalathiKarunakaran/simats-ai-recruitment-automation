@@ -10,6 +10,7 @@ import type { OfferStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/offers/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
@@ -117,50 +118,60 @@ export function OffersListPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !filteredOffers || filteredOffers.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {offers && offers.length > 0 ? "No offers match these filters." : "No offers yet."}
-        </p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Candidate</th>
-              <th className="py-2 font-medium">Position</th>
-              <th className="py-2 font-medium">Salary</th>
-              <th className="py-2 font-medium">Joining date</th>
-              <th className="py-2 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredOffers.map((offer) => {
-              const application = applications?.find((a) => a.id === offer.application_id);
-              const candidate = application ? candidates?.find((c) => c.id === application.candidate_id) : undefined;
-              const label = application ? getLabel(application.job_posting_id) : undefined;
-              return (
-                <tr key={offer.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                  <td className="py-2">
-                    <Link to={`/offers/${offer.id}`} className="font-medium hover:underline">
-                      {candidate?.full_name ?? "Unknown candidate"}
-                    </Link>
-                    <div className="text-xs text-muted-foreground">{candidate?.email}</div>
-                  </td>
-                  <td className="py-2">{label?.positionTitle ?? "—"}</td>
-                  <td className="py-2">
-                    {offer.salary_currency} {offer.salary_amount}
-                  </td>
-                  <td className="py-2">{new Date(offer.joining_date).toLocaleDateString()}</td>
-                  <td className="py-2">
-                    <StatusBadge status={offer.status} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+      {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
+          empty/table states, not just the loaded table. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : !filteredOffers || filteredOffers.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              {offers && offers.length > 0 ? "No offers match these filters." : "No offers yet."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Candidate</th>
+                    <th className="py-2 font-medium">Position</th>
+                    <th className="py-2 font-medium">Salary</th>
+                    <th className="py-2 font-medium">Joining date</th>
+                    <th className="py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOffers.map((offer) => {
+                    const application = applications?.find((a) => a.id === offer.application_id);
+                    const candidate = application
+                      ? candidates?.find((c) => c.id === application.candidate_id)
+                      : undefined;
+                    const label = application ? getLabel(application.job_posting_id) : undefined;
+                    return (
+                      <tr key={offer.id} className="border-b border-border last:border-0 hover:bg-accent/50">
+                        <td className="py-2">
+                          <Link to={`/offers/${offer.id}`} className="font-medium hover:underline">
+                            {candidate?.full_name ?? "Unknown candidate"}
+                          </Link>
+                          <div className="text-xs text-muted-foreground">{candidate?.email}</div>
+                        </td>
+                        <td className="py-2">{label?.positionTitle ?? "—"}</td>
+                        <td className="py-2">
+                          {offer.salary_currency} {offer.salary_amount}
+                        </td>
+                        <td className="py-2">{new Date(offer.joining_date).toLocaleDateString()}</td>
+                        <td className="py-2">
+                          <StatusBadge status={offer.status} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

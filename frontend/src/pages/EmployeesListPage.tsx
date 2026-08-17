@@ -7,6 +7,7 @@ import { listDepartments } from "@/api/departments";
 import { listEmployees } from "@/api/employees";
 import type { EmploymentStatus } from "@/api/types";
 import { StatusBadge } from "@/components/employees/StatusBadge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -97,54 +98,65 @@ export function EmployeesListPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !filteredEmployees || filteredEmployees.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {employees && employees.length > 0
-            ? "No employees match these filters."
-            : "No employees in this scope yet."}
-        </p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Employee code</th>
-              <th className="py-2 font-medium">Name</th>
-              <th className="py-2 font-medium">Designation</th>
-              <th className="py-2 font-medium">Department</th>
-              <th className="py-2 font-medium">Campus</th>
-              <th className="py-2 font-medium">Email</th>
-              <th className="py-2 font-medium">Date of joining</th>
-              <th className="py-2 font-medium">Employment status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredEmployees.map((employee) => {
-              const department = departments?.find((d) => d.id === employee.department_id);
-              const campus = campuses?.find((c) => c.id === employee.campus_id);
-              return (
-                <tr key={employee.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                  <td className="py-2">
-                    <Link to={`/employees/${employee.id}`} className="font-mono text-xs font-medium hover:underline">
-                      {employee.employee_code}
-                    </Link>
-                  </td>
-                  <td className="py-2">{employee.full_name}</td>
-                  <td className="py-2">{employee.designation}</td>
-                  <td className="py-2">{department?.name ?? "—"}</td>
-                  <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
-                  <td className="py-2">{employee.email}</td>
-                  <td className="py-2">{new Date(employee.date_of_joining).toLocaleDateString()}</td>
-                  <td className="py-2">
-                    <StatusBadge status={employee.employment_status} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+      {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
+          empty/table states, not just the loaded table. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : !filteredEmployees || filteredEmployees.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              {employees && employees.length > 0
+                ? "No employees match these filters."
+                : "No employees in this scope yet."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Employee code</th>
+                    <th className="py-2 font-medium">Name</th>
+                    <th className="py-2 font-medium">Designation</th>
+                    <th className="py-2 font-medium">Department</th>
+                    <th className="py-2 font-medium">Campus</th>
+                    <th className="py-2 font-medium">Email</th>
+                    <th className="py-2 font-medium">Date of joining</th>
+                    <th className="py-2 font-medium">Employment status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEmployees.map((employee) => {
+                    const department = departments?.find((d) => d.id === employee.department_id);
+                    const campus = campuses?.find((c) => c.id === employee.campus_id);
+                    return (
+                      <tr key={employee.id} className="border-b border-border last:border-0 hover:bg-accent/50">
+                        <td className="py-2">
+                          <Link
+                            to={`/employees/${employee.id}`}
+                            className="font-mono text-xs font-medium hover:underline"
+                          >
+                            {employee.employee_code}
+                          </Link>
+                        </td>
+                        <td className="py-2">{employee.full_name}</td>
+                        <td className="py-2">{employee.designation}</td>
+                        <td className="py-2">{department?.name ?? "—"}</td>
+                        <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
+                        <td className="py-2">{employee.email}</td>
+                        <td className="py-2">{new Date(employee.date_of_joining).toLocaleDateString()}</td>
+                        <td className="py-2">
+                          <StatusBadge status={employee.employment_status} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

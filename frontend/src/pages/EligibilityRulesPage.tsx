@@ -13,6 +13,7 @@ import { ELIGIBILITY_RULE_MANAGEMENT_ROLES, type EligibilityRule, type StaffRole
 import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 import {
   Dialog,
@@ -309,83 +310,93 @@ export function EligibilityRulesPage() {
         </Select>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !rules || rules.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No eligibility rules found.</p>
-      ) : !filteredRules || filteredRules.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No eligibility rules match these filters.</p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Campus</th>
-              <th className="py-2 font-medium">Staff category</th>
-              <th className="py-2 font-medium">Position</th>
-              <th className="py-2 font-medium">Required keyword</th>
-              <th className="py-2 font-medium">Active</th>
-              <th className="py-2 font-medium">Notes</th>
-              {canManage ? <th className="py-2 font-medium">Actions</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRules.map((rule) => {
-              const campus = campuses?.find((c) => c.id === rule.campus_id);
-              return (
-                <tr key={rule.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                  <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
-                  <td className="py-2">{rule.staff_category.replace(/_/g, " ")}</td>
-                  <td className="py-2">{rule.position_title ?? "All positions"}</td>
-                  <td className="py-2">{rule.required_qualification_keyword}</td>
-                  <td className="py-2">
-                    {canManage ? (
-                      <button
-                        type="button"
-                        disabled={toggleActiveMutation.isPending}
-                        onClick={() => toggleActiveMutation.mutate({ id: rule.id, isActive: !rule.is_active })}
-                      >
-                        <Badge variant={rule.is_active ? "success" : "destructive"}>
-                          {rule.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </button>
-                    ) : (
-                      <Badge variant={rule.is_active ? "success" : "destructive"}>
-                        {rule.is_active ? "Active" : "Inactive"}
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="py-2">{rule.notes ?? "—"}</td>
-                  {canManage ? (
-                    <td className="py-2">
-                      <div className="flex items-center gap-1.5">
-                        <Button variant="outline" size="sm" onClick={() => openEditDialog(rule)}>
-                          Edit
-                        </Button>
-                        <DeleteConfirmDialog
-                          triggerAriaLabel={`Delete eligibility rule ${rule.required_qualification_keyword}`}
-                          title="Delete eligibility rule"
-                          description={
-                            <>
-                              Remove the{" "}
-                              <span className="font-medium text-foreground">
-                                {rule.required_qualification_keyword}
-                              </span>{" "}
-                              rule? This is a soft delete -- the rule stays visible (as Inactive) and can be
-                              reactivated later.
-                            </>
-                          }
-                          onDelete={() => deleteEligibilityRule(rule.id)}
-                          onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["eligibility-rules"] })}
-                        />
-                      </div>
-                    </td>
-                  ) : null}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+      {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
+          empty/table states, not just the loaded table. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : !rules || rules.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">No eligibility rules found.</p>
+          ) : !filteredRules || filteredRules.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">No eligibility rules match these filters.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Campus</th>
+                    <th className="py-2 font-medium">Staff category</th>
+                    <th className="py-2 font-medium">Position</th>
+                    <th className="py-2 font-medium">Required keyword</th>
+                    <th className="py-2 font-medium">Active</th>
+                    <th className="py-2 font-medium">Notes</th>
+                    {canManage ? <th className="py-2 font-medium">Actions</th> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRules.map((rule) => {
+                    const campus = campuses?.find((c) => c.id === rule.campus_id);
+                    return (
+                      <tr key={rule.id} className="border-b border-border last:border-0 hover:bg-accent/50">
+                        <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
+                        <td className="py-2">{rule.staff_category.replace(/_/g, " ")}</td>
+                        <td className="py-2">{rule.position_title ?? "All positions"}</td>
+                        <td className="py-2">{rule.required_qualification_keyword}</td>
+                        <td className="py-2">
+                          {canManage ? (
+                            <button
+                              type="button"
+                              disabled={toggleActiveMutation.isPending}
+                              onClick={() => toggleActiveMutation.mutate({ id: rule.id, isActive: !rule.is_active })}
+                            >
+                              <Badge variant={rule.is_active ? "success" : "destructive"}>
+                                {rule.is_active ? "Active" : "Inactive"}
+                              </Badge>
+                            </button>
+                          ) : (
+                            <Badge variant={rule.is_active ? "success" : "destructive"}>
+                              {rule.is_active ? "Active" : "Inactive"}
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="py-2">{rule.notes ?? "—"}</td>
+                        {canManage ? (
+                          <td className="py-2">
+                            <div className="flex items-center gap-1.5">
+                              <Button variant="outline" size="sm" onClick={() => openEditDialog(rule)}>
+                                Edit
+                              </Button>
+                              <DeleteConfirmDialog
+                                triggerAriaLabel={`Delete eligibility rule ${rule.required_qualification_keyword}`}
+                                title="Delete eligibility rule"
+                                description={
+                                  <>
+                                    Remove the{" "}
+                                    <span className="font-medium text-foreground">
+                                      {rule.required_qualification_keyword}
+                                    </span>{" "}
+                                    rule? This is a soft delete -- the rule stays visible (as Inactive) and can be
+                                    reactivated later.
+                                  </>
+                                }
+                                onDelete={() => deleteEligibilityRule(rule.id)}
+                                onDeleted={() =>
+                                  void queryClient.invalidateQueries({ queryKey: ["eligibility-rules"] })
+                                }
+                              />
+                            </div>
+                          </td>
+                        ) : null}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

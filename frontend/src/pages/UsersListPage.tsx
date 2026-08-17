@@ -8,6 +8,7 @@ import { listUsers } from "@/api/users";
 import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -104,51 +105,59 @@ export function UsersListPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !filteredUsers || filteredUsers.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {users && users.length > 0 ? "No users match these filters." : "No users found."}
-        </p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Name</th>
-              <th className="py-2 font-medium">Email</th>
-              <th className="py-2 font-medium">Role</th>
-              <th className="py-2 font-medium">Campus</th>
-              <th className="py-2 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredUsers.map((row) => {
-              const campus = campuses?.find((c) => c.id === row.campus_id);
-              return (
-                <tr key={row.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                  <td className="py-2">
-                    {canManage ? (
-                      <Link to={`/users/${row.id}`} className="font-medium hover:underline">
-                        {row.full_name}
-                      </Link>
-                    ) : (
-                      row.full_name
-                    )}
-                  </td>
-                  <td className="py-2">{row.email}</td>
-                  <td className="py-2">{row.role.replace(/_/g, " ")}</td>
-                  <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
-                  <td className="py-2">
-                    <Badge variant={row.is_active ? "success" : "destructive"}>
-                      {row.is_active ? "Active" : "Inactive"}
-                    </Badge>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+      {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
+          empty/table states, not just the loaded table. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : !filteredUsers || filteredUsers.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              {users && users.length > 0 ? "No users match these filters." : "No users found."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Name</th>
+                    <th className="py-2 font-medium">Email</th>
+                    <th className="py-2 font-medium">Role</th>
+                    <th className="py-2 font-medium">Campus</th>
+                    <th className="py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredUsers.map((row) => {
+                    const campus = campuses?.find((c) => c.id === row.campus_id);
+                    return (
+                      <tr key={row.id} className="border-b border-border last:border-0 hover:bg-accent/50">
+                        <td className="py-2">
+                          {canManage ? (
+                            <Link to={`/users/${row.id}`} className="font-medium hover:underline">
+                              {row.full_name}
+                            </Link>
+                          ) : (
+                            row.full_name
+                          )}
+                        </td>
+                        <td className="py-2">{row.email}</td>
+                        <td className="py-2">{row.role.replace(/_/g, " ")}</td>
+                        <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
+                        <td className="py-2">
+                          <Badge variant={row.is_active ? "success" : "destructive"}>
+                            {row.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

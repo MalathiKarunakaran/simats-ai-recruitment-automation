@@ -15,6 +15,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 import {
   Dialog,
@@ -559,13 +560,18 @@ export function DesignationsPage() {
         </Select>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : visibleDesignations.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {filtersActive ? "No designations match the current filters." : "No designations found."}
-        </p>
-      ) : (
+      {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
+          empty/table states, not just the loaded table. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : visibleDesignations.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              {filtersActive ? "No designations match the current filters." : "No designations found."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
         <table className="w-full table-fixed text-sm">
           <colgroup>
             {/* Name/Departments/Employment type/Category/Active/Min. experience/Actions all get a
@@ -644,7 +650,10 @@ export function DesignationsPage() {
             ))}
           </tbody>
         </table>
-      )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

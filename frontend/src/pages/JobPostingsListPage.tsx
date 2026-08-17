@@ -7,6 +7,7 @@ import { listDepartments } from "@/api/departments";
 import { listJobPostings } from "@/api/jobPostings";
 import type { JobPostingRead } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CategoryTabs } from "@/components/domain/CategoryTabs";
@@ -94,54 +95,62 @@ export function JobPostingsListPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !filteredJobPostings || filteredJobPostings.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {jobPostings && jobPostings.length > 0
-            ? "No job postings match these filters."
-            : "No job postings in this scope yet."}
-        </p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Job Position</th>
-              <th className="py-2 font-medium">Department</th>
-              <th className="py-2 font-medium">Campus</th>
-              <th className="py-2 font-medium">Requested</th>
-              <th className="py-2 font-medium">Available</th>
-              <th className="py-2 font-medium">Status</th>
-              <th className="py-2 font-medium">Published</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredJobPostings.map((jp) => {
-              const campus = campuses?.find((c) => c.id === jp.campus_id);
-              const department = departments?.find((d) => d.id === jp.department_id);
-              return (
-                <tr key={jp.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                  <td className="py-2">
-                    <Link to={`/job-postings/${jp.id}`} className="font-medium hover:underline">
-                      {jp.position_title}
-                    </Link>
-                  </td>
-                  <td className="py-2">{department?.name ?? "—"}</td>
-                  <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
-                  <td className="py-2">{jp.requested_count}</td>
-                  <td className="py-2">{jp.available_count}</td>
-                  <td className="py-2">
-                    <Badge variant={jp.is_active ? "success" : "outline"}>
-                      {jp.is_active ? "Active" : "Closed"}
-                    </Badge>
-                  </td>
-                  <td className="py-2">{new Date(jp.published_at).toLocaleDateString()}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
+      {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
+          empty/table states, not just the loaded table. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : !filteredJobPostings || filteredJobPostings.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              {jobPostings && jobPostings.length > 0
+                ? "No job postings match these filters."
+                : "No job postings in this scope yet."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Job Position</th>
+                    <th className="py-2 font-medium">Department</th>
+                    <th className="py-2 font-medium">Campus</th>
+                    <th className="py-2 font-medium">Requested</th>
+                    <th className="py-2 font-medium">Available</th>
+                    <th className="py-2 font-medium">Status</th>
+                    <th className="py-2 font-medium">Published</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredJobPostings.map((jp) => {
+                    const campus = campuses?.find((c) => c.id === jp.campus_id);
+                    const department = departments?.find((d) => d.id === jp.department_id);
+                    return (
+                      <tr key={jp.id} className="border-b border-border last:border-0 hover:bg-accent/50">
+                        <td className="py-2">
+                          <Link to={`/job-postings/${jp.id}`} className="font-medium hover:underline">
+                            {jp.position_title}
+                          </Link>
+                        </td>
+                        <td className="py-2">{department?.name ?? "—"}</td>
+                        <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
+                        <td className="py-2">{jp.requested_count}</td>
+                        <td className="py-2">{jp.available_count}</td>
+                        <td className="py-2">
+                          <Badge variant={jp.is_active ? "success" : "outline"}>
+                            {jp.is_active ? "Active" : "Closed"}
+                          </Badge>
+                        </td>
+                        <td className="py-2">{new Date(jp.published_at).toLocaleDateString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 import {
   Dialog,
@@ -313,65 +314,73 @@ export function DepartmentsPage() {
         </Select>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : visibleDepartments.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {filtersActive ? "No departments match the current filters." : "No departments found."}
-        </p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Campus</th>
-              <th className="py-2 font-medium">Name</th>
-              <th className="py-2 font-medium">Code</th>
-              <th className="py-2 font-medium">Category</th>
-              <th className="py-2 font-medium">Parent group</th>
-              <th className="py-2 font-medium">Active</th>
-              {canManage ? <th className="py-2 font-medium">Actions</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleDepartments.map((department) => (
-              <tr key={department.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                <td className="py-2 font-mono text-xs">{campusById.get(department.campus_id)?.code ?? "—"}</td>
-                <td className="py-2 font-medium text-foreground">{department.name}</td>
-                <td className="py-2">{department.code ?? "—"}</td>
-                <td className="py-2">{department.category ? department.category.replace(/_/g, " ") : "—"}</td>
-                <td className="py-2">{department.parent_group ?? "—"}</td>
-                <td className="py-2">
-                  <Badge variant={department.is_active ? "success" : "destructive"}>
-                    {department.is_active ? "Active" : "Inactive"}
-                  </Badge>
-                </td>
-                {canManage ? (
-                  <td className="py-2">
-                    <div className="flex items-center gap-1.5">
-                      <Button variant="outline" size="sm" onClick={() => openEditDialog(department)}>
-                        Edit
-                      </Button>
-                      <DeleteConfirmDialog
-                        triggerAriaLabel={`Delete department ${department.name}`}
-                        title="Delete department"
-                        description={
-                          <>
-                            Remove <span className="font-medium text-foreground">{department.name}</span>? This is
-                            a soft delete -- the department stays visible (as Inactive) and can be reactivated
-                            later.
-                          </>
-                        }
-                        onDelete={() => deleteDepartment(department.id)}
-                        onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["departments"] })}
-                      />
-                    </div>
-                  </td>
-                ) : null}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
+          empty/table states, not just the loaded table. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : visibleDepartments.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              {filtersActive ? "No departments match the current filters." : "No departments found."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Campus</th>
+                    <th className="py-2 font-medium">Name</th>
+                    <th className="py-2 font-medium">Code</th>
+                    <th className="py-2 font-medium">Category</th>
+                    <th className="py-2 font-medium">Parent group</th>
+                    <th className="py-2 font-medium">Active</th>
+                    {canManage ? <th className="py-2 font-medium">Actions</th> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleDepartments.map((department) => (
+                    <tr key={department.id} className="border-b border-border last:border-0 hover:bg-accent/50">
+                      <td className="py-2 font-mono text-xs">{campusById.get(department.campus_id)?.code ?? "—"}</td>
+                      <td className="py-2 font-medium text-foreground">{department.name}</td>
+                      <td className="py-2">{department.code ?? "—"}</td>
+                      <td className="py-2">{department.category ? department.category.replace(/_/g, " ") : "—"}</td>
+                      <td className="py-2">{department.parent_group ?? "—"}</td>
+                      <td className="py-2">
+                        <Badge variant={department.is_active ? "success" : "destructive"}>
+                          {department.is_active ? "Active" : "Inactive"}
+                        </Badge>
+                      </td>
+                      {canManage ? (
+                        <td className="py-2">
+                          <div className="flex items-center gap-1.5">
+                            <Button variant="outline" size="sm" onClick={() => openEditDialog(department)}>
+                              Edit
+                            </Button>
+                            <DeleteConfirmDialog
+                              triggerAriaLabel={`Delete department ${department.name}`}
+                              title="Delete department"
+                              description={
+                                <>
+                                  Remove <span className="font-medium text-foreground">{department.name}</span>?
+                                  This is a soft delete -- the department stays visible (as Inactive) and can be
+                                  reactivated later.
+                                </>
+                              }
+                              onDelete={() => deleteDepartment(department.id)}
+                              onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["departments"] })}
+                            />
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

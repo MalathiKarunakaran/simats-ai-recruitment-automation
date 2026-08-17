@@ -7,6 +7,7 @@ import { listCandidates } from "@/api/candidates";
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/candidates/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CategoryTabs } from "@/components/domain/CategoryTabs";
@@ -141,46 +142,54 @@ export function CandidatesListPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : !filteredCandidates || filteredCandidates.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {candidates && candidates.length > 0 ? "No candidates match these filters." : "No candidates found."}
-        </p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Name</th>
-              <th className="py-2 font-medium">Email</th>
-              <th className="py-2 font-medium">Phone</th>
-              <th className="py-2 font-medium">Source</th>
-              <th className="py-2 font-medium">Resume</th>
-              <th className="py-2 font-medium">Status</th>
-              <th className="py-2 font-medium">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredCandidates.map((candidate) => (
-              <tr key={candidate.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                <td className="py-2">
-                  <Link to={`/candidates/${candidate.id}`} className="font-medium hover:underline">
-                    {candidate.full_name}
-                  </Link>
-                </td>
-                <td className="py-2">{candidate.email}</td>
-                <td className="py-2">{candidate.phone_number ?? "—"}</td>
-                <td className="py-2">{candidate.source ?? "—"}</td>
-                <td className="py-2">{candidate.resume_storage_key ? "Yes" : "No"}</td>
-                <td className="py-2">
-                  <StatusBadge status={candidate.is_withdrawn} />
-                </td>
-                <td className="py-2">{new Date(candidate.created_at).toLocaleDateString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
+          empty/table states, not just the loaded table. */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+          ) : !filteredCandidates || filteredCandidates.length === 0 ? (
+            <p className="p-6 text-sm text-muted-foreground">
+              {candidates && candidates.length > 0 ? "No candidates match these filters." : "No candidates found."}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Name</th>
+                    <th className="py-2 font-medium">Email</th>
+                    <th className="py-2 font-medium">Phone</th>
+                    <th className="py-2 font-medium">Source</th>
+                    <th className="py-2 font-medium">Resume</th>
+                    <th className="py-2 font-medium">Status</th>
+                    <th className="py-2 font-medium">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCandidates.map((candidate) => (
+                    <tr key={candidate.id} className="border-b border-border last:border-0 hover:bg-accent/50">
+                      <td className="py-2">
+                        <Link to={`/candidates/${candidate.id}`} className="font-medium hover:underline">
+                          {candidate.full_name}
+                        </Link>
+                      </td>
+                      <td className="py-2">{candidate.email}</td>
+                      <td className="py-2">{candidate.phone_number ?? "—"}</td>
+                      <td className="py-2">{candidate.source ?? "—"}</td>
+                      <td className="py-2">{candidate.resume_storage_key ? "Yes" : "No"}</td>
+                      <td className="py-2">
+                        <StatusBadge status={candidate.is_withdrawn} />
+                      </td>
+                      <td className="py-2">{new Date(candidate.created_at).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

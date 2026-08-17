@@ -32,6 +32,7 @@ import { TeachingStrengthTable } from "@/components/sanctionedStrength/TeachingS
 import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
@@ -618,7 +619,12 @@ export function SanctionedStrengthPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-border">
+          {/* UI redesign Phase 3 -- Card replaces the old bare
+              rounded-lg/border-border wrapper for the new radius/shadow
+              language (legacy "All" rollup table only; the 3 dedicated
+              Teaching/Non-Teaching/Housekeeping tables are out of scope). */}
+          <Card>
+          <CardContent className="overflow-x-auto p-0">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-muted">
                 <tr className="text-left text-muted-foreground">
@@ -776,7 +782,8 @@ export function SanctionedStrengthPage() {
                 )}
               </tbody>
             </table>
-          </div>
+          </CardContent>
+          </Card>
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">

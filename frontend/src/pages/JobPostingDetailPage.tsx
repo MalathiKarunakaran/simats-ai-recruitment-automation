@@ -191,42 +191,51 @@ export function JobPostingDetailPage() {
         <CardHeader>
           <CardTitle>Ranked Candidates</CardTitle>
         </CardHeader>
-        <CardContent>
+        {/* UI redesign Phase 3 -- p-0 + an explicit overflow-x-auto wrapper
+            around the table itself (matching every other page's table
+            region), rather than CardContent's default p-6 padding doubling
+            up with the table's own per-cell padding. */}
+        <CardContent className="p-0">
           {!rankedCandidates || rankedCandidates.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No applications for this posting yet.</p>
+            <p className="p-6 text-sm text-muted-foreground">No applications for this posting yet.</p>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="py-2 font-medium">Candidate</th>
-                  <th className="py-2 font-medium">Status</th>
-                  <th className="py-2 font-medium">Overall score</th>
-                  <th className="py-2 font-medium">Eligibility score</th>
-                  <th className="py-2 font-medium">Flags</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rankedCandidates.map((row) => (
-                  <tr key={row.application_id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                    <td className="py-2">
-                      <Link to={`/applications/${row.application_id}`} className="font-medium hover:underline">
-                        {row.candidate_full_name}
-                      </Link>
-                      <div className="text-xs text-muted-foreground">{row.candidate_email}</div>
-                    </td>
-                    <td className="py-2">{row.application_status.replace(/_/g, " ")}</td>
-                    <td className="py-2">{row.overall_recruitment_score ?? "—"}</td>
-                    <td className="py-2">{row.eligibility_score ?? "—"}</td>
-                    <td className="py-2">
-                      <div className="flex gap-1">
-                        {row.is_duplicate ? <Badge variant="warning">Duplicate</Badge> : null}
-                        {row.is_incomplete_profile ? <Badge variant="warning">Incomplete</Badge> : null}
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="py-2 font-medium">Candidate</th>
+                    <th className="py-2 font-medium">Status</th>
+                    <th className="py-2 font-medium">Overall score</th>
+                    <th className="py-2 font-medium">Eligibility score</th>
+                    <th className="py-2 font-medium">Flags</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rankedCandidates.map((row) => (
+                    <tr
+                      key={row.application_id}
+                      className="border-b border-border last:border-0 hover:bg-accent/50"
+                    >
+                      <td className="py-2">
+                        <Link to={`/applications/${row.application_id}`} className="font-medium hover:underline">
+                          {row.candidate_full_name}
+                        </Link>
+                        <div className="text-xs text-muted-foreground">{row.candidate_email}</div>
+                      </td>
+                      <td className="py-2">{row.application_status.replace(/_/g, " ")}</td>
+                      <td className="py-2">{row.overall_recruitment_score ?? "—"}</td>
+                      <td className="py-2">{row.eligibility_score ?? "—"}</td>
+                      <td className="py-2">
+                        <div className="flex gap-1">
+                          {row.is_duplicate ? <Badge variant="warning">Duplicate</Badge> : null}
+                          {row.is_incomplete_profile ? <Badge variant="warning">Incomplete</Badge> : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>
