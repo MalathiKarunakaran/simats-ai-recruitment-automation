@@ -27,30 +27,64 @@ match already makes), `location_id` resolves to a real Location, and
 raw IntegrityError). DELETE is a soft delete (is_active=False), matching
 every other master-data router in this codebase. Every write appends the
 standard audit-log entry via log_create/log_update/log_delete.
+
+Phase J (glowing-zooming-hamming.md) adds
+`/housekeeping-staff/bulk-upload/*` (template/validate/commit) at the bottom
+of this file, mirroring `sanctioned_strength.py`'s own
+`/sanctioned-strength/bulk-upload/*` shape exactly (see app/services/
+housekeeping_staff_import.py for the validate/commit logic), gated on this
+router's own `_WRITE_ROLES` below (the broader, RECRUITMENT_OFFICER-inclusive
+set, not the narrower `SANCTIONED_STRENGTH_WRITE_ROLES`). The batch-level
+history/error-report/original-file/undo endpoints deliberately stay in
+sanctioned_strength.py's already entity-agnostic
+`/sanctioned-strength/bulk-uploads*` family (dispatched by
+`BulkUploadLog.entity_type`) rather than being duplicated here.
 """
 
+import io
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
+from minio import Minio
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db, require_roles
+from app.models.bulk_upload_log import BulkUploadLog
 from app.models.campus import Campus
 from app.models.designation import Designation
-from app.models.enums import SANCTIONED_STRENGTH_WRITE_ROLES, HousekeepingShiftEnum, StaffRoleCategoryEnum, UserRoleEnum
+from app.models.enums import (
+    SANCTIONED_STRENGTH_WRITE_ROLES,
+    BulkUploadEntityTypeEnum,
+    BulkUploadStatusEnum,
+    HousekeepingShiftEnum,
+    StaffRoleCategoryEnum,
+    UserRoleEnum,
+)
 from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.location import Location
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.housekeeping_staff import HousekeepingStaffCreate, HousekeepingStaffRead, HousekeepingStaffUpdate
-from app.services.audit import log_create, log_delete, log_update
+from app.schemas.housekeeping_staff_import import (
+    HousekeepingStaffBulkUploadCommitResponse,
+    HousekeepingStaffBulkUploadRowPreview,
+    HousekeepingStaffBulkUploadValidationResponse,
+)
+from app.services import housekeeping_staff_import, storage
+from app.services.audit import log_create, log_delete, log_event, log_update
+from app.services.storage import get_minio_client
 
 router = APIRouter(prefix="/housekeeping-staff", tags=["housekeeping-staff"])
 
 # Same shape as locations.py's own _WRITE_ROLES -- SANCTIONED_STRENGTH_WRITE_ROLES
 # plus RECRUITMENT_OFFICER (see module docstring for why).
 _WRITE_ROLES = (*SANCTIONED_STRENGTH_WRITE_ROLES, UserRoleEnum.RECRUITMENT_OFFICER)
+
+_XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_MAX_BULK_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB, same cap as sanctioned_strength.py's own bulk upload
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -288,3 +322,156 @@ def delete_housekeeping_staff(
         request=request,
     )
     db.commit()
+
+
+# --- Phase J: bulk upload (validate -> preview -> commit) -------------------
+#
+# Same shape as sanctioned_strength.py's own /bulk-upload/* family -- see
+# app/services/housekeeping_staff_import.py for the validate/commit logic.
+# The batch-level history/error-report/original-file/undo endpoints
+# deliberately stay in sanctioned_strength.py (see this module's own
+# docstring).
+
+
+def _read_upload_bytes(file: UploadFile) -> bytes:
+    if not (file.filename or "").lower().endswith((".xlsx", ".csv")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only .xlsx or .csv files are accepted")
+    data = file.file.read()
+    if len(data) > _MAX_BULK_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File exceeds the 10 MB limit")
+    return data
+
+
+def _row_to_preview(row: housekeeping_staff_import.ImportRowResult) -> HousekeepingStaffBulkUploadRowPreview:
+    return HousekeepingStaffBulkUploadRowPreview(
+        row_number=row.row_number,
+        status=row.status,
+        error_reason=row.error_reason,
+        campus_code=row.campus_code,
+        bio_id=row.bio_id,
+        name=row.name,
+        designation_name=row.designation_name,
+        location_name=row.location_name,
+        block=row.block,
+        floor_venue=row.floor_venue,
+        shift=row.shift,
+        supervisor=row.supervisor,
+    )
+
+
+@router.get("/bulk-upload/template")
+def download_housekeeping_staff_bulk_upload_template(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+) -> StreamingResponse:
+    xlsx_bytes = housekeeping_staff_import.build_bulk_upload_template_xlsx(db)
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type=_XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="housekeeping_staff_bulk_upload_template.xlsx"'},
+    )
+
+
+@router.post("/bulk-upload/validate", response_model=HousekeepingStaffBulkUploadValidationResponse)
+def validate_housekeeping_staff_bulk_upload(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+) -> HousekeepingStaffBulkUploadValidationResponse:
+    """Parses+validates every row **without writing anything to the DB** --
+    a pure preview, same no-server-side-cache contract as
+    sanctioned_strength.py's own validate endpoint."""
+    data = _read_upload_bytes(file)
+    raw_rows = housekeeping_staff_import.parse_rows(data, file.filename)
+    validation = housekeeping_staff_import.validate_rows(db, raw_rows)
+    return HousekeepingStaffBulkUploadValidationResponse(
+        total=validation.total,
+        created_count=validation.created_count,
+        updated_count=validation.updated_count,
+        unchanged_count=validation.unchanged_count,
+        rejected_count=validation.rejected_count,
+        rows=[_row_to_preview(row) for row in validation.rows],
+    )
+
+
+@router.post("/bulk-upload/commit", response_model=HousekeepingStaffBulkUploadCommitResponse)
+def commit_housekeeping_staff_bulk_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    minio_client: Minio = Depends(get_minio_client),
+    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+) -> HousekeepingStaffBulkUploadCommitResponse:
+    """Re-validates the re-uploaded file defensively, then applies every
+    non-rejected row's UPSERT in one DB transaction -- same all-or-nothing
+    contract as sanctioned_strength.py's own commit endpoint. Writes exactly
+    one BulkUploadLog row (entity_type=HOUSEKEEPING_STAFF) plus one
+    BulkUploadRowLog row per non-rejected row (see app/services/
+    housekeeping_staff_import.py for why), and stores the original file
+    bytes in the `MINIO_BUCKET_BULK_UPLOADS` bucket.
+    """
+    data = _read_upload_bytes(file)
+    raw_rows = housekeeping_staff_import.parse_rows(data, file.filename)
+    validation = housekeeping_staff_import.validate_rows(db, raw_rows)
+
+    now = datetime.now(timezone.utc)
+    log = BulkUploadLog(
+        filename=file.filename or "upload",
+        entity_type=BulkUploadEntityTypeEnum.HOUSEKEEPING_STAFF,
+        uploaded_by_id=current_user.id,
+        rows_total=validation.total,
+        rows_created=validation.created_count,
+        rows_updated=validation.updated_count,
+        rows_rejected=validation.rejected_count,
+        status=BulkUploadStatusEnum.COMPLETED,
+        undo_deadline=now + timedelta(hours=24),
+    )
+    db.add(log)
+
+    try:
+        db.flush()  # assigns log.id, needed for the MinIO key and row-log FK
+
+        storage_key = storage.upload_bulk_upload_file(
+            minio_client,
+            bulk_upload_log_id=log.id,
+            filename=file.filename or "upload",
+            data=data,
+            content_type=file.content_type or "application/octet-stream",
+        )
+        log.stored_file_object_key = storage_key
+
+        housekeeping_staff_import.commit_rows(
+            db, validation=validation, actor=current_user, bulk_upload_log_id=log.id
+        )
+
+        log_event(
+            db,
+            actor=current_user,
+            action="HOUSEKEEPING_STAFF_BULK_UPLOAD_COMMITTED",
+            entity_type="BulkUploadLog",
+            entity_id=log.id,
+            after_state={
+                "filename": log.filename,
+                "rows_total": log.rows_total,
+                "rows_created": log.rows_created,
+                "rows_updated": log.rows_updated,
+                "rows_rejected": log.rows_rejected,
+            },
+            request=request,
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+    db.commit()
+    db.refresh(log)
+
+    return HousekeepingStaffBulkUploadCommitResponse(
+        total=validation.total,
+        created_count=validation.created_count,
+        updated_count=validation.updated_count,
+        unchanged_count=validation.unchanged_count,
+        rejected_count=validation.rejected_count,
+        rows=[_row_to_preview(row) for row in validation.rows],
+        bulk_upload_log_id=log.id,
+    )

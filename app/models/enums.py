@@ -290,6 +290,21 @@ class BulkUploadStatusEnum(str, enum.Enum):
     UNDONE = "UNDONE"
 
 
+class BulkUploadEntityTypeEnum(str, enum.Enum):
+    """Which entity a `BulkUploadLog` row's batch imported (Phase J,
+    glowing-zooming-hamming.md) -- `BulkUploadLog.entity_type` discriminates
+    the 4 shared endpoints (list/error-report/original-file/undo) so they can
+    dispatch to the right service module (`sanctioned_strength_import.py`/
+    `location_import.py`/`housekeeping_staff_import.py`) without 3 near-
+    duplicate endpoint families. SANCTIONED_STRENGTH is the pre-existing
+    Phase F behavior, preserved as the migration's `server_default` so every
+    existing row backfills correctly with zero manual data migration."""
+
+    SANCTIONED_STRENGTH = "SANCTIONED_STRENGTH"
+    LOCATION = "LOCATION"
+    HOUSEKEEPING_STAFF = "HOUSEKEEPING_STAFF"
+
+
 class HousekeepingShiftEnum(str, enum.Enum):
     """Which shift a Housekeeping staff roster entry (Phase D,
     glowing-zooming-hamming.md) is assigned to. A small, bounded, unlikely-
