@@ -618,6 +618,7 @@ def list_housekeeping_strength_rows(
     campus_code: str | None = None,
     location_id: uuid.UUID | None = None,
     block: str | None = None,
+    floor_venue: str | None = None,
     shift: str | None = None,
     search: str | None = None,
     status: str | None = None,
@@ -671,6 +672,11 @@ def list_housekeeping_strength_rows(
     query-then-Python-filter (see the module docstring's opening paragraph),
     not per-filter SQL predicates, so matching semantics (not
     implementation mechanism) is what "mirroring ... exactly" means here.
+    `floor_venue` (real live gap found and fixed, not part of the original
+    Phase G scope) is a sibling filter over the same field the response
+    already exposes as `floor_venue` -- same case-insensitive-substring
+    semantics as `block`, added because `floor_venue` was already a real
+    column on this view but had no way to filter by it.
     `shift` filters to locations whose derived `shifts` list contains the
     given value.
 
@@ -763,6 +769,7 @@ def list_housekeeping_strength_rows(
 
     pattern = search.strip().lower() if search else None
     block_pattern = block.strip().lower() if block else None
+    floor_venue_pattern = floor_venue.strip().lower() if floor_venue else None
 
     results: list[dict] = []
     for loc_id, required in required_by_location.items():
@@ -773,6 +780,8 @@ def list_housekeeping_strength_rows(
         location_campus_id = location.campus_id if location is not None else None
 
         if block_pattern and block_pattern not in (location_block or "").lower():
+            continue
+        if floor_venue_pattern and floor_venue_pattern not in (location_floor_venue or "").lower():
             continue
         if pattern:
             haystack = f"{location_name or ''} {location_block or ''}".lower()

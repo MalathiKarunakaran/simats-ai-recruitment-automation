@@ -427,6 +427,45 @@ def test_block_filter_ilike(
     assert location_b.name not in names
 
 
+def test_floor_venue_filter_ilike(
+    client,
+    campus_factory,
+    department_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+    location_factory,
+    user_factory,
+    db_session,
+):
+    """Real live gap found and fixed (2026-08-17): floor_venue was already a
+    real column on this view's own response but had no way to filter by it
+    -- same case-insensitive-substring semantics as the `block` filter
+    above, added as its sibling."""
+    campus = campus_factory("SPIER")
+    department = _hk_department(department_factory, "SPIER")
+    location_a = location_factory("SPIER", name=f"Loc-A-{uuid.uuid4().hex[:6]}")
+    location_a.floor_venue = "Second Floor"
+    location_b = location_factory("SPIER", name=f"Loc-B-{uuid.uuid4().hex[:6]}")
+    location_b.floor_venue = "Ground Floor"
+    db_session.flush()
+    designation_a = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    designation_b = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_a, approved_strength=1,
+        created_by=hr_admin, location_id=location_a.id,
+    )
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_b, approved_strength=1,
+        created_by=hr_admin, location_id=location_b.id,
+    )
+
+    response = _list(client, hr_admin, floor_venue="second")
+    names = {r["location_name"] for r in response.json()["items"]}
+    assert location_a.name in names
+    assert location_b.name not in names
+
+
 def test_shift_filter(
     client,
     campus_factory,

@@ -259,6 +259,11 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
   const [locationFilter, setLocationFilter] = useState<string>("ALL");
   const [blockFilter, setBlockFilter] = useState("");
   const [blockCommitted, setBlockCommitted] = useState("");
+  // Real live gap found and fixed (2026-08-17): floor_venue was already a
+  // real column on this table but had no matching filter, unlike block --
+  // same committed-on-blur/Enter text-filter shape as blockFilter above.
+  const [floorVenueFilter, setFloorVenueFilter] = useState("");
+  const [floorVenueCommitted, setFloorVenueCommitted] = useState("");
   const [shiftFilter, setShiftFilter] = useState<HousekeepingShift | "ALL">("ALL");
   const [statusFilter, setStatusFilter] = useState<HousekeepingStrengthStatus | "ALL">("ALL");
   const [vacancyInput, setVacancyInput] = useState("");
@@ -298,6 +303,7 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
       campusFilter,
       locationFilter,
       blockCommitted,
+      floorVenueCommitted,
       shiftFilter,
       statusFilter,
       vacancyFilter,
@@ -312,6 +318,7 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
         campus_code: campusFilter === "ALL" ? null : campusFilter,
         location_id: locationFilter === "ALL" ? null : locationFilter,
         block: blockCommitted.trim() || null,
+        floor_venue: floorVenueCommitted.trim() || null,
         shift: shiftFilter === "ALL" ? null : shiftFilter,
         status: statusFilter === "ALL" ? null : statusFilter,
         vacancy: vacancyFilter,
@@ -337,6 +344,11 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
 
   function commitBlock() {
     setBlockCommitted(blockFilter);
+    setPage(0);
+  }
+
+  function commitFloorVenue() {
+    setFloorVenueCommitted(floorVenueFilter);
     setPage(0);
   }
 
@@ -386,6 +398,7 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
     campusFilter !== "ALL" ||
     locationFilter !== "ALL" ||
     blockCommitted.trim() !== "" ||
+    floorVenueCommitted.trim() !== "" ||
     shiftFilter !== "ALL" ||
     statusFilter !== "ALL" ||
     vacancyFilter !== null ||
@@ -454,6 +467,17 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
           placeholder="Block"
           aria-label="Block filter"
           className="w-32"
+        />
+        <Input
+          value={floorVenueFilter}
+          onChange={(e) => setFloorVenueFilter(e.target.value)}
+          onBlur={commitFloorVenue}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitFloorVenue();
+          }}
+          placeholder="Floor / Venue"
+          aria-label="Floor / Venue filter"
+          className="w-36"
         />
         <div className="w-36">
           <Select value={shiftFilter} onValueChange={(v) => { setShiftFilter(v as HousekeepingShift | "ALL"); setPage(0); }}>

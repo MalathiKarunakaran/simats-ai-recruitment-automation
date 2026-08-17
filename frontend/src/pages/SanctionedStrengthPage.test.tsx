@@ -1821,7 +1821,15 @@ describe("SanctionedStrengthPage", () => {
       expect(mockedListTeachingStrengthRows).not.toHaveBeenCalled();
     });
 
-    it("renders the plan's narrower Non-Teaching column set inline, with a leading expand chevron and Block resolved from the joined location", async () => {
+    it("renders the Non-Teaching column set inline (now at parity with Teaching's own Last Join/Resignation/Updated columns), with a leading expand chevron and Block resolved from the joined location", async () => {
+      // Column count/order updated 2026-08-17: Non-Teaching used to
+      // deliberately omit Last Join/Last Resignation/Last Updated (a Phase F
+      // scope-narrowing decision) -- a live report found this read as a real
+      // inconsistency against Teaching's own fuller set, and the backend has
+      // always returned all 3 fields for Non-Teaching rows too (same base
+      // row shape as Teaching), so this is a pure display-layer parity fix,
+      // not a new feature. Still no Campus/filled_pct columns -- those
+      // remain genuinely out of scope for this view.
       mockAuth("HR_ADMIN");
       mockCampuses();
       mockNonTeachingFilterData();
@@ -1833,11 +1841,9 @@ describe("SanctionedStrengthPage", () => {
       const row = screen.getByText("Office Assistant").closest("tr");
       expect(row).not.toBeNull();
       // cells[0] is the leading chevron cell (no text). Column order matches
-      // NonTeachingStrengthTable's own COLUMNS array -- no Campus column and
-      // no filled_pct/last_join/last_resignation/last_updated columns, per
-      // the plan's own narrower list (see that component's docstring).
+      // NonTeachingStrengthTable's own COLUMNS array.
       const cells = within(row as HTMLElement).getAllByRole("cell");
-      expect(cells).toHaveLength(10);
+      expect(cells).toHaveLength(13);
       expect(cells[1]).toHaveTextContent("Administration");
       expect(cells[2]).toHaveTextContent("Office Assistant");
       expect(cells[3]).toHaveTextContent("B");
@@ -1846,6 +1852,9 @@ describe("SanctionedStrengthPage", () => {
       expect(cells[6]).toHaveTextContent("4");
       expect(cells[7]).toHaveTextContent("2");
       expect(cells[8]).toHaveTextContent("Vacancy/Recruitment Required");
+      expect(cells[9]).toHaveTextContent(new Date("2026-07-10").toLocaleDateString());
+      expect(cells[10]).toHaveTextContent("—");
+      expect(cells[11]).toHaveTextContent(new Date("2026-08-01T10:00:00Z").toLocaleDateString());
 
       expect(screen.getByRole("button", { name: /^Expand employees for/ })).toBeInTheDocument();
     });

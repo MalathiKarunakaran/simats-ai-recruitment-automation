@@ -176,6 +176,10 @@ export interface ListHousekeepingStrengthParams {
   campus_code?: string | null;
   location_id?: string | null;
   block?: string | null;
+  /** Real live gap found and fixed (2026-08-17): floor_venue was already a
+   * real field on this view's own rows but had no way to filter by it --
+   * same case-insensitive-substring semantics as `block` above. */
+  floor_venue?: string | null;
   shift?: string | null;
   search?: string | null;
   status?: HousekeepingStrengthStatus | null;
@@ -199,6 +203,7 @@ export async function listHousekeepingStrengthRows(
   if (params.campus_code) query.set("campus_code", params.campus_code);
   if (params.location_id) query.set("location_id", params.location_id);
   if (params.block) query.set("block", params.block);
+  if (params.floor_venue) query.set("floor_venue", params.floor_venue);
   if (params.shift) query.set("shift", params.shift);
   if (params.search) query.set("search", params.search);
   if (params.status) query.set("status", params.status);

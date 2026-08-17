@@ -105,8 +105,22 @@ const COLUMNS: ColumnDef[] = [
   { key: "working", label: "Working", sortBy: "working" },
   { key: "vacancy", label: "Vacancy", sortBy: "vacancy" },
   { key: "status", label: "Status", sortBy: "status" },
+  // Added for parity with TeachingStrengthTable.tsx's own fuller column set
+  // (a real live inconsistency report, not a new feature) -- the backend
+  // has always returned these 3 fields for Non-Teaching rows too
+  // (NonTeachingStrengthRow shares TeachingStrengthRow's exact base shape,
+  // and TEACHING_STRENGTH_SORT_FIELDS -- reused as-is for Non-Teaching per
+  // that constant's own docstring -- already includes all 3 as valid sort
+  // fields), so this is a pure display-layer addition, no backend change.
+  { key: "last_join", label: "Last Join", sortBy: "last_join" },
+  { key: "last_resignation", label: "Last Resignation", sortBy: "last_resignation" },
+  { key: "last_updated", label: "Last Updated", sortBy: "last_updated" },
   { key: "actions", label: "Actions" },
 ];
+
+function formatDate(value: string | null): string {
+  return value ? new Date(value).toLocaleDateString() : "—";
+}
 // +1 for the leading expand/chevron column, which carries no header label.
 const TOTAL_COLUMN_COUNT = COLUMNS.length + 1;
 
@@ -498,6 +512,9 @@ export function NonTeachingStrengthTable({
                       <td className="px-3 py-2">
                         <Badge variant={statusDisplay.variant}>{statusDisplay.label}</Badge>
                       </td>
+                      <td className="px-3 py-2">{formatDate(row.last_join)}</td>
+                      <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
+                      <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
                       <td className="px-3 py-2">
                         <StrengthRowActions
                           row={row}
