@@ -53,7 +53,12 @@
   --input: #e5e7eb;
   --ring: #0f766e;
   --radius: 0.75rem;
-  --radius-card: 1.125rem;
+  /* UI redesign Phase 1 (2026-08-17): 18px -> 22px. Evolution of the same
+     "Card radius distinct from Button/Input radius" idea from the 2026-08-03
+     spec above, just rounder -- part of the warmer, more elegant "Instagram-
+     inspired" direction. --radius (Button/Input/Select, unchanged) stays at
+     the original spec's 12px; only Card's own dedicated token moves. */
+  --radius-card: 1.375rem;
 
   /* Chart categorical palette -- re-stepped onto this app's brand teal/amber
      identity (CLAUDE.md B6: the previous blue/green/pink/yellow set didn't
@@ -77,6 +82,31 @@
   --chart-2: #b45309;
   --chart-3: #6b4c8a;
   --chart-4: #475569;
+
+  /* UI redesign Phase 1 (2026-08-17): softer, wider-blur "floating" shadow
+     to replace Card's flat shadow-sm/hover:shadow-md -- part of the same
+     warmer, more elegant direction as the radius bump above. Two layers:
+     a tight near-black hairline (keeps the card's edge legible against the
+     light --background) plus a wide, low-opacity blur that does the actual
+     "floating" work. The hover state doesn't just deepen the same shadow --
+     it tints the wide blur with --brand-primary (0f766e -> its rgb(15,118,110))
+     so the lift reads as *this app's* brand glow, not a generic elevation
+     bump; still restrained (0.22 alpha) so it stays a hover affordance, not
+     a glow effect. */
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -12px rgba(15, 23, 42, 0.14);
+  --shadow-card-hover: 0 1px 2px rgba(15, 23, 42, 0.05), 0 20px 40px -14px rgba(15, 118, 110, 0.22);
+
+  /* Signature accent gradient (UI redesign Phase 1) -- the ONE 3-stop brand
+     gradient for the whole redesign, per the approved "one signature, spent
+     in one place" discipline: not a new hue, just the existing chart-1/
+     chart-3/chart-2 identity (teal -> plum -> amber) already validated above
+     re-sequenced as a diagonal sweep. Deliberately literal hex, not
+     var(--chart-*) references: this token is a fixed identity mark (Button's
+     primary fill today; a sidebar-logo ring / hero dashboard-tile glow in
+     Phase 2), not a themed surface, so it intentionally does NOT re-derive
+     from --chart-2/3's dark-mode restep -- same gradient in both themes.
+     Used sparingly: never a page background, never applied broadly. */
+  --brand-signature-gradient: linear-gradient(135deg, #0d9488 0%, #6b4c8a 52%, #b45309 100%);
 }
 
 .dark {
@@ -110,6 +140,20 @@
   --chart-2: #d97706;
   --chart-3: #8b5fa8;
   --chart-4: #94a3b8;
+
+  /* Same --shadow-card/-card-hover pair as :root, re-based for the dark
+     surface (--card: #1e293b): pure rgba literals rather than color-mix(),
+     matching this file's existing convention of writing out each theme's
+     values directly instead of deriving one from the other (see every other
+     token above -- e.g. --accent's dark override is a hand-picked hex, not
+     color-mix(var(--accent), black)). Base shadow moves toward black (a
+     light-surface shadow model reads muddy on a dark card), and the hover
+     glow keeps using this theme's own --primary (#14b8a6, brighter than
+     light mode's #0f766e per the existing "teal brightened for dark-surface
+     legibility" rule above) so the brand-glow hover still reads as *this*
+     theme's teal, not a light-mode color bleeding through. */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px -12px rgba(0, 0, 0, 0.55);
+  --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.35), 0 20px 40px -14px rgba(20, 184, 166, 0.28);
 }
 
 @theme inline {
@@ -148,6 +192,18 @@
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
+
+  /* --shadow-card/--shadow-card-hover (defined on :root/.dark above, light
+     and dark variants) are deliberately NOT re-declared here as first-class
+     `--shadow-*` theme keys: Tailwind's box-shadow namespace key for a
+     `shadow-card` utility is itself literally named `--shadow-card`, so
+     mapping `--shadow-card: var(--shadow-card)` inside this same-scoped
+     `@theme inline` block would be a self-referencing custom property (a
+     cycle per the CSS custom-properties spec -- the declaration would
+     compute to its guaranteed-invalid value instead of the intended
+     shadow). Consumed directly as an arbitrary-value utility instead --
+     `shadow-[var(--shadow-card)]` / `hover:shadow-[var(--shadow-card-hover)]`
+     -- see card.tsx. */
 
   /* Radius scale: --radius (12px) drives every rounded-md/-lg consumer
      (Button, Input, Select, Dialog's close button, etc.) to exactly the
