@@ -27,4 +27,19 @@ describe("StatTile", () => {
     expect(screen.queryByText("—")).not.toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
+
+  // UI redesign Phase 2: hero prop conditional markup only, not a
+  // pixel-perfect visual test -- `data-hero="true"` marks the underlying
+  // Card so the gradient ring/glow are present exactly when `hero` is set.
+  it("renders the hero gradient wrapper's markup when hero is true", () => {
+    const { container } = render(<StatTile label="Total applications" value={42} hero />);
+    expect(container.querySelector('[data-hero="true"]')).toBeInTheDocument();
+    expect(screen.getByText("42")).toBeInTheDocument();
+  });
+
+  it("does not render the hero gradient wrapper's markup for a default (non-hero) tile", () => {
+    const { container } = render(<StatTile label="Open positions" value={12} />);
+    expect(container.querySelector('[data-hero="true"]')).not.toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
+  });
 });

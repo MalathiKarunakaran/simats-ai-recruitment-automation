@@ -24,8 +24,13 @@ const KPI_CARDS: {
    * some of these tiles have a zero value that means something more specific
    * than "nothing happened here". */
   zeroCaption?: string;
+  /** UI redesign Phase 2: set on ONLY total_applications -- the page's one
+   * hero KPI tile (StatTile's own `hero` prop, consuming
+   * --brand-signature-gradient). Every other tile below, including the
+   * Phase I Sanctioned Strength trio, is untouched. */
+  hero?: boolean;
 }[] = [
-  { key: "total_applications", label: "Total applications", accent: "gold" },
+  { key: "total_applications", label: "Total applications", accent: "gold", hero: true },
   {
     key: "open_positions",
     label: "Open positions",
@@ -206,7 +211,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-5">
-        {KPI_CARDS.map(({ key, label, accent, tooltip, zeroCaption }) => {
+        {KPI_CARDS.map(({ key, label, accent, tooltip, zeroCaption, hero }) => {
           const value = isLoading ? undefined : (data?.[key] as number | string | null | undefined);
           return (
             <StatTile
@@ -217,6 +222,7 @@ export function DashboardPage() {
               accent={key === "sanctioned_vacancy_total" ? vacancyAccent(value, accent) : accent}
               zeroCaption={zeroCaption ?? "No activity in this scope yet"}
               tooltip={tooltip}
+              hero={hero}
             />
           );
         })}
