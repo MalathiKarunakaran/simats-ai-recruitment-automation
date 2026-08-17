@@ -14,7 +14,17 @@ const buttonVariants = cva(
       // identical to spec, kept under its established name rather than
       // introducing a duplicate to avoid touching every call site.
       variant: {
-        default: "bg-primary text-primary-foreground shadow-sm hover:bg-brand-primary-hover dark:hover:brightness-110",
+        // UI redesign Phase 1: a subtle gradient fill across this app's own
+        // existing brand teal spectrum (--brand-primary -> --brand-secondary)
+        // instead of a flat --primary fill -- NOT the new 3-stop
+        // --brand-signature-gradient (index.css), which stays reserved for
+        // identity marks (Phase 2's sidebar-logo ring / hero dashboard tile)
+        // per the "one signature, spent in one place" discipline. A gradient
+        // can't hover to a flat color the same way bg-primary could, so the
+        // hover mechanic swaps to `brightness` (darkens the whole gradient
+        // uniformly) instead of `hover:bg-brand-primary-hover`.
+        default:
+          "bg-gradient-to-br from-[var(--brand-primary)] to-[var(--brand-secondary)] text-primary-foreground shadow-sm hover:brightness-95 dark:hover:brightness-110",
         outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground hover:border-primary/40",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         destructive: "bg-destructive text-destructive-foreground shadow-sm hover:brightness-90",
