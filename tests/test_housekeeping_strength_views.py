@@ -701,3 +701,166 @@ def test_invalid_shift_is_422(client, user_factory):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     response = _list(client, hr_admin, shift="NOT_A_SHIFT")
     assert response.status_code == 422
+
+
+# --- KPI summary totals (glowing-zooming-hamming.md Phase K) -------------------
+#
+# required_total/available_total/vacancy_total, additive alongside the
+# existing status_counts field -- see
+# app/services/sanctioned_strength_views.py's list_housekeeping_strength_rows
+# docstring for the exact snapshot point and for why vacancy_total is
+# required_total - available_total (computed from the two raw sums), never
+# the sum of each row's own already-floored vacancy field.
+
+
+def test_kpi_totals_sum_correctly_across_multiple_rows(
+    client,
+    campus_factory,
+    department_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+    location_factory,
+    housekeeping_staff_factory,
+    user_factory,
+):
+    campus = campus_factory("SPIER")
+    department = _hk_department(department_factory, "SPIER")
+    location_a = location_factory("SPIER", name=f"KPI-Loc-A-{uuid.uuid4().hex[:6]}")
+    location_b = location_factory("SPIER", name=f"KPI-Loc-B-{uuid.uuid4().hex[:6]}")
+    designation_a = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    designation_b = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_a, approved_strength=4,
+        created_by=hr_admin, location_id=location_a.id,
+    )
+    housekeeping_staff_factory(campus=campus, designation=designation_a, location=location_a, created_by=hr_admin)
+
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_b, approved_strength=2,
+        created_by=hr_admin, location_id=location_b.id,
+    )
+    housekeeping_staff_factory(campus=campus, designation=designation_b, location=location_b, created_by=hr_admin)
+    housekeeping_staff_factory(campus=campus, designation=designation_b, location=location_b, created_by=hr_admin)
+
+    body = _list(client, hr_admin, campus_code="SPIER").json()
+    assert body["required_total"] == 6  # 4 + 2
+    assert body["available_total"] == 3  # 1 + 2
+    assert body["vacancy_total"] == 3  # (4-1) + (2-2), net
+
+
+def test_kpi_vacancy_total_is_signed_not_floored(
+    client,
+    campus_factory,
+    department_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+    location_factory,
+    housekeeping_staff_factory,
+    user_factory,
+):
+    """Mirrors app/services/reporting.py's own Phase I dashboard-KPI test
+    (test_sanctioned_strength_vacancy_total_is_signed_not_floored in
+    tests/test_dashboard.py) for this exact same behavior: one overstaffed
+    location (available > required) and one understaffed location -- the net
+    total must reflect the overstaffed location's negative contribution, not
+    have it floored at 0 before summing (which would overstate the
+    aggregate: max(2-5,0) + max(5-1,0) = 0 + 4 = 4, vs the honest 7-6=1)."""
+    campus = campus_factory("SPIER")
+    department = _hk_department(department_factory, "SPIER")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    overstaffed_location = location_factory("SPIER", name=f"Overstaffed-{uuid.uuid4().hex[:6]}")
+    overstaffed_designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=overstaffed_designation, approved_strength=2,
+        created_by=hr_admin, location_id=overstaffed_location.id,
+    )
+    for _ in range(5):
+        housekeeping_staff_factory(
+            campus=campus, designation=overstaffed_designation, location=overstaffed_location, created_by=hr_admin
+        )
+
+    understaffed_location = location_factory("SPIER", name=f"Understaffed-{uuid.uuid4().hex[:6]}")
+    understaffed_designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=understaffed_designation, approved_strength=5,
+        created_by=hr_admin, location_id=understaffed_location.id,
+    )
+    housekeeping_staff_factory(
+        campus=campus, designation=understaffed_designation, location=understaffed_location, created_by=hr_admin
+    )
+
+    body = _list(client, hr_admin, campus_code="SPIER").json()
+    assert body["required_total"] == 7
+    assert body["available_total"] == 6
+    assert body["vacancy_total"] == 1  # not 4, the floor-per-row-then-sum figure
+
+
+def test_kpi_totals_respect_active_filters(
+    client,
+    campus_factory,
+    department_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+    location_factory,
+    user_factory,
+):
+    """Narrowing via location_id must narrow the totals to match, exactly as
+    status_counts already does."""
+    campus = campus_factory("SPIER")
+    department = _hk_department(department_factory, "SPIER")
+    location_a = location_factory("SPIER", name=f"Filter-Loc-A-{uuid.uuid4().hex[:6]}")
+    location_b = location_factory("SPIER", name=f"Filter-Loc-B-{uuid.uuid4().hex[:6]}")
+    designation_a = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    designation_b = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_a, approved_strength=3,
+        created_by=hr_admin, location_id=location_a.id,
+    )
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_b, approved_strength=9,
+        created_by=hr_admin, location_id=location_b.id,
+    )
+
+    scoped = _list(client, hr_admin, location_id=str(location_a.id)).json()
+    assert scoped["required_total"] == 3
+    assert scoped["vacancy_total"] == 3
+
+
+def test_kpi_totals_not_affected_by_status_filter(
+    client,
+    campus_factory,
+    department_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+    location_factory,
+    user_factory,
+):
+    """Same "every filter except status" semantics status_counts already
+    has -- filtering to status=FULLY_STAFFED must still show totals across
+    every status, not just the fully-staffed row."""
+    campus = campus_factory("SPIER")
+    department = _hk_department(department_factory, "SPIER")
+    location_vacant = location_factory("SPIER", name=f"KPI-Status-Vacant-{uuid.uuid4().hex[:6]}")
+    location_full = location_factory("SPIER", name=f"KPI-Status-Full-{uuid.uuid4().hex[:6]}")
+    designation_a = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    designation_b = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_a, approved_strength=4,
+        created_by=hr_admin, location_id=location_vacant.id,
+    )
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation_b, approved_strength=0,
+        created_by=hr_admin, location_id=location_full.id,
+    )
+
+    unfiltered = _list(client, hr_admin, campus_code="SPIER").json()
+    filtered = _list(client, hr_admin, campus_code="SPIER", status="FULLY_STAFFED").json()
+
+    assert filtered["required_total"] == unfiltered["required_total"]
+    assert filtered["available_total"] == unfiltered["available_total"]
+    assert filtered["vacancy_total"] == unfiltered["vacancy_total"]

@@ -236,23 +236,32 @@ def list_teaching_strength_view(
         )
     validated_campus_code = validate_campus_code(campus_code)
 
-    rows, total, status_counts = sanctioned_strength_views.list_teaching_strength_rows(
-        db,
-        scope,
-        limit=limit,
-        offset=offset,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        campus_code=validated_campus_code,
-        department_id=department_id,
-        designation_id=designation_id,
-        location_id=location_id,
-        search=search,
-        status=row_status,
-        vacancy=vacancy,
+    rows, total, status_counts, approved_total, working_total, vacancy_total = (
+        sanctioned_strength_views.list_teaching_strength_rows(
+            db,
+            scope,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            campus_code=validated_campus_code,
+            department_id=department_id,
+            designation_id=designation_id,
+            location_id=location_id,
+            search=search,
+            status=row_status,
+            vacancy=vacancy,
+        )
     )
     return TeachingStrengthListResponse(
-        items=rows, total=total, limit=limit, offset=offset, status_counts=status_counts
+        items=rows,
+        total=total,
+        limit=limit,
+        offset=offset,
+        status_counts=status_counts,
+        approved_total=approved_total,
+        working_total=working_total,
+        vacancy_total=vacancy_total,
     )
 
 
@@ -311,24 +320,33 @@ def list_non_teaching_strength_view(
         )
     validated_campus_code = validate_campus_code(campus_code)
 
-    rows, total, status_counts = sanctioned_strength_views.list_strength_view_rows(
-        db,
-        scope,
-        category=StaffRoleCategoryEnum.NON_TEACHING,
-        limit=limit,
-        offset=offset,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        campus_code=validated_campus_code,
-        department_id=department_id,
-        designation_id=designation_id,
-        location_id=location_id,
-        search=search,
-        status=row_status,
-        vacancy=vacancy,
+    rows, total, status_counts, approved_total, working_total, vacancy_total = (
+        sanctioned_strength_views.list_strength_view_rows(
+            db,
+            scope,
+            category=StaffRoleCategoryEnum.NON_TEACHING,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            campus_code=validated_campus_code,
+            department_id=department_id,
+            designation_id=designation_id,
+            location_id=location_id,
+            search=search,
+            status=row_status,
+            vacancy=vacancy,
+        )
     )
     return NonTeachingStrengthListResponse(
-        items=rows, total=total, limit=limit, offset=offset, status_counts=status_counts
+        items=rows,
+        total=total,
+        limit=limit,
+        offset=offset,
+        status_counts=status_counts,
+        approved_total=approved_total,
+        working_total=working_total,
+        vacancy_total=vacancy_total,
     )
 
 
@@ -394,24 +412,33 @@ def list_housekeeping_strength_view(
         )
     validated_campus_code = validate_campus_code(campus_code)
 
-    rows, total, status_counts = sanctioned_strength_views.list_housekeeping_strength_rows(
-        db,
-        scope,
-        limit=limit,
-        offset=offset,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        campus_code=validated_campus_code,
-        location_id=location_id,
-        block=block,
-        floor_venue=floor_venue,
-        shift=shift.value if shift is not None else None,
-        search=search,
-        status=row_status,
-        vacancy=vacancy,
+    rows, total, status_counts, required_total, available_total, vacancy_total = (
+        sanctioned_strength_views.list_housekeeping_strength_rows(
+            db,
+            scope,
+            limit=limit,
+            offset=offset,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            campus_code=validated_campus_code,
+            location_id=location_id,
+            block=block,
+            floor_venue=floor_venue,
+            shift=shift.value if shift is not None else None,
+            search=search,
+            status=row_status,
+            vacancy=vacancy,
+        )
     )
     return HousekeepingStrengthListResponse(
-        items=rows, total=total, limit=limit, offset=offset, status_counts=status_counts
+        items=rows,
+        total=total,
+        limit=limit,
+        offset=offset,
+        status_counts=status_counts,
+        required_total=required_total,
+        available_total=available_total,
+        vacancy_total=vacancy_total,
     )
 
 
