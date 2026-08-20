@@ -46,6 +46,21 @@ export async function adminResetPassword(userId: string, password: string): Prom
   });
 }
 
+// SUPER_ADMIN-only (app/api/v1/routers/users.py::delete_user) -- hard-deletes
+// a user, but only when it's actually safe (no related recruitment,
+// interview, or audit history); the backend 400s/409s otherwise. 204 on
+// success, no body.
+export async function deleteUser(id: string): Promise<void> {
+  await apiFetch<void>(`/users/${id}`, { method: "DELETE" });
+}
+
+// SUPER_ADMIN + HR_ADMIN (USER_MANAGEMENT_ROLES; app/api/v1/routers/users.py::force_logout_user)
+// -- revokes every active refresh token for the target user without
+// touching their password. 204 on success, no body.
+export async function forceLogoutUser(id: string): Promise<void> {
+  await apiFetch<void>(`/users/${id}/force-logout`, { method: "POST" });
+}
+
 export async function getUserCapabilities(id: string): Promise<CoordinatorCapabilitiesRead> {
   return apiFetch<CoordinatorCapabilitiesRead>(`/users/${id}/capabilities`);
 }

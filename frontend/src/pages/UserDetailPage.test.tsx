@@ -2,8 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as auditLogsApi from "@/api/auditLogs";
 import * as campusesApi from "@/api/campuses";
 import { ApiError } from "@/api/client";
 import * as departmentsApi from "@/api/departments";
@@ -15,6 +16,7 @@ import { UserDetailPage } from "@/pages/UserDetailPage";
 vi.mock("@/api/users");
 vi.mock("@/api/departments");
 vi.mock("@/api/campuses");
+vi.mock("@/api/auditLogs");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -22,11 +24,14 @@ vi.mock("@/auth/AuthContext", async () => {
 
 const mockedGetUser = vi.mocked(usersApi.getUser);
 const mockedUpdateUser = vi.mocked(usersApi.updateUser);
+const mockedDeleteUser = vi.mocked(usersApi.deleteUser);
+const mockedForceLogoutUser = vi.mocked(usersApi.forceLogoutUser);
 const mockedGetUserCapabilities = vi.mocked(usersApi.getUserCapabilities);
 const mockedSetUserCapabilities = vi.mocked(usersApi.setUserCapabilities);
 const mockedAdminResetPassword = vi.mocked(usersApi.adminResetPassword);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
+const mockedListAuditLogs = vi.mocked(auditLogsApi.listAuditLogs);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 
 function mockCurrentUser(role: UserRead["role"] | null) {
@@ -82,6 +87,15 @@ const HR_ADMIN_USER: UserRead = {
   role: "HR_ADMIN",
 };
 
+// Every viewer who can even reach this page is in USER_MANAGEMENT_ROLES
+// (SUPER_ADMIN, HR_ADMIN) -- both are members of CAN_VIEW_AUDIT_ROLES, so
+// listAuditLogs is fetched on essentially every render in these tests.
+// Default to an empty result so tests that don't care about Recent Activity
+// don't need to mock it individually.
+beforeEach(() => {
+  mockedListAuditLogs.mockResolvedValue([]);
+});
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -89,11 +103,136 @@ function renderPage() {
       <MemoryRouter initialEntries={[`/users/${COORDINATOR.id}`]}>
         <Routes>
           <Route path="/users/:id" element={<UserDetailPage />} />
+          <Route path="/users" element={<p>Users list</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
+
+async function openMoreActions() {
+  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
+}
+
+describe("UserDetailPage header and breadcrumb", () => {
+  it("renders the Administration / Users / {name} breadcrumb trail with Users as a link", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    const nav = await screen.findByRole("navigation", { name: "Breadcrumb" });
+    expect(within(nav).getByText("Administration")).toBeInTheDocument();
+    const usersLink = within(nav).getByRole("link", { name: "Users" });
+    expect(usersLink).toHaveAttribute("href", "/users");
+    expect(within(nav).getByText(COORDINATOR.full_name)).toBeInTheDocument();
+  });
+
+  it("shows initials, role badge, and Active/Inactive badge in the compact header", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, is_active: false });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    const heading = await screen.findByRole("heading", { level: 1, name: COORDINATOR.full_name });
+    expect(screen.getByText("CO")).toBeInTheDocument();
+    const badgeRow = heading.parentElement!;
+    expect(within(badgeRow).getByText("RECRUITMENT COORDINATOR")).toBeInTheDocument();
+    expect(within(badgeRow).getByText("Inactive")).toBeInTheDocument();
+  });
+
+  it("has a 'Back to Users' link back to the list", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    const link = await screen.findByRole("link", { name: "Back to Users" });
+    expect(link).toHaveAttribute("href", "/users");
+  });
+});
+
+describe("UserDetailPage access control -- save/cancel", () => {
+  it("disables Save Changes until a field actually changes, then enables it", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByText("SUPER ADMIN"));
+
+    expect(screen.getByRole("button", { name: "Save Changes" })).not.toBeDisabled();
+  });
+
+  it("Cancel resets the role field back to the loaded user's value and disables Save Changes again", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByText("SUPER ADMIN"));
+    expect(screen.getByRole("button", { name: "Save Changes" })).not.toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
+    expect(screen.getByRole("combobox")).toHaveTextContent("RECRUITMENT COORDINATOR");
+  });
+
+  it("saves the new role and shows an inline confirmation", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedUpdateUser.mockResolvedValue({ ...COORDINATOR, role: "SUPER_ADMIN" });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByText("SUPER ADMIN"));
+    await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() =>
+      expect(mockedUpdateUser).toHaveBeenCalledWith(COORDINATOR.id, {
+        role: "SUPER_ADMIN",
+        campus_id: null,
+        department_id: null,
+      }),
+    );
+    expect(await screen.findByText("Saved.")).toBeInTheDocument();
+  });
+
+  it("shows 'All Campuses' and 'All Departments' as static text for a global-scope role instead of pickers", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR); // RECRUITMENT_COORDINATOR is global-scope
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("All Campuses")).toBeInTheDocument());
+    expect(screen.getByText("All Departments")).toBeInTheDocument();
+    // Only the Role select renders as a combobox -- no Campus/Department pickers.
+    expect(screen.getAllByRole("combobox")).toHaveLength(1);
+  });
+});
 
 describe("UserDetailPage coordinator capabilities", () => {
   it("shows the capabilities card with none selected for a Super Admin viewing a coordinator", async () => {
@@ -152,7 +291,9 @@ describe("UserDetailPage coordinator capabilities", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText(HR_ADMIN_USER.full_name)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: HR_ADMIN_USER.full_name })).toBeInTheDocument(),
+    );
     expect(screen.queryByText("Coordinator capabilities")).not.toBeInTheDocument();
     expect(mockedGetUserCapabilities.mock.calls.length).toBe(callsBefore);
   });
@@ -166,7 +307,9 @@ describe("UserDetailPage coordinator capabilities", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText(COORDINATOR.full_name)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: COORDINATOR.full_name })).toBeInTheDocument(),
+    );
     expect(screen.queryByText("Coordinator capabilities")).not.toBeInTheDocument();
     expect(mockedGetUserCapabilities.mock.calls.length).toBe(callsBefore);
   });
@@ -179,11 +322,12 @@ describe("UserDetailPage activate/deactivate toggle", () => {
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
     mockedUpdateUser.mockResolvedValue({ ...COORDINATOR, is_active: false });
+    mockedUpdateUser.mockClear(); // an earlier "save role" test in this file already confirmed a call
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+    await openMoreActions();
 
-    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Deactivate" }));
     expect(mockedUpdateUser).not.toHaveBeenCalled();
 
     const dialog = await screen.findByRole("dialog");
@@ -203,9 +347,9 @@ describe("UserDetailPage activate/deactivate toggle", () => {
     mockedUpdateUser.mockClear(); // a prior test in this file already confirmed a deactivate
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+    await openMoreActions();
 
-    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Deactivate" }));
     const dialog = await screen.findByRole("dialog");
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
@@ -214,7 +358,7 @@ describe("UserDetailPage activate/deactivate toggle", () => {
     expect(mockedUpdateUser).not.toHaveBeenCalled();
   });
 
-  it("reactivating an inactive user fires the mutation directly with no confirm dialog", async () => {
+  it("reactivating an inactive user requires confirming a dialog before the mutation fires", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue({ ...COORDINATOR, is_active: false });
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -222,11 +366,16 @@ describe("UserDetailPage activate/deactivate toggle", () => {
     mockedUpdateUser.mockResolvedValue({ ...COORDINATOR, is_active: true });
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Reactivate" })).toBeInTheDocument());
+    await openMoreActions();
 
-    await userEvent.click(screen.getByRole("button", { name: "Reactivate" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Activate" }));
+    expect(mockedUpdateUser).not.toHaveBeenCalled();
 
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Reactivate user")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm reactivate" }));
+
     await waitFor(() => expect(mockedUpdateUser).toHaveBeenCalledWith(COORDINATOR.id, { is_active: true }));
   });
 
@@ -238,13 +387,17 @@ describe("UserDetailPage activate/deactivate toggle", () => {
     mockedUpdateUser.mockClear(); // prior tests in this file already confirmed calls
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+    await openMoreActions();
 
-    expect(screen.getByRole("button", { name: "Deactivate" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Deactivate" })).toBeDisabled();
     expect(screen.getByText("This account is protected from deactivation.")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // Radix's Popover content also carries role="dialog" -- since the click
+    // above was a no-op on a disabled button, the More actions popover is
+    // still open, so scope this check to the confirm dialog's own
+    // accessible name rather than a bare role query.
+    expect(screen.queryByRole("dialog", { name: "Deactivate user" })).not.toBeInTheDocument();
     expect(mockedUpdateUser).not.toHaveBeenCalled();
   });
 
@@ -255,9 +408,9 @@ describe("UserDetailPage activate/deactivate toggle", () => {
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+    await openMoreActions();
 
-    expect(screen.getByRole("button", { name: "Deactivate" })).not.toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Deactivate" })).not.toBeDisabled();
     expect(screen.queryByText("This account is protected from deactivation.")).not.toBeInTheDocument();
   });
 
@@ -269,13 +422,13 @@ describe("UserDetailPage activate/deactivate toggle", () => {
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+    await openMoreActions();
 
-    expect(screen.getByRole("button", { name: "Deactivate" })).not.toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Deactivate" })).not.toBeDisabled();
     expect(screen.queryByText("This account is protected from deactivation.")).not.toBeInTheDocument();
   });
 
-  it("reactivating an inactive protected user still fires the mutation directly with no confirm dialog", async () => {
+  it("reactivating an inactive protected user is still allowed -- deactivation_protected only blocks Deactivate", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue({ ...COORDINATOR, is_active: false, deactivation_protected: true });
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -283,16 +436,19 @@ describe("UserDetailPage activate/deactivate toggle", () => {
     mockedUpdateUser.mockResolvedValue({ ...COORDINATOR, is_active: true, deactivation_protected: true });
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Reactivate" })).toBeInTheDocument());
+    await openMoreActions();
 
-    expect(screen.getByRole("button", { name: "Reactivate" })).not.toBeDisabled();
-    await userEvent.click(screen.getByRole("button", { name: "Reactivate" }));
+    const activateButton = await screen.findByRole("button", { name: "Activate" });
+    expect(activateButton).not.toBeDisabled();
+    await userEvent.click(activateButton);
 
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm reactivate" }));
+
     await waitFor(() => expect(mockedUpdateUser).toHaveBeenCalledWith(COORDINATOR.id, { is_active: true }));
   });
 
-  it("surfaces the server's protected-account 400 error if a stale UI still lets a deactivate attempt through", async () => {
+  it("surfaces the server's protected-account 400 error inline in the dialog without closing it", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue({ ...COORDINATOR, is_active: true, deactivation_protected: false });
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -300,14 +456,302 @@ describe("UserDetailPage activate/deactivate toggle", () => {
     mockedUpdateUser.mockRejectedValue(new ApiError(400, "This account is protected from deactivation."));
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+    await openMoreActions();
 
-    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Deactivate" }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Confirm deactivate" }));
 
     await waitFor(() => expect(mockedUpdateUser).toHaveBeenCalledWith(COORDINATOR.id, { is_active: false }));
-    expect(await screen.findByText("This account is protected from deactivation.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("This account is protected from deactivation.")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("UserDetailPage delete", () => {
+  it("shows Delete in More actions for a Super Admin viewing a non-protected, non-Super-Admin user", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, deactivation_protected: false });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await openMoreActions();
+
+    expect(await screen.findByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("hides Delete for an HR Admin viewer -- SUPER_ADMIN only", async () => {
+    mockCurrentUser("HR_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, deactivation_protected: false });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await openMoreActions();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("hides Delete for a Super Admin target -- Super Admin accounts can't be deleted", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, role: "SUPER_ADMIN", deactivation_protected: false });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await openMoreActions();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("hides Delete for a protected target", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, deactivation_protected: true });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await openMoreActions();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("confirms and calls deleteUser, then navigates back to the users list", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, deactivation_protected: false });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedDeleteUser.mockResolvedValue(undefined);
+
+    renderPage();
+    await openMoreActions();
+    await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Delete user")).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() => expect(mockedDeleteUser).toHaveBeenCalledWith(COORDINATOR.id));
+    await waitFor(() => expect(screen.getByText("Users list")).toBeInTheDocument());
+  });
+
+  it("surfaces a 409 conflict error inline in the dialog without closing it", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, deactivation_protected: false });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedDeleteUser.mockRejectedValue(
+      new ApiError(
+        409,
+        "This user has related recruitment, interview, or audit history and cannot be deleted. Deactivate the account instead.",
+      ),
+    );
+
+    renderPage();
+    await openMoreActions();
+    await userEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm delete" }));
+
+    await waitFor(() => expect(mockedDeleteUser).toHaveBeenCalled());
+    expect(
+      await within(dialog).findByText(
+        "This user has related recruitment, interview, or audit history and cannot be deleted. Deactivate the account instead.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("UserDetailPage force logout", () => {
+  it("shows the Force logout action for a Super Admin viewer", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Force logout" })).toBeInTheDocument());
+  });
+
+  it("shows the Force logout action for an HR Admin viewer too -- USER_MANAGEMENT_ROLES", async () => {
+    mockCurrentUser("HR_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Force logout" })).toBeInTheDocument());
+  });
+
+  it("confirms and calls forceLogoutUser, showing an inline success message", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedForceLogoutUser.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Force logout" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Force logout" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Sign out all sessions")).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm sign out" }));
+
+    await waitFor(() => expect(mockedForceLogoutUser).toHaveBeenCalledWith(COORDINATOR.id));
+    expect(await within(dialog).findByText("All sessions ended.")).toBeInTheDocument();
+  });
+
+  it("surfaces an error inline in the dialog on failure", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedForceLogoutUser.mockRejectedValue(new ApiError(404, "Not found"));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Force logout" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Force logout" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm sign out" }));
+
+    expect(await within(dialog).findByText("Not found")).toBeInTheDocument();
+  });
+});
+
+describe("UserDetailPage recent activity", () => {
+  it("fetches the 5 most recent audit log entries for this actor and renders friendly labels", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedListAuditLogs.mockResolvedValue([
+      {
+        id: "log-1",
+        actor_user_id: COORDINATOR.id,
+        actor_role_snapshot: "RECRUITMENT_COORDINATOR",
+        campus_context_id: null,
+        action: "LOGIN_SUCCESS",
+        entity_type: null,
+        entity_id: null,
+        before_state: null,
+        after_state: null,
+        http_method: null,
+        http_path: null,
+        status_code: null,
+        ip_address: null,
+        user_agent: null,
+        created_at: "2026-08-19T10:00:00Z",
+      },
+      {
+        id: "log-2",
+        actor_user_id: COORDINATOR.id,
+        actor_role_snapshot: "RECRUITMENT_COORDINATOR",
+        campus_context_id: null,
+        action: "UPDATE",
+        entity_type: "VacancyRequest",
+        entity_id: "vr-1",
+        before_state: null,
+        after_state: null,
+        http_method: null,
+        http_path: null,
+        status_code: null,
+        ip_address: null,
+        user_agent: null,
+        created_at: "2026-08-18T10:00:00Z",
+      },
+    ]);
+
+    renderPage();
+
+    await waitFor(() => expect(mockedListAuditLogs).toHaveBeenCalledWith({ actorUserId: COORDINATOR.id, limit: 5 }));
+    expect(await screen.findByText("Logged in")).toBeInTheDocument();
+    expect(screen.getByText("Vacancy request updated")).toBeInTheDocument();
+  });
+
+  it("falls back to a generic 'action entity' label for an unmapped action/entity_type combination", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedListAuditLogs.mockResolvedValue([
+      {
+        id: "log-3",
+        actor_user_id: COORDINATOR.id,
+        actor_role_snapshot: "RECRUITMENT_COORDINATOR",
+        campus_context_id: null,
+        action: "PUBLISH",
+        entity_type: "JobPosting",
+        entity_id: "jp-1",
+        before_state: null,
+        after_state: null,
+        http_method: null,
+        http_path: null,
+        status_code: null,
+        ip_address: null,
+        user_agent: null,
+        created_at: "2026-08-17T10:00:00Z",
+      },
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByText("PUBLISH JobPosting")).toBeInTheDocument();
+  });
+
+  it("shows a 'View Activity Log' link to the shared activity log page", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    const link = await screen.findByRole("link", { name: "View Activity Log" });
+    expect(link).toHaveAttribute("href", "/activity-log");
+  });
+
+  it("shows an empty state when there is no recorded activity", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedListAuditLogs.mockResolvedValue([]);
+
+    renderPage();
+
+    expect(await screen.findByText("No recent activity for this user.")).toBeInTheDocument();
+  });
+});
+
+describe("UserDetailPage security status", () => {
+  it("shows the 'Must change password' badge when the target has must_change_password set", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, must_change_password: true });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    expect(await screen.findByText("Must change password")).toBeInTheDocument();
+  });
+
+  it("shows a 'Password set' badge when must_change_password is false", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, must_change_password: false });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    expect(await screen.findByText("Password set")).toBeInTheDocument();
   });
 });
 
@@ -331,7 +775,9 @@ describe("UserDetailPage reset password", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText(COORDINATOR.full_name)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: COORDINATOR.full_name })).toBeInTheDocument(),
+    );
     expect(screen.queryByRole("button", { name: "Reset password" })).not.toBeInTheDocument();
   });
 

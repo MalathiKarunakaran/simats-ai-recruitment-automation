@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronRight, MoreVertical } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
+import { listAuditLogs } from "@/api/auditLogs";
 import { listCampuses } from "@/api/campuses";
 import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
@@ -12,10 +14,19 @@ import {
   COORDINATOR_CAPABILITY_LABELS,
   SINGLE_CAMPUS_SCOPE_ROLES,
   USER_MANAGEMENT_ROLES,
+  type AuditLogRead,
   type CoordinatorCapability,
   type UserRole,
 } from "@/api/types";
-import { adminResetPassword, getUser, getUserCapabilities, setUserCapabilities, updateUser } from "@/api/users";
+import {
+  adminResetPassword,
+  deleteUser,
+  forceLogoutUser,
+  getUser,
+  getUserCapabilities,
+  setUserCapabilities,
+  updateUser,
+} from "@/api/users";
 import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,12 +41,74 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { combine, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
+
+// Mirrors the backend's own audit-log read-role gate exactly (same set as
+// ActivityLogPage's own CAN_VIEW_ROLES -- app/api/v1/routers/audit_logs.py::_READ_ROLES).
+const CAN_VIEW_AUDIT_ROLES: readonly UserRole[] = [
+  "SUPER_ADMIN",
+  "HR_ADMIN",
+  "ASSOCIATE_DEAN_RECRUITMENT",
+  "CAMPUS_HOD",
+];
+
+function getInitials(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
+
+// Deterministic (same name always picks the same color), no new dependency --
+// just a small rotation across colors already used elsewhere in this app's
+// brand palette (index.css's --brand-* tokens).
+const AVATAR_COLOR_CLASSES = [
+  "bg-brand-primary/15 text-brand-primary",
+  "bg-brand-plum/15 text-brand-plum",
+  "bg-brand-info/15 text-brand-info",
+  "bg-brand-success/15 text-brand-success",
+  "bg-brand-warning/15 text-brand-warning",
+];
+
+function getAvatarColorClass(fullName: string): string {
+  let hash = 0;
+  for (let i = 0; i < fullName.length; i++) {
+    hash = (hash + fullName.charCodeAt(i)) % AVATAR_COLOR_CLASSES.length;
+  }
+  return AVATAR_COLOR_CLASSES[hash];
+}
+
+// Friendly labels for the Recent Activity feed. This will never be an
+// exhaustive list of every action/entity_type combination the backend can
+// log -- unmapped combinations fall back to a generic "{action} {entity}"
+// string rather than a blank/unreadable row.
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  LOGIN_SUCCESS: "Logged in",
+  LOGOUT: "Logged out",
+  FORCE_LOGOUT: "Sessions force-logged-out",
+};
+
+const AUDIT_ACTION_ENTITY_LABELS: Record<string, string> = {
+  "CREATE:VacancyRequest": "Vacancy request created",
+  "UPDATE:VacancyRequest": "Vacancy request updated",
+  "UPDATE:SanctionedStrength": "Sanctioned strength changed",
+  "UPDATE:Employee": "Employee updated",
+};
+
+function describeAuditEntry(entry: AuditLogRead): string {
+  const specificKey = `${entry.action}:${entry.entity_type ?? ""}`;
+  if (AUDIT_ACTION_ENTITY_LABELS[specificKey]) return AUDIT_ACTION_ENTITY_LABELS[specificKey];
+  if (AUDIT_ACTION_LABELS[entry.action]) return AUDIT_ACTION_LABELS[entry.action];
+  if (entry.action === "DELETE" && entry.entity_type) return `${entry.entity_type} deleted`;
+  return `${entry.action} ${entry.entity_type ?? ""}`.trim();
+}
 
 export function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user: currentUser } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data: target, isLoading } = useQuery({
@@ -58,12 +131,28 @@ export function UserDetailPage() {
     enabled: Boolean(id) && canManageCapabilities && isCoordinator,
   });
 
+  // GET /audit-logs is gated to SUPER_ADMIN/HR_ADMIN/ASSOCIATE_DEAN_RECRUITMENT/
+  // CAMPUS_HOD server-side -- only fetch Recent Activity for a viewer who can
+  // actually read it, same as ActivityLogPage's own gate.
+  const canViewActivity = Boolean(currentUser && CAN_VIEW_AUDIT_ROLES.includes(currentUser.role));
+  const { data: activityEntries, isLoading: activityLoading } = useQuery({
+    queryKey: ["audit-logs", "actor", id],
+    queryFn: () => listAuditLogs({ actorUserId: id!, limit: 5 }),
+    enabled: Boolean(id) && canViewActivity,
+  });
+
   const [role, setRole] = useState<UserRole>("RECRUITMENT_OFFICER");
   const [campusId, setCampusId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCapabilities, setSelectedCapabilities] = useState<CoordinatorCapability[]>([]);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false);
+  const [reactivateDialogOpen, setReactivateDialogOpen] = useState(false);
+  const [toggleActiveError, setToggleActiveError] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // SUPER_ADMIN-only (deliberately narrower than USER_MANAGEMENT_ROLES, which
   // also grants HR_ADMIN role/campus edits above) -- mirrors
@@ -77,6 +166,13 @@ export function UserDetailPage() {
   // now-stale "required"/"min length" error) immediately, regardless of
   // whether the call itself then succeeds or fails.
   const [resetPasswordFormKey, setResetPasswordFormKey] = useState(0);
+
+  // SUPER_ADMIN + HR_ADMIN (USER_MANAGEMENT_ROLES) -- mirrors
+  // app/api/v1/routers/users.py::force_logout_user's own require_roles gate.
+  const canForceLogout = Boolean(currentUser && USER_MANAGEMENT_ROLES.includes(currentUser.role));
+  const [forceLogoutDialogOpen, setForceLogoutDialogOpen] = useState(false);
+  const [forceLogoutSuccess, setForceLogoutSuccess] = useState(false);
+  const [forceLogoutError, setForceLogoutError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!target) return;
@@ -105,22 +201,57 @@ export function UserDetailPage() {
   }
 
   const saveMutation = useMutation({
-    mutationFn: () => updateUser(id!, { role, campus_id: campusId || null, department_id: departmentId || null }),
+    mutationFn: () =>
+      updateUser(id!, {
+        role,
+        campus_id: requiresCampus ? campusId || null : null,
+        department_id: requiresCampus ? departmentId || null : null,
+      }),
     onSuccess: () => {
       setError(null);
+      setSaveSuccess(true);
       afterChange();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Update failed"),
+    onError: (err) => {
+      setSaveSuccess(false);
+      setError(err instanceof ApiError ? err.message : "Update failed");
+    },
   });
 
   const toggleActiveMutation = useMutation({
     mutationFn: () => updateUser(id!, { is_active: !target!.is_active }),
     onSuccess: () => {
-      setError(null);
+      setToggleActiveError(null);
       setDeactivateDialogOpen(false);
+      setReactivateDialogOpen(false);
       afterChange();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Update failed"),
+    onError: (err) => setToggleActiveError(err instanceof ApiError ? err.message : "Update failed"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteUser(id!),
+    onSuccess: () => {
+      setDeleteError(null);
+      // The record no longer exists -- no point invalidating its own detail
+      // query, but the list page's ["users"] query would otherwise show a
+      // stale row for a user that's gone.
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
+      navigate("/users");
+    },
+    onError: (err) => setDeleteError(err instanceof ApiError ? err.message : "Delete failed"),
+  });
+
+  const forceLogoutMutation = useMutation({
+    mutationFn: () => forceLogoutUser(id!),
+    onSuccess: () => {
+      setForceLogoutError(null);
+      setForceLogoutSuccess(true);
+    },
+    onError: (err) => {
+      setForceLogoutSuccess(false);
+      setForceLogoutError(err instanceof ApiError ? err.message : "Force logout failed");
+    },
   });
 
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
@@ -164,6 +295,29 @@ export function UserDetailPage() {
     setResetPasswordFormKey((k) => k + 1);
   }
 
+  function handleForceLogoutDialogChange(open: boolean) {
+    setForceLogoutDialogOpen(open);
+    if (!open) {
+      setForceLogoutError(null);
+      setForceLogoutSuccess(false);
+    }
+  }
+
+  function handleDeactivateDialogChange(open: boolean) {
+    setDeactivateDialogOpen(open);
+    if (!open) setToggleActiveError(null);
+  }
+
+  function handleReactivateDialogChange(open: boolean) {
+    setReactivateDialogOpen(open);
+    if (!open) setToggleActiveError(null);
+  }
+
+  function handleDeleteDialogChange(open: boolean) {
+    setDeleteDialogOpen(open);
+    if (!open) setDeleteError(null);
+  }
+
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
@@ -171,51 +325,227 @@ export function UserDetailPage() {
     return <Navigate to="/users" replace />;
   }
 
+  const canDelete = currentUser.role === "SUPER_ADMIN" && target.role !== "SUPER_ADMIN" && !target.deactivation_protected;
+  const lastLoginText = target.last_login_at ? new Date(target.last_login_at).toLocaleString() : "Never";
+  const initials = getInitials(target.full_name);
+  const avatarColorClass = getAvatarColorClass(target.full_name);
+  const isDirty =
+    role !== target.role || campusId !== (target.campus_id ?? "") || departmentId !== (target.department_id ?? "");
+  const saveDisabled = saveMutation.isPending || !isDirty || (requiresCampus && !campusId);
+
+  function handleRoleChange(value: UserRole) {
+    setRole(value);
+    setSaveSuccess(false);
+  }
+
+  function handleCampusChange(value: string) {
+    setCampusId(value);
+    setDepartmentId("");
+    setSaveSuccess(false);
+  }
+
+  function handleDepartmentChange(value: string) {
+    setDepartmentId(value);
+    setSaveSuccess(false);
+  }
+
+  function handleCancel() {
+    setRole(target!.role);
+    setCampusId(target!.campus_id ?? "");
+    setDepartmentId(target!.department_id ?? "");
+    setError(null);
+    setSaveSuccess(false);
+  }
+
   return (
-    <div className="flex max-w-2xl flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">{target.full_name}</h1>
-          <div className="mt-1">
-            <Badge variant={target.is_active ? "success" : "destructive"}>
-              {target.is_active ? "Active" : "Inactive"}
-            </Badge>
+    <div className="flex max-w-6xl flex-col gap-6">
+      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+        <span>Administration</span>
+        <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+        <Link to="/users" className="transition-colors hover:text-foreground hover:underline">
+          Users
+        </Link>
+        <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+        <span className="text-foreground">{target.full_name}</span>
+      </nav>
+
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${avatarColorClass}`}
+            aria-hidden="true"
+          >
+            {initials}
+          </div>
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg font-semibold">{target.full_name}</h1>
+              <Badge variant="outline">{target.role.replace(/_/g, " ")}</Badge>
+              <Badge variant={target.is_active ? "success" : "destructive"}>
+                {target.is_active ? "Active" : "Inactive"}
+              </Badge>
+            </div>
+            <p className="text-sm text-muted-foreground">{target.email}</p>
+            <p className="text-xs text-muted-foreground">Last login: {lastLoginText}</p>
           </div>
         </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link to="/users">Back to list</Link>
-        </Button>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/users">Back to Users</Link>
+          </Button>
+          <Popover open={moreActionsOpen} onOpenChange={setMoreActionsOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="More actions">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-52 p-1">
+              <div className="flex flex-col">
+                {target.is_active ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-start"
+                    disabled={target.deactivation_protected}
+                    onClick={() => {
+                      setMoreActionsOpen(false);
+                      setDeactivateDialogOpen(true);
+                    }}
+                  >
+                    Deactivate
+                  </Button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-start"
+                    onClick={() => {
+                      setMoreActionsOpen(false);
+                      setReactivateDialogOpen(true);
+                    }}
+                  >
+                    Activate
+                  </Button>
+                )}
+                {canDelete ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-start text-destructive hover:text-destructive"
+                    onClick={() => {
+                      setMoreActionsOpen(false);
+                      setDeleteDialogOpen(true);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                ) : null}
+              </div>
+              {target.is_active && target.deactivation_protected ? (
+                <p className="mt-1 px-2 text-xs text-muted-foreground">This account is protected from deactivation.</p>
+              ) : null}
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <div className="text-muted-foreground">Email</div>
-            <div>{target.email}</div>
-          </div>
-          <div>
-            <div className="text-muted-foreground">Phone</div>
-            <div>{target.phone_number ?? "—"}</div>
-          </div>
-          <div>
-            <div className="text-muted-foreground">Last login</div>
-            <div>{target.last_login_at ? new Date(target.last_login_at).toLocaleString() : "Never"}</div>
-          </div>
-        </CardContent>
-      </Card>
+      <Dialog open={deactivateDialogOpen} onOpenChange={handleDeactivateDialogChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deactivate user</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Deactivate <span className="font-medium text-foreground">{target.full_name}</span>? They will lose
+            access until reactivated.
+          </p>
+          {toggleActiveError ? <p className="text-sm text-destructive">{toggleActiveError}</p> : null}
+          <DialogFooter>
+            <Button
+              variant="destructive"
+              disabled={toggleActiveMutation.isPending}
+              onClick={() => toggleActiveMutation.mutate()}
+            >
+              {toggleActiveMutation.isPending ? "Deactivating…" : "Confirm deactivate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Access</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
+      <Dialog open={reactivateDialogOpen} onOpenChange={handleReactivateDialogChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reactivate user</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Reactivate <span className="font-medium text-foreground">{target.full_name}</span>? They will regain
+            access immediately.
+          </p>
+          {toggleActiveError ? <p className="text-sm text-destructive">{toggleActiveError}</p> : null}
+          <DialogFooter>
+            <Button
+              variant="destructive"
+              disabled={toggleActiveMutation.isPending}
+              onClick={() => toggleActiveMutation.mutate()}
+            >
+              {toggleActiveMutation.isPending ? "Reactivating…" : "Confirm reactivate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={handleDeleteDialogChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete user</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Delete <span className="font-medium text-foreground">{target.full_name}</span>? This cannot be undone.
+          </p>
+          {deleteError ? <p className="text-sm text-destructive">{deleteError}</p> : null}
+          <DialogFooter>
+            <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
+              {deleteMutation.isPending ? "Deleting…" : "Confirm delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Profile</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div className="text-muted-foreground">Email</div>
+              <div>{target.email}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Phone</div>
+              <div>{target.phone_number ?? "—"}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Status</div>
+              <Badge variant={target.is_active ? "success" : "destructive"}>
+                {target.is_active ? "Active" : "Inactive"}
+              </Badge>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Last Login</div>
+              <div>{lastLoginText}</div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Access Control</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <span className="text-sm text-muted-foreground">Role</span>
-              <Select value={role} onValueChange={(value) => setRole(value as UserRole)}>
+              <Select value={role} onValueChange={(value) => handleRoleChange(value as UserRole)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -228,160 +558,221 @@ export function UserDetailPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm text-muted-foreground">Campus {requiresCampus ? "" : "(optional)"}</span>
-              <Select
-                value={campusId}
-                onValueChange={(value) => {
-                  setCampusId(value);
-                  setDepartmentId("");
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a campus" />
-                </SelectTrigger>
-                <SelectContent>
-                  {campuses?.map((campus) => (
-                    <SelectItem key={campus.id} value={campus.id}>
-                      {campus.code}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <span className="text-sm text-muted-foreground">Department (optional)</span>
-              <Select value={departmentId} onValueChange={setDepartmentId} disabled={!campusId}>
-                <SelectTrigger>
-                  <SelectValue placeholder={campusId ? "Select a department" : "Select a campus first"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {departmentOptions.map((department) => (
-                    <SelectItem key={department.id} value={department.id}>
-                      {department.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
 
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              disabled={saveMutation.isPending || (requiresCampus && !campusId)}
-              onClick={() => saveMutation.mutate()}
-            >
-              {saveMutation.isPending ? "Saving…" : "Save changes"}
-            </Button>
-            {target.is_active ? (
-              <Dialog open={deactivateDialogOpen} onOpenChange={setDeactivateDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" disabled={target.deactivation_protected}>
-                    Deactivate
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Deactivate user</DialogTitle>
-                  </DialogHeader>
-                  <p className="text-sm text-muted-foreground">
-                    Deactivate <span className="font-medium text-foreground">{target.full_name}</span>? They will
-                    lose access until reactivated.
-                  </p>
-                  <DialogFooter>
-                    <Button
-                      variant="destructive"
-                      disabled={toggleActiveMutation.isPending}
-                      onClick={() => toggleActiveMutation.mutate()}
-                    >
-                      {toggleActiveMutation.isPending ? "Deactivating…" : "Confirm deactivate"}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+            {requiresCampus ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm text-muted-foreground">Campus</span>
+                <Select value={campusId} onValueChange={handleCampusChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a campus" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {campuses?.map((campus) => (
+                      <SelectItem key={campus.id} value={campus.id}>
+                        {campus.code}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             ) : (
-              <Button
-                variant="outline"
-                disabled={toggleActiveMutation.isPending}
-                onClick={() => toggleActiveMutation.mutate()}
-              >
-                {toggleActiveMutation.isPending ? "Updating…" : "Reactivate"}
-              </Button>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm text-muted-foreground">Campus</span>
+                <p className="text-sm">All Campuses</p>
+              </div>
             )}
-            {canResetPassword ? (
-              <Dialog open={resetPasswordDialogOpen} onOpenChange={handleResetPasswordDialogChange}>
-                <DialogTrigger asChild>
-                  <Button variant="outline">Reset password</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Reset password</DialogTitle>
-                  </DialogHeader>
-                  {resetPasswordSuccess ? (
-                    <p className="text-sm text-muted-foreground">
-                      Password reset. This user must set a new password on next login.
-                    </p>
-                  ) : (
-                    <ResetPasswordForm
-                      key={resetPasswordFormKey}
-                      onSubmit={handleResetPasswordSubmit}
-                      isPending={resetPasswordMutation.isPending}
-                    />
-                  )}
-                  {resetPasswordError ? <p className="text-sm text-destructive">{resetPasswordError}</p> : null}
-                </DialogContent>
-              </Dialog>
-            ) : null}
-          </div>
-          {target.is_active && target.deactivation_protected ? (
-            <p className="text-xs text-muted-foreground">This account is protected from deactivation.</p>
-          ) : null}
-        </CardContent>
-      </Card>
 
-      {canManageCapabilities && isCoordinator ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Coordinator capabilities</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <p className="text-sm text-muted-foreground">
-              A Recruitment Coordinator only gets write access to these action groups if granted here — unlike
-              every other role, coordinator access isn't automatic. Toggle the groups this coordinator needs, then
-              save.
-            </p>
-            <div className="flex flex-col gap-2">
-              {COORDINATOR_CAPABILITIES.map((capability) => (
-                <Button
-                  key={capability}
-                  type="button"
-                  variant={selectedCapabilities.includes(capability) ? "default" : "outline"}
-                  className="justify-start text-left font-normal"
-                  onClick={() => toggleCapability(capability)}
-                >
-                  {COORDINATOR_CAPABILITY_LABELS[capability]}
-                </Button>
-              ))}
-            </div>
+            {requiresCampus ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm text-muted-foreground">Department (optional)</span>
+                <Select value={departmentId} onValueChange={handleDepartmentChange} disabled={!campusId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={campusId ? "Select a department" : "Select a campus first"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departmentOptions.map((department) => (
+                      <SelectItem key={department.id} value={department.id}>
+                        {department.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm text-muted-foreground">Department</span>
+                <p className="text-sm">All Departments</p>
+              </div>
+            )}
 
-            {capabilitiesError ? <p className="text-sm text-destructive">{capabilitiesError}</p> : null}
-            {saveCapabilitiesMutation.isSuccess ? (
-              <p className="text-sm text-muted-foreground">Capabilities saved.</p>
-            ) : null}
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {saveSuccess ? <p className="text-sm text-muted-foreground">Saved.</p> : null}
 
-            <div>
-              <Button
-                disabled={saveCapabilitiesMutation.isPending}
-                onClick={() => saveCapabilitiesMutation.mutate()}
-              >
-                {saveCapabilitiesMutation.isPending ? "Saving…" : "Save capabilities"}
+            <div className="flex flex-wrap gap-2">
+              <Button disabled={saveDisabled} onClick={() => saveMutation.mutate()}>
+                {saveMutation.isPending ? "Saving…" : "Save Changes"}
+              </Button>
+              <Button variant="outline" disabled={!isDirty} onClick={handleCancel}>
+                Cancel
               </Button>
             </div>
           </CardContent>
         </Card>
-      ) : null}
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Security</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-sm text-muted-foreground">Last Login</span>
+                <span className="text-sm">{lastLoginText}</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-sm text-muted-foreground">Password status</span>
+                <div>
+                  <Badge variant={target.must_change_password ? "warning" : "success"}>
+                    {target.must_change_password ? "Must change password" : "Password set"}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {canResetPassword ? (
+                <Dialog open={resetPasswordDialogOpen} onOpenChange={handleResetPasswordDialogChange}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline">Reset password</Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Reset password</DialogTitle>
+                    </DialogHeader>
+                    {resetPasswordSuccess ? (
+                      <p className="text-sm text-muted-foreground">
+                        Password reset. This user must set a new password on next login.
+                      </p>
+                    ) : (
+                      <ResetPasswordForm
+                        key={resetPasswordFormKey}
+                        onSubmit={handleResetPasswordSubmit}
+                        isPending={resetPasswordMutation.isPending}
+                      />
+                    )}
+                    {resetPasswordError ? <p className="text-sm text-destructive">{resetPasswordError}</p> : null}
+                  </DialogContent>
+                </Dialog>
+              ) : null}
+
+              {canForceLogout ? (
+                <Dialog open={forceLogoutDialogOpen} onOpenChange={handleForceLogoutDialogChange}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline">Force logout</Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Sign out all sessions</DialogTitle>
+                    </DialogHeader>
+                    {forceLogoutSuccess ? (
+                      <p className="text-sm text-muted-foreground">All sessions ended.</p>
+                    ) : (
+                      <>
+                        <p className="text-sm text-muted-foreground">
+                          Sign out all sessions for{" "}
+                          <span className="font-medium text-foreground">{target.full_name}</span>? They will need to
+                          log in again on every device.
+                        </p>
+                        <DialogFooter>
+                          <Button
+                            variant="destructive"
+                            disabled={forceLogoutMutation.isPending}
+                            onClick={() => forceLogoutMutation.mutate()}
+                          >
+                            {forceLogoutMutation.isPending ? "Signing out…" : "Confirm sign out"}
+                          </Button>
+                        </DialogFooter>
+                      </>
+                    )}
+                    {forceLogoutError ? <p className="text-sm text-destructive">{forceLogoutError}</p> : null}
+                  </DialogContent>
+                </Dialog>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+
+        {canViewActivity ? (
+          <Card className="lg:col-span-2">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Recent Activity</CardTitle>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/activity-log">View Activity Log</Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {activityLoading ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : !activityEntries || activityEntries.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No recent activity for this user.</p>
+              ) : (
+                <ul className="flex flex-col divide-y divide-border">
+                  {activityEntries.map((entry) => (
+                    <li key={entry.id} className="flex items-center justify-between gap-4 py-2 text-sm">
+                      <span>{describeAuditEntry(entry)}</span>
+                      <span className="whitespace-nowrap text-xs text-muted-foreground">
+                        {new Date(entry.created_at).toLocaleString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {canManageCapabilities && isCoordinator ? (
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Coordinator capabilities</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <p className="text-sm text-muted-foreground">
+                A Recruitment Coordinator only gets write access to these action groups if granted here -- unlike
+                every other role, coordinator access isn't automatic. Toggle the groups this coordinator needs, then
+                save.
+              </p>
+              <div className="flex flex-col gap-2">
+                {COORDINATOR_CAPABILITIES.map((capability) => (
+                  <Button
+                    key={capability}
+                    type="button"
+                    variant={selectedCapabilities.includes(capability) ? "default" : "outline"}
+                    className="justify-start text-left font-normal"
+                    onClick={() => toggleCapability(capability)}
+                  >
+                    {COORDINATOR_CAPABILITY_LABELS[capability]}
+                  </Button>
+                ))}
+              </div>
+
+              {capabilitiesError ? <p className="text-sm text-destructive">{capabilitiesError}</p> : null}
+              {saveCapabilitiesMutation.isSuccess ? (
+                <p className="text-sm text-muted-foreground">Capabilities saved.</p>
+              ) : null}
+
+              <div>
+                <Button
+                  disabled={saveCapabilitiesMutation.isPending}
+                  onClick={() => saveCapabilitiesMutation.mutate()}
+                >
+                  {saveCapabilitiesMutation.isPending ? "Saving…" : "Save capabilities"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
     </div>
   );
 }
