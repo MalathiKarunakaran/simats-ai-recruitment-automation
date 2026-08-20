@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
 from app.models.enums import UserRoleEnum
+from app.models.user_department_scope import user_department_scope
 
 
 class User(Base):
@@ -56,6 +57,11 @@ class User(Base):
     login_otps: Mapped[list["LoginOtp"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    department_scope: Mapped[list["Department"]] = relationship(secondary=user_department_scope)
+
+    @property
+    def department_scope_ids(self) -> list[uuid.UUID]:
+        return [department.id for department in self.department_scope]
 
     def __repr__(self) -> str:
         return f"<User {self.email} ({self.role})>"
