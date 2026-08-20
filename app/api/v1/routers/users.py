@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core import security
@@ -13,12 +13,25 @@ from app.core.deps import (
     get_db,
     require_roles,
 )
+from app.models.application import Application
+from app.models.approved_vacancy import ApprovedVacancy
+from app.models.audit_log import AuditLog
 from app.models.auth_token import RefreshToken
+from app.models.bulk_upload_log import BulkUploadLog
 from app.models.campus import Campus
 from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
 from app.models.department import Department
+from app.models.employee import Employee
 from app.models.enums import USER_MANAGEMENT_ROLES, CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.housekeeping_staff import HousekeepingStaff
+from app.models.interview import InterviewFeedback, InterviewPanelAssignment, InterviewSchedule
+from app.models.joining import JoiningRecord
+from app.models.notification import Notification
+from app.models.offer import Offer
+from app.models.resume_score import ResumeScore
+from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengthHistory
 from app.models.user import User
+from app.models.vacancy_request import VacancyRequest
 from app.schemas.common import PaginatedResponse
 from app.schemas.user import (
     AdminPasswordReset,
@@ -29,7 +42,7 @@ from app.schemas.user import (
     UserSelfUpdate,
     UserUpdate,
 )
-from app.services.audit import log_create, log_update
+from app.services.audit import log_create, log_delete, log_event, log_update
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -259,6 +272,135 @@ def admin_reset_password(
     db.commit()
     db.refresh(target)
     return target
+
+
+def _user_has_related_records(db: Session, user_id: uuid.UUID) -> bool:
+    """Exhaustive check of every FK to users.id that represents real
+    recruitment/interview/audit history (deliberately excludes
+    app.models.auth_token.* rows and CoordinatorCapabilityGrant.user_id --
+    those are session data / the target's own role config, both
+    ondelete="CASCADE" and fine to let cascade-delete silently)."""
+    checks = [
+        (Application, Application.recorded_by_id),
+        (ApprovedVacancy, ApprovedVacancy.approved_by_id),
+        (AuditLog, AuditLog.actor_user_id),
+        (BulkUploadLog, BulkUploadLog.uploaded_by_id),
+        (BulkUploadLog, BulkUploadLog.undone_by_id),
+        (CoordinatorCapabilityGrant, CoordinatorCapabilityGrant.granted_by_id),
+        (Employee, Employee.user_id),
+        (Employee, Employee.separated_by_id),
+        (HousekeepingStaff, HousekeepingStaff.created_by_id),
+        (HousekeepingStaff, HousekeepingStaff.updated_by_id),
+        (InterviewSchedule, InterviewSchedule.scheduled_by_id),
+        (InterviewPanelAssignment, InterviewPanelAssignment.panel_member_id),
+        (InterviewFeedback, InterviewFeedback.panel_member_id),
+        (JoiningRecord, JoiningRecord.onboarding_completed_by_id),
+        (Notification, Notification.recipient_user_id),
+        (Offer, Offer.offered_by_id),
+        (ResumeScore, ResumeScore.screened_by_id),
+        (SanctionedStrength, SanctionedStrength.created_by_id),
+        (SanctionedStrength, SanctionedStrength.updated_by_id),
+        (SanctionedStrengthHistory, SanctionedStrengthHistory.changed_by_id),
+        (VacancyRequest, VacancyRequest.requested_by_id),
+        (VacancyRequest, VacancyRequest.dean_reviewed_by_id),
+        (VacancyRequest, VacancyRequest.hr_reviewed_by_id),
+        (VacancyRequest, VacancyRequest.rejected_by_id),
+        (VacancyRequest, VacancyRequest.cancelled_by_id),
+    ]
+    for model, column in checks:
+        if db.query(model).filter(column == user_id).first() is not None:
+            return True
+    return False
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(
+    user_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+) -> Response:
+    """SUPER_ADMIN-only (deliberately narrower than USER_MANAGEMENT_ROLES,
+    same narrowing as admin_reset_password -- deleting a user is at least as
+    sensitive as resetting their password). Hard-deletes a user only when it
+    is actually safe to do so: no related recruitment, interview, or audit
+    history anywhere in the system. Reintroduced deliberately -- see
+    tests/test_delete_user.py; the old blanket "route removed" regression
+    test in test_users_rbac.py has been removed in favor of the real
+    coverage in that file."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    if target.role == UserRoleEnum.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Super Admin accounts cannot be deleted.",
+        )
+
+    if target.deactivation_protected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account is protected and cannot be deleted.",
+        )
+
+    if _user_has_related_records(db, target.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This user has related recruitment, interview, or audit history and "
+                "cannot be deleted. Deactivate the account instead."
+            ),
+        )
+
+    before = _user_snapshot(target)
+    log_delete(
+        db,
+        actor=current_user,
+        entity_type="User",
+        entity=target,
+        campus_context_id=target.campus_id,
+        before_state=before,
+        request=request,
+    )
+    db.delete(target)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{user_id}/force-logout", status_code=status.HTTP_204_NO_CONTENT)
+def force_logout_user(
+    user_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*USER_MANAGEMENT_ROLES)),
+) -> Response:
+    """SUPER_ADMIN + HR_ADMIN (USER_MANAGEMENT_ROLES) -- lower severity than
+    admin_reset_password's SUPER_ADMIN-only narrowing since no credential or
+    profile field actually changes here, just active session revocation."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    active_tokens = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.user_id == target.id, RefreshToken.revoked_at.is_(None))
+        .all()
+    )
+    for t in active_tokens:
+        t.revoked_at = datetime.now(timezone.utc)
+
+    log_event(
+        db,
+        actor=current_user,
+        action="FORCE_LOGOUT",
+        entity_type="User",
+        entity_id=target.id,
+        campus_context_id=target.campus_id,
+        request=request,
+    )
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _capabilities_of(db: Session, user_id: uuid.UUID) -> list[CoordinatorCapabilityEnum]:

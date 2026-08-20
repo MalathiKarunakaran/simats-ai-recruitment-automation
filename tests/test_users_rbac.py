@@ -168,11 +168,8 @@ def test_super_admin_can_reactivate_protected_user(client, user_factory):
     assert response.json()["is_active"] is True
 
 
-def test_delete_users_route_no_longer_exists(client, user_factory):
-    """DELETE /users/{id} was dead code -- the frontend never called it and
-    PATCH /users/{id} (is_active=False) is the one real deactivate path.
-    Regression guard against silently reintroducing it."""
-    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
-    target = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
-    response = client.delete(f"/api/v1/users/{target.id}", headers=auth_headers(client, admin))
-    assert response.status_code == 405
+# DELETE /users/{id} was previously removed as dead code (a regression test
+# here asserted 405). That decision has been deliberately reversed -- a real
+# hard-delete with safety checks (blocked by related recruitment/interview/
+# audit history, SUPER_ADMIN targets, and deactivation_protected accounts) is
+# now reintroduced. See tests/test_delete_user.py for the actual coverage.
