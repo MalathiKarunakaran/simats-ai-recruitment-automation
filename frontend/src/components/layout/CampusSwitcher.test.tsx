@@ -35,7 +35,7 @@ describe("CampusSwitcher", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
 
@@ -56,7 +56,7 @@ describe("CampusSwitcher", () => {
       user: { role: "HR_ADMIN", campus_id: null } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
 

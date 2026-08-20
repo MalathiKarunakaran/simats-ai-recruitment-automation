@@ -122,7 +122,7 @@ describe("JoiningCard", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
 
     const { container } = renderCard(makeApplication());
@@ -134,7 +134,7 @@ describe("JoiningCard", () => {
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument()]);
@@ -150,7 +150,7 @@ describe("JoiningCard", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument()]);
@@ -165,7 +165,7 @@ describe("JoiningCard", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "PENDING" })]);
@@ -184,7 +184,7 @@ describe("JoiningCard", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
@@ -201,7 +201,7 @@ describe("JoiningCard", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
@@ -216,7 +216,7 @@ describe("JoiningCard", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
@@ -232,7 +232,7 @@ describe("JoiningCard", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);

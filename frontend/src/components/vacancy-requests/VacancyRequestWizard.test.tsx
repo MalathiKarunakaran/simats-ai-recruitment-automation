@@ -79,7 +79,7 @@ describe("VacancyRequestWizard", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse", department_id: "d-1" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
     mockedListDepartments.mockResolvedValue(DEPARTMENTS);
@@ -152,7 +152,7 @@ describe("VacancyRequestWizard", () => {
       user: { role: "SUPER_ADMIN", campus_id: null, department_id: null } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
     mockedListDepartments.mockResolvedValue(DEPARTMENTS);
@@ -199,7 +199,7 @@ describe("VacancyRequestWizard", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse", department_id: "d-1" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
     mockedListDepartments.mockResolvedValue(DEPARTMENTS);
@@ -233,7 +233,7 @@ describe("VacancyRequestWizard", () => {
       user: { role: "SUPER_ADMIN", campus_id: null, department_id: null } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
     mockedListDepartments.mockResolvedValue([{ ...DEPARTMENTS[0], category: "TEACHING" as const }]);

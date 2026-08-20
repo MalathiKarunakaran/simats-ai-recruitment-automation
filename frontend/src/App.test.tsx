@@ -34,7 +34,7 @@ function mockAuth(role: UserRole) {
     login: vi.fn(),
     requestOtp: vi.fn(),
     loginWithOtp: vi.fn(),
-    logout: vi.fn(),
+    logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
   });
 }
 

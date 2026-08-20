@@ -45,6 +45,7 @@ describe("housekeepingStaff API module", () => {
       setAccessToken: vi.fn(),
       refreshAccessToken: vi.fn(),
       onAuthFailure: vi.fn(),
+      onPasswordChangeRequired: vi.fn(),
     });
   });
 

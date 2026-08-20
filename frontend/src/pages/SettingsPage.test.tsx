@@ -30,7 +30,7 @@ function mockUser(role: UserRead["role"], campusId: string | null = null) {
     user: { id: "u-1", role, campus_id: campusId } as UserRead,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-    logout: vi.fn(),
+    logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
   });
 }
 
@@ -43,6 +43,8 @@ const PROFILE: UserRead = {
   department_id: null,
   is_active: true,
   is_email_verified: true,
+  must_change_password: false,
+  deactivation_protected: false,
   phone_number: null,
   last_login_at: null,
   created_at: "2026-01-01T00:00:00Z",

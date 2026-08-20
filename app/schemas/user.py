@@ -31,6 +31,10 @@ class UserSelfUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=8)
 
 
+class AdminPasswordReset(BaseModel):
+    password: str = Field(min_length=8)
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -42,6 +46,8 @@ class UserRead(BaseModel):
     department_id: uuid.UUID | None
     is_active: bool
     is_email_verified: bool
+    must_change_password: bool
+    deactivation_protected: bool
     phone_number: str | None
     last_login_at: datetime | None
     created_at: datetime

@@ -91,7 +91,7 @@ describe("ApplicationsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([APPLICATION]);
     mockedListCandidates.mockResolvedValue([CANDIDATE]);
@@ -113,7 +113,7 @@ describe("ApplicationsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([]);
     mockedListCandidates.mockResolvedValue([]);
@@ -134,7 +134,7 @@ describe("ApplicationsListPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([]);
     mockedListCandidates.mockResolvedValue([]);
@@ -151,7 +151,7 @@ describe("ApplicationsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const other: ApplicationRead = { ...APPLICATION, id: "app-2", candidate_id: "cand-2", campus_id: "c-scad" };
     mockedListApplications.mockResolvedValue([APPLICATION, other]);
@@ -187,7 +187,7 @@ describe("ApplicationsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const other: ApplicationRead = { ...APPLICATION, id: "app-2", candidate_id: "cand-2", job_posting_id: "jp-2" };
     mockedListApplications.mockResolvedValue([APPLICATION, other]);
@@ -220,7 +220,7 @@ describe("ApplicationsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([APPLICATION]);
     mockedListCandidates.mockResolvedValue([CANDIDATE]);

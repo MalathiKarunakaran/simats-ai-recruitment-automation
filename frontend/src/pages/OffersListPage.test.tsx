@@ -111,7 +111,7 @@ describe("OffersListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListOffers.mockResolvedValue([OFFER]);
     mockedListApplications.mockResolvedValue([APPLICATION]);
@@ -135,7 +135,7 @@ describe("OffersListPage", () => {
       user: { role: "MANAGEMENT" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListOffers.mockResolvedValue([OFFER]);
     mockedListApplications.mockResolvedValue([APPLICATION]);
@@ -158,7 +158,7 @@ describe("OffersListPage", () => {
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
 
     renderPage();
@@ -171,7 +171,7 @@ describe("OffersListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const sentOffer: OfferRead = { ...OFFER, id: "offer-2", application_id: "app-2", status: "SENT" };
     mockedListOffers.mockResolvedValue([OFFER, sentOffer]);
@@ -208,7 +208,7 @@ describe("OffersListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const other: OfferRead = { ...OFFER, id: "offer-2", application_id: "app-2" };
     mockedListOffers.mockResolvedValue([OFFER, other]);
@@ -246,7 +246,7 @@ describe("OffersListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const other: OfferRead = { ...OFFER, id: "offer-2", application_id: "app-2" };
     mockedListOffers.mockResolvedValue([OFFER, other]);
@@ -280,7 +280,7 @@ describe("OffersListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListOffers.mockResolvedValue([OFFER]);
     mockedListApplications.mockResolvedValue([APPLICATION]);

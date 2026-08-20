@@ -47,7 +47,7 @@ describe("TrackerImportPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
 
     renderPage();
@@ -62,7 +62,7 @@ describe("TrackerImportPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedImportTrackerWorkbook.mockResolvedValue(RESULT);
 
@@ -84,7 +84,7 @@ describe("TrackerImportPage", () => {
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedImportTrackerWorkbook.mockResolvedValue(RESULT);
 
@@ -106,7 +106,7 @@ describe("TrackerImportPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedImportTrackerWorkbook.mockRejectedValue(new Error("Only .xlsx files are accepted"));
 
@@ -126,7 +126,7 @@ describe("TrackerImportPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedImportTrackerWorkbook.mockResolvedValue({
       vacancy_total_rows: 3,
@@ -170,7 +170,7 @@ describe("TrackerImportPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedImportTrackerWorkbook.mockResolvedValue({
       vacancy_total_rows: 2,
@@ -223,7 +223,7 @@ describe("TrackerImportPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedImportTrackerWorkbook.mockResolvedValue({
       vacancy_total_rows: 2,
@@ -269,7 +269,7 @@ describe("TrackerImportPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedDownloadTrackerTemplate.mockResolvedValue(undefined);
 

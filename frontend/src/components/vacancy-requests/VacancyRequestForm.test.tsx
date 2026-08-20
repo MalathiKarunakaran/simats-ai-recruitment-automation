@@ -68,7 +68,7 @@ describe("VacancyRequestForm (create mode)", () => {
       user: { role: "SUPER_ADMIN", campus_id: null } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
     mockedListDepartments.mockResolvedValue(DEPARTMENTS);
@@ -90,7 +90,7 @@ describe("VacancyRequestForm (create mode)", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     // Several sequential userEvent.type() calls -- slower than the default
     // 5s test timeout in this environment.

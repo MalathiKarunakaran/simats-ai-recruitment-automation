@@ -131,7 +131,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
     mockedListCampuses.mockResolvedValue([
@@ -160,7 +160,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const { unmount } = renderPage();
     await waitFor(() => expect(screen.getByRole("button", { name: /New request/ })).toBeInTheDocument());
@@ -170,7 +170,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     renderPage();
     expect(await screen.findByText("No Vacancy Requests Yet")).toBeInTheDocument();
@@ -184,7 +184,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const submitted = { ...VR, id: "vr-2", status: "SUBMITTED" as const, position_title: "Lecturer" };
     mockedListVacancyRequests.mockResolvedValue([VR, submitted]);
@@ -210,7 +210,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const cancelled = { ...VR, id: "vr-2", status: "CANCELLED" as const, position_title: "Cancelled Post" };
     mockedListVacancyRequests.mockResolvedValue([VR, cancelled]);
@@ -233,7 +233,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const other = { ...VR, id: "vr-2", campus_id: "c-scad", position_title: "Lab Assistant" };
     mockedListVacancyRequests.mockResolvedValue([VR, other]);
@@ -262,7 +262,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const other = { ...VR, id: "vr-2", campus_id: "c-sse", position_title: "Lab Assistant" };
     mockedListVacancyRequests.mockResolvedValue([VR, other]);
@@ -286,7 +286,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
     mockedListCampuses.mockResolvedValue([
@@ -312,7 +312,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([]);
     mockedListCampuses.mockResolvedValue([]);
@@ -331,7 +331,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const submitted = { ...VR, id: "vr-2", status: "SUBMITTED" as const, position_title: "Lecturer" };
     mockedListVacancyRequests.mockResolvedValue([VR, submitted]);
@@ -361,7 +361,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]); // VR.status === "DRAFT"
     mockedListCampuses.mockResolvedValue([
@@ -385,7 +385,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
     mockedListCampuses.mockResolvedValue([
@@ -407,7 +407,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const submitted = { ...VR, id: "vr-2", status: "SUBMITTED" as const, position_title: "Lecturer" };
     const rejected = { ...VR, id: "vr-3", status: "REJECTED" as const, position_title: "Guest Lecturer" };
@@ -432,7 +432,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
     mockedListCampuses.mockResolvedValue([]);
@@ -454,7 +454,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
     mockedListCampuses.mockResolvedValue([]);
@@ -476,7 +476,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const nonTeaching = {
       ...VR,
@@ -513,7 +513,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     // Both TEACHING -- one at SSE, one at SCAD.
     const scadTeaching = {
@@ -553,7 +553,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const physicsRequest = {
       ...VR,
@@ -578,7 +578,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const submitted = { ...VR, id: "vr-2", status: "SUBMITTED" as const, position_title: "Lecturer" };
     mockedListVacancyRequests.mockResolvedValue([VR, submitted]);
@@ -646,7 +646,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListVacancyRequests.mockResolvedValue([VR]);
     mockedListCampuses.mockResolvedValue([
@@ -675,7 +675,7 @@ describe("VacancyRequestsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const mathsRequest = { ...VR, id: "vr-2", department_id: "d-2", position_title: "Lecturer in Mathematics" };
     mockedListVacancyRequests.mockResolvedValue([VR, mathsRequest]);

@@ -79,7 +79,7 @@ describe("JobPostingDetailPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetJobPosting.mockResolvedValue(JOB_POSTING);
     mockedUseJobPostingLookup.mockReturnValue({
@@ -114,7 +114,7 @@ describe("JobPostingDetailPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetJobPosting.mockResolvedValue(JOB_POSTING);
     mockedUseJobPostingLookup.mockReturnValue({
@@ -157,7 +157,7 @@ describe("JobPostingDetailPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockNoRankedCandidates();
 
@@ -173,7 +173,7 @@ describe("JobPostingDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockNoRankedCandidates();
     mockedGetJobAd.mockResolvedValue(JOB_AD);
@@ -191,7 +191,7 @@ describe("JobPostingDetailPage", () => {
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockNoRankedCandidates();
     mockedGetJobAd.mockResolvedValue(JOB_AD);
@@ -214,7 +214,7 @@ describe("JobPostingDetailPage", () => {
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockNoRankedCandidates();
     mockedGetJobAd.mockResolvedValue(JOB_AD);
@@ -237,7 +237,7 @@ describe("JobPostingDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockNoRankedCandidates();
     mockedGetJobAd.mockResolvedValue(JOB_AD);

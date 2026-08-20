@@ -116,7 +116,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
 
@@ -135,7 +135,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const { unmount } = renderDetail();
     await waitFor(() => expect(screen.getByText("Dean-approve")).toBeInTheDocument());
@@ -146,7 +146,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     renderDetail();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
@@ -159,7 +159,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "DRAFT" }));
     mockedSubmit.mockResolvedValue(baseVr({ status: "SUBMITTED" }));
@@ -179,7 +179,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "DRAFT", jd_draft: null }));
     mockedGenerateJd.mockResolvedValue(baseVr({ status: "DRAFT", jd_draft: "## Role Overview\nGenerated JD text." }));
@@ -208,7 +208,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
 
@@ -226,7 +226,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const { unmount } = renderDetail();
     await waitFor(() => expect(screen.getByText("Cancel")).toBeInTheDocument());
@@ -236,7 +236,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     renderDetail();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
@@ -248,7 +248,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "PUBLISHED" }));
     mockedGetApprovedVacancyForRequest.mockResolvedValue(baseApprovedVacancy({}));
@@ -279,7 +279,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "APPROVED", requested_count: 5 }));
     mockedGetApprovedVacancyForRequest.mockResolvedValue(baseApprovedVacancy({ total_positions: 2 }));
@@ -309,7 +309,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(
       baseVr({ status: "SUBMITTED", is_over_sanction: true, over_sanction_justification: "Urgent backfill" }),
@@ -326,7 +326,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "SUPER_ADMIN", campus_id: "c-sse" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValueOnce(baseVr({ status: "DRAFT", designation_id: "desg-1" }));
     mockedSubmit.mockResolvedValue(baseVr({ status: "SUBMITTED", is_over_sanction: true }));
@@ -357,7 +357,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
 
@@ -371,7 +371,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
     mockedDelete.mockResolvedValue(undefined);
@@ -395,7 +395,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
     mockedDelete.mockResolvedValue(undefined);
@@ -418,7 +418,7 @@ describe("VacancyRequestDetailPage", () => {
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "APPROVED" }));
     mockedGetApprovedVacancyForRequest.mockResolvedValue(baseApprovedVacancy({}));

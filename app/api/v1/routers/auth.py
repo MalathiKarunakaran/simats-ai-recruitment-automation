@@ -59,7 +59,11 @@ def _issue_token_pair(db: Session, user: User, request: Request) -> TokenPair:
             user_agent=request.headers.get("user-agent"),
         )
     )
-    return TokenPair(access_token=access_token, refresh_token=raw_refresh)
+    return TokenPair(
+        access_token=access_token,
+        refresh_token=raw_refresh,
+        must_change_password=user.must_change_password,
+    )
 
 
 @router.post("/login", response_model=TokenPair, dependencies=[Depends(_login_rate_limit)])

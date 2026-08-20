@@ -10,13 +10,17 @@ vi.mock("@/api/auth");
 const mockedAuthApi = vi.mocked(authApi);
 
 function TestConsumer() {
-  const { user, isLoading, login, logout } = useAuth();
+  const { user, isLoading, mustChangePassword, login, logout, completePasswordChange } = useAuth();
   return (
     <div>
       <span data-testid="loading">{String(isLoading)}</span>
       <span data-testid="user">{user ? user.email : "none"}</span>
+      <span data-testid="must-change-password">{String(mustChangePassword)}</span>
       <button onClick={() => void login("hr.admin@example.com", "pw")}>login</button>
       <button onClick={() => void logout()}>logout</button>
+      <button onClick={() => completePasswordChange({ ...FAKE_USER, must_change_password: false })}>
+        complete password change
+      </button>
     </div>
   );
 }
@@ -30,6 +34,8 @@ const FAKE_USER = {
   department_id: null,
   is_active: true,
   is_email_verified: true,
+  must_change_password: false,
+  deactivation_protected: false,
   phone_number: null,
   last_login_at: null,
   created_at: "2026-01-01T00:00:00Z",
@@ -59,6 +65,7 @@ describe("AuthContext", () => {
       access_token: "at1",
       refresh_token: "rt1",
       token_type: "bearer",
+      must_change_password: false,
     });
     mockedAuthApi.getMe.mockResolvedValue(FAKE_USER);
 
@@ -75,8 +82,38 @@ describe("AuthContext", () => {
     expect(localStorage.getItem("simats_refresh_token")).toBe("rt1");
   });
 
+  it("login with must_change_password: true surfaces it on the context, and completePasswordChange clears it", async () => {
+    mockedAuthApi.login.mockResolvedValue({
+      access_token: "at1",
+      refresh_token: "rt1",
+      token_type: "bearer",
+      must_change_password: true,
+    });
+    mockedAuthApi.getMe.mockResolvedValue(FAKE_USER);
+
+    render(
+      <AuthProvider>
+        <TestConsumer />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    await userEvent.click(screen.getByText("login"));
+
+    await waitFor(() => expect(screen.getByTestId("must-change-password")).toHaveTextContent("true"));
+
+    await userEvent.click(screen.getByText("complete password change"));
+
+    await waitFor(() => expect(screen.getByTestId("must-change-password")).toHaveTextContent("false"));
+  });
+
   it("logout clears user state and the stored refresh token", async () => {
-    mockedAuthApi.login.mockResolvedValue({ access_token: "at1", refresh_token: "rt1", token_type: "bearer" });
+    mockedAuthApi.login.mockResolvedValue({
+      access_token: "at1",
+      refresh_token: "rt1",
+      token_type: "bearer",
+      must_change_password: false,
+    });
     mockedAuthApi.getMe.mockResolvedValue(FAKE_USER);
     mockedAuthApi.logout.mockResolvedValue(undefined);
 

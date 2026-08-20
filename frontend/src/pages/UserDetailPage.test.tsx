@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
+import { ApiError } from "@/api/client";
 import * as departmentsApi from "@/api/departments";
 import type { CampusRead, DepartmentRead, UserRead } from "@/api/types";
 import * as usersApi from "@/api/users";
@@ -23,6 +24,7 @@ const mockedGetUser = vi.mocked(usersApi.getUser);
 const mockedUpdateUser = vi.mocked(usersApi.updateUser);
 const mockedGetUserCapabilities = vi.mocked(usersApi.getUserCapabilities);
 const mockedSetUserCapabilities = vi.mocked(usersApi.setUserCapabilities);
+const mockedAdminResetPassword = vi.mocked(usersApi.adminResetPassword);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
@@ -32,7 +34,7 @@ function mockCurrentUser(role: UserRead["role"] | null) {
     user: role ? ({ role } as UserRead) : null,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-    logout: vi.fn(),
+    logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
   });
 }
 
@@ -66,6 +68,8 @@ const COORDINATOR: UserRead = {
   department_id: null,
   is_active: true,
   is_email_verified: true,
+  must_change_password: false,
+  deactivation_protected: false,
   phone_number: null,
   last_login_at: null,
   created_at: "2026-01-01T00:00:00Z",
@@ -224,5 +228,173 @@ describe("UserDetailPage activate/deactivate toggle", () => {
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     await waitFor(() => expect(mockedUpdateUser).toHaveBeenCalledWith(COORDINATOR.id, { is_active: true }));
+  });
+
+  it("disables Deactivate and shows an explanatory note for a protected active user", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, is_active: true, deactivation_protected: true });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedUpdateUser.mockClear(); // prior tests in this file already confirmed calls
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+
+    expect(screen.getByRole("button", { name: "Deactivate" })).toBeDisabled();
+    expect(screen.getByText("This account is protected from deactivation.")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockedUpdateUser).not.toHaveBeenCalled();
+  });
+
+  it("does not show the protected note or disable Deactivate for a non-protected user", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, is_active: true, deactivation_protected: false });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+
+    expect(screen.getByRole("button", { name: "Deactivate" })).not.toBeDisabled();
+    expect(screen.queryByText("This account is protected from deactivation.")).not.toBeInTheDocument();
+  });
+
+  it("degrades safely to 'not protected' when deactivation_protected is undefined on the fetched user", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    const { deactivation_protected: _omit, ...rest } = { ...COORDINATOR, is_active: true };
+    mockedGetUser.mockResolvedValue(rest as UserRead);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+
+    expect(screen.getByRole("button", { name: "Deactivate" })).not.toBeDisabled();
+    expect(screen.queryByText("This account is protected from deactivation.")).not.toBeInTheDocument();
+  });
+
+  it("reactivating an inactive protected user still fires the mutation directly with no confirm dialog", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, is_active: false, deactivation_protected: true });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedUpdateUser.mockResolvedValue({ ...COORDINATOR, is_active: true, deactivation_protected: true });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reactivate" })).toBeInTheDocument());
+
+    expect(screen.getByRole("button", { name: "Reactivate" })).not.toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Reactivate" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(mockedUpdateUser).toHaveBeenCalledWith(COORDINATOR.id, { is_active: true }));
+  });
+
+  it("surfaces the server's protected-account 400 error if a stale UI still lets a deactivate attempt through", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...COORDINATOR, is_active: true, deactivation_protected: false });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedUpdateUser.mockRejectedValue(new ApiError(400, "This account is protected from deactivation."));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Deactivate" })).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Confirm deactivate" }));
+
+    await waitFor(() => expect(mockedUpdateUser).toHaveBeenCalledWith(COORDINATOR.id, { is_active: false }));
+    expect(await screen.findByText("This account is protected from deactivation.")).toBeInTheDocument();
+  });
+});
+
+describe("UserDetailPage reset password", () => {
+  it("shows the Reset password action for a Super Admin viewer", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reset password" })).toBeInTheDocument());
+  });
+
+  it("hides the Reset password action for an HR Admin viewer -- narrower than USER_MANAGEMENT_ROLES, SUPER_ADMIN only", async () => {
+    mockCurrentUser("HR_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText(COORDINATOR.full_name)).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Reset password" })).not.toBeInTheDocument();
+  });
+
+  it("submits the new password and shows a success message without displaying the password", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedAdminResetPassword.mockResolvedValue({ ...COORDINATOR, must_change_password: true });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reset password" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Reset password" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText("New password"), "newpass123");
+    await userEvent.type(within(dialog).getByLabelText("Confirm password"), "newpass123");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Reset password" }));
+
+    await waitFor(() => expect(mockedAdminResetPassword).toHaveBeenCalledWith(COORDINATOR.id, "newpass123"));
+    expect(
+      await within(dialog).findByText("Password reset. This user must set a new password on next login."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("newpass123")).not.toBeInTheDocument();
+  });
+
+  it("blocks submission and never calls the API for a password shorter than 8 characters", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedAdminResetPassword.mockClear(); // a prior test in this file already confirmed a successful reset call
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reset password" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Reset password" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText("New password"), "short1");
+    await userEvent.type(within(dialog).getByLabelText("Confirm password"), "short1");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Reset password" }));
+
+    expect(await within(dialog).findByText("Must be at least 8 characters")).toBeInTheDocument();
+    expect(mockedAdminResetPassword).not.toHaveBeenCalled();
+  });
+
+  it("blocks submission when the two password fields don't match", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedAdminResetPassword.mockClear(); // a prior test in this file already confirmed a successful reset call
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reset password" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Reset password" }));
+
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText("New password"), "newpass123");
+    await userEvent.type(within(dialog).getByLabelText("Confirm password"), "different123");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Reset password" }));
+
+    expect(await within(dialog).findByText("Passwords do not match")).toBeInTheDocument();
+    expect(mockedAdminResetPassword).not.toHaveBeenCalled();
   });
 });

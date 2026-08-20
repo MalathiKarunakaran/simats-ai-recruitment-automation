@@ -20,6 +20,28 @@ interface AuthHooks {
   setAccessToken: (token: string | null) => void;
   refreshAccessToken: () => Promise<string | null>;
   onAuthFailure: () => void;
+  // Fired on any 403 whose body is {"detail": "PASSWORD_CHANGE_REQUIRED"} --
+  // the backend rejects every request but a small allow-list (see
+  // handlePasswordChangeRequired below) with this once a user's
+  // must_change_password flag is set, even mid-session (e.g. a Super Admin
+  // reset their password from another session). Mirrors onAuthFailure's
+  // role for 401s: AuthContext reacts by forcing the app into the
+  // /set-new-password screen.
+  onPasswordChangeRequired: () => void;
+}
+
+const PASSWORD_CHANGE_REQUIRED_DETAIL = "PASSWORD_CHANGE_REQUIRED";
+
+function handlePasswordChangeRequired(status: number, body: unknown) {
+  if (
+    status === 403 &&
+    authHooks &&
+    body &&
+    typeof body === "object" &&
+    (body as { detail?: unknown }).detail === PASSWORD_CHANGE_REQUIRED_DETAIL
+  ) {
+    authHooks.onPasswordChangeRequired();
+  }
 }
 
 let authHooks: AuthHooks | null = null;
@@ -77,6 +99,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, _isRe
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
+    handlePasswordChangeRequired(response.status, body);
     throw new ApiError(response.status, extractErrorMessage(body));
   }
 
@@ -109,6 +132,7 @@ export async function apiFetchBlob(path: string, options: RequestInit = {}, _isR
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
+    handlePasswordChangeRequired(response.status, body);
     throw new ApiError(response.status, extractErrorMessage(body));
   }
 

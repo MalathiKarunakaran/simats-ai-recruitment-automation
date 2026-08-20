@@ -132,7 +132,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
 
@@ -149,7 +149,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
 
@@ -163,7 +163,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
 
@@ -179,7 +179,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication({ status: "REJECTED", rejection_reason: "No match" }));
 
@@ -195,7 +195,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
     const mockedTransition = vi.mocked(applicationsApi.transitionApplicationStatus);
@@ -218,7 +218,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication({ status: "JOINING_CONFIRMED" }));
 
@@ -231,7 +231,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
@@ -243,7 +243,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication({ status: "SELECTED" }));
 
@@ -257,7 +257,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication());
 
@@ -273,7 +273,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(
       makeApplication({
@@ -301,7 +301,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetApplication.mockResolvedValue(makeApplication({ qualification_mismatch: false }));
 
@@ -316,7 +316,7 @@ describe("ApplicationDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetCandidate.mockResolvedValue({ ...CANDIDATE, resume_storage_key: "cand-1/resume.pdf" });
     mockedGetApplication.mockResolvedValue(makeApplication());

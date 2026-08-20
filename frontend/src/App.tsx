@@ -30,6 +30,7 @@ import { OffersListPage } from "@/pages/OffersListPage";
 import { OnboardingListPage } from "@/pages/OnboardingListPage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { SanctionedStrengthPage } from "@/pages/SanctionedStrengthPage";
+import { SetNewPasswordPage } from "@/pages/SetNewPasswordPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TrackerImportPage } from "@/pages/TrackerImportPage";
 import { UserCreatePage } from "@/pages/UserCreatePage";
@@ -47,6 +48,10 @@ export function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<ProtectedRoute />}>
+        {/* Deliberately outside AppShell -- reachable while mustChangePassword
+            is true, when the AppShell's nav/routes are all blocked by
+            ProtectedRoute's own guard (see ProtectedRoute.tsx). */}
+        <Route path="/set-new-password" element={<SetNewPasswordPage />} />
         <Route element={<AppShell />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/vacancy-requests" element={<VacancyRequestsListPage />} />

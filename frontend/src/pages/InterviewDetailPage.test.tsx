@@ -95,6 +95,8 @@ const PANEL_MEMBER: UserRead = {
   department_id: null,
   is_active: true,
   is_email_verified: true,
+  must_change_password: false,
+  deactivation_protected: false,
   phone_number: null,
   last_login_at: null,
   created_at: "2026-01-01T00:00:00Z",
@@ -152,7 +154,7 @@ describe("InterviewDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
 
@@ -168,7 +170,7 @@ describe("InterviewDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview({ status: "COMPLETED" }));
 
@@ -184,7 +186,7 @@ describe("InterviewDetailPage", () => {
       user: { id: "panel-1", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
 
@@ -198,7 +200,7 @@ describe("InterviewDetailPage", () => {
       user: { id: "panel-1", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
     mockedListInterviewFeedback.mockResolvedValue([
@@ -227,7 +229,7 @@ describe("InterviewDetailPage", () => {
       user: { id: "other-panel", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
 
@@ -245,7 +247,7 @@ describe("InterviewDetailPage", () => {
       user: { id: "panel-1", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
     mockedGenerateInterviewQuestions.mockResolvedValue({
@@ -270,7 +272,7 @@ describe("InterviewDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
     mockedUpdateInterview.mockResolvedValue(makeInterview({ status: "CANCELLED" }));
@@ -294,7 +296,7 @@ describe("InterviewDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetInterview.mockResolvedValue(makeInterview());
     mockedUpdateInterview.mockResolvedValue(makeInterview({ status: "CANCELLED" }));

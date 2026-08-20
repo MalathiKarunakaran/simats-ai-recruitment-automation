@@ -13,13 +13,14 @@ vi.mock("@/auth/AuthContext", async () => {
 
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 
-function renderProtected() {
+function renderProtected(initialEntry = "/dashboard") {
   return render(
-    <MemoryRouter initialEntries={["/dashboard"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route path="/login" element={<div>login page</div>} />
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<div>dashboard page</div>} />
+          <Route path="/set-new-password" element={<div>set new password page</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -28,7 +29,7 @@ function renderProtected() {
 
 describe("ProtectedRoute", () => {
   it("redirects to /login when not authenticated", () => {
-    mockedUseAuth.mockReturnValue({ user: null, isLoading: false, login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(), logout: vi.fn() });
+    mockedUseAuth.mockReturnValue({ user: null, isLoading: false, login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(), logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn() });
 
     renderProtected();
 
@@ -40,7 +41,7 @@ describe("ProtectedRoute", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
 
     renderProtected();
@@ -53,11 +54,38 @@ describe("ProtectedRoute", () => {
       user: { role: "CANDIDATE" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
 
     renderProtected();
 
     expect(screen.getByText(/Not permitted/i)).toBeInTheDocument();
+  });
+
+  it("redirects to /set-new-password when mustChangePassword is true, instead of the requested route", () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: true, completePasswordChange: vi.fn(),
+    });
+
+    renderProtected("/dashboard");
+
+    expect(screen.getByText("set new password page")).toBeInTheDocument();
+    expect(screen.queryByText("dashboard page")).not.toBeInTheDocument();
+  });
+
+  it("lets a mustChangePassword user reach /set-new-password itself, without looping", () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: true, completePasswordChange: vi.fn(),
+    });
+
+    renderProtected("/set-new-password");
+
+    expect(screen.getByText("set new password page")).toBeInTheDocument();
   });
 });

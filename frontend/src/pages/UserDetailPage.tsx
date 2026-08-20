@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 
 import { listCampuses } from "@/api/campuses";
@@ -14,7 +15,7 @@ import {
   type CoordinatorCapability,
   type UserRole,
 } from "@/api/types";
-import { getUser, getUserCapabilities, setUserCapabilities, updateUser } from "@/api/users";
+import { adminResetPassword, getUser, getUserCapabilities, setUserCapabilities, updateUser } from "@/api/users";
 import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { combine, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 export function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -60,6 +64,19 @@ export function UserDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedCapabilities, setSelectedCapabilities] = useState<CoordinatorCapability[]>([]);
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false);
+
+  // SUPER_ADMIN-only (deliberately narrower than USER_MANAGEMENT_ROLES, which
+  // also grants HR_ADMIN role/campus edits above) -- mirrors
+  // app/api/v1/routers/users.py::admin_reset_password's own require_roles gate.
+  const canResetPassword = currentUser?.role === "SUPER_ADMIN";
+  const [resetPasswordDialogOpen, setResetPasswordDialogOpen] = useState(false);
+  const [resetPasswordSuccess, setResetPasswordSuccess] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
+  // Bumped on every submit to remount ResetPasswordForm below with fresh,
+  // untouched useFieldValidation state -- clears the fields (and any
+  // now-stale "required"/"min length" error) immediately, regardless of
+  // whether the call itself then succeeds or fails.
+  const [resetPasswordFormKey, setResetPasswordFormKey] = useState(0);
 
   useEffect(() => {
     if (!target) return;
@@ -115,6 +132,37 @@ export function UserDetailPage() {
     },
     onError: (err) => setCapabilitiesError(err instanceof ApiError ? err.message : "Update failed"),
   });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: (password: string) => adminResetPassword(id!, password),
+    onSuccess: () => {
+      setResetPasswordError(null);
+      setResetPasswordSuccess(true);
+      afterChange();
+    },
+    onError: (err) => {
+      setResetPasswordSuccess(false);
+      setResetPasswordError(err instanceof ApiError ? err.message : "Password reset failed");
+    },
+  });
+
+  function handleResetPasswordDialogChange(open: boolean) {
+    setResetPasswordDialogOpen(open);
+    if (!open) {
+      setResetPasswordError(null);
+      setResetPasswordSuccess(false);
+      setResetPasswordFormKey((k) => k + 1);
+    }
+  }
+
+  function handleResetPasswordSubmit(password: string) {
+    setResetPasswordError(null);
+    setResetPasswordSuccess(false);
+    resetPasswordMutation.mutate(password);
+    // Clear immediately on submit, regardless of the call's outcome -- never
+    // leave a just-set password sitting in the form.
+    setResetPasswordFormKey((k) => k + 1);
+  }
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -230,7 +278,9 @@ export function UserDetailPage() {
             {target.is_active ? (
               <Dialog open={deactivateDialogOpen} onOpenChange={setDeactivateDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="outline">Deactivate</Button>
+                  <Button variant="outline" disabled={target.deactivation_protected}>
+                    Deactivate
+                  </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
@@ -260,7 +310,34 @@ export function UserDetailPage() {
                 {toggleActiveMutation.isPending ? "Updating…" : "Reactivate"}
               </Button>
             )}
+            {canResetPassword ? (
+              <Dialog open={resetPasswordDialogOpen} onOpenChange={handleResetPasswordDialogChange}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">Reset password</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Reset password</DialogTitle>
+                  </DialogHeader>
+                  {resetPasswordSuccess ? (
+                    <p className="text-sm text-muted-foreground">
+                      Password reset. This user must set a new password on next login.
+                    </p>
+                  ) : (
+                    <ResetPasswordForm
+                      key={resetPasswordFormKey}
+                      onSubmit={handleResetPasswordSubmit}
+                      isPending={resetPasswordMutation.isPending}
+                    />
+                  )}
+                  {resetPasswordError ? <p className="text-sm text-destructive">{resetPasswordError}</p> : null}
+                </DialogContent>
+              </Dialog>
+            ) : null}
           </div>
+          {target.is_active && target.deactivation_protected ? (
+            <p className="text-xs text-muted-foreground">This account is protected from deactivation.</p>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -306,5 +383,79 @@ export function UserDetailPage() {
         </Card>
       ) : null}
     </div>
+  );
+}
+
+// Owns its own useFieldValidation state so the parent can wipe it (fields +
+// touched state, avoiding a stale "required"/"min length" error reappearing
+// on an intentionally-cleared field) just by remounting via a bumped `key`,
+// instead of the hook needing an explicit reset method.
+function ResetPasswordForm({
+  onSubmit,
+  isPending,
+}: {
+  onSubmit: (password: string) => void;
+  isPending: boolean;
+}) {
+  const newPassword = useFieldValidation(
+    "",
+    combine(required("Password is required"), minLength(8, "Must be at least 8 characters")),
+  );
+  const confirmPassword = useFieldValidation("", required("Please confirm the new password"));
+  const [mismatchError, setMismatchError] = useState<string | null>(null);
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const passwordValid = newPassword.validate();
+    const confirmValid = confirmPassword.validate();
+    if (!passwordValid || !confirmValid) return;
+
+    if (newPassword.value !== confirmPassword.value) {
+      setMismatchError("Passwords do not match");
+      return;
+    }
+    setMismatchError(null);
+    onSubmit(newPassword.value);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="reset_new_password">New password</Label>
+        <Input
+          id="reset_new_password"
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          value={newPassword.value}
+          onChange={(e) => newPassword.onChange(e.target.value)}
+          onBlur={newPassword.onBlur}
+          aria-invalid={Boolean(newPassword.error)}
+        />
+        {newPassword.error ? <p className="text-xs text-destructive">{newPassword.error}</p> : null}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="reset_confirm_password">Confirm password</Label>
+        <Input
+          id="reset_confirm_password"
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          value={confirmPassword.value}
+          onChange={(e) => confirmPassword.onChange(e.target.value)}
+          onBlur={confirmPassword.onBlur}
+          aria-invalid={Boolean(confirmPassword.error)}
+        />
+        {confirmPassword.error ? <p className="text-xs text-destructive">{confirmPassword.error}</p> : null}
+      </div>
+      {mismatchError ? <p className="text-sm text-destructive">{mismatchError}</p> : null}
+      <DialogFooter>
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Resetting…" : "Reset password"}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }

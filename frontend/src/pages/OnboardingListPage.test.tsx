@@ -106,7 +106,7 @@ describe("OnboardingListPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
     mockedListCandidates.mockResolvedValue([]);
@@ -122,7 +122,7 @@ describe("OnboardingListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockByStatus({
       JOINING_CONFIRMED: [makeApplication({ id: "app-1", status: "JOINING_CONFIRMED" })],
@@ -148,7 +148,7 @@ describe("OnboardingListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockByStatus({
       JOINING_CONFIRMED: [makeApplication({ id: "app-1", status: "JOINING_CONFIRMED" })],
@@ -180,7 +180,7 @@ describe("OnboardingListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockByStatus({
       JOINING_CONFIRMED: [makeApplication({ id: "app-1", status: "JOINING_CONFIRMED", campus_id: "c-sse" })],
@@ -215,7 +215,7 @@ describe("OnboardingListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockByStatus({
       JOINING_CONFIRMED: [makeApplication({ id: "app-1", status: "JOINING_CONFIRMED" })],
@@ -244,7 +244,7 @@ describe("OnboardingListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockByStatus({
       JOINING_CONFIRMED: [makeApplication({ id: "app-1", status: "JOINING_CONFIRMED", updated_at: "2026-02-10T00:00:00Z" })],

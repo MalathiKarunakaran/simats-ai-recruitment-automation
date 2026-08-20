@@ -110,6 +110,64 @@ def test_user_can_read_own_profile_via_users_me(client, user_factory):
     assert response.json()["email"] == hod.email
 
 
+def test_super_admin_cannot_deactivate_protected_user(client, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    protected = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+    protected.deactivation_protected = True
+
+    response = client.patch(
+        f"/api/v1/users/{protected.id}",
+        headers=auth_headers(client, admin),
+        json={"is_active": False},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "This account is protected from deactivation."
+
+    get_response = client.get(f"/api/v1/users/{protected.id}", headers=auth_headers(client, admin))
+    assert get_response.json()["is_active"] is True
+
+
+def test_super_admin_can_deactivate_normal_user(client, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    normal = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+
+    response = client.patch(
+        f"/api/v1/users/{normal.id}",
+        headers=auth_headers(client, admin),
+        json={"is_active": False},
+    )
+    assert response.status_code == 200
+    assert response.json()["is_active"] is False
+
+
+def test_super_admin_can_edit_other_fields_on_protected_user(client, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    protected = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+    protected.deactivation_protected = True
+
+    response = client.patch(
+        f"/api/v1/users/{protected.id}",
+        headers=auth_headers(client, admin),
+        json={"full_name": "Updated Name"},
+    )
+    assert response.status_code == 200
+    assert response.json()["full_name"] == "Updated Name"
+
+
+def test_super_admin_can_reactivate_protected_user(client, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    protected = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE", is_active=False)
+    protected.deactivation_protected = True
+
+    response = client.patch(
+        f"/api/v1/users/{protected.id}",
+        headers=auth_headers(client, admin),
+        json={"is_active": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["is_active"] is True
+
+
 def test_delete_users_route_no_longer_exists(client, user_factory):
     """DELETE /users/{id} was dead code -- the frontend never called it and
     PATCH /users/{id} (is_active=False) is the one real deactivate path.

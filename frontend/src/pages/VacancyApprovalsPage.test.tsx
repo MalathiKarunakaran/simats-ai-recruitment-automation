@@ -89,7 +89,7 @@ describe("VacancyApprovalsPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue([]);
     mockQueue({});
@@ -104,7 +104,7 @@ describe("VacancyApprovalsPage", () => {
       user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue([
       { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
@@ -130,7 +130,7 @@ describe("VacancyApprovalsPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue([
       { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
@@ -192,7 +192,7 @@ describe("VacancyApprovalsPage", () => {
       user: { role: "SUPER_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue([]);
     mockQueue({
@@ -215,7 +215,7 @@ describe("VacancyApprovalsPage", () => {
       user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue([]);
     mockQueue({ SUBMITTED: [makeVR({})] });
@@ -240,7 +240,7 @@ describe("VacancyApprovalsPage", () => {
       user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue([]);
     mockQueue({ SUBMITTED: [makeVR({ is_over_sanction: true })] });
@@ -256,7 +256,7 @@ describe("VacancyApprovalsPage", () => {
       user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue([]);
     mockQueue({ SUBMITTED: [makeVR({})] });

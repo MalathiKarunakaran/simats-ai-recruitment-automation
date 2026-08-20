@@ -57,11 +57,14 @@ export const ASSIGNABLE_STAFF_ROLES: readonly UserRole[] = [
 export const CAMPUS_CODES = ["SSE", "SCLAS", "SCAD", "STUDIO", "SPIER", "SSPE", "SHIFT"] as const;
 export type CampusCode = (typeof CAMPUS_CODES)[number];
 
-// Mirrors app/schemas/token.py::TokenPair.
+// Mirrors app/schemas/token.py::TokenPair. must_change_password (Admin
+// password reset rollout) drives the forced-password-change route guard --
+// see AuthContext.tsx.
 export interface TokenPair {
   access_token: string;
   refresh_token: string;
   token_type: string;
+  must_change_password: boolean;
 }
 
 // Mirrors app/schemas/user.py::UserRead.
@@ -74,6 +77,8 @@ export interface UserRead {
   department_id: string | null;
   is_active: boolean;
   is_email_verified: boolean;
+  must_change_password: boolean;
+  deactivation_protected: boolean;
   phone_number: string | null;
   last_login_at: string | null;
   created_at: string;
@@ -106,6 +111,13 @@ export interface UserSelfUpdatePayload {
   full_name?: string;
   phone_number?: string | null;
   password?: string;
+}
+
+// Mirrors app/schemas/user.py::AdminPasswordReset -- SUPER_ADMIN-only (see
+// app/api/v1/routers/users.py::admin_reset_password's require_roles gate),
+// deliberately narrower than USER_MANAGEMENT_ROLES.
+export interface AdminPasswordResetPayload {
+  password: string;
 }
 
 // Mirrors app/schemas/common.py::PaginatedResponse.

@@ -124,7 +124,7 @@ describe("OfferDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer());
 
@@ -141,7 +141,7 @@ describe("OfferDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer({ status: "SENT" }));
 
@@ -159,7 +159,7 @@ describe("OfferDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer({ status: "ACCEPTED" }));
 
@@ -176,7 +176,7 @@ describe("OfferDetailPage", () => {
       user: { role: "MANAGEMENT" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer({ status: "SENT" }));
 
@@ -192,7 +192,7 @@ describe("OfferDetailPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedGetOffer.mockResolvedValue(makeOffer({ status: "SENT" }));
     mockedDeclineOffer.mockResolvedValue(makeOffer({ status: "DECLINED" }));

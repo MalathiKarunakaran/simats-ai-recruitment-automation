@@ -111,7 +111,7 @@ describe("InterviewsListPage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListInterviews.mockResolvedValue([INTERVIEW]);
     mockedListApplications.mockResolvedValue([APPLICATION]);
@@ -135,7 +135,7 @@ describe("InterviewsListPage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListInterviews.mockResolvedValue([]);
     mockedListApplications.mockResolvedValue([]);
@@ -153,7 +153,7 @@ describe("InterviewsListPage", () => {
       user: { role: "HR_ADMIN", id: "u-1" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const other: InterviewScheduleRead = { ...INTERVIEW, id: "int-2", application_id: "app-2", campus_id: "c-scad" };
     mockedListInterviews.mockResolvedValue([INTERVIEW, other]);
@@ -193,7 +193,7 @@ describe("InterviewsListPage", () => {
       user: { role: "HR_ADMIN", id: "u-1" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const other: InterviewScheduleRead = { ...INTERVIEW, id: "int-2", application_id: "app-2" };
     mockedListInterviews.mockResolvedValue([INTERVIEW, other]);
@@ -224,7 +224,7 @@ describe("InterviewsListPage", () => {
       user: { role: "INTERVIEW_PANEL_MEMBER", id: "panel-1" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     const notMine: InterviewScheduleRead = {
       ...INTERVIEW,

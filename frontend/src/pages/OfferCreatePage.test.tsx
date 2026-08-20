@@ -93,7 +93,7 @@ describe("OfferCreatePage", () => {
       user: { role: "MANAGEMENT" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([]);
     mockedListCandidates.mockResolvedValue([]);
@@ -108,7 +108,7 @@ describe("OfferCreatePage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([APPLICATION]);
     mockedListCandidates.mockResolvedValue([CANDIDATE]);

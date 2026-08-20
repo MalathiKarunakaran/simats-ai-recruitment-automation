@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.core.deps import (
     get_db,
     require_roles,
 )
+from app.models.auth_token import RefreshToken
 from app.models.campus import Campus
 from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
 from app.models.department import Department
@@ -19,6 +21,7 @@ from app.models.enums import USER_MANAGEMENT_ROLES, CoordinatorCapabilityEnum, U
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.user import (
+    AdminPasswordReset,
     CoordinatorCapabilitiesRead,
     CoordinatorCapabilitiesUpdate,
     UserCreate,
@@ -124,6 +127,7 @@ def update_own_profile(
         current_user.phone_number = payload.phone_number
     if payload.password is not None:
         current_user.password_hash = security.hash_password(payload.password)
+        current_user.must_change_password = False
 
     log_update(
         db,
@@ -178,6 +182,12 @@ def update_user(
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
+    if payload.is_active is False and target.deactivation_protected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account is protected from deactivation.",
+        )
+
     before = _user_snapshot(target)
 
     if payload.campus_id is not None and db.get(Campus, payload.campus_id) is None:
@@ -189,6 +199,52 @@ def update_user(
         value = getattr(payload, field)
         if value is not None:
             setattr(target, field, value)
+
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="User",
+        entity=target,
+        campus_context_id=target.campus_id,
+        before_state=before,
+        after_state=_user_snapshot(target),
+        request=request,
+    )
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+@router.post("/{user_id}/reset-password", response_model=UserRead)
+def admin_reset_password(
+    user_id: uuid.UUID,
+    payload: AdminPasswordReset,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+) -> User:
+    """SUPER_ADMIN-only (deliberately narrower than USER_MANAGEMENT_ROLES,
+    which also includes HR_ADMIN) -- resets another user's password and
+    forces them to set a new one on next login via must_change_password.
+    Revokes every currently-active refresh token for that user, same
+    "credential reset ends all sessions" logic as
+    auth.py's password_reset_confirm."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    before = _user_snapshot(target)
+
+    target.password_hash = security.hash_password(payload.password)
+    target.must_change_password = True
+
+    active_tokens = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.user_id == target.id, RefreshToken.revoked_at.is_(None))
+        .all()
+    )
+    for t in active_tokens:
+        t.revoked_at = datetime.now(timezone.utc)
 
     log_update(
         db,

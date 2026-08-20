@@ -76,7 +76,7 @@ describe("ApplicationCreatePage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCandidates.mockResolvedValue([]);
     mockedListJobPostings.mockResolvedValue([]);
@@ -91,7 +91,7 @@ describe("ApplicationCreatePage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCandidates.mockResolvedValue([CANDIDATE]);
     mockedListJobPostings.mockResolvedValue([JOB_POSTING]);

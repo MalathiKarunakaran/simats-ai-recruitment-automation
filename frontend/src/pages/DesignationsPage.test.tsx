@@ -30,7 +30,7 @@ function mockUser(role: UserRead["role"] | null) {
     user: role ? ({ role } as UserRead) : null,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-    logout: vi.fn(),
+    logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
   });
 }
 

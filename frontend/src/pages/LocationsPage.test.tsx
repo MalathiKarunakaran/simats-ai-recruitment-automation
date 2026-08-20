@@ -36,7 +36,7 @@ function mockUser(role: UserRead["role"], campusId: string | null = null) {
     user: { id: "u-1", role, campus_id: campusId } as UserRead,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-    logout: vi.fn(),
+    logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
   });
 }
 

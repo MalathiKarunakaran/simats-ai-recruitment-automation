@@ -86,6 +86,8 @@ const PANEL_MEMBER: UserRead = {
   department_id: null,
   is_active: true,
   is_email_verified: true,
+  must_change_password: false,
+  deactivation_protected: false,
   phone_number: null,
   last_login_at: null,
   created_at: "2026-01-01T00:00:00Z",
@@ -111,7 +113,7 @@ describe("InterviewCreatePage", () => {
       user: { role: "CAMPUS_HOD" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([]);
     mockedListCandidates.mockResolvedValue([]);
@@ -127,7 +129,7 @@ describe("InterviewCreatePage", () => {
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListApplications.mockResolvedValue([APPLICATION]);
     mockedListCandidates.mockResolvedValue([CANDIDATE]);

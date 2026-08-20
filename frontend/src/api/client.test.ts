@@ -17,6 +17,7 @@ describe("apiFetch", () => {
       setAccessToken: vi.fn(),
       refreshAccessToken: vi.fn(),
       onAuthFailure: vi.fn(),
+      onPasswordChangeRequired: vi.fn(),
     });
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(200, { ok: true }));
 
@@ -36,6 +37,7 @@ describe("apiFetch", () => {
       setAccessToken: vi.fn(),
       refreshAccessToken,
       onAuthFailure,
+      onPasswordChangeRequired: vi.fn(),
     });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -58,6 +60,7 @@ describe("apiFetch", () => {
       setAccessToken: vi.fn(),
       refreshAccessToken,
       onAuthFailure,
+      onPasswordChangeRequired: vi.fn(),
     });
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(401, { detail: "expired" }));
 
@@ -74,11 +77,44 @@ describe("apiFetch", () => {
       setAccessToken: vi.fn(),
       refreshAccessToken: vi.fn(),
       onAuthFailure: vi.fn(),
+      onPasswordChangeRequired: vi.fn(),
     });
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       jsonResponse(422, { detail: [{ msg: "field required", loc: ["body", "email"] }] }),
     );
 
     await expect(apiFetch("/some-path")).rejects.toMatchObject({ message: "field required" });
+  });
+
+  it("fires onPasswordChangeRequired (but still throws) on a 403 PASSWORD_CHANGE_REQUIRED body", async () => {
+    const onPasswordChangeRequired = vi.fn();
+    configureAuth({
+      getAccessToken: () => "token-123",
+      setAccessToken: vi.fn(),
+      refreshAccessToken: vi.fn(),
+      onAuthFailure: vi.fn(),
+      onPasswordChangeRequired,
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(403, { detail: "PASSWORD_CHANGE_REQUIRED" }));
+
+    await expect(apiFetch("/vacancy-requests")).rejects.toBeInstanceOf(ApiError);
+
+    expect(onPasswordChangeRequired).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire onPasswordChangeRequired for an unrelated 403", async () => {
+    const onPasswordChangeRequired = vi.fn();
+    configureAuth({
+      getAccessToken: () => "token-123",
+      setAccessToken: vi.fn(),
+      refreshAccessToken: vi.fn(),
+      onAuthFailure: vi.fn(),
+      onPasswordChangeRequired,
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(403, { detail: "Not permitted" }));
+
+    await expect(apiFetch("/vacancy-requests")).rejects.toBeInstanceOf(ApiError);
+
+    expect(onPasswordChangeRequired).not.toHaveBeenCalled();
   });
 });

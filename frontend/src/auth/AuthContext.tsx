@@ -10,10 +10,20 @@ const REFRESH_TOKEN_STORAGE_KEY = "simats_refresh_token";
 interface AuthContextValue {
   user: UserRead | null;
   isLoading: boolean;
+  // Set from the login/otp-verify/refresh response's own must_change_password
+  // (and by client.ts's onPasswordChangeRequired hook when the flag gets set
+  // mid-session, e.g. a Super Admin reset this user's password from another
+  // session) -- ProtectedRoute redirects to /set-new-password while this is
+  // true, and refuses to route anywhere else until it's cleared.
+  mustChangePassword: boolean;
   login: (email: string, password: string) => Promise<void>;
   requestOtp: (email: string) => Promise<void>;
   loginWithOtp: (email: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
+  // Called by SetNewPasswordPage after a successful self-service password
+  // change (PATCH /users/me) -- updates the cached profile and clears the
+  // forced-change flag so ProtectedRoute lets the user through again.
+  completePasswordChange: (updatedUser: UserRead) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -21,6 +31,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserRead | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
   // In-memory only -- the access token intentionally never touches
   // localStorage/sessionStorage (see Foundation-phase plan's token-storage
   // decision). A ref, not state, because client.ts's configureAuth hooks
@@ -37,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Refresh tokens rotate server-side on every use -- the old one is
       // revoked, so the latest one must always replace what's stored.
       localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refresh_token);
+      setMustChangePassword(tokens.must_change_password);
       return tokens.access_token;
     } catch {
       localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
@@ -50,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     accessTokenRef.current = null;
     localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     setUser(null);
+    setMustChangePassword(false);
   }
 
   useEffect(() => {
@@ -60,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       refreshAccessToken,
       onAuthFailure: clearSession,
+      onPasswordChangeRequired: () => setMustChangePassword(true),
     });
 
     // Restore a session on page load from the persisted refresh token, if
@@ -82,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function applyTokens(tokens: Awaited<ReturnType<typeof authApi.login>>) {
     accessTokenRef.current = tokens.access_token;
     localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refresh_token);
+    setMustChangePassword(tokens.must_change_password);
     setUser(await authApi.getMe());
   }
 
@@ -115,8 +130,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
   }
 
+  function completePasswordChange(updatedUser: UserRead) {
+    setUser(updatedUser);
+    setMustChangePassword(false);
+  }
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, requestOtp, loginWithOtp, logout }}>
+    <AuthContext.Provider
+      value={{ user, isLoading, mustChangePassword, login, requestOtp, loginWithOtp, logout, completePasswordChange }}
+    >
       {children}
     </AuthContext.Provider>
   );

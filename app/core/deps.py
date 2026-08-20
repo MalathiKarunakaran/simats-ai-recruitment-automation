@@ -47,9 +47,35 @@ def get_current_user(
     return user
 
 
-def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
+# Endpoints a user with must_change_password=True is still allowed to hit --
+# just enough to read their own identity, set a new password, and manage
+# their session, so a forced-reset user isn't locked out of the app before
+# they can comply. Verbatim (method, path) pairs, matched against
+# Request.url.path -- keep in sync with how routers are actually registered
+# in app/api/v1/api.py (prefix="/api/v1") and app/main.py, not guessed.
+_PASSWORD_CHANGE_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("PATCH", "/api/v1/users/me"),
+        ("GET", "/api/v1/auth/me"),
+        ("POST", "/api/v1/auth/logout"),
+        ("POST", "/api/v1/auth/refresh"),
+    }
+)
+
+
+def get_current_active_user(
+    request: Request, current_user: User = Depends(get_current_user)
+) -> User:
     if not current_user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+
+    if current_user.must_change_password:
+        path = request.url.path.rstrip("/") or "/"
+        if (request.method, path) not in _PASSWORD_CHANGE_ALLOWLIST:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="PASSWORD_CHANGE_REQUIRED"
+            )
+
     return current_user
 
 
