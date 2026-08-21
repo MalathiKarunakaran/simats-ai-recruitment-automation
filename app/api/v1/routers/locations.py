@@ -34,10 +34,17 @@ from fastapi.responses import StreamingResponse
 from minio import Minio
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db, require_roles
+from app.core.deps import (
+    CampusScope,
+    enforce_campus_match,
+    get_campus_scope,
+    get_current_active_user,
+    get_db,
+    require_permission,
+)
 from app.models.bulk_upload_log import BulkUploadLog
 from app.models.campus import Campus
-from app.models.enums import BulkUploadEntityTypeEnum, BulkUploadStatusEnum, StaffRoleCategoryEnum, UserRoleEnum
+from app.models.enums import BulkUploadEntityTypeEnum, BulkUploadStatusEnum, PermissionEnum, StaffRoleCategoryEnum, UserRoleEnum
 from app.models.location import Location
 from app.models.sanctioned_strength import SanctionedStrength
 from app.models.user import User
@@ -128,7 +135,7 @@ def create_location(
     payload: LocationCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_LOCATIONS)),
 ) -> Location:
     if db.get(Campus, payload.campus_id) is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown campus_id")
@@ -164,7 +171,7 @@ def update_location(
     payload: LocationUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_LOCATIONS)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Location:
     location = _get_or_404_scoped(db, location_id, scope)
@@ -201,7 +208,7 @@ def delete_location(
     location_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_LOCATIONS)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> None:
     # Phase C (glowing-zooming-hamming.md) dependency guard -- now that
@@ -272,7 +279,7 @@ def _row_to_preview(row: location_import.ImportRowResult) -> LocationBulkUploadR
 @router.get("/bulk-upload/template")
 def download_location_bulk_upload_template(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_LOCATIONS)),
 ) -> StreamingResponse:
     xlsx_bytes = location_import.build_bulk_upload_template_xlsx(db)
     return StreamingResponse(
@@ -286,7 +293,7 @@ def download_location_bulk_upload_template(
 def validate_location_bulk_upload(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_LOCATIONS)),
 ) -> LocationBulkUploadValidationResponse:
     """Parses+validates every row **without writing anything to the DB** --
     a pure preview, same no-server-side-cache contract as
@@ -310,7 +317,7 @@ def commit_location_bulk_upload(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     minio_client: Minio = Depends(get_minio_client),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_LOCATIONS)),
 ) -> LocationBulkUploadCommitResponse:
     """Re-validates the re-uploaded file defensively, then applies every
     non-rejected row's UPSERT in one DB transaction -- same all-or-nothing

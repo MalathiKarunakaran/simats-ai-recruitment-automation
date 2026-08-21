@@ -138,13 +138,43 @@ def test_granting_one_capability_allows_only_that_action_group(
         json={"capabilities": ["VACANCY_APPROVAL"]},
     )
 
-    # Granted group: vacancy approval works.
-    vacancy = published_vacancy_factory(slot_count=2)
-    close_response = client.post(
-        f"/api/v1/vacancy-requests/{vacancy.vacancy_request.id}/close",
+    # Granted group: vacancy approval works -- exercised via hr-approve
+    # specifically (not close/reject/publish/cancel, which Phase 2 of the
+    # permission-matrix epic cut over to require_permission() and which a
+    # bare CoordinatorCapabilityGrant with no matching UserPermissionGrant
+    # no longer satisfies -- see vacancy_requests.py's own module notes).
+    # hr-approve (and dean-approve/adjust-slot-count) were deliberately left
+    # on the old require_roles_or_coordinator_capability gate, so this is
+    # still the right endpoint to prove a bare capability grant works.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json={
+            "campus_id": str(department.campus_id),
+            "department_id": str(department.id),
+            "role_category": "TEACHING",
+            "position_title": "Assistant Professor",
+            "employment_type": "FULL_TIME",
+            "requested_count": 1,
+            "qualification": "PhD",
+            "experience_required": "3+ years",
+            "priority": "HIGH",
+        },
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, dean))
+
+    hr_approve_response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/hr-approve",
         headers=auth_headers(client, coordinator),
     )
-    assert close_response.status_code == 200
+    assert hr_approve_response.status_code == 200
+
+    vacancy = published_vacancy_factory(slot_count=2)
 
     # Ungranted groups: everything else still 403s.
     candidate_response = client.post(

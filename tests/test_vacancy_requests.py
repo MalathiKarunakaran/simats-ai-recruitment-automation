@@ -1,4 +1,4 @@
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
 
 from tests.conftest import auth_headers
 
@@ -730,12 +730,21 @@ def test_recruitment_coordinator_without_grant_forbidden_on_all_vacancy_approval
 
 
 def test_recruitment_coordinator_with_vacancy_approval_grant_can_reject(
-    client, user_factory, department_factory, grant_coordinator_capability
+    client, user_factory, department_factory, grant_coordinator_capability, grant_permission
 ):
+    # Both grants inserted directly -- CoordinatorCapabilityGrant (still
+    # real, independently consulted for the untouched dean-approve/
+    # hr-approve/slot-count endpoints) plus the UserPermissionGrant this
+    # endpoint actually checks now (require_permission(REJECT_VACANCY)),
+    # mirroring what a real coordinator would have post-migration-backfill
+    # (e5a4d57be056 maps VACANCY_APPROVAL onto APPROVE_VACANCY/
+    # REJECT_VACANCY/PUBLISH_VACANCY/CLOSE_VACANCY/CANCEL_VACANCY) -- the
+    # test DB never runs that migration, so both are inserted directly.
     department = department_factory("SSE")
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.VACANCY_APPROVAL)
+    grant_permission(coordinator, PermissionEnum.REJECT_VACANCY)
 
     create = client.post(
         "/api/v1/vacancy-requests",
@@ -755,13 +764,19 @@ def test_recruitment_coordinator_with_vacancy_approval_grant_can_reject(
 
 
 def test_recruitment_coordinator_with_vacancy_approval_grant_can_hr_approve_and_publish(
-    client, user_factory, department_factory, grant_coordinator_capability
+    client, user_factory, department_factory, grant_coordinator_capability, grant_permission
 ):
+    # hr-approve stays on the old CoordinatorCapabilityGrant-only gate
+    # (untouched by this phase), but publish now checks
+    # require_permission(PUBLISH_VACANCY) -- grant both so this test reflects
+    # real post-migration-backfill coordinator state (see the sibling
+    # can_reject test's comment for the full rationale).
     department = department_factory("SSE")
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
     dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.VACANCY_APPROVAL)
+    grant_permission(coordinator, PermissionEnum.PUBLISH_VACANCY)
 
     create = client.post(
         "/api/v1/vacancy-requests",
@@ -785,10 +800,17 @@ def test_recruitment_coordinator_with_vacancy_approval_grant_can_hr_approve_and_
 
 
 def test_recruitment_coordinator_with_vacancy_approval_grant_can_close_cancel_and_adjust_slot_count(
-    client, user_factory, published_vacancy_factory, grant_coordinator_capability
+    client, user_factory, published_vacancy_factory, grant_coordinator_capability, grant_permission
 ):
+    # close/cancel now check require_permission(CLOSE_VACANCY)/
+    # (CANCEL_VACANCY); slot-count stays on the old CoordinatorCapabilityGrant-
+    # only gate (untouched by this phase). Grant both systems so this test
+    # reflects real post-migration-backfill coordinator state (see
+    # can_reject's comment above for the full rationale).
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.VACANCY_APPROVAL)
+    grant_permission(coordinator, PermissionEnum.CLOSE_VACANCY)
+    grant_permission(coordinator, PermissionEnum.CANCEL_VACANCY)
     vacancy_a = published_vacancy_factory(slot_count=2)
     vacancy_b = published_vacancy_factory(slot_count=2)
     vacancy_c = published_vacancy_factory(slot_count=2)

@@ -7,15 +7,17 @@ from minio import Minio
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_active_user, get_db, require_roles, require_roles_or_coordinator_capability
+from app.core.deps import get_current_active_user, get_db, require_permission
+from app.models.application import Application
 from app.models.candidate import Candidate
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import PermissionEnum, UserRoleEnum
+from app.models.resume_score import ResumeScore
 from app.models.user import User
 from app.schemas.candidate import CandidateCreate, CandidateRead, CandidateUpdate, CandidateWithdrawRequest
 from app.schemas.common import PaginatedResponse
 from app.services import candidates as candidates_service
 from app.services import storage
-from app.services.audit import log_create, log_update
+from app.services.audit import log_create, log_delete, log_update
 from app.services.storage import get_minio_client
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
@@ -25,17 +27,6 @@ _MAX_RESUME_BYTES = 10 * 1024 * 1024  # 10 MB
 # Candidates aren't campus-owned (a person isn't tied to one campus), so
 # there's no campus scoping here -- just a staff-role gate, mirroring how
 # Phase 1 handled /campuses (global read for any authenticated staff role).
-# RECRUITMENT_COORDINATOR's membership is additionally conditional on a
-# CANDIDATES_APPLICATIONS capability grant -- see require_roles_or_coordinator_capability.
-_WRITE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
-
-
-def _write_gate(
-    current_user: User = Depends(
-        require_roles_or_coordinator_capability(CoordinatorCapabilityEnum.CANDIDATES_APPLICATIONS, *_WRITE_ROLES)
-    ),
-) -> User:
-    return current_user
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -49,7 +40,7 @@ def create_candidate(
     payload: CandidateCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_write_gate),
+    current_user: User = Depends(require_permission(PermissionEnum.CREATE_CANDIDATE)),
 ) -> Candidate:
     if db.query(Candidate).filter(Candidate.email == payload.email).one_or_none() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A candidate with this email already exists")
@@ -114,7 +105,7 @@ def update_candidate(
     payload: CandidateUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_write_gate),
+    current_user: User = Depends(require_permission(PermissionEnum.EDIT_CANDIDATE)),
 ) -> Candidate:
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
@@ -182,7 +173,7 @@ def withdraw_candidate(
     payload: CandidateWithdrawRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_write_gate),
+    current_user: User = Depends(require_permission(PermissionEnum.EDIT_CANDIDATE)),
 ) -> Candidate:
     candidate = db.get(Candidate, candidate_id)
     if candidate is None:
@@ -206,7 +197,7 @@ def upload_resume(
     request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_write_gate),
+    current_user: User = Depends(require_permission(PermissionEnum.EDIT_CANDIDATE)),
     minio_client: Minio = Depends(get_minio_client),
 ) -> Candidate:
     candidate = db.get(Candidate, candidate_id)
@@ -251,6 +242,61 @@ def upload_resume(
     db.commit()
     db.refresh(candidate)
     return candidate
+
+
+def _candidate_has_related_records(db: Session, candidate_id: uuid.UUID) -> bool:
+    """Application.candidate_id is ondelete="RESTRICT" (the DB itself would
+    block a hard delete), and ResumeScore.duplicate_of_candidate_id is
+    ondelete="SET NULL" (the DB would silently allow it, but a resume-scoring
+    record referencing a deleted candidate is real history) -- block on
+    either, don't rely on the DB's own more permissive SET NULL behavior."""
+    if db.query(Application).filter(Application.candidate_id == candidate_id).first() is not None:
+        return True
+    if (
+        db.query(ResumeScore).filter(ResumeScore.duplicate_of_candidate_id == candidate_id).first()
+        is not None
+    ):
+        return True
+    return False
+
+
+@router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_candidate(
+    candidate_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(PermissionEnum.DELETE_CANDIDATE)),
+) -> None:
+    """Nobody has DELETE_CANDIDATE by default per Phase 1 -- deliberately
+    opt-in, only SUPER_ADMIN's implicit bypass can hit this until someone is
+    explicitly granted it. Mirrors users.py's delete_user shape: hard delete
+    only when it's actually safe (no Application or ResumeScore row
+    references this candidate), else 409."""
+    candidate = db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    if _candidate_has_related_records(db, candidate.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This candidate has related application or resume-screening history and "
+                "cannot be deleted."
+            ),
+        )
+
+    before = {"full_name": candidate.full_name, "email": candidate.email}
+    log_delete(
+        db,
+        actor=current_user,
+        entity_type="Candidate",
+        entity=candidate,
+        campus_context_id=None,
+        before_state=before,
+        request=request,
+    )
+    db.delete(candidate)
+    db.commit()
 
 
 @router.get("/{candidate_id}/resume")

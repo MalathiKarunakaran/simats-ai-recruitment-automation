@@ -3,7 +3,7 @@ import io
 from PIL import Image
 
 from app.models.audit_log import AuditLog
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
 from app.services.n8n_client import get_n8n_client_or_503
 
 from tests.conftest import FakeN8nClient, auth_headers
@@ -109,13 +109,20 @@ def test_recruitment_coordinator_without_grant_forbidden_to_distribute(
 
 
 def test_recruitment_coordinator_with_grant_can_distribute(
-    client, published_vacancy_factory, user_factory, grant_coordinator_capability
+    client, published_vacancy_factory, user_factory, grant_coordinator_capability, grant_permission
 ):
     from app.main import app
 
+    # Both grants inserted directly -- CoordinatorCapabilityGrant (still
+    # real) plus the UserPermissionGrant this endpoint actually checks now
+    # (require_permission(JOB_DISTRIBUTION)), mirroring what a real
+    # coordinator would have post-migration-backfill (e5a4d57be056 maps
+    # JOB_DISTRIBUTION_SCREENING onto JOB_DISTRIBUTION/RESUME_SCREENING) --
+    # the test DB never runs that migration, so both are inserted directly.
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.JOB_DISTRIBUTION_SCREENING)
+    grant_permission(coordinator, PermissionEnum.JOB_DISTRIBUTION)
     app.dependency_overrides[get_n8n_client_or_503] = lambda: FakeN8nClient()
     try:
         response = client.post(

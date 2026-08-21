@@ -12,11 +12,10 @@ from app.core.deps import (
     get_campus_scope,
     get_current_active_user,
     get_db,
-    require_roles,
-    require_roles_or_coordinator_capability,
+    require_permission,
 )
 from app.models.application import Application
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import PermissionEnum, UserRoleEnum
 from app.models.resume_score import ResumeScore
 from app.models.user import User
 from app.schemas.resume_score import ResumeScoreRead
@@ -27,16 +26,9 @@ from app.services.vector_store import get_chroma_collection
 
 router = APIRouter(prefix="/applications", tags=["resume-screening"])
 
-# RECRUITMENT_COORDINATOR's membership is additionally conditional on a
-# JOB_DISTRIBUTION_SCREENING capability grant -- see
-# require_roles_or_coordinator_capability.
-_WRITE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
-
 
 def _write_gate(
-    current_user: User = Depends(
-        require_roles_or_coordinator_capability(CoordinatorCapabilityEnum.JOB_DISTRIBUTION_SCREENING, *_WRITE_ROLES)
-    ),
+    current_user: User = Depends(require_permission(PermissionEnum.RESUME_SCREENING)),
 ) -> User:
     return current_user
 

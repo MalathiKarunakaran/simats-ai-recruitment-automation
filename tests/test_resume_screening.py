@@ -1,4 +1,4 @@
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
 
 from tests.conftest import auth_headers, build_test_pdf
 
@@ -161,11 +161,24 @@ def test_recruitment_coordinator_without_grant_forbidden_to_screen_application(
 
 
 def test_recruitment_coordinator_with_grant_can_screen_application(
-    client, published_vacancy_factory, application_factory, candidate_factory, user_factory, grant_coordinator_capability
+    client,
+    published_vacancy_factory,
+    application_factory,
+    candidate_factory,
+    user_factory,
+    grant_coordinator_capability,
+    grant_permission,
 ):
+    # Both grants inserted directly -- CoordinatorCapabilityGrant (still
+    # real) plus the UserPermissionGrant this endpoint actually checks now
+    # (require_permission(RESUME_SCREENING)), mirroring what a real
+    # coordinator would have post-migration-backfill (e5a4d57be056 maps
+    # JOB_DISTRIBUTION_SCREENING onto JOB_DISTRIBUTION/RESUME_SCREENING) --
+    # the test DB never runs that migration, so both are inserted directly.
     vacancy = published_vacancy_factory(slot_count=1)
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.JOB_DISTRIBUTION_SCREENING)
+    grant_permission(coordinator, PermissionEnum.RESUME_SCREENING)
     candidate = candidate_factory(phone_number="+91 9876543210")
     _upload_resume(client, candidate.id, vacancy.hr_admin)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin, candidate=candidate)

@@ -1,4 +1,4 @@
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
 
 from tests.conftest import auth_headers
 
@@ -49,11 +49,21 @@ def test_recruitment_coordinator_without_grant_forbidden_to_record_application(
 
 
 def test_recruitment_coordinator_with_grant_can_record_application_for_any_campus_posting(
-    client, published_vacancy_factory, candidate_factory, user_factory, grant_coordinator_capability
+    client, published_vacancy_factory, candidate_factory, user_factory, grant_coordinator_capability, grant_permission
 ):
+    # Both grants are set here -- CoordinatorCapabilityGrant (the old system,
+    # still real and independently consulted for the untouched vacancy-
+    # approval endpoints) plus the new UserPermissionGrant this router's
+    # /applications endpoint actually checks now (require_permission), which
+    # is what a real coordinator would have after Phase 1's migration
+    # backfill (e5a4d57be056) maps their existing CANDIDATES_APPLICATIONS
+    # capability onto MANAGE_APPLICATIONS -- the test DB never runs that
+    # migration (Base.metadata.create_all() only), so both grants are
+    # inserted directly here to reflect real post-migration production state.
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.CANDIDATES_APPLICATIONS)
+    grant_permission(coordinator, PermissionEnum.MANAGE_APPLICATIONS)
     candidate = candidate_factory()
 
     response = client.post(

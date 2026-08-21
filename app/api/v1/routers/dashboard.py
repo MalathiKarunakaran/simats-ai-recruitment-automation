@@ -1,10 +1,10 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db
-from app.models.enums import UserRoleEnum
+from app.core.deps import CampusScope, get_campus_scope, get_db, require_permission
+from app.models.enums import PermissionEnum
 from app.models.user import User
 from app.schemas.reporting import DashboardKPIResponse
 from app.services import reporting
@@ -12,9 +12,9 @@ from app.services import reporting
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
-def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
-    if current_user.role == UserRoleEnum.CANDIDATE:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted")
+# Every real non-CANDIDATE role's Phase 1 default permission set already
+# includes SETTINGS -- see reports.py's identical rationale, mirrored here.
+def _staff_only(current_user: User = Depends(require_permission(PermissionEnum.SETTINGS))) -> User:
     return current_user
 
 

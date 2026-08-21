@@ -4,22 +4,15 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, get_campus_scope, get_db, require_roles
+from app.core.deps import CampusScope, get_campus_scope, get_db, require_permission
 from app.models.audit_log import AuditLog
-from app.models.enums import UserRoleEnum
+from app.models.enums import PermissionEnum
 from app.models.user import User
 from app.schemas.audit_log import AuditLogRead
 from app.schemas.common import PaginatedResponse
 from app.services.reporting import validate_date_range
 
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
-
-_READ_ROLES = (
-    UserRoleEnum.SUPER_ADMIN,
-    UserRoleEnum.HR_ADMIN,
-    UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT,
-    UserRoleEnum.CAMPUS_HOD,
-)
 
 
 @router.get("", response_model=PaginatedResponse[AuditLogRead])
@@ -39,7 +32,7 @@ def list_audit_logs(
     start_date: date | None = None,
     end_date: date | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_READ_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.ACTIVITY_LOG)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> PaginatedResponse[AuditLogRead]:
     validate_date_range(start_date, end_date)
@@ -77,7 +70,7 @@ def list_audit_logs(
 def get_audit_log(
     audit_log_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_READ_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.ACTIVITY_LOG)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> AuditLog:
     entry = db.get(AuditLog, audit_log_id)

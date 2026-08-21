@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
-from app.models.enums import GLOBAL_SCOPE_ROLES, CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import GLOBAL_SCOPE_ROLES, CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
 from app.models.user import User
 
 __all__ = ["get_db"]
@@ -117,6 +117,27 @@ def require_roles_or_coordinator_capability(capability: CoordinatorCapabilityEnu
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to perform this action",
         )
+
+    return _checker
+
+
+def require_permission(*permissions: PermissionEnum):
+    """Like require_roles, but ANY of the given permissions passing has_permission()
+    lets the caller through (OR semantics). SUPER_ADMIN bypass lives inside
+    has_permission itself, not duplicated here."""
+
+    def _checker(
+        current_user: User = Depends(get_current_active_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        from app.services.permissions import has_permission  # local import avoids a cycle, mirrors get_current_user's own pattern
+
+        if not any(has_permission(db, current_user, p) for p in permissions):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to perform this action",
+            )
+        return current_user
 
     return _checker
 

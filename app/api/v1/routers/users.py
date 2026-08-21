@@ -11,6 +11,7 @@ from app.core.deps import (
     get_campus_scope,
     get_current_active_user,
     get_db,
+    require_permission,
     require_roles,
 )
 from app.models.application import Application
@@ -22,7 +23,7 @@ from app.models.campus import Campus
 from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
 from app.models.department import Department
 from app.models.employee import Employee
-from app.models.enums import USER_MANAGEMENT_ROLES, CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import USER_MANAGEMENT_ROLES, CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
 from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.interview import InterviewFeedback, InterviewPanelAssignment, InterviewSchedule
 from app.models.joining import JoiningRecord
@@ -87,7 +88,7 @@ def create_user(
     payload: UserCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*USER_MANAGEMENT_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_USERS)),
 ) -> User:
     if db.query(User).filter(User.email == payload.email).one_or_none() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
@@ -191,7 +192,7 @@ def update_user(
     payload: UserUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*USER_MANAGEMENT_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_USERS)),
 ) -> User:
     target = db.get(User, user_id)
     if target is None:

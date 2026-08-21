@@ -3,22 +3,17 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db, require_roles
+from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db, require_permission
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.designation import Designation
-from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
+from app.models.enums import PermissionEnum, StaffRoleCategoryEnum, UserRoleEnum
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.department import DepartmentCreate, DepartmentRead, DepartmentUpdate
 from app.services.audit import log_create, log_delete, log_update
 
 router = APIRouter(prefix="/departments", tags=["departments"])
-
-# Campus HOD lost department-write access with the Department/Designation
-# Master rollout (confirmed decision) -- HR Admin deliberately keeps it,
-# broader than the literal "Super Admin only" spec text.
-_WRITE_ROLES = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN)
 
 
 def _department_snapshot(department: Department) -> dict:
@@ -59,7 +54,7 @@ def create_department(
     payload: DepartmentCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_DEPARTMENTS)),
 ) -> Department:
     if db.get(Campus, payload.campus_id) is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown campus_id")
@@ -101,7 +96,7 @@ def update_department(
     payload: DepartmentUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_DEPARTMENTS)),
 ) -> Department:
     department = db.get(Department, department_id)
     if department is None:
@@ -139,7 +134,7 @@ def delete_department(
     department_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_DEPARTMENTS)),
 ) -> None:
     department = db.get(Department, department_id)
     if department is None:
