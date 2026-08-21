@@ -43,6 +43,7 @@ from app.schemas.user import (
     UserUpdate,
 )
 from app.services.audit import log_create, log_delete, log_event, log_update
+from app.services.permissions import seed_default_permissions
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -116,6 +117,7 @@ def create_user(
         after_state=_user_snapshot(user),
         request=request,
     )
+    seed_default_permissions(db, user)
     db.commit()
     db.refresh(user)
     return user

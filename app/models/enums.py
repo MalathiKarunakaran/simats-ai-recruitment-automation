@@ -337,6 +337,103 @@ class CoordinatorCapabilityEnum(str, enum.Enum):
     JOB_DISTRIBUTION_SCREENING = "JOB_DISTRIBUTION_SCREENING"
 
 
+class PermissionEnum(str, enum.Enum):
+    """Granular permission matrix -- Phase 1 (schema + services only) of the
+    epic that will eventually replace CoordinatorCapabilityEnum's 4-value,
+    RECRUITMENT_COORDINATOR-only scheme with a 31-permission matrix usable by
+    any role. Deliberately additive: CoordinatorCapabilityEnum and
+    CoordinatorCapabilityGrant stay exactly as-is and fully wired until a
+    later phase cuts routers over and retires them. Not yet consulted by any
+    router -- see app.services.permissions.has_permission."""
+
+    # Vacancy Management (8)
+    VIEW_VACANCY = "VIEW_VACANCY"
+    CREATE_VACANCY_REQUEST = "CREATE_VACANCY_REQUEST"
+    EDIT_VACANCY_REQUEST = "EDIT_VACANCY_REQUEST"
+    APPROVE_VACANCY = "APPROVE_VACANCY"
+    REJECT_VACANCY = "REJECT_VACANCY"
+    PUBLISH_VACANCY = "PUBLISH_VACANCY"
+    CLOSE_VACANCY = "CLOSE_VACANCY"
+    CANCEL_VACANCY = "CANCEL_VACANCY"
+    # Candidates (5)
+    VIEW_CANDIDATES = "VIEW_CANDIDATES"
+    CREATE_CANDIDATE = "CREATE_CANDIDATE"
+    EDIT_CANDIDATE = "EDIT_CANDIDATE"
+    DELETE_CANDIDATE = "DELETE_CANDIDATE"
+    MANAGE_APPLICATIONS = "MANAGE_APPLICATIONS"
+    # Interviews (4)
+    SCHEDULE_INTERVIEW = "SCHEDULE_INTERVIEW"
+    RESCHEDULE_INTERVIEW = "RESCHEDULE_INTERVIEW"
+    CANCEL_INTERVIEW = "CANCEL_INTERVIEW"
+    MARK_INTERVIEW_COMPLETED = "MARK_INTERVIEW_COMPLETED"
+    # Recruitment (4)
+    JOB_DISTRIBUTION = "JOB_DISTRIBUTION"
+    RESUME_SCREENING = "RESUME_SCREENING"
+    OFFERS = "OFFERS"
+    ONBOARDING = "ONBOARDING"
+    # Administration (7)
+    VIEW_EMPLOYEES = "VIEW_EMPLOYEES"
+    EDIT_EMPLOYEES = "EDIT_EMPLOYEES"
+    MANAGE_DEPARTMENTS = "MANAGE_DEPARTMENTS"
+    MANAGE_DESIGNATIONS = "MANAGE_DESIGNATIONS"
+    MANAGE_LOCATIONS = "MANAGE_LOCATIONS"
+    MANAGE_CAMPUSES = "MANAGE_CAMPUSES"
+    MANAGE_USERS = "MANAGE_USERS"
+    # System (3)
+    ACTIVITY_LOG = "ACTIVITY_LOG"
+    REPORTS = "REPORTS"
+    SETTINGS = "SETTINGS"
+
+
+# Frontend permission-matrix grouping (Phase 3) -- lives here once, centrally,
+# rather than being re-derived from naming conventions at render time.
+PERMISSION_CATEGORIES: dict[str, list[PermissionEnum]] = {
+    "VACANCY_MANAGEMENT": [
+        PermissionEnum.VIEW_VACANCY,
+        PermissionEnum.CREATE_VACANCY_REQUEST,
+        PermissionEnum.EDIT_VACANCY_REQUEST,
+        PermissionEnum.APPROVE_VACANCY,
+        PermissionEnum.REJECT_VACANCY,
+        PermissionEnum.PUBLISH_VACANCY,
+        PermissionEnum.CLOSE_VACANCY,
+        PermissionEnum.CANCEL_VACANCY,
+    ],
+    "CANDIDATES": [
+        PermissionEnum.VIEW_CANDIDATES,
+        PermissionEnum.CREATE_CANDIDATE,
+        PermissionEnum.EDIT_CANDIDATE,
+        PermissionEnum.DELETE_CANDIDATE,
+        PermissionEnum.MANAGE_APPLICATIONS,
+    ],
+    "INTERVIEWS": [
+        PermissionEnum.SCHEDULE_INTERVIEW,
+        PermissionEnum.RESCHEDULE_INTERVIEW,
+        PermissionEnum.CANCEL_INTERVIEW,
+        PermissionEnum.MARK_INTERVIEW_COMPLETED,
+    ],
+    "RECRUITMENT": [
+        PermissionEnum.JOB_DISTRIBUTION,
+        PermissionEnum.RESUME_SCREENING,
+        PermissionEnum.OFFERS,
+        PermissionEnum.ONBOARDING,
+    ],
+    "ADMINISTRATION": [
+        PermissionEnum.VIEW_EMPLOYEES,
+        PermissionEnum.EDIT_EMPLOYEES,
+        PermissionEnum.MANAGE_DEPARTMENTS,
+        PermissionEnum.MANAGE_DESIGNATIONS,
+        PermissionEnum.MANAGE_LOCATIONS,
+        PermissionEnum.MANAGE_CAMPUSES,
+        PermissionEnum.MANAGE_USERS,
+    ],
+    "SYSTEM": [
+        PermissionEnum.ACTIVITY_LOG,
+        PermissionEnum.REPORTS,
+        PermissionEnum.SETTINGS,
+    ],
+}
+
+
 class InterviewTypeEnum(str, enum.Enum):
     TECHNICAL = "TECHNICAL"
     HR = "HR"
