@@ -9,18 +9,16 @@ from app.core.deps import (
     get_campus_scope,
     get_current_active_user,
     get_db,
-    require_roles,
+    require_permission,
 )
 from app.models.employee import Employee
-from app.models.enums import EmploymentStatusEnum, UserRoleEnum
+from app.models.enums import EmploymentStatusEnum, PermissionEnum, UserRoleEnum
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.employee import EmployeeOffboardRequest, EmployeeRead
 from app.services import employees as employees_service
 
 router = APIRouter(prefix="/employees", tags=["employees"])
-
-_HR_ONLY_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -83,7 +81,7 @@ def offboard_employee(
     payload: EmployeeOffboardRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_HR_ONLY_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.EDIT_EMPLOYEES)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Employee:
     employee = db.get(Employee, employee_id)

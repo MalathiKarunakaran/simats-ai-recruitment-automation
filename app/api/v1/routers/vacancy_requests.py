@@ -11,6 +11,7 @@ from app.core.deps import (
     get_campus_scope,
     get_current_active_user,
     get_db,
+    require_permission,
     require_roles,
     require_roles_or_coordinator_capability,
 )
@@ -18,7 +19,7 @@ from app.models.approved_vacancy import ApprovedVacancy
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.designation import Designation
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum, VacancyRequestStatusEnum
+from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum, VacancyRequestStatusEnum
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
@@ -356,14 +357,7 @@ def reject_vacancy_request(
     payload: VacancyRequestRejectRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_roles_or_coordinator_capability(
-            CoordinatorCapabilityEnum.VACANCY_APPROVAL,
-            UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT,
-            UserRoleEnum.HR_ADMIN,
-            UserRoleEnum.SUPER_ADMIN,
-        )
-    ),
+    current_user: User = Depends(require_permission(PermissionEnum.REJECT_VACANCY)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> VacancyRequest:
     vr = _get_or_404_scoped(db, vacancy_request_id, scope)
@@ -397,14 +391,7 @@ def publish_vacancy_request(
     vacancy_request_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_roles_or_coordinator_capability(
-            CoordinatorCapabilityEnum.VACANCY_APPROVAL,
-            UserRoleEnum.HR_ADMIN,
-            UserRoleEnum.RECRUITMENT_OFFICER,
-            UserRoleEnum.SUPER_ADMIN,
-        )
-    ),
+    current_user: User = Depends(require_permission(PermissionEnum.PUBLISH_VACANCY)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JobPosting:
     vr = _get_or_404_scoped(db, vacancy_request_id, scope)
@@ -425,11 +412,7 @@ def close_vacancy_request(
     vacancy_request_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_roles_or_coordinator_capability(
-            CoordinatorCapabilityEnum.VACANCY_APPROVAL, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN
-        )
-    ),
+    current_user: User = Depends(require_permission(PermissionEnum.CLOSE_VACANCY)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> VacancyRequest:
     vr = _get_or_404_scoped(db, vacancy_request_id, scope)
@@ -454,11 +437,7 @@ def cancel_vacancy_request(
     payload: VacancyRequestCancelRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_roles_or_coordinator_capability(
-            CoordinatorCapabilityEnum.VACANCY_APPROVAL, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN
-        )
-    ),
+    current_user: User = Depends(require_permission(PermissionEnum.CANCEL_VACANCY)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> VacancyRequest:
     vr = _get_or_404_scoped(db, vacancy_request_id, scope)

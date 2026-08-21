@@ -5,15 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.deps import (
-    CampusScope,
-    enforce_campus_match,
-    get_campus_scope,
-    get_db,
-    require_roles,
-    require_roles_or_coordinator_capability,
-)
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
+from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_permission
+from app.models.enums import PermissionEnum
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.schemas.job_distribution import DistributeRequest, DistributeResponse, JobAdRead
@@ -22,18 +15,9 @@ from app.services.n8n_client import N8nClient, get_n8n_client_or_503
 
 router = APIRouter(prefix="/job-postings", tags=["job-distribution"])
 
-# RECRUITMENT_COORDINATOR's membership is additionally conditional on a
-# JOB_DISTRIBUTION_SCREENING capability grant -- see
-# require_roles_or_coordinator_capability.
-_DISTRIBUTE_ROLES = (UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
-
 
 def _distribute_gate(
-    current_user: User = Depends(
-        require_roles_or_coordinator_capability(
-            CoordinatorCapabilityEnum.JOB_DISTRIBUTION_SCREENING, *_DISTRIBUTE_ROLES
-        )
-    ),
+    current_user: User = Depends(require_permission(PermissionEnum.JOB_DISTRIBUTION)),
 ) -> User:
     return current_user
 

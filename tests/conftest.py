@@ -48,6 +48,7 @@ from app.models.enums import (
     HousekeepingShiftEnum,
     JoiningDocumentStatusEnum,
     OfferStatusEnum,
+    PermissionEnum,
     StaffRoleCategoryEnum,
     UserRoleEnum,
 )
@@ -57,10 +58,12 @@ from app.models.location import Location
 from app.models.offer import Offer
 from app.models.sanctioned_strength import SanctionedStrength
 from app.models.user import User
+from app.models.user_permission_grant import UserPermissionGrant
 from app.models.vacancy_request import VacancyRequest
 from app.services import joining as joining_service
 from app.services import pipeline, vacancy_workflow
 from app.services.ai_client import get_ai_client, get_openai_client
+from app.services.permissions import seed_default_permissions
 from app.services.storage import get_minio_client
 from app.services.vector_store import get_chroma_collection
 
@@ -461,6 +464,13 @@ def user_factory(db_session, campus_factory):
         )
         db_session.add(user)
         db_session.flush()
+        # Mirrors POST /users's own seeding (app/api/v1/routers/users.py's
+        # create_user) so a test user built directly in the DB has the same
+        # default UserPermissionGrant rows a real user of that role would get
+        # -- required now that Phase 2 routers gate on require_permission()
+        # rather than role alone. Idempotent/no-op for SUPER_ADMIN/CANDIDATE.
+        seed_default_permissions(db_session, user)
+        db_session.flush()
         user.plain_password = password  # test-only convenience, not a model field
         return user
 
@@ -480,6 +490,27 @@ def grant_coordinator_capability(db_session):
             CoordinatorCapabilityGrant(
                 user_id=user.id,
                 capability=capability,
+                granted_by_id=granted_by.id if granted_by else None,
+            )
+        )
+        db_session.flush()
+
+    return _grant
+
+
+@pytest.fixture()
+def grant_permission(db_session):
+    """Directly inserts a UserPermissionGrant row -- same shape as
+    grant_coordinator_capability above, for tests exercising Phase 2's
+    require_permission()-gated endpoints. Idempotent-ish is not needed here
+    (tests build fresh users), unlike app.services.permissions.
+    seed_default_permissions."""
+
+    def _grant(user: User, permission: PermissionEnum, granted_by: User | None = None) -> None:
+        db_session.add(
+            UserPermissionGrant(
+                user_id=user.id,
+                permission=permission,
                 granted_by_id=granted_by.id if granted_by else None,
             )
         )

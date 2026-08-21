@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
 
 from tests.conftest import auth_headers
 
@@ -68,13 +68,21 @@ def test_recruitment_coordinator_without_grant_forbidden_to_schedule_interview(
 
 
 def test_recruitment_coordinator_with_interviews_grant_can_schedule_interview(
-    client, published_vacancy_factory, application_factory, user_factory, grant_coordinator_capability
+    client, published_vacancy_factory, application_factory, user_factory, grant_coordinator_capability, grant_permission
 ):
+    # Both grants inserted directly -- CoordinatorCapabilityGrant (still real)
+    # plus the UserPermissionGrant this endpoint actually checks now
+    # (require_permission(SCHEDULE_INTERVIEW)), mirroring what a real
+    # coordinator would have post-migration-backfill (e5a4d57be056 maps
+    # INTERVIEWS onto SCHEDULE_INTERVIEW/RESCHEDULE_INTERVIEW/
+    # CANCEL_INTERVIEW/MARK_INTERVIEW_COMPLETED) -- the test DB never runs
+    # that migration, so both are inserted directly here.
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
     panel_member = user_factory(UserRoleEnum.INTERVIEW_PANEL_MEMBER, campus_code="SSE")
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.INTERVIEWS)
+    grant_permission(coordinator, PermissionEnum.SCHEDULE_INTERVIEW)
 
     response = client.post(
         "/api/v1/interviews",

@@ -214,6 +214,71 @@ def test_recruitment_coordinator_forbidden_from_joining_entirely(
     assert employee.status_code == 403
 
 
+def test_recruitment_officer_can_complete_full_onboarding_flow(
+    client, published_vacancy_factory, application_factory
+):
+    # Phase 2 of the permission-matrix epic deliberately closed a known
+    # frontend/backend drift: AppShell's nav has always shown /onboarding to
+    # RECRUITMENT_OFFICER, but before this cutover the 4 write actions past
+    # mark-joined (allot-room/orientation/handover/document-status) were
+    # HR_ADMIN-only. RECRUITMENT_OFFICER holds ONBOARDING by Phase 1 default,
+    # so every step here should now succeed for a plain RECRUITMENT_OFFICER,
+    # not just HR_ADMIN -- confirmed with the user before this change.
+    vacancy = published_vacancy_factory(slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    _drive_to_joining_confirmed(client, vacancy, application)
+    officer_headers = auth_headers(client, vacancy.recruitment_officer)
+
+    joined = client.post(
+        f"/api/v1/applications/{application.id}/joining/mark-joined", headers=officer_headers
+    )
+    assert joined.status_code == 200
+
+    documents = client.get(
+        f"/api/v1/applications/{application.id}/joining-documents", headers=officer_headers
+    ).json()["items"]
+    for doc in documents:
+        updated = client.patch(
+            f"/api/v1/joining-documents/{doc['id']}", headers=officer_headers, json={"status": "RECEIVED"}
+        )
+        assert updated.status_code == 200
+
+    allotment = client.post(
+        f"/api/v1/applications/{application.id}/joining/allot-department-room",
+        headers=officer_headers,
+        json={"department_id": str(vacancy.department.id), "room_allotted": "R-301"},
+    )
+    assert allotment.status_code == 200
+
+    orientation = client.post(
+        f"/api/v1/applications/{application.id}/joining/complete-orientation",
+        headers=officer_headers,
+        json={"orientation_date": "2026-09-05"},
+    )
+    assert orientation.status_code == 200
+
+    employee = client.post(
+        f"/api/v1/applications/{application.id}/joining/hand-over-to-hod",
+        headers=officer_headers,
+        json={"hod_assigned": "Dr. Test HOD", "designation": "Assistant Professor"},
+    )
+    assert employee.status_code == 200
+
+
+def test_campus_hod_still_forbidden_from_joining(client, user_factory, published_vacancy_factory, application_factory):
+    # Regression check: CAMPUS_HOD's Phase 1 default permission set does not
+    # include ONBOARDING -- must stay 403, unlike RECRUITMENT_OFFICER above.
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD)
+    vacancy = published_vacancy_factory(slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    _drive_to_joining_confirmed(client, vacancy, application)
+
+    response = client.get(
+        f"/api/v1/applications/{application.id}/joining-record", headers=auth_headers(client, hod)
+    )
+    assert response.status_code == 403
+
+
 def test_employee_codes_are_sequential_per_campus(client, published_vacancy_factory, application_factory):
     vacancy = published_vacancy_factory(slot_count=2)
 

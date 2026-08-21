@@ -10,11 +10,11 @@ from app.core.deps import (
     get_campus_scope,
     get_current_active_user,
     get_db,
-    require_roles,
+    require_permission,
     require_roles_or_coordinator_capability,
 )
 from app.models.application import Application
-from app.models.enums import CoordinatorCapabilityEnum, InterviewScheduleStatusEnum, UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, InterviewScheduleStatusEnum, PermissionEnum, UserRoleEnum
 from app.models.interview import InterviewFeedback, InterviewSchedule
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
@@ -28,20 +28,18 @@ from app.schemas.interview import (
 )
 from app.services import ai_client, interviews
 from app.services.ai_client import get_openai_client
+from app.services.permissions import has_permission
 
 router = APIRouter(prefix="/interviews", tags=["interviews"])
 
 # RECRUITMENT_COORDINATOR's membership is additionally conditional on an
 # INTERVIEWS capability grant -- see require_roles_or_coordinator_capability.
+# Still used by generate_interview_questions below (_questions_gate) --
+# no single PermissionEnum cleanly covers that endpoint's actual current
+# access (INTERVIEW_PANEL_MEMBER doesn't have SCHEDULE_INTERVIEW or any other
+# interview-write permission by Phase 1 default, so cutting it over would
+# regress panel members' access), so it's deliberately left on the old gate.
 _WRITE_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.SUPER_ADMIN)
-
-
-def _write_gate(
-    current_user: User = Depends(
-        require_roles_or_coordinator_capability(CoordinatorCapabilityEnum.INTERVIEWS, *_WRITE_ROLES)
-    ),
-) -> User:
-    return current_user
 
 
 def _questions_gate(
@@ -73,7 +71,7 @@ def create_interview(
     payload: InterviewScheduleCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_write_gate),
+    current_user: User = Depends(require_permission(PermissionEnum.SCHEDULE_INTERVIEW)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> InterviewSchedule:
     application = db.get(Application, payload.application_id)
@@ -137,9 +135,28 @@ def update_interview(
     payload: InterviewScheduleUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_write_gate),
+    current_user: User = Depends(get_current_active_user),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> InterviewSchedule:
+    # This one PATCH endpoint covers 3 distinct actions via payload.status --
+    # cancel gets its own permission; everything else (plain field edits,
+    # implicit reschedule, and marking COMPLETED through this generic
+    # endpoint rather than the panel-member feedback flow) falls under
+    # RESCHEDULE_INTERVIEW, which every role that can reach this endpoint
+    # today (HR_ADMIN, RECRUITMENT_OFFICER, and a RECRUITMENT_COORDINATOR
+    # with the old INTERVIEWS capability, via Phase 1's backfill) already
+    # has by default -- zero regression.
+    required_permission = (
+        PermissionEnum.CANCEL_INTERVIEW
+        if payload.status == InterviewScheduleStatusEnum.CANCELLED
+        else PermissionEnum.RESCHEDULE_INTERVIEW
+    )
+    if not has_permission(db, current_user, required_permission):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+
     schedule = _get_schedule_or_404_scoped(db, interview_id, scope)
 
     if payload.status == InterviewScheduleStatusEnum.COMPLETED:
@@ -161,7 +178,7 @@ def submit_interview_feedback(
     payload: InterviewFeedbackCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRoleEnum.INTERVIEW_PANEL_MEMBER, UserRoleEnum.SUPER_ADMIN)),
+    current_user: User = Depends(require_permission(PermissionEnum.MARK_INTERVIEW_COMPLETED)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> InterviewFeedback:
     schedule = _get_schedule_or_404_scoped(db, interview_id, scope)

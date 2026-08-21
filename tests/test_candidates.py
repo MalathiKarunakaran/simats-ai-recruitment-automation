@@ -1,4 +1,10 @@
-from app.models.enums import ApplicationStatusEnum, CoordinatorCapabilityEnum, HiringSlotStatusEnum, UserRoleEnum
+from app.models.enums import (
+    ApplicationStatusEnum,
+    CoordinatorCapabilityEnum,
+    HiringSlotStatusEnum,
+    PermissionEnum,
+    UserRoleEnum,
+)
 from app.models.hiring_slot import HiringSlot
 
 from tests.conftest import auth_headers, build_test_pdf
@@ -117,10 +123,19 @@ def test_recruitment_coordinator_without_grant_forbidden_to_create_candidate(cli
 
 
 def test_recruitment_coordinator_with_grant_can_create_and_withdraw_candidate(
-    client, user_factory, grant_coordinator_capability
+    client, user_factory, grant_coordinator_capability, grant_permission
 ):
+    # Both grants inserted directly -- CoordinatorCapabilityGrant (still real,
+    # independently consulted elsewhere) plus the UserPermissionGrant rows
+    # this router's endpoints actually check now (require_permission), which
+    # is what a real coordinator would have post-migration-backfill
+    # (e5a4d57be056 maps CANDIDATES_APPLICATIONS onto CREATE_CANDIDATE/
+    # EDIT_CANDIDATE/MANAGE_APPLICATIONS) -- the test DB never runs that
+    # migration, so both are inserted directly here.
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.CANDIDATES_APPLICATIONS)
+    grant_permission(coordinator, PermissionEnum.CREATE_CANDIDATE)
+    grant_permission(coordinator, PermissionEnum.EDIT_CANDIDATE)
 
     create = client.post(
         "/api/v1/candidates",

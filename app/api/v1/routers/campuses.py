@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_active_user, get_db, require_roles
+from app.core.deps import get_current_active_user, get_db, require_permission
 from app.models.campus import Campus
 from app.models.department import Department
-from app.models.enums import UserRoleEnum
+from app.models.enums import PermissionEnum
 from app.models.user import User
 from app.schemas.campus import CampusCreate, CampusRead, CampusUpdate
 from app.schemas.common import PaginatedResponse
@@ -50,7 +50,7 @@ def create_campus(
     payload: CampusCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_CAMPUSES)),
 ) -> Campus:
     campus = Campus(code=payload.code, name=payload.name, is_active=payload.is_active)
     db.add(campus)
@@ -83,7 +83,7 @@ def update_campus(
     payload: CampusUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_CAMPUSES)),
 ) -> Campus:
     campus = db.get(Campus, campus_id)
     if campus is None:
@@ -115,7 +115,7 @@ def delete_campus(
     campus_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_CAMPUSES)),
 ) -> None:
     campus = db.get(Campus, campus_id)
     if campus is None:

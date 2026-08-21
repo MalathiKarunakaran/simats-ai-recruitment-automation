@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db
-from app.models.enums import UserRoleEnum
+from app.core.deps import CampusScope, get_campus_scope, get_db, require_permission
+from app.models.enums import PermissionEnum
 from app.models.user import User
 from app.schemas.reporting import ADBriefingResponse, ReportResponse, WeeklyRecruitmentStatusResponse
 from app.services import exports, reporting
@@ -18,9 +18,14 @@ _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.
 _PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 
-def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
-    if current_user.role == UserRoleEnum.CANDIDATE:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted")
+# Every real non-CANDIDATE role's Phase 1 default permission set already
+# includes REPORTS, so this is a zero-regression tightening over the old
+# CANDIDATE-only-blocking _staff_only gate -- it also closes a real gap where
+# a CANDIDATE-role session could technically hit these endpoints (a
+# CANDIDATE never gets any permission grants -- seed_default_permissions
+# skips them -- so require_permission(REPORTS) blocks them too, same
+# end result as the old gate, just via the permission matrix now).
+def _staff_only(current_user: User = Depends(require_permission(PermissionEnum.REPORTS))) -> User:
     return current_user
 
 

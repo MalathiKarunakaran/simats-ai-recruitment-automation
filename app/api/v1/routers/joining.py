@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_roles
+from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_permission
 from app.models.application import Application
-from app.models.enums import ApplicationStatusEnum, UserRoleEnum
+from app.models.enums import ApplicationStatusEnum, PermissionEnum
 from app.models.joining import JoiningDocument, JoiningRecord
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
@@ -25,11 +25,22 @@ from app.services.audit import log_update
 
 router = APIRouter(tags=["joining"])
 
+# All endpoints in this router are gated on a single ONBOARDING permission
+# (Phase 2 of the permission-matrix epic). Before this cutover, reads +
+# mark-joined were RECRUITMENT_OFFICER+HR_ADMIN+SUPER_ADMIN while the other
+# 4 write actions (allot-room/orientation/handover/document-status) were
+# HR_ADMIN+SUPER_ADMIN only -- a real, known frontend/backend drift, since
+# AppShell's nav has always shown /onboarding to RECRUITMENT_OFFICER too.
+# Both HR_ADMIN and RECRUITMENT_OFFICER hold ONBOARDING by Phase 1 default,
+# so this cutover deliberately closes that drift (RECRUITMENT_OFFICER now
+# gets full, symmetric access across every action here, not just some),
+# confirmed with the user before making the change -- not just a mechanical
+# permission-system swap like every other router in this phase.
 # RECRUITMENT_COORDINATOR access to Joining/Onboarding was removed entirely
-# (a deliberate permission reduction, not gated by a capability grant like
-# the other four action groups -- see CoordinatorCapabilityEnum).
-_READ_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_OFFICER, UserRoleEnum.SUPER_ADMIN)
-_HR_ONLY_ROLES = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+# in an earlier change (not gated by a capability grant like the other four
+# action groups -- see CoordinatorCapabilityEnum) and stays removed: the
+# RECRUITMENT_COORDINATOR baseline in app.services.permissions does not
+# include ONBOARDING.
 
 
 def _get_application_or_404_scoped(db: Session, application_id: uuid.UUID, scope: CampusScope) -> Application:
@@ -54,7 +65,7 @@ def _get_joining_record_or_404(db: Session, application: Application) -> Joining
 def get_joining_record(
     application_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_READ_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JoiningRecord:
     application = _get_application_or_404_scoped(db, application_id, scope)
@@ -69,7 +80,7 @@ def list_joining_documents(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_READ_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> PaginatedResponse[JoiningDocumentRead]:
     application = _get_application_or_404_scoped(db, application_id, scope)
@@ -85,7 +96,7 @@ def update_joining_document(
     payload: JoiningDocumentUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_HR_ONLY_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JoiningDocument:
     document = db.get(JoiningDocument, document_id)
@@ -122,7 +133,7 @@ def mark_joined(
     application_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_READ_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JoiningRecord:
     application = _get_application_or_404_scoped(db, application_id, scope)
@@ -160,7 +171,7 @@ def allot_department_room(
     payload: DepartmentRoomAllotmentRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_HR_ONLY_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JoiningRecord:
     application = _get_application_or_404_scoped(db, application_id, scope)
@@ -204,7 +215,7 @@ def complete_orientation(
     payload: OrientationCompleteRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_HR_ONLY_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JoiningRecord:
     application = _get_application_or_404_scoped(db, application_id, scope)
@@ -244,7 +255,7 @@ def hand_over_to_hod(
     payload: HandoverToHodRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_HR_ONLY_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
     scope: CampusScope = Depends(get_campus_scope),
 ):
     application = _get_application_or_404_scoped(db, application_id, scope)

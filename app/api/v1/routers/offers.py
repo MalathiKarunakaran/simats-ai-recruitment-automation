@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_roles
+from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_permission, require_roles
 from app.models.application import Application
-from app.models.enums import ApplicationStatusEnum, OfferStatusEnum, UserRoleEnum
+from app.models.enums import ApplicationStatusEnum, OfferStatusEnum, PermissionEnum, UserRoleEnum
 from app.models.offer import Offer
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
@@ -39,7 +39,7 @@ def create_offer(
     payload: OfferCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.OFFERS)),
 ) -> Offer:
     application = db.get(Application, payload.application_id)
     if application is None:
@@ -115,7 +115,7 @@ def send_offer(
     offer_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.OFFERS)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Offer:
     offer = _get_or_404_scoped(db, offer_id, scope)
@@ -160,7 +160,7 @@ def accept_offer(
     offer_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.OFFERS)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Offer:
     offer = _get_or_404_scoped(db, offer_id, scope)
@@ -214,7 +214,7 @@ def decline_offer(
     payload: OfferDeclineRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.OFFERS)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Offer:
     offer = _get_or_404_scoped(db, offer_id, scope)
@@ -266,7 +266,7 @@ def withdraw_offer(
     offer_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.OFFERS)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Offer:
     offer = _get_or_404_scoped(db, offer_id, scope)
@@ -297,7 +297,7 @@ def mark_offer_expired(
     offer_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.OFFERS)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> Offer:
     offer = _get_or_404_scoped(db, offer_id, scope)
