@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.enums import CoordinatorCapabilityEnum, UserRoleEnum
+from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
 
 
 class UserCreate(BaseModel):
@@ -65,3 +65,23 @@ class CoordinatorCapabilitiesUpdate(BaseModel):
     deterministic end state, not a series of individual toggle calls)."""
 
     capabilities: list[CoordinatorCapabilityEnum]
+
+
+class UserPermissionsRead(BaseModel):
+    permissions: list[PermissionEnum]
+
+
+class UserPermissionsUpdate(BaseModel):
+    """Full-replace request, same semantics as CoordinatorCapabilitiesUpdate."""
+
+    permissions: list[PermissionEnum]
+
+
+class UserDepartmentScopeRead(BaseModel):
+    department_ids: list[uuid.UUID]
+
+
+class UserDepartmentScopeUpdate(BaseModel):
+    """Full-replace request, same semantics as CoordinatorCapabilitiesUpdate."""
+
+    department_ids: list[uuid.UUID]
