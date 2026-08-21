@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from sqlalchemy import delete, insert
 from sqlalchemy.orm import Session
 
 from app.core import security
@@ -32,6 +33,8 @@ from app.models.offer import Offer
 from app.models.resume_score import ResumeScore
 from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengthHistory
 from app.models.user import User
+from app.models.user_department_scope import user_department_scope
+from app.models.user_permission_grant import UserPermissionGrant
 from app.models.vacancy_request import VacancyRequest
 from app.schemas.common import PaginatedResponse
 from app.schemas.user import (
@@ -39,6 +42,10 @@ from app.schemas.user import (
     CoordinatorCapabilitiesRead,
     CoordinatorCapabilitiesUpdate,
     UserCreate,
+    UserDepartmentScopeRead,
+    UserDepartmentScopeUpdate,
+    UserPermissionsRead,
+    UserPermissionsUpdate,
     UserRead,
     UserSelfUpdate,
     UserUpdate,
@@ -488,3 +495,185 @@ def set_user_capabilities(
     db.commit()
 
     return CoordinatorCapabilitiesRead(capabilities=_capabilities_of(db, target.id))
+
+
+def _permissions_of(db: Session, user_id: uuid.UUID) -> list[PermissionEnum]:
+    rows = db.query(UserPermissionGrant).filter(UserPermissionGrant.user_id == user_id).all()
+    return [row.permission for row in rows]
+
+
+@router.get("/{user_id}/permissions", response_model=UserPermissionsRead)
+def get_user_permissions(
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> UserPermissionsRead:
+    """Readable by SUPER_ADMIN (any user) or by the user themselves (their
+    own record only) -- same narrowing as get_user_capabilities, since this
+    exposes what a user is granted access to do, not just their profile."""
+    if user_id != current_user.id and current_user.role != UserRoleEnum.SUPER_ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted")
+
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    return UserPermissionsRead(permissions=_permissions_of(db, target.id))
+
+
+@router.put("/{user_id}/permissions", response_model=UserPermissionsRead)
+def set_user_permissions(
+    user_id: uuid.UUID,
+    payload: UserPermissionsUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+) -> UserPermissionsRead:
+    """Full replace: the caller sends the complete desired permission set for
+    the target user; the server diffs against current grants and adds/removes
+    rows to reach that exact end state in one call. SUPER_ADMIN-only
+    (deliberately narrower than require_permission(MANAGE_USERS)) since
+    granting fine-grained permissions -- including MANAGE_USERS itself -- is
+    a bigger, self-escalating power than ordinary user management, same
+    reasoning as set_user_capabilities' own narrowing. Unlike
+    set_user_capabilities, applies to any staff role -- not just
+    RECRUITMENT_COORDINATOR -- except SUPER_ADMIN (implicit bypass, never
+    represented by grant rows) and CANDIDATE (never reaches a staff-gated
+    endpoint), both of which 400."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if target.role in (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.CANDIDATE):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Permission grants do not apply to SUPER_ADMIN or CANDIDATE users",
+        )
+
+    existing = db.query(UserPermissionGrant).filter(UserPermissionGrant.user_id == target.id).all()
+    existing_by_permission = {row.permission: row for row in existing}
+    desired = set(payload.permissions)
+
+    before = sorted(perm.value for perm in existing_by_permission)
+
+    for permission, row in existing_by_permission.items():
+        if permission not in desired:
+            db.delete(row)
+
+    for permission in desired:
+        if permission not in existing_by_permission:
+            db.add(
+                UserPermissionGrant(
+                    user_id=target.id,
+                    permission=permission,
+                    granted_by_id=current_user.id,
+                )
+            )
+
+    after = sorted(perm.value for perm in desired)
+
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="User",
+        entity=target,
+        campus_context_id=target.campus_id,
+        before_state={"permissions": before},
+        after_state={"permissions": after},
+        request=request,
+    )
+    db.commit()
+
+    return UserPermissionsRead(permissions=_permissions_of(db, target.id))
+
+
+def _department_scope_of(db: Session, user_id: uuid.UUID) -> list[uuid.UUID]:
+    rows = db.execute(
+        user_department_scope.select().where(user_department_scope.c.user_id == user_id)
+    ).all()
+    return [row.department_id for row in rows]
+
+
+@router.get("/{user_id}/department-scope", response_model=UserDepartmentScopeRead)
+def get_user_department_scope(
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> UserDepartmentScopeRead:
+    """Readable by SUPER_ADMIN (any user) or by the user themselves (their
+    own record only) -- same narrowing as get_user_capabilities/
+    get_user_permissions."""
+    if user_id != current_user.id and current_user.role != UserRoleEnum.SUPER_ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted")
+
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    return UserDepartmentScopeRead(department_ids=_department_scope_of(db, target.id))
+
+
+@router.put("/{user_id}/department-scope", response_model=UserDepartmentScopeRead)
+def set_user_department_scope(
+    user_id: uuid.UUID,
+    payload: UserDepartmentScopeUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+) -> UserDepartmentScopeRead:
+    """Full replace: the caller sends the complete desired department-scope
+    list for the target user; the server diffs against the current
+    user_department_scope rows and adds/removes rows to reach that exact end
+    state in one call. SUPER_ADMIN-only, same narrowing as
+    set_user_capabilities/set_user_permissions. No role restriction on the
+    target -- any staff role can have department scope."""
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    desired = set(payload.department_ids)
+    if desired:
+        found_ids = {
+            row.id for row in db.query(Department.id).filter(Department.id.in_(desired)).all()
+        }
+        unknown_ids = desired - found_ids
+        if unknown_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown department_id(s): {', '.join(str(i) for i in sorted(unknown_ids, key=str))}",
+            )
+
+    existing = set(_department_scope_of(db, target.id))
+
+    before = sorted(str(i) for i in existing)
+
+    to_remove = existing - desired
+    to_add = desired - existing
+
+    if to_remove:
+        db.execute(
+            delete(user_department_scope).where(
+                user_department_scope.c.user_id == target.id,
+                user_department_scope.c.department_id.in_(to_remove),
+            )
+        )
+    if to_add:
+        db.execute(
+            insert(user_department_scope),
+            [{"user_id": target.id, "department_id": department_id} for department_id in to_add],
+        )
+
+    after = sorted(str(i) for i in desired)
+
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="User",
+        entity=target,
+        campus_context_id=target.campus_id,
+        before_state={"department_ids": before},
+        after_state={"department_ids": after},
+        request=request,
+    )
+    db.commit()
+
+    return UserDepartmentScopeRead(department_ids=_department_scope_of(db, target.id))
