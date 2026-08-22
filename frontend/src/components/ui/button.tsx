@@ -14,17 +14,28 @@ const buttonVariants = cva(
       // identical to spec, kept under its established name rather than
       // introducing a duplicate to avoid touching every call site.
       variant: {
-        // UI redesign Phase 1: a subtle gradient fill across this app's own
-        // existing brand teal spectrum (--brand-primary -> --brand-secondary)
-        // instead of a flat --primary fill -- NOT the new 3-stop
-        // --brand-signature-gradient (index.css), which stays reserved for
-        // identity marks (Phase 2's sidebar-logo ring / hero dashboard tile)
-        // per the "one signature, spent in one place" discipline. A gradient
-        // can't hover to a flat color the same way bg-primary could, so the
-        // hover mechanic swaps to `brightness` (darkens the whole gradient
-        // uniformly) instead of `hover:bg-brand-primary-hover`.
+        // UI redesign Phase 1: a subtle gradient fill instead of a flat
+        // --primary fill -- NOT the new 3-stop --brand-signature-gradient
+        // (index.css), which stays reserved for identity marks (Phase 2's
+        // sidebar-logo ring / hero dashboard tile) per the "one signature,
+        // spent in one place" discipline. A gradient can't hover to a flat
+        // color the same way bg-primary could, so the hover mechanic swaps
+        // to `brightness` (darkens the whole gradient uniformly) instead of
+        // `hover:bg-brand-primary-hover`.
+        //
+        // 2026-08-22 (design-system-foundation step 2): originally ran
+        // --brand-primary -> --brand-secondary (teal -> teal, a true
+        // monochrome gradient back when --brand-primary was also teal).
+        // Since --brand-primary shifted to blue but --brand-secondary stays
+        // teal (a separate, still-valid accent color, not just a primary
+        // shade), keeping this pairing would have rendered every primary
+        // button as a blue-to-teal gradient -- directly undermining the
+        // point of the primary-color shift. Repointed to
+        // --brand-primary -> --brand-primary-hover instead, so this stays a
+        // true monochrome gradient of whatever --brand-primary currently is
+        // (blue -> blue-700 today), not tied to --brand-secondary's color.
         default:
-          "bg-gradient-to-br from-[var(--brand-primary)] to-[var(--brand-secondary)] text-primary-foreground shadow-sm hover:brightness-95 dark:hover:brightness-110",
+          "bg-gradient-to-br from-[var(--brand-primary)] to-[var(--brand-primary-hover)] text-primary-foreground shadow-sm hover:brightness-95 dark:hover:brightness-110",
         outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground hover:border-primary/40",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         destructive: "bg-destructive text-destructive-foreground shadow-sm hover:brightness-90",
