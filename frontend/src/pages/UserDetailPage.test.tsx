@@ -28,15 +28,23 @@ const mockedDeleteUser = vi.mocked(usersApi.deleteUser);
 const mockedForceLogoutUser = vi.mocked(usersApi.forceLogoutUser);
 const mockedGetUserCapabilities = vi.mocked(usersApi.getUserCapabilities);
 const mockedSetUserCapabilities = vi.mocked(usersApi.setUserCapabilities);
+const mockedGetUserPermissions = vi.mocked(usersApi.getUserPermissions);
+const mockedSetUserPermissions = vi.mocked(usersApi.setUserPermissions);
 const mockedAdminResetPassword = vi.mocked(usersApi.adminResetPassword);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedListAuditLogs = vi.mocked(auditLogsApi.listAuditLogs);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 
-function mockCurrentUser(role: UserRead["role"] | null) {
+// The current viewer's own id, distinct from every target user fixture below
+// -- needed now that Recent Activity's visibility is derived from a
+// self-read of GET /users/{currentUser.id}/permissions rather than a
+// hardcoded role list.
+const CURRENT_USER_ID = "u-current-viewer";
+
+function mockCurrentUser(role: UserRead["role"] | null, id: string = CURRENT_USER_ID) {
   mockedUseAuth.mockReturnValue({
-    user: role ? ({ role } as UserRead) : null,
+    user: role ? ({ role, id } as UserRead) : null,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
@@ -88,19 +96,22 @@ const HR_ADMIN_USER: UserRead = {
 };
 
 // Every viewer who can even reach this page is in USER_MANAGEMENT_ROLES
-// (SUPER_ADMIN, HR_ADMIN) -- both are members of CAN_VIEW_AUDIT_ROLES, so
-// listAuditLogs is fetched on essentially every render in these tests.
-// Default to an empty result so tests that don't care about Recent Activity
-// don't need to mock it individually.
+// (SUPER_ADMIN, HR_ADMIN). Default to an empty result so tests that don't
+// care about Recent Activity don't need to mock it individually.
 beforeEach(() => {
   mockedListAuditLogs.mockResolvedValue([]);
+  // Recent Activity's visibility (for a non-SUPER_ADMIN viewer) and the
+  // Permission Matrix card's data both come from GET .../permissions --
+  // default to no grants so tests that don't care about either don't need to
+  // mock this individually.
+  mockedGetUserPermissions.mockResolvedValue({ permissions: [] });
 });
 
-function renderPage() {
+function renderPage(targetId: string = COORDINATOR.id) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[`/users/${COORDINATOR.id}`]}>
+      <MemoryRouter initialEntries={[`/users/${targetId}`]}>
         <Routes>
           <Route path="/users/:id" element={<UserDetailPage />} />
           <Route path="/users" element={<p>Users list</p>} />
@@ -627,7 +638,7 @@ describe("UserDetailPage force logout", () => {
 });
 
 describe("UserDetailPage recent activity", () => {
-  it("fetches the 5 most recent audit log entries for this actor and renders friendly labels", async () => {
+  it("fetches a larger page of audit log entries for this actor and renders friendly labels", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(COORDINATOR);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -671,9 +682,42 @@ describe("UserDetailPage recent activity", () => {
 
     renderPage();
 
-    await waitFor(() => expect(mockedListAuditLogs).toHaveBeenCalledWith({ actorUserId: COORDINATOR.id, limit: 5 }));
+    await waitFor(() => expect(mockedListAuditLogs).toHaveBeenCalledWith({ actorUserId: COORDINATOR.id, limit: 20 }));
     expect(await screen.findByText("Logged in")).toBeInTheDocument();
     expect(screen.getByText("Vacancy request updated")).toBeInTheDocument();
+  });
+
+  it("filters out TOKEN_REFRESHED entries so they never crowd out real activity", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    const baseEntry = {
+      actor_user_id: COORDINATOR.id,
+      actor_role_snapshot: "RECRUITMENT_COORDINATOR",
+      campus_context_id: null,
+      entity_type: null,
+      entity_id: null,
+      before_state: null,
+      after_state: null,
+      http_method: null,
+      http_path: null,
+      status_code: null,
+      ip_address: null,
+      user_agent: null,
+    };
+    mockedListAuditLogs.mockResolvedValue([
+      { ...baseEntry, id: "log-a", action: "TOKEN_REFRESHED", created_at: "2026-08-19T12:00:00Z" },
+      { ...baseEntry, id: "log-b", action: "LOGIN_SUCCESS", created_at: "2026-08-19T11:00:00Z" },
+      { ...baseEntry, id: "log-c", action: "TOKEN_REFRESHED", created_at: "2026-08-19T10:00:00Z" },
+      { ...baseEntry, id: "log-d", action: "LOGOUT", created_at: "2026-08-19T09:00:00Z" },
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByText("Logged in")).toBeInTheDocument();
+    expect(screen.getByText("Logged out")).toBeInTheDocument();
+    expect(screen.queryByText(/TOKEN_REFRESHED/)).not.toBeInTheDocument();
   });
 
   it("falls back to a generic 'action entity' label for an unmapped action/entity_type combination", async () => {
@@ -728,6 +772,182 @@ describe("UserDetailPage recent activity", () => {
     renderPage();
 
     expect(await screen.findByText("No recent activity for this user.")).toBeInTheDocument();
+  });
+});
+
+describe("UserDetailPage recent activity visibility -- dynamic ACTIVITY_LOG permission", () => {
+  it("shows Recent Activity for a non-Super-Admin viewer who has been granted ACTIVITY_LOG", async () => {
+    mockCurrentUser("HR_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedGetUserPermissions.mockImplementation(async (id) =>
+      id === CURRENT_USER_ID ? { permissions: ["ACTIVITY_LOG"] } : { permissions: [] },
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(mockedGetUserPermissions).toHaveBeenCalledWith(CURRENT_USER_ID));
+    expect(await screen.findByText("Recent Activity")).toBeInTheDocument();
+  });
+
+  it("hides Recent Activity for a non-Super-Admin viewer without ACTIVITY_LOG granted", async () => {
+    mockCurrentUser("HR_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedGetUserPermissions.mockResolvedValue({ permissions: [] });
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: COORDINATOR.full_name })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Recent Activity")).not.toBeInTheDocument();
+  });
+
+  it("always shows Recent Activity for a Super Admin viewer regardless of their own grant rows -- implicit bypass", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    // SUPER_ADMIN never has UserPermissionGrant rows of its own on the
+    // backend -- confirm the frontend doesn't rely on this call returning
+    // ACTIVITY_LOG to show the section.
+    mockedGetUserPermissions.mockResolvedValue({ permissions: [] });
+
+    renderPage();
+
+    expect(await screen.findByText("Recent Activity")).toBeInTheDocument();
+  });
+});
+
+describe("UserDetailPage permission matrix", () => {
+  it("renders the Permission Matrix card, grouped by category, for a Super Admin viewer", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedGetUserPermissions.mockResolvedValue({ permissions: [] });
+
+    renderPage(HR_ADMIN_USER.id);
+
+    expect(await screen.findByText("Permission Matrix")).toBeInTheDocument();
+    expect(mockedGetUserPermissions).toHaveBeenCalledWith(HR_ADMIN_USER.id);
+    expect(screen.getByText("Vacancy Management")).toBeInTheDocument();
+    expect(screen.getByText("Candidates")).toBeInTheDocument();
+    expect(screen.getByText("Interviews")).toBeInTheDocument();
+    expect(screen.getByText("Recruitment")).toBeInTheDocument();
+    // Plain getByText("Administration") is ambiguous -- the breadcrumb's
+    // "Administration" crumb is also on the page as a plain <span>; the
+    // category label is an <h3>, so scope to the heading role instead.
+    expect(screen.getByRole("heading", { name: "Administration" })).toBeInTheDocument();
+    expect(screen.getByText("System")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View vacancies" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage users" })).toBeInTheDocument();
+  });
+
+  it("pre-selects the target's currently granted permissions", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedGetUserPermissions.mockResolvedValue({ permissions: ["VIEW_VACANCY", "MANAGE_USERS"] });
+
+    renderPage(HR_ADMIN_USER.id);
+
+    const viewVacancyButton = await screen.findByRole("button", { name: "View vacancies" });
+    expect(viewVacancyButton.className).toContain("justify-start");
+    // Toggled-on buttons use the "default" Button variant; toggled-off use
+    // "outline" -- same visual convention as Coordinator capabilities above.
+    expect(screen.getByRole("button", { name: "Manage users" })).toBeInTheDocument();
+  });
+
+  it("toggles a permission and saves the full replacement set", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedGetUserPermissions.mockResolvedValue({ permissions: ["VIEW_VACANCY"] });
+    mockedSetUserPermissions.mockResolvedValue({ permissions: ["VIEW_VACANCY", "MANAGE_USERS"] });
+
+    renderPage(HR_ADMIN_USER.id);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Manage users" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save permissions" }));
+
+    await waitFor(() =>
+      expect(mockedSetUserPermissions).toHaveBeenCalledWith(HR_ADMIN_USER.id, ["VIEW_VACANCY", "MANAGE_USERS"]),
+    );
+    expect(await screen.findByText("Permissions saved.")).toBeInTheDocument();
+  });
+
+  it("hides the Permission Matrix card for a Super Admin target", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...HR_ADMIN_USER, role: "SUPER_ADMIN" });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    // `mockedGetUserPermissions`'s call history isn't reset between tests in
+    // this file, and the current viewer's own permission self-check (for
+    // Recent Activity's dynamic visibility) fires regardless of the target's
+    // role -- so count calls scoped to *this specific target id* rather than
+    // the mock's total call count, which other tests may have already bumped.
+    const targetCallsBefore = mockedGetUserPermissions.mock.calls.filter(
+      ([calledId]) => calledId === HR_ADMIN_USER.id,
+    ).length;
+
+    renderPage(HR_ADMIN_USER.id);
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: HR_ADMIN_USER.full_name })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Permission Matrix")).not.toBeInTheDocument();
+    const targetCallsAfter = mockedGetUserPermissions.mock.calls.filter(
+      ([calledId]) => calledId === HR_ADMIN_USER.id,
+    ).length;
+    expect(targetCallsAfter).toBe(targetCallsBefore);
+  });
+
+  it("hides the Permission Matrix card for a Candidate target", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue({ ...HR_ADMIN_USER, role: "CANDIDATE" });
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage(HR_ADMIN_USER.id);
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: HR_ADMIN_USER.full_name })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Permission Matrix")).not.toBeInTheDocument();
+  });
+
+  it("hides the Permission Matrix card for an HR Admin viewer -- Super Admin only", async () => {
+    mockCurrentUser("HR_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: COORDINATOR.full_name })).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Permission Matrix")).not.toBeInTheDocument();
+  });
+
+  it("still shows the existing Coordinator capabilities card alongside the new Permission Matrix card for a coordinator target", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedGetUserCapabilities.mockResolvedValue({ capabilities: [] });
+    mockedGetUserPermissions.mockResolvedValue({ permissions: [] });
+
+    renderPage();
+
+    expect(await screen.findByText("Coordinator capabilities")).toBeInTheDocument();
+    expect(await screen.findByText("Permission Matrix")).toBeInTheDocument();
   });
 });
 

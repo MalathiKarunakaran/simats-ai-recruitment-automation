@@ -4,7 +4,9 @@ import type {
   CoordinatorCapabilitiesRead,
   CoordinatorCapability,
   PaginatedResponse,
+  Permission,
   UserCreatePayload,
+  UserPermissionsRead,
   UserRead,
   UserSelfUpdatePayload,
   UserUpdatePayload,
@@ -72,5 +74,16 @@ export async function setUserCapabilities(
   return apiFetch<CoordinatorCapabilitiesRead>(`/users/${id}/capabilities`, {
     method: "PUT",
     body: JSON.stringify({ capabilities }),
+  });
+}
+
+export async function getUserPermissions(id: string): Promise<UserPermissionsRead> {
+  return apiFetch<UserPermissionsRead>(`/users/${id}/permissions`);
+}
+
+export async function setUserPermissions(id: string, permissions: Permission[]): Promise<UserPermissionsRead> {
+  return apiFetch<UserPermissionsRead>(`/users/${id}/permissions`, {
+    method: "PUT",
+    body: JSON.stringify({ permissions }),
   });
 }

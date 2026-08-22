@@ -12,10 +12,13 @@ import {
   ASSIGNABLE_STAFF_ROLES,
   COORDINATOR_CAPABILITIES,
   COORDINATOR_CAPABILITY_LABELS,
+  PERMISSION_CATEGORIES,
+  PERMISSION_LABELS,
   SINGLE_CAMPUS_SCOPE_ROLES,
   USER_MANAGEMENT_ROLES,
   type AuditLogRead,
   type CoordinatorCapability,
+  type Permission,
   type UserRole,
 } from "@/api/types";
 import {
@@ -24,7 +27,9 @@ import {
   forceLogoutUser,
   getUser,
   getUserCapabilities,
+  getUserPermissions,
   setUserCapabilities,
+  setUserPermissions,
   updateUser,
 } from "@/api/users";
 import { useAuth } from "@/auth/AuthContext";
@@ -44,15 +49,6 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { combine, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
-
-// Mirrors the backend's own audit-log read-role gate exactly (same set as
-// ActivityLogPage's own CAN_VIEW_ROLES -- app/api/v1/routers/audit_logs.py::_READ_ROLES).
-const CAN_VIEW_AUDIT_ROLES: readonly UserRole[] = [
-  "SUPER_ADMIN",
-  "HR_ADMIN",
-  "ASSOCIATE_DEAN_RECRUITMENT",
-  "CAMPUS_HOD",
-];
 
 function getInitials(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
@@ -131,14 +127,52 @@ export function UserDetailPage() {
     enabled: Boolean(id) && canManageCapabilities && isCoordinator,
   });
 
-  // GET /audit-logs is gated to SUPER_ADMIN/HR_ADMIN/ASSOCIATE_DEAN_RECRUITMENT/
-  // CAMPUS_HOD server-side -- only fetch Recent Activity for a viewer who can
-  // actually read it, same as ActivityLogPage's own gate.
-  const canViewActivity = Boolean(currentUser && CAN_VIEW_AUDIT_ROLES.includes(currentUser.role));
+  // GET /audit-logs is now gated server-side by the ACTIVITY_LOG permission
+  // (app/api/v1/routers/audit_logs.py), individually grantable/revocable per
+  // user rather than purely role-derived -- fetch the current viewer's own
+  // permission grants (self-read is allowed for any authenticated user) and
+  // check dynamically instead of a hardcoded role list, which would silently
+  // drift the moment a user's grants differ from their role's default.
+  // SUPER_ADMIN is special-cased true, mirroring app.services.permissions
+  // .has_permission's own implicit "has every permission" bypass -- a
+  // SUPER_ADMIN never has UserPermissionGrant rows of their own, so a bare
+  // `.includes` would incorrectly hide this section for them.
+  const { data: viewerPermissionsData } = useQuery({
+    queryKey: ["user-permissions", currentUser?.id],
+    queryFn: () => getUserPermissions(currentUser!.id),
+    enabled: Boolean(currentUser?.id),
+  });
+  const canViewActivity =
+    currentUser?.role === "SUPER_ADMIN" || Boolean(viewerPermissionsData?.permissions.includes("ACTIVITY_LOG"));
   const { data: activityEntries, isLoading: activityLoading } = useQuery({
     queryKey: ["audit-logs", "actor", id],
-    queryFn: () => listAuditLogs({ actorUserId: id!, limit: 5 }),
+    queryFn: async () => {
+      // TOKEN_REFRESHED fires on every token refresh -- pure noise in a
+      // "recent activity for this user" feed. Fetch a larger page, filter it
+      // out client-side, then take the 5 most recent of what remains. No
+      // backend query param for this; the endpoint doesn't support it.
+      const entries = await listAuditLogs({ actorUserId: id!, limit: 20 });
+      return entries.filter((entry) => entry.action !== "TOKEN_REFRESHED").slice(0, 5);
+    },
     enabled: Boolean(id) && canViewActivity,
+  });
+
+  // Visible to SUPER_ADMIN for any target except SUPER_ADMIN/CANDIDATE --
+  // mirrors set_user_permissions' own 400 guard so this never renders a save
+  // control that would just fail server-side. Requires `target` to have
+  // actually loaded first: while it's still undefined, `undefined !==
+  // "SUPER_ADMIN"` and `undefined !== "CANDIDATE"` would otherwise make this
+  // evaluate true during every page's initial load, firing a premature (and,
+  // for a real SUPER_ADMIN/CANDIDATE target, incorrect) permissions fetch.
+  const canManagePermissions =
+    currentUser?.role === "SUPER_ADMIN" &&
+    Boolean(target) &&
+    target?.role !== "SUPER_ADMIN" &&
+    target?.role !== "CANDIDATE";
+  const { data: targetPermissionsData } = useQuery({
+    queryKey: ["user-permissions", id],
+    queryFn: () => getUserPermissions(id!),
+    enabled: Boolean(id) && canManagePermissions,
   });
 
   const [role, setRole] = useState<UserRole>("RECRUITMENT_OFFICER");
@@ -147,6 +181,7 @@ export function UserDetailPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCapabilities, setSelectedCapabilities] = useState<CoordinatorCapability[]>([]);
+  const [selectedPermissions, setSelectedPermissions] = useState<Permission[]>([]);
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false);
   const [reactivateDialogOpen, setReactivateDialogOpen] = useState(false);
@@ -186,9 +221,20 @@ export function UserDetailPage() {
     setSelectedCapabilities(capabilitiesData.capabilities);
   }, [capabilitiesData]);
 
+  useEffect(() => {
+    if (!targetPermissionsData) return;
+    setSelectedPermissions(targetPermissionsData.permissions);
+  }, [targetPermissionsData]);
+
   function toggleCapability(capability: CoordinatorCapability) {
     setSelectedCapabilities((prev) =>
       prev.includes(capability) ? prev.filter((c) => c !== capability) : [...prev, capability],
+    );
+  }
+
+  function togglePermission(permission: Permission) {
+    setSelectedPermissions((prev) =>
+      prev.includes(permission) ? prev.filter((p) => p !== permission) : [...prev, permission],
     );
   }
 
@@ -262,6 +308,16 @@ export function UserDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ["user-capabilities", id] });
     },
     onError: (err) => setCapabilitiesError(err instanceof ApiError ? err.message : "Update failed"),
+  });
+
+  const [permissionsError, setPermissionsError] = useState<string | null>(null);
+  const savePermissionsMutation = useMutation({
+    mutationFn: () => setUserPermissions(id!, selectedPermissions),
+    onSuccess: () => {
+      setPermissionsError(null);
+      void queryClient.invalidateQueries({ queryKey: ["user-permissions", id] });
+    },
+    onError: (err) => setPermissionsError(err instanceof ApiError ? err.message : "Update failed"),
   });
 
   const resetPasswordMutation = useMutation({
@@ -767,6 +823,57 @@ export function UserDetailPage() {
                   onClick={() => saveCapabilitiesMutation.mutate()}
                 >
                   {saveCapabilitiesMutation.isPending ? "Saving…" : "Save capabilities"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {canManagePermissions ? (
+          <Card className="border-brand-primary/20 bg-brand-primary/5 backdrop-blur-sm lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Permission Matrix</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-6">
+              <p className="text-sm text-muted-foreground">
+                Grant or revoke fine-grained access for this user, grouped by area. This full-replace matrix is
+                independent of any Coordinator capabilities above.
+              </p>
+
+              <div className="flex flex-col gap-6">
+                {PERMISSION_CATEGORIES.map((category) => (
+                  <div key={category.key} className="flex flex-col gap-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {category.label}
+                    </h3>
+                    <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background/40 p-3 backdrop-blur-sm">
+                      {category.permissions.map((permission) => (
+                        <Button
+                          key={permission}
+                          type="button"
+                          variant={selectedPermissions.includes(permission) ? "default" : "outline"}
+                          className="justify-start text-left font-normal"
+                          onClick={() => togglePermission(permission)}
+                        >
+                          {PERMISSION_LABELS[permission]}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {permissionsError ? <p className="text-sm text-destructive">{permissionsError}</p> : null}
+              {savePermissionsMutation.isSuccess ? (
+                <p className="text-sm text-muted-foreground">Permissions saved.</p>
+              ) : null}
+
+              <div>
+                <Button
+                  disabled={savePermissionsMutation.isPending}
+                  onClick={() => savePermissionsMutation.mutate()}
+                >
+                  {savePermissionsMutation.isPending ? "Saving…" : "Save permissions"}
                 </Button>
               </div>
             </CardContent>
