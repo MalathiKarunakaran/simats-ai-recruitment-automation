@@ -5,10 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import (
     CampusScope,
+    DepartmentScope,
     enforce_campus_match,
+    enforce_department_match,
     get_campus_scope,
     get_current_active_user,
     get_db,
+    get_department_scope,
     require_permission,
 )
 from app.models.employee import Employee
@@ -46,10 +49,13 @@ def list_employees(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> PaginatedResponse[EmployeeRead]:
     query = db.query(Employee)
     if not scope.is_global:
         query = query.filter(Employee.campus_id == scope.campus_id)
+    if scope_dept.is_restricted:
+        query = query.filter(Employee.department_id.in_(scope_dept.department_ids))
     if employment_status is not None:
         query = query.filter(Employee.employment_status == employment_status)
     if department_id is not None:
@@ -67,11 +73,13 @@ def get_employee(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> Employee:
     employee = db.get(Employee, employee_id)
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, employee.campus_id)
+    enforce_department_match(scope_dept, employee.department_id)
     return employee
 
 
@@ -83,11 +91,13 @@ def offboard_employee(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(PermissionEnum.EDIT_EMPLOYEES)),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> Employee:
     employee = db.get(Employee, employee_id)
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, employee.campus_id)
+    enforce_department_match(scope_dept, employee.department_id)
 
     employees_service.offboard_employee(
         db,

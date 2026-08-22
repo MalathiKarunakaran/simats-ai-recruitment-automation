@@ -7,10 +7,13 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import (
     CampusScope,
+    DepartmentScope,
     enforce_campus_match,
+    enforce_department_match,
     get_campus_scope,
     get_current_active_user,
     get_db,
+    get_department_scope,
     require_permission,
     require_roles,
     require_roles_or_coordinator_capability,
@@ -72,11 +75,17 @@ def _snapshot(vr: VacancyRequest) -> dict:
     }
 
 
-def _get_or_404_scoped(db: Session, vacancy_request_id: uuid.UUID, scope: CampusScope) -> VacancyRequest:
+def _get_or_404_scoped(
+    db: Session,
+    vacancy_request_id: uuid.UUID,
+    scope: CampusScope,
+    scope_dept: DepartmentScope,
+) -> VacancyRequest:
     vr = db.get(VacancyRequest, vacancy_request_id)
     if vr is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, vr.campus_id)
+    enforce_department_match(scope_dept, vr.department_id)
     return vr
 
 
@@ -183,10 +192,13 @@ def list_vacancy_requests(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> PaginatedResponse[VacancyRequestRead]:
     query = db.query(VacancyRequest)
     if not scope.is_global:
         query = query.filter(VacancyRequest.campus_id == scope.campus_id)
+    if scope_dept.is_restricted:
+        query = query.filter(VacancyRequest.department_id.in_(scope_dept.department_ids))
     if status_filter is not None:
         query = query.filter(VacancyRequest.status == status_filter)
     if department_id is not None:
@@ -204,8 +216,9 @@ def get_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
-    return _get_or_404_scoped(db, vacancy_request_id, scope)
+    return _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
 
 
 @router.patch("/{vacancy_request_id}", response_model=VacancyRequestRead)
@@ -216,8 +229,9 @@ def update_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_can_write),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     if vr.status != VacancyRequestStatusEnum.DRAFT:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Only DRAFT vacancy requests can be edited"
@@ -264,9 +278,10 @@ def generate_jd_for_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_can_write),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
     ai: openai.OpenAI = Depends(get_openai_client),
 ) -> VacancyRequest:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     if vr.status != VacancyRequestStatusEnum.DRAFT:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Only DRAFT vacancy requests can have a JD generated"
@@ -292,8 +307,9 @@ def delete_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_can_write),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> None:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     if vr.status != VacancyRequestStatusEnum.DRAFT:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Only DRAFT vacancy requests can be deleted"
@@ -321,8 +337,9 @@ def submit_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(_can_write),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     vacancy_workflow.submit(
         db,
         vr,
@@ -343,8 +360,9 @@ def dean_approve_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT, UserRoleEnum.SUPER_ADMIN)),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     vacancy_workflow.dean_approve(db, vr, current_user, request)
     db.commit()
     db.refresh(vr)
@@ -359,8 +377,9 @@ def reject_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(PermissionEnum.REJECT_VACANCY)),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     vacancy_workflow.reject(db, vr, current_user, payload.reason, request)
     db.commit()
     db.refresh(vr)
@@ -378,8 +397,9 @@ def hr_approve_vacancy_request(
         )
     ),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> ApprovedVacancy:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     approved_vacancy = vacancy_workflow.hr_approve(db, vr, current_user, request)
     db.commit()
     db.refresh(approved_vacancy)
@@ -393,8 +413,9 @@ def publish_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(PermissionEnum.PUBLISH_VACANCY)),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> JobPosting:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     approved_vacancy = (
         db.query(ApprovedVacancy).filter(ApprovedVacancy.vacancy_request_id == vr.id).one_or_none()
     )
@@ -414,8 +435,9 @@ def close_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(PermissionEnum.CLOSE_VACANCY)),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     approved_vacancy = (
         db.query(ApprovedVacancy).filter(ApprovedVacancy.vacancy_request_id == vr.id).one_or_none()
     )
@@ -439,8 +461,9 @@ def cancel_vacancy_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_permission(PermissionEnum.CANCEL_VACANCY)),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     approved_vacancy = (
         db.query(ApprovedVacancy).filter(ApprovedVacancy.vacancy_request_id == vr.id).one_or_none()
     )
@@ -468,8 +491,9 @@ def adjust_vacancy_request_slot_count(
         )
     ),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> ApprovedVacancy:
-    vr = _get_or_404_scoped(db, vacancy_request_id, scope)
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     approved_vacancy = (
         db.query(ApprovedVacancy).filter(ApprovedVacancy.vacancy_request_id == vr.id).one_or_none()
     )

@@ -3,7 +3,16 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db
+from app.core.deps import (
+    CampusScope,
+    DepartmentScope,
+    enforce_campus_match,
+    enforce_department_match,
+    get_campus_scope,
+    get_current_active_user,
+    get_db,
+    get_department_scope,
+)
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.application import Application
 from app.models.candidate import Candidate
@@ -11,6 +20,7 @@ from app.models.enums import UserRoleEnum
 from app.models.job_posting import JobPosting
 from app.models.resume_score import ResumeScore
 from app.models.user import User
+from app.models.vacancy_request import VacancyRequest
 from app.schemas.common import PaginatedResponse
 from app.schemas.job_posting import JobPostingRead
 from app.schemas.resume_score import RankedApplicationRead
@@ -39,10 +49,22 @@ def list_job_postings(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> PaginatedResponse[JobPostingRead]:
     query = db.query(JobPosting).options(*_POSITION_TRACKING_LOADER_OPTIONS)
     if not scope.is_global:
         query = query.filter(JobPosting.campus_id == scope.campus_id)
+    if scope_dept.is_restricted:
+        # JobPosting.department_id is a Python @property (chases
+        # approved_vacancy.vacancy_request.department_id), not a column --
+        # an explicit join is needed for a SQL-level filter here. Only added
+        # when actually restricted, to avoid an unconditional extra join for
+        # every unrestricted caller (the common case).
+        query = (
+            query.join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
+            .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
+            .filter(VacancyRequest.department_id.in_(scope_dept.department_ids))
+        )
     total = query.count()
     rows = query.order_by(JobPosting.published_at.desc()).offset(offset).limit(limit).all()
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
@@ -54,6 +76,7 @@ def get_job_posting(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> JobPosting:
     posting = (
         db.query(JobPosting)
@@ -64,6 +87,7 @@ def get_job_posting(
     if posting is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, posting.campus_id)
+    enforce_department_match(scope_dept, posting.department_id)
     return posting
 
 
@@ -75,11 +99,13 @@ def rank_candidates(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> PaginatedResponse[RankedApplicationRead]:
     posting = db.get(JobPosting, job_posting_id)
     if posting is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, posting.campus_id)
+    enforce_department_match(scope_dept, posting.department_id)
 
     # Ranking is per-JobPosting (the applicant pool), not per-slot -- slots
     # are anonymous/interchangeable until an Application reaches SELECTED
