@@ -76,6 +76,27 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             compare_type=True,
             compare_server_default=True,
+            # Each migration commits independently rather than the whole
+            # `alembic upgrade` invocation running as one giant transaction.
+            # Discovered live during the first fresh-database deploy: several
+            # migrations do `ALTER TYPE ... ADD VALUE` and a LATER migration
+            # (not necessarily the very next one -- e.g.
+            # add_recruitment_coordinator_role's new value is read by
+            # permission_matrix_schema_and_backfill, many revisions later)
+            # references that new value in a DML statement. Postgres refuses
+            # to use a new enum value until it's committed
+            # ("UnsafeNewEnumValueUsage"), which only ever manifested when
+            # `alembic upgrade head` ran as a single command from an empty
+            # database -- every prior verification (local dev, the test
+            # suite) ran against a database with history applied
+            # incrementally over time, so each ADD VALUE was already long
+            # committed by the time anything used it. Per-migration
+            # transactions is Alembic's own documented fix for this class of
+            # problem and is the more conventional default besides (matches
+            # how most other migration tools behave) -- also makes a failed
+            # deploy resumable from exactly where it stopped, rather than
+            # rolling back everything since the last manual checkpoint.
+            transaction_per_migration=True,
         )
 
         with context.begin_transaction():
