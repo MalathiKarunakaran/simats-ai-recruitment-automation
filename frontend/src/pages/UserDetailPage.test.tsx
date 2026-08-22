@@ -125,6 +125,15 @@ async function openMoreActions() {
   await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
 }
 
+// PermissionCategoryCards' summary strip splits "Enabled: N" across a parent
+// <span> and a nested styled <span> for the number -- RTL's default string
+// matcher only matches a single node's own textContent, so match on the
+// full textContent of each node instead (see PermissionCategoryCards.test.tsx
+// for the same helper).
+function exactText(text: string) {
+  return (_content: string, element: Element | null) => element?.textContent === text;
+}
+
 describe("UserDetailPage header and breadcrumb", () => {
   it("renders the Administration / Users / {name} breadcrumb trail with Users as a link", async () => {
     mockCurrentUser("SUPER_ADMIN");
@@ -823,7 +832,7 @@ describe("UserDetailPage recent activity visibility -- dynamic ACTIVITY_LOG perm
 });
 
 describe("UserDetailPage permission matrix", () => {
-  it("renders the Permission Matrix card, grouped by category, for a Super Admin viewer", async () => {
+  it("renders the Permission Matrix card as compact category cards for a Super Admin viewer", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -834,20 +843,16 @@ describe("UserDetailPage permission matrix", () => {
 
     expect(await screen.findByText("Permission Matrix")).toBeInTheDocument();
     expect(mockedGetUserPermissions).toHaveBeenCalledWith(HR_ADMIN_USER.id);
-    expect(screen.getByText("Vacancy Management")).toBeInTheDocument();
-    expect(screen.getByText("Candidates")).toBeInTheDocument();
-    expect(screen.getByText("Interviews")).toBeInTheDocument();
-    expect(screen.getByText("Recruitment")).toBeInTheDocument();
-    // Plain getByText("Administration") is ambiguous -- the breadcrumb's
-    // "Administration" crumb is also on the page as a plain <span>; the
-    // category label is an <h3>, so scope to the heading role instead.
-    expect(screen.getByRole("heading", { name: "Administration" })).toBeInTheDocument();
-    expect(screen.getByText("System")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "View vacancies" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Manage users" })).toBeInTheDocument();
+    // Category grouping/labels and the drawer-toggle mechanics themselves
+    // are covered in PermissionCategoryCards.test.tsx -- this integration
+    // test only confirms the new component is actually wired up here.
+    const region = screen.getByRole("region", { name: "Permission categories" });
+    expect(within(region).getByText("Vacancy Management")).toBeInTheDocument();
+    expect(within(region).getByText("Candidates & Applications")).toBeInTheDocument();
+    expect(within(region).getAllByRole("button", { name: "Manage Permissions" })).toHaveLength(6);
   });
 
-  it("pre-selects the target's currently granted permissions", async () => {
+  it("pre-selects the target's currently granted permissions as pills on the relevant category cards", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -856,14 +861,12 @@ describe("UserDetailPage permission matrix", () => {
 
     renderPage(HR_ADMIN_USER.id);
 
-    const viewVacancyButton = await screen.findByRole("button", { name: "View vacancies" });
-    expect(viewVacancyButton.className).toContain("justify-start");
-    // Toggled-on buttons use the "default" Button variant; toggled-off use
-    // "outline" -- same visual convention as Coordinator capabilities above.
-    expect(screen.getByRole("button", { name: "Manage users" })).toBeInTheDocument();
+    expect(await screen.findByText("View vacancies")).toBeInTheDocument();
+    expect(screen.getByText("Manage users")).toBeInTheDocument();
+    expect(screen.getByText(exactText("Enabled: 2"))).toBeInTheDocument();
   });
 
-  it("toggles a permission and saves the full replacement set", async () => {
+  it("toggles a permission in a category drawer and saves the full replacement set via the real mutation", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -873,13 +876,40 @@ describe("UserDetailPage permission matrix", () => {
 
     renderPage(HR_ADMIN_USER.id);
 
-    await userEvent.click(await screen.findByRole("button", { name: "Manage users" }));
-    await userEvent.click(screen.getByRole("button", { name: "Save permissions" }));
+    const region = await screen.findByRole("region", { name: "Permission categories" });
+    const adminCard = within(region).getByText("Administration").closest(".rounded-xl") as HTMLElement;
+    await userEvent.click(within(adminCard).getByRole("button", { name: "Manage Permissions" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Manage users" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(mockedSetUserPermissions).toHaveBeenCalledWith(HR_ADMIN_USER.id, ["VIEW_VACANCY", "MANAGE_USERS"]),
     );
-    expect(await screen.findByText("Permissions saved.")).toBeInTheDocument();
+    // Drawer closes on success, and the top summary strip is reactive --
+    // not frozen at the value it had on initial load.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByText(exactText("Enabled: 2"))).toBeInTheDocument();
+  });
+
+  it("Cancel in a category drawer never calls setUserPermissions -- a true no-op", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedGetUserPermissions.mockResolvedValue({ permissions: ["VIEW_VACANCY"] });
+    mockedSetUserPermissions.mockClear();
+
+    renderPage(HR_ADMIN_USER.id);
+
+    const region = await screen.findByRole("region", { name: "Permission categories" });
+    const adminCard = within(region).getByText("Administration").closest(".rounded-xl") as HTMLElement;
+    await userEvent.click(within(adminCard).getByRole("button", { name: "Manage Permissions" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Manage users" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockedSetUserPermissions).not.toHaveBeenCalled();
+    expect(screen.getByText(exactText("Enabled: 1"))).toBeInTheDocument();
   });
 
   it("hides the Permission Matrix card for a Super Admin target", async () => {
