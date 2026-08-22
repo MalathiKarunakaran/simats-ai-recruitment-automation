@@ -5,7 +5,16 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_permission
+from app.core.deps import (
+    CampusScope,
+    DepartmentScope,
+    enforce_campus_match,
+    enforce_department_match,
+    get_campus_scope,
+    get_db,
+    get_department_scope,
+    require_permission,
+)
 from app.models.enums import PermissionEnum
 from app.models.job_posting import JobPosting
 from app.models.user import User
@@ -22,11 +31,17 @@ def _distribute_gate(
     return current_user
 
 
-def _get_posting_or_404_scoped(db: Session, job_posting_id: uuid.UUID, scope: CampusScope) -> JobPosting:
+def _get_posting_or_404_scoped(
+    db: Session,
+    job_posting_id: uuid.UUID,
+    scope: CampusScope,
+    scope_dept: DepartmentScope,
+) -> JobPosting:
     posting = db.get(JobPosting, job_posting_id)
     if posting is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, posting.campus_id)
+    enforce_department_match(scope_dept, posting.department_id)
     return posting
 
 
@@ -36,8 +51,9 @@ def get_job_ad(
     db: Session = Depends(get_db),
     current_user: User = Depends(_distribute_gate),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> dict:
-    posting = _get_posting_or_404_scoped(db, job_posting_id, scope)
+    posting = _get_posting_or_404_scoped(db, job_posting_id, scope, scope_dept)
     return job_distribution.generate_job_ad(posting)
 
 
@@ -47,8 +63,9 @@ def get_qr_code(
     db: Session = Depends(get_db),
     current_user: User = Depends(_distribute_gate),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> StreamingResponse:
-    posting = _get_posting_or_404_scoped(db, job_posting_id, scope)
+    posting = _get_posting_or_404_scoped(db, job_posting_id, scope, scope_dept)
     png_bytes = job_distribution.generate_qr_code_png(posting)
     return StreamingResponse(io.BytesIO(png_bytes), media_type="image/png")
 
@@ -61,9 +78,10 @@ def distribute_job_posting(
     db: Session = Depends(get_db),
     current_user: User = Depends(_distribute_gate),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
     n8n_client: N8nClient = Depends(get_n8n_client_or_503),
 ) -> dict:
-    posting = _get_posting_or_404_scoped(db, job_posting_id, scope)
+    posting = _get_posting_or_404_scoped(db, job_posting_id, scope, scope_dept)
     result = job_distribution.distribute_to_portals(
         db,
         job_posting=posting,

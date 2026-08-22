@@ -58,6 +58,7 @@ from app.models.location import Location
 from app.models.offer import Offer
 from app.models.sanctioned_strength import SanctionedStrength
 from app.models.user import User
+from app.models.user_department_scope import user_department_scope
 from app.models.user_permission_grant import UserPermissionGrant
 from app.models.vacancy_request import VacancyRequest
 from app.services import joining as joining_service
@@ -493,6 +494,25 @@ def grant_coordinator_capability(db_session):
                 granted_by_id=granted_by.id if granted_by else None,
             )
         )
+        db_session.flush()
+
+    return _grant
+
+
+@pytest.fixture()
+def department_scope_factory(db_session):
+    """Directly inserts `user_department_scope` rows -- the plain join table
+    behind GET/PUT /users/{id}/department-scope and (Phase 4 of the
+    permission-matrix epic) app.core.deps.get_department_scope. Bypasses the
+    PUT endpoint (which has its own dedicated tests in
+    test_user_department_scope.py) since these tests only need the row to
+    exist, not to exercise that endpoint's own validation."""
+
+    def _grant(user: User, *departments: Department) -> None:
+        for department in departments:
+            db_session.execute(
+                user_department_scope.insert().values(user_id=user.id, department_id=department.id)
+            )
         db_session.flush()
 
     return _grant

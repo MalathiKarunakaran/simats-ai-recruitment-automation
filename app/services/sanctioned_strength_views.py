@@ -270,7 +270,7 @@ import uuid
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope
+from app.core.deps import CampusScope, DepartmentScope
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.designation import Designation
@@ -351,6 +351,7 @@ def strength_row_status(*, vacancy: int, is_inactive: bool, has_pending_request:
 def list_strength_view_rows(
     db: Session,
     scope: CampusScope,
+    scope_dept: DepartmentScope,
     *,
     category: StaffRoleCategoryEnum,
     limit: int,
@@ -416,6 +417,11 @@ def list_strength_view_rows(
         db, campus_id=campus_id_filter, department_id=department_id, designation_id=designation_id
     )
     category_rows = [row for row in effective_rows if row.category == category]
+    # Phase 4 (permission-matrix epic) -- department-scope enforcement,
+    # additive alongside the pre-existing campus-scope filter above. A no-op
+    # for an unrestricted scope_dept (the common case).
+    if scope_dept.is_restricted:
+        category_rows = [row for row in category_rows if row.department_id in scope_dept.department_ids]
     if location_id is not None:
         category_rows = [row for row in category_rows if row.location_id == location_id]
 
@@ -593,6 +599,7 @@ def list_strength_view_rows(
 def list_teaching_strength_rows(
     db: Session,
     scope: CampusScope,
+    scope_dept: DepartmentScope,
     *,
     limit: int,
     offset: int,
@@ -619,6 +626,7 @@ def list_teaching_strength_rows(
     return list_strength_view_rows(
         db,
         scope,
+        scope_dept,
         category=StaffRoleCategoryEnum.TEACHING,
         limit=limit,
         offset=offset,
@@ -637,6 +645,7 @@ def list_teaching_strength_rows(
 def list_housekeeping_strength_rows(
     db: Session,
     scope: CampusScope,
+    scope_dept: DepartmentScope,
     *,
     limit: int,
     offset: int,
@@ -746,6 +755,14 @@ def list_housekeeping_strength_rows(
         for row in effective_rows
         if row.category == StaffRoleCategoryEnum.HOUSEKEEPING and row.location_id is not None
     ]
+    # Phase 4 (permission-matrix epic) -- department-scope enforcement,
+    # additive alongside the pre-existing campus-scope filter above.
+    # SanctionedStrength.department_id is a real NOT NULL column even on
+    # HOUSEKEEPING rows (this view's own aggregate-by-Location grain doesn't
+    # expose department_id per output row, but the underlying rows being
+    # aggregated still have one). A no-op for an unrestricted scope_dept.
+    if scope_dept.is_restricted:
+        hk_rows = [row for row in hk_rows if row.department_id in scope_dept.department_ids]
     if location_id is not None:
         hk_rows = [row for row in hk_rows if row.location_id == location_id]
 

@@ -57,7 +57,17 @@ from fastapi.responses import StreamingResponse
 from minio import Minio
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db, require_roles
+from app.core.deps import (
+    CampusScope,
+    DepartmentScope,
+    enforce_campus_match,
+    enforce_department_match,
+    get_campus_scope,
+    get_current_active_user,
+    get_db,
+    get_department_scope,
+    require_roles,
+)
 from app.models.bulk_upload_log import BulkUploadLog
 from app.models.bulk_upload_row_log import BulkUploadRowLog
 from app.models.campus import Campus
@@ -175,11 +185,17 @@ def _snapshot(row: SanctionedStrength) -> dict:
     }
 
 
-def _get_or_404_scoped(db: Session, sanctioned_strength_id: uuid.UUID, scope: CampusScope) -> SanctionedStrength:
+def _get_or_404_scoped(
+    db: Session,
+    sanctioned_strength_id: uuid.UUID,
+    scope: CampusScope,
+    scope_dept: DepartmentScope,
+) -> SanctionedStrength:
     row = db.get(SanctionedStrength, sanctioned_strength_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, row.campus_id)
+    enforce_department_match(scope_dept, row.department_id)
     return row
 
 
@@ -199,6 +215,7 @@ def list_teaching_strength_view(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> TeachingStrengthListResponse:
     """Phase E (glowing-zooming-hamming.md) -- the designation-level Teaching
     operational view, one row per current-effective SanctionedStrength row
@@ -240,6 +257,7 @@ def list_teaching_strength_view(
         sanctioned_strength_views.list_teaching_strength_rows(
             db,
             scope,
+            scope_dept,
             limit=limit,
             offset=offset,
             sort_by=sort_by,
@@ -281,6 +299,7 @@ def list_non_teaching_strength_view(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> NonTeachingStrengthListResponse:
     """Phase F (glowing-zooming-hamming.md) -- the designation-level
     Non-Teaching operational view, one row per current-effective
@@ -324,6 +343,7 @@ def list_non_teaching_strength_view(
         sanctioned_strength_views.list_strength_view_rows(
             db,
             scope,
+            scope_dept,
             category=StaffRoleCategoryEnum.NON_TEACHING,
             limit=limit,
             offset=offset,
@@ -367,6 +387,7 @@ def list_housekeeping_strength_view(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> HousekeepingStrengthListResponse:
     """Phase G (glowing-zooming-hamming.md) -- the Location-grained
     Housekeeping operational view, one row per Location with at least one
@@ -416,6 +437,7 @@ def list_housekeeping_strength_view(
         sanctioned_strength_views.list_housekeeping_strength_rows(
             db,
             scope,
+            scope_dept,
             limit=limit,
             offset=offset,
             sort_by=sort_by,
@@ -450,6 +472,7 @@ def get_sanctioned_strength_availability(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> dict:
     """Phase E's availability strip (`{approved, working, vacant,
     already_requested, available_to_request}`) for one (campus, department,
@@ -466,6 +489,7 @@ def get_sanctioned_strength_availability(
     enforce_campus_match(scope, campus.id)
     if db.get(Department, department_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    enforce_department_match(scope_dept, department_id)
     if db.get(Designation, designation_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
@@ -558,8 +582,9 @@ def update_sanctioned_strength(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> SanctionedStrength:
-    row = _get_or_404_scoped(db, sanctioned_strength_id, scope)
+    row = _get_or_404_scoped(db, sanctioned_strength_id, scope, scope_dept)
     before = _snapshot(row)
     old_approved_strength = row.approved_strength
 
@@ -610,8 +635,9 @@ def delete_sanctioned_strength(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> None:
-    row = _get_or_404_scoped(db, sanctioned_strength_id, scope)
+    row = _get_or_404_scoped(db, sanctioned_strength_id, scope, scope_dept)
 
     # Item 7: block the soft delete while active employees still occupy this
     # (department, designation) key -- reuses the same working_count_for the
@@ -657,8 +683,9 @@ def list_sanctioned_strength_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> PaginatedResponse[SanctionedStrengthHistoryRead]:
-    row = _get_or_404_scoped(db, sanctioned_strength_id, scope)
+    row = _get_or_404_scoped(db, sanctioned_strength_id, scope, scope_dept)
 
     query = (
         db.query(SanctionedStrengthHistory)
