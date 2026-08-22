@@ -431,6 +431,111 @@ export interface CoordinatorCapabilitiesRead {
   capabilities: CoordinatorCapability[];
 }
 
+// Mirrors app/models/enums.py::PermissionEnum -- the 31-permission matrix,
+// generalized beyond RECRUITMENT_COORDINATOR to any staff role.
+export const PERMISSIONS = [
+  "VIEW_VACANCY", "CREATE_VACANCY_REQUEST", "EDIT_VACANCY_REQUEST", "APPROVE_VACANCY",
+  "REJECT_VACANCY", "PUBLISH_VACANCY", "CLOSE_VACANCY", "CANCEL_VACANCY",
+  "VIEW_CANDIDATES", "CREATE_CANDIDATE", "EDIT_CANDIDATE", "DELETE_CANDIDATE", "MANAGE_APPLICATIONS",
+  "SCHEDULE_INTERVIEW", "RESCHEDULE_INTERVIEW", "CANCEL_INTERVIEW", "MARK_INTERVIEW_COMPLETED",
+  "JOB_DISTRIBUTION", "RESUME_SCREENING", "OFFERS", "ONBOARDING",
+  "VIEW_EMPLOYEES", "EDIT_EMPLOYEES", "MANAGE_DEPARTMENTS", "MANAGE_DESIGNATIONS",
+  "MANAGE_LOCATIONS", "MANAGE_CAMPUSES", "MANAGE_USERS",
+  "ACTIVITY_LOG", "REPORTS", "SETTINGS",
+] as const;
+export type Permission = (typeof PERMISSIONS)[number];
+
+// Mirrors app/models/enums.py::PERMISSION_CATEGORIES exactly -- same 6
+// groups, same order, same membership.
+export const PERMISSION_CATEGORIES: { key: string; label: string; permissions: Permission[] }[] = [
+  {
+    key: "VACANCY_MANAGEMENT",
+    label: "Vacancy Management",
+    permissions: [
+      "VIEW_VACANCY",
+      "CREATE_VACANCY_REQUEST",
+      "EDIT_VACANCY_REQUEST",
+      "APPROVE_VACANCY",
+      "REJECT_VACANCY",
+      "PUBLISH_VACANCY",
+      "CLOSE_VACANCY",
+      "CANCEL_VACANCY",
+    ],
+  },
+  {
+    key: "CANDIDATES",
+    label: "Candidates",
+    permissions: ["VIEW_CANDIDATES", "CREATE_CANDIDATE", "EDIT_CANDIDATE", "DELETE_CANDIDATE", "MANAGE_APPLICATIONS"],
+  },
+  {
+    key: "INTERVIEWS",
+    label: "Interviews",
+    permissions: ["SCHEDULE_INTERVIEW", "RESCHEDULE_INTERVIEW", "CANCEL_INTERVIEW", "MARK_INTERVIEW_COMPLETED"],
+  },
+  {
+    key: "RECRUITMENT",
+    label: "Recruitment",
+    permissions: ["JOB_DISTRIBUTION", "RESUME_SCREENING", "OFFERS", "ONBOARDING"],
+  },
+  {
+    key: "ADMINISTRATION",
+    label: "Administration",
+    permissions: [
+      "VIEW_EMPLOYEES",
+      "EDIT_EMPLOYEES",
+      "MANAGE_DEPARTMENTS",
+      "MANAGE_DESIGNATIONS",
+      "MANAGE_LOCATIONS",
+      "MANAGE_CAMPUSES",
+      "MANAGE_USERS",
+    ],
+  },
+  {
+    key: "SYSTEM",
+    label: "System",
+    permissions: ["ACTIVITY_LOG", "REPORTS", "SETTINGS"],
+  },
+];
+
+export const PERMISSION_LABELS: Record<Permission, string> = {
+  VIEW_VACANCY: "View vacancies",
+  CREATE_VACANCY_REQUEST: "Create vacancy requests",
+  EDIT_VACANCY_REQUEST: "Edit vacancy requests",
+  APPROVE_VACANCY: "Approve vacancies",
+  REJECT_VACANCY: "Reject vacancies",
+  PUBLISH_VACANCY: "Publish vacancies",
+  CLOSE_VACANCY: "Close vacancies",
+  CANCEL_VACANCY: "Cancel vacancies",
+  VIEW_CANDIDATES: "View candidates",
+  CREATE_CANDIDATE: "Create candidates",
+  EDIT_CANDIDATE: "Edit candidates",
+  DELETE_CANDIDATE: "Delete candidates",
+  MANAGE_APPLICATIONS: "Manage applications",
+  SCHEDULE_INTERVIEW: "Schedule interviews",
+  RESCHEDULE_INTERVIEW: "Reschedule interviews",
+  CANCEL_INTERVIEW: "Cancel interviews",
+  MARK_INTERVIEW_COMPLETED: "Mark interviews completed",
+  JOB_DISTRIBUTION: "Job distribution",
+  RESUME_SCREENING: "Resume screening",
+  OFFERS: "Manage offers",
+  ONBOARDING: "Manage onboarding",
+  VIEW_EMPLOYEES: "View employees",
+  EDIT_EMPLOYEES: "Edit employees",
+  MANAGE_DEPARTMENTS: "Manage departments",
+  MANAGE_DESIGNATIONS: "Manage designations",
+  MANAGE_LOCATIONS: "Manage locations",
+  MANAGE_CAMPUSES: "Manage campuses",
+  MANAGE_USERS: "Manage users",
+  ACTIVITY_LOG: "View activity log",
+  REPORTS: "View reports",
+  SETTINGS: "Manage settings",
+};
+
+// Mirrors app/api/v1/routers/users.py::UserPermissionsRead.
+export interface UserPermissionsRead {
+  permissions: Permission[];
+}
+
 // Mirrors app/schemas/eligibility_rule.py::EligibilityRuleRead.
 export interface EligibilityRule {
   id: string;
