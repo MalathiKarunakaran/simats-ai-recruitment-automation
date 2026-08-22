@@ -4,6 +4,41 @@ from typing import Any
 from pydantic import BaseModel
 
 
+class PipelineFunnelStage(BaseModel):
+    """One bucket of `DashboardKPIResponse.application_pipeline_funnel` --
+    see app/services/reporting.py::get_dashboard_kpis's own comment for the
+    exhaustive 12(+legacy)-status -> 7-bucket mapping."""
+
+    stage: str
+    count: int
+
+
+class CriticalVacancyRow(BaseModel):
+    """One row of `DashboardKPIResponse.critical_vacancies` -- a
+    VACANCY_RECRUITMENT_REQUIRED-status row surfaced from the Sanctioned
+    Strength views (see app/services/reporting.py::_critical_vacancy_rows).
+    `location` is only ever populated for Housekeeping rows (and optionally
+    Teaching/Non-Teaching rows that have a Location set) -- see that
+    function's docstring for the Housekeeping field-mapping judgment call."""
+
+    department: str
+    designation: str
+    location: str | None
+    category: str
+    vacancy_count: int
+
+
+class RecentEmployeeEventRow(BaseModel):
+    """One row of `DashboardKPIResponse.recent_joins` /
+    `.recent_resignations`."""
+
+    employee_name: str
+    department: str | None
+    designation: str
+    campus: str
+    date: date
+
+
 class DashboardKPIResponse(BaseModel):
     scope_note: str
     total_applications: int
@@ -36,6 +71,14 @@ class DashboardKPIResponse(BaseModel):
     sanctioned_approved_total: int
     sanctioned_working_total: int
     sanctioned_vacancy_total: int
+    # Additive fields (Step 3, dashboard-kpi-additions-backend) -- see
+    # app/services/reporting.py::get_dashboard_kpis for each field's own
+    # scoping/derivation notes.
+    urgent_vacancy_count: int
+    application_pipeline_funnel: list[PipelineFunnelStage]
+    critical_vacancies: list[CriticalVacancyRow]
+    recent_joins: list[RecentEmployeeEventRow]
+    recent_resignations: list[RecentEmployeeEventRow]
 
 
 class ReportResponse(BaseModel):

@@ -126,7 +126,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope
+from app.core.deps import CampusScope, DepartmentScope
 from app.models.application import Application
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.campus import Campus
@@ -137,10 +137,12 @@ from app.models.enums import (
     CAMPUS_CODES,
     VACANCY_REQUEST_IN_FLIGHT_STATUSES,
     ApplicationStatusEnum,
+    EmploymentStatusEnum,
     HiringSlotStatusEnum,
     InterviewScheduleStatusEnum,
     OfferStatusEnum,
     StaffRoleCategoryEnum,
+    VacancyPriorityEnum,
     VacancyRequestStatusEnum,
 )
 from app.models.hiring_slot import HiringSlot
@@ -150,6 +152,11 @@ from app.models.joining import JoiningRecord
 from app.models.offer import Offer
 from app.models.vacancy_request import VacancyRequest
 from app.services.sanctioned_strength import current_effective_rows, working_count_for
+from app.services.sanctioned_strength_views import (
+    list_housekeeping_strength_rows,
+    list_strength_view_rows,
+    list_teaching_strength_rows,
+)
 from app.services.scoping import resolve_campus_filter
 
 _NON_TERMINAL_OFFER_STATUSES = (OfferStatusEnum.DRAFT, OfferStatusEnum.SENT)
@@ -158,6 +165,71 @@ _APPROVED_OR_BEYOND_STATUSES = (
     VacancyRequestStatusEnum.PUBLISHED,
     VacancyRequestStatusEnum.CLOSED,
 )
+# A VacancyRequest in any of these statuses is no longer "urgent" in any
+# actionable sense -- it's either done (CLOSED) or dead (REJECTED/CANCELLED).
+_VACANCY_REQUEST_NOT_URGENT_STATUSES = (
+    VacancyRequestStatusEnum.CLOSED,
+    VacancyRequestStatusEnum.REJECTED,
+    VacancyRequestStatusEnum.CANCELLED,
+)
+
+# application_pipeline_funnel (Step 3, dashboard-kpi-additions-backend) --
+# collapses the real 12-value ApplicationStatusEnum into the coarser funnel
+# language used elsewhere in this refinement effort. Exhaustive over every
+# current enum member (verified: 1+1+2+1+2+5+2 = 12 members, one bucket
+# each). The Postgres native `application_status_enum` type also still
+# physically contains 8 pre-rename legacy labels (ELIGIBLE, SHORTLISTED,
+# INTERVIEW_SCHEDULED, TECHNICAL_INTERVIEW, HR_INTERVIEW, JOINING_PENDING,
+# ONBOARDING_COMPLETE, EMPLOYEE_CREATED -- see ApplicationStatusEnum's own
+# docstring) that Postgres can never DROP VALUE. They are NOT included in
+# this map: migration ba2e30350b8a already forward-UPDATEd every real
+# `applications.status` row off of these labels the moment they were retired,
+# and no code has written them since (ApplicationStatusEnum, the Python enum
+# actually used to construct new rows, doesn't even have these members
+# anymore). A row that somehow still carried one of these labels couldn't be
+# hydrated by this query anyway -- SQLAlchemy's native `Enum` type raises a
+# lookup error converting a string outside the mapped Python enum's members
+# back into that enum on any `Application.status`-selecting query in this
+# codebase, not just this one -- so there's nothing to defensively fold here.
+_FUNNEL_BUCKET_ORDER: tuple[str, ...] = (
+    "Applied",
+    "Screening",
+    "Interview",
+    "Selected",
+    "Offer",
+    "Joined",
+    "Rejected",
+)
+_FUNNEL_BUCKET_BY_STATUS: dict[ApplicationStatusEnum, str] = {
+    ApplicationStatusEnum.APPLIED: "Applied",
+    ApplicationStatusEnum.SCREENING: "Screening",
+    ApplicationStatusEnum.CALLED_FOR_INTERVIEW: "Interview",
+    ApplicationStatusEnum.INTERVIEWED: "Interview",
+    ApplicationStatusEnum.SELECTED: "Selected",
+    ApplicationStatusEnum.OFFER_SENT: "Offer",
+    ApplicationStatusEnum.OFFER_ACCEPTED: "Offer",
+    ApplicationStatusEnum.JOINING_CONFIRMED: "Joined",
+    ApplicationStatusEnum.JOINED: "Joined",
+    ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED: "Joined",
+    ApplicationStatusEnum.ORIENTATION_COMPLETE: "Joined",
+    ApplicationStatusEnum.HANDED_OVER_TO_HOD: "Joined",
+    ApplicationStatusEnum.REJECTED: "Rejected",
+    ApplicationStatusEnum.WITHDRAWN: "Rejected",
+}
+assert set(_FUNNEL_BUCKET_BY_STATUS) == set(ApplicationStatusEnum), (
+    "application_pipeline_funnel's bucket map must cover every ApplicationStatusEnum member exactly once"
+)
+
+# critical_vacancies (Step 3, dashboard-kpi-additions-backend).
+_CRITICAL_VACANCY_STATUS = "VACANCY_RECRUITMENT_REQUIRED"
+_CRITICAL_VACANCY_LIMIT = 10
+# Large enough to fetch every real VACANCY_RECRUITMENT_REQUIRED row in one
+# call per category rather than risk truncating before the Python-side
+# cross-category sort -- there is no unpaginated mode on these functions, but
+# passing `status=` lets Postgres/Python do the status filtering already
+# built into list_strength_view_rows/list_housekeeping_strength_rows instead
+# of re-filtering in this module, so this is the only extra knob needed.
+_CRITICAL_VACANCY_FETCH_LIMIT = 5000
 
 
 def validate_campus_code(value: str | None) -> str | None:
@@ -282,6 +354,134 @@ def _sanctioned_strength_totals(
     )
     vacancy_total = approved_total - working_total
     return approved_total, working_total, vacancy_total
+
+
+def _critical_vacancy_rows(db: Session, scope: CampusScope, campus_code: str | None) -> list[dict]:
+    """Top-10 (across all 3 categories combined) VACANCY_RECRUITMENT_REQUIRED
+    rows for the `critical_vacancies` dashboard card -- reuses the existing
+    Phase E/F/G Sanctioned Strength view functions
+    (`list_teaching_strength_rows` / `list_strength_view_rows(...,
+    NON_TEACHING)` / `list_housekeeping_strength_rows`) rather than a new
+    query, via each function's own `status=` filter kwarg (so the
+    VACANCY_RECRUITMENT_REQUIRED filtering happens inside those functions,
+    not re-done here in Python) and a large `limit` so nothing is truncated
+    before this function's own cross-category sort/top-10 cut.
+
+    Department scope: these view functions take a `DepartmentScope` alongside
+    `CampusScope` (Phase 4 of the permission-matrix epic), but
+    `GET /dashboard/kpis` has never threaded department-scope through any of
+    its other aggregations (`_sanctioned_strength_totals` above calls
+    `current_effective_rows` the same way, with no department scope either)
+    -- so this passes the unrestricted `DepartmentScope` instance
+    (`is_restricted=False`), matching this endpoint's existing behavior
+    rather than introducing department scoping nowhere else on this endpoint
+    has it.
+
+    Housekeeping rows have a genuinely different grain (Location, not
+    department/designation -- see `list_housekeeping_strength_rows`'s own
+    docstring) and so have no `department_name`/`designation_name` fields at
+    all. Mapped onto this card's uniform (department, designation, location)
+    shape as a judgment call: `department="Housekeeping"` (there is no real
+    department concept at this grain; `category` already says
+    "HOUSEKEEPING" so this is mostly a human-readable label) and
+    `designation=<location_name>` (a housekeeping row's location *is* its
+    identifying dimension, the closest analogue to a Teaching/Non-Teaching
+    row's designation), with `location=<block>` filled in as the finer-
+    grained sub-location detail. Flagged here since the plan's row shape was
+    written with Teaching/Non-Teaching's department+designation grain in
+    mind and doesn't have a clean fit for Housekeeping's Location grain.
+    """
+    unrestricted_dept_scope = DepartmentScope(is_restricted=False, department_ids=None)
+    rows: list[dict] = []
+
+    teaching_rows, *_rest = list_teaching_strength_rows(
+        db,
+        scope,
+        unrestricted_dept_scope,
+        limit=_CRITICAL_VACANCY_FETCH_LIMIT,
+        offset=0,
+        sort_by="vacancy",
+        sort_dir="desc",
+        campus_code=campus_code,
+        status=_CRITICAL_VACANCY_STATUS,
+    )
+    for row in teaching_rows:
+        rows.append(
+            {
+                "department": row["department_name"] or "-",
+                "designation": row["designation_name"] or "-",
+                "location": row["location_name"],
+                "category": StaffRoleCategoryEnum.TEACHING.value,
+                "vacancy_count": row["vacancy"],
+            }
+        )
+
+    non_teaching_rows, *_rest = list_strength_view_rows(
+        db,
+        scope,
+        unrestricted_dept_scope,
+        category=StaffRoleCategoryEnum.NON_TEACHING,
+        limit=_CRITICAL_VACANCY_FETCH_LIMIT,
+        offset=0,
+        sort_by="vacancy",
+        sort_dir="desc",
+        campus_code=campus_code,
+        status=_CRITICAL_VACANCY_STATUS,
+    )
+    for row in non_teaching_rows:
+        rows.append(
+            {
+                "department": row["department_name"] or "-",
+                "designation": row["designation_name"] or "-",
+                "location": row["location_name"],
+                "category": StaffRoleCategoryEnum.NON_TEACHING.value,
+                "vacancy_count": row["vacancy"],
+            }
+        )
+
+    housekeeping_rows, *_rest = list_housekeeping_strength_rows(
+        db,
+        scope,
+        unrestricted_dept_scope,
+        limit=_CRITICAL_VACANCY_FETCH_LIMIT,
+        offset=0,
+        sort_by="vacancy",
+        sort_dir="desc",
+        campus_code=campus_code,
+        status=_CRITICAL_VACANCY_STATUS,
+    )
+    for row in housekeeping_rows:
+        rows.append(
+            {
+                "department": "Housekeeping",
+                "designation": row["location_name"] or "-",
+                "location": row["block"],
+                "category": StaffRoleCategoryEnum.HOUSEKEEPING.value,
+                "vacancy_count": row["vacancy"],
+            }
+        )
+
+    rows.sort(key=lambda r: r["vacancy_count"], reverse=True)
+    return rows[:_CRITICAL_VACANCY_LIMIT]
+
+
+def _recent_employee_rows(employees: list[Employee], event_date_attr: str) -> list[dict]:
+    """Shared row-shaping for `recent_joins`/`recent_resignations` --
+    `event_date_attr` is `"date_of_joining"` or `"separation_date"`, the
+    Employee column each of those two fields is ordered by. Uses
+    `Employee.designation` (the plain, always-populated string column) and
+    `Employee.department.name` (relationship-traversed, may be None --
+    `Employee.department_id` is nullable)."""
+    return [
+        {
+            "employee_name": employee.full_name,
+            "department": employee.department.name if employee.department is not None else None,
+            "designation": employee.designation,
+            "campus": employee.campus.code,
+            "date": getattr(employee, event_date_attr),
+        }
+        for employee in employees
+    ]
 
 
 def get_dashboard_kpis(
@@ -554,6 +754,71 @@ def get_dashboard_kpis(
         db, campus_id_filter, role_category
     )
 
+    # urgent_vacancy_count (Step 3, dashboard-kpi-additions-backend) -- a
+    # current-state count (no date-range filter, unlike the "today" cards
+    # above), so an already-CLOSED/REJECTED/CANCELLED request no longer
+    # counts as "urgent". role_category filters directly against
+    # VacancyRequest's own native column -- no join needed, unlike
+    # Application-based fields elsewhere in this function.
+    urgent_query = db.query(VacancyRequest).filter(
+        VacancyRequest.priority == VacancyPriorityEnum.URGENT,
+        ~VacancyRequest.status.in_(_VACANCY_REQUEST_NOT_URGENT_STATUSES),
+    )
+    if campus_id_filter is not None:
+        urgent_query = urgent_query.filter(VacancyRequest.campus_id == campus_id_filter)
+    if role_category is not None:
+        urgent_query = urgent_query.filter(VacancyRequest.role_category == role_category)
+    urgent_vacancy_count = urgent_query.count()
+
+    # application_pipeline_funnel (Step 3) -- a single grouped-count query
+    # (not 7), current-snapshot (no date-range filter), scoped the same way
+    # total_applications is (join-through-VacancyRequest only when
+    # role_category is given). See _FUNNEL_BUCKET_BY_STATUS above for the
+    # full status -> bucket mapping and the legacy-label non-issue note.
+    funnel_query = db.query(Application.status, func.count(Application.id))
+    if role_category is not None:
+        funnel_query = (
+            funnel_query.join(JobPosting, Application.job_posting_id == JobPosting.id)
+            .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
+            .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
+            .filter(VacancyRequest.role_category == role_category)
+        )
+    if campus_id_filter is not None:
+        funnel_query = funnel_query.filter(Application.campus_id == campus_id_filter)
+    funnel_counts_by_status = dict(funnel_query.group_by(Application.status).all())
+    funnel_bucket_counts = dict.fromkeys(_FUNNEL_BUCKET_ORDER, 0)
+    for status_value, count in funnel_counts_by_status.items():
+        funnel_bucket_counts[_FUNNEL_BUCKET_BY_STATUS[status_value]] += count
+    application_pipeline_funnel = [
+        {"stage": stage, "count": funnel_bucket_counts[stage]} for stage in _FUNNEL_BUCKET_ORDER
+    ]
+
+    # critical_vacancies (Step 3) -- see _critical_vacancy_rows's own
+    # docstring for the reuse/scoping/Housekeeping-field-mapping notes.
+    # Deliberately ignores this call's own role_category filter (like
+    # category_wise_breakdown) -- it's an always-all-3-categories "what needs
+    # attention" card, not a top-line KPI tile the role_category param narrows.
+    critical_vacancies = _critical_vacancy_rows(db, scope, campus_code)
+
+    # recent_joins / recent_resignations (Step 3) -- top 10 Employee rows,
+    # scoped by campus like every other field. recent_resignations excludes
+    # RESIGNED rows with a null separation_date (shouldn't happen in
+    # practice, but ordering by a nullable column isn't nulls-safe by
+    # default) rather than crash on one.
+    recent_joins_query = db.query(Employee).order_by(Employee.date_of_joining.desc())
+    if campus_id_filter is not None:
+        recent_joins_query = recent_joins_query.filter(Employee.campus_id == campus_id_filter)
+    recent_joins = _recent_employee_rows(recent_joins_query.limit(10).all(), "date_of_joining")
+
+    recent_resignations_query = (
+        db.query(Employee)
+        .filter(Employee.employment_status == EmploymentStatusEnum.RESIGNED, Employee.separation_date.isnot(None))
+        .order_by(Employee.separation_date.desc())
+    )
+    if campus_id_filter is not None:
+        recent_resignations_query = recent_resignations_query.filter(Employee.campus_id == campus_id_filter)
+    recent_resignations = _recent_employee_rows(recent_resignations_query.limit(10).all(), "separation_date")
+
     return {
         "scope_note": scope_note,
         "total_applications": total_applications,
@@ -571,6 +836,11 @@ def get_dashboard_kpis(
         "sanctioned_approved_total": sanctioned_approved_total,
         "sanctioned_working_total": sanctioned_working_total,
         "sanctioned_vacancy_total": sanctioned_vacancy_total,
+        "urgent_vacancy_count": urgent_vacancy_count,
+        "application_pipeline_funnel": application_pipeline_funnel,
+        "critical_vacancies": critical_vacancies,
+        "recent_joins": recent_joins,
+        "recent_resignations": recent_resignations,
     }
 
 

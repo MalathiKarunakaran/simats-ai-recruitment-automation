@@ -1,7 +1,13 @@
 from datetime import date, datetime, timezone
 
-from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
-from app.services import vacancy_workflow
+from app.models.enums import (
+    ApplicationStatusEnum,
+    EmploymentStatusEnum,
+    StaffRoleCategoryEnum,
+    UserRoleEnum,
+    VacancyPriorityEnum,
+)
+from app.services import pipeline, vacancy_workflow
 
 from tests.conftest import auth_headers
 
@@ -456,3 +462,301 @@ def test_sanctioned_strength_totals_respect_campus_scope(
     global_response = _kpis(client, hr_admin)
     global_body = global_response.json()
     assert global_body["sanctioned_approved_total"] == 14
+
+
+# --- Step 3 (dashboard-kpi-additions-backend): 5 additive KPI fields ---
+
+
+def test_urgent_vacancy_count_excludes_closed_rejected_cancelled_and_non_urgent(
+    client, published_vacancy_factory, db_session
+):
+    urgent_open = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    urgent_open.vacancy_request.priority = VacancyPriorityEnum.URGENT
+
+    urgent_closed = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    urgent_closed.vacancy_request.priority = VacancyPriorityEnum.URGENT
+    db_session.commit()
+    vacancy_workflow.close(
+        db_session,
+        urgent_closed.vacancy_request,
+        urgent_closed.approved_vacancy,
+        urgent_closed.job_posting,
+        urgent_closed.hr_admin,
+        None,
+    )
+
+    normal_priority = published_vacancy_factory(campus_code="SSE", slot_count=1)  # defaults to NORMAL
+    db_session.commit()
+
+    response = _kpis(client, urgent_open.hr_admin)
+    assert response.status_code == 200
+    assert response.json()["urgent_vacancy_count"] == 1
+
+
+def test_urgent_vacancy_count_respects_campus_scope(client, published_vacancy_factory, db_session):
+    sse_urgent = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    sse_urgent.vacancy_request.priority = VacancyPriorityEnum.URGENT
+    scad_urgent = published_vacancy_factory(campus_code="SCAD", slot_count=1)
+    scad_urgent.vacancy_request.priority = VacancyPriorityEnum.URGENT
+    db_session.commit()
+
+    scoped_response = _kpis(client, sse_urgent.hod)
+    assert scoped_response.json()["urgent_vacancy_count"] == 1
+
+    global_response = _kpis(client, sse_urgent.hr_admin)
+    assert global_response.json()["urgent_vacancy_count"] == 2
+
+
+def _funnel_map(body) -> dict[str, int]:
+    return {row["stage"]: row["count"] for row in body["application_pipeline_funnel"]}
+
+
+def test_application_pipeline_funnel_buckets_and_order(
+    client, published_vacancy_factory, application_factory, db_session
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=5)
+    actor = vacancy.hr_admin
+
+    application_factory(vacancy.job_posting, recorded_by=actor)  # stays APPLIED
+
+    screening = application_factory(vacancy.job_posting, recorded_by=actor)
+    pipeline.transition_application_status(
+        db_session, application=screening, new_status=ApplicationStatusEnum.SCREENING, actor=actor
+    )
+
+    called = application_factory(vacancy.job_posting, recorded_by=actor)
+    for target in (ApplicationStatusEnum.SCREENING, ApplicationStatusEnum.CALLED_FOR_INTERVIEW):
+        pipeline.transition_application_status(db_session, application=called, new_status=target, actor=actor)
+
+    interviewed = application_factory(vacancy.job_posting, recorded_by=actor)
+    for target in (
+        ApplicationStatusEnum.SCREENING,
+        ApplicationStatusEnum.CALLED_FOR_INTERVIEW,
+        ApplicationStatusEnum.INTERVIEWED,
+    ):
+        pipeline.transition_application_status(db_session, application=interviewed, new_status=target, actor=actor)
+
+    selected = application_factory(vacancy.job_posting, recorded_by=actor)
+    for target in (
+        ApplicationStatusEnum.SCREENING,
+        ApplicationStatusEnum.CALLED_FOR_INTERVIEW,
+        ApplicationStatusEnum.INTERVIEWED,
+        ApplicationStatusEnum.SELECTED,
+    ):
+        pipeline.transition_application_status(db_session, application=selected, new_status=target, actor=actor)
+
+    rejected = application_factory(vacancy.job_posting, recorded_by=actor)
+    pipeline.transition_application_status(
+        db_session, application=rejected, new_status=ApplicationStatusEnum.REJECTED, actor=actor, reason="Not a fit"
+    )
+
+    withdrawn = application_factory(vacancy.job_posting, recorded_by=actor)
+    pipeline.transition_application_status(
+        db_session,
+        application=withdrawn,
+        new_status=ApplicationStatusEnum.WITHDRAWN,
+        actor=actor,
+        reason="No longer interested",
+    )
+    db_session.commit()
+
+    response = _kpis(client, actor)
+    assert response.status_code == 200
+    body = response.json()
+
+    # Always all 7 buckets, in this exact order, even when a count is 0.
+    assert [row["stage"] for row in body["application_pipeline_funnel"]] == [
+        "Applied",
+        "Screening",
+        "Interview",
+        "Selected",
+        "Offer",
+        "Joined",
+        "Rejected",
+    ]
+    assert _funnel_map(body) == {
+        "Applied": 1,
+        "Screening": 1,
+        "Interview": 2,  # CALLED_FOR_INTERVIEW + INTERVIEWED collapse into one bucket
+        "Selected": 1,
+        "Offer": 0,
+        "Joined": 0,
+        "Rejected": 2,  # REJECTED + WITHDRAWN collapse into one bucket
+    }
+
+
+def test_application_pipeline_funnel_respects_campus_scope(
+    client, published_vacancy_factory, application_factory, db_session
+):
+    sse_vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    scad_vacancy = published_vacancy_factory(campus_code="SCAD", slot_count=1)
+    application_factory(sse_vacancy.job_posting, recorded_by=sse_vacancy.hr_admin)
+    application_factory(scad_vacancy.job_posting, recorded_by=scad_vacancy.hr_admin)
+    application_factory(scad_vacancy.job_posting, recorded_by=scad_vacancy.hr_admin)
+
+    scoped_response = _kpis(client, sse_vacancy.hod)
+    assert _funnel_map(scoped_response.json())["Applied"] == 1
+
+    global_response = _kpis(client, sse_vacancy.hr_admin)
+    assert _funnel_map(global_response.json())["Applied"] == 3
+
+
+def test_critical_vacancies_teaching_row_with_no_pending_request(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory
+):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation, approved_strength=5, created_by=hr_admin
+    )
+
+    response = _kpis(client, hr_admin)
+    assert response.status_code == 200
+    rows = response.json()["critical_vacancies"]
+    assert len(rows) == 1
+    assert rows[0] == {
+        "department": department.name,
+        "designation": designation.name,
+        "location": None,
+        "category": "TEACHING",
+        "vacancy_count": 5,
+    }
+
+
+def test_critical_vacancies_excludes_rows_with_a_pending_request(
+    client,
+    db_session,
+    published_vacancy_factory,
+    designation_factory,
+    sanctioned_strength_factory,
+):
+    """A designation with an in-flight VacancyRequest is APPROVAL_PENDING,
+    not VACANCY_RECRUITMENT_REQUIRED -- it must not show up as critical."""
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=vacancy.department)
+    vacancy.vacancy_request.designation_id = designation.id
+    db_session.flush()
+    sanctioned_strength_factory(
+        campus=vacancy.campus,
+        department=vacancy.department,
+        designation=designation,
+        approved_strength=5,
+        created_by=vacancy.hr_admin,
+    )
+    db_session.commit()
+
+    response = _kpis(client, vacancy.hr_admin)
+    rows = response.json()["critical_vacancies"]
+    assert rows == []
+
+
+def test_critical_vacancies_respects_campus_scope(
+    client, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory
+):
+    sse_campus = campus_factory("SSE")
+    sse_department = department_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    sse_designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=sse_department)
+    sanctioned_strength_factory(
+        campus=sse_campus, department=sse_department, designation=sse_designation, approved_strength=5,
+        created_by=hr_admin,
+    )
+
+    scad_campus = campus_factory("SCAD")
+    scad_department = department_factory("SCAD")
+    scad_designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=scad_department)
+    sanctioned_strength_factory(
+        campus=scad_campus, department=scad_department, designation=scad_designation, approved_strength=9,
+        created_by=hr_admin,
+    )
+
+    sse_hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    scoped_response = _kpis(client, sse_hod)
+    scoped_rows = scoped_response.json()["critical_vacancies"]
+    assert len(scoped_rows) == 1
+    assert scoped_rows[0]["vacancy_count"] == 5
+
+    global_response = _kpis(client, hr_admin)
+    global_rows = global_response.json()["critical_vacancies"]
+    assert {r["vacancy_count"] for r in global_rows} == {5, 9}
+
+
+def test_recent_joins_top10_ordered_by_date_desc(client, published_vacancy_factory, hired_employee_factory):
+    older_vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    older = hired_employee_factory(older_vacancy, joining_date=date(2026, 1, 1))
+    newer_vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    newer = hired_employee_factory(newer_vacancy, joining_date=date(2026, 2, 1))
+
+    response = _kpis(client, older_vacancy.hr_admin)
+    assert response.status_code == 200
+    rows = response.json()["recent_joins"]
+    names_in_order = [r["employee_name"] for r in rows]
+    assert names_in_order.index(newer.employee.full_name) < names_in_order.index(older.employee.full_name)
+
+    newest_row = next(r for r in rows if r["employee_name"] == newer.employee.full_name)
+    assert newest_row["date"] == "2026-02-01"
+    assert newest_row["campus"] == "SSE"
+    assert newest_row["designation"] == newer.employee.designation
+    assert newest_row["department"] == newer_vacancy.department.name
+
+
+def test_recent_joins_respects_campus_scope(client, published_vacancy_factory, hired_employee_factory):
+    sse_vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hired_employee_factory(sse_vacancy)
+    scad_vacancy = published_vacancy_factory(campus_code="SCAD", slot_count=1)
+    hired_employee_factory(scad_vacancy)
+
+    scoped_response = _kpis(client, sse_vacancy.hod)
+    scoped_campuses = {r["campus"] for r in scoped_response.json()["recent_joins"]}
+    assert scoped_campuses == {"SSE"}
+
+    global_response = _kpis(client, sse_vacancy.hr_admin)
+    global_campuses = {r["campus"] for r in global_response.json()["recent_joins"]}
+    assert {"SSE", "SCAD"} <= global_campuses
+
+
+def test_recent_resignations_only_resigned_with_a_separation_date(
+    client, published_vacancy_factory, hired_employee_factory, db_session
+):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=2)
+    resigned = hired_employee_factory(vacancy, joining_date=date(2025, 1, 1))
+    resigned.employee.employment_status = EmploymentStatusEnum.RESIGNED
+    resigned.employee.separation_date = date(2026, 3, 1)
+
+    still_active = hired_employee_factory(vacancy, joining_date=date(2025, 6, 1))  # never resigned
+    db_session.commit()
+
+    response = _kpis(client, vacancy.hr_admin)
+    assert response.status_code == 200
+    rows = response.json()["recent_resignations"]
+    assert len(rows) == 1
+    assert rows[0]["employee_name"] == resigned.employee.full_name
+    assert rows[0]["date"] == "2026-03-01"
+    assert rows[0]["designation"] == resigned.employee.designation
+    names = {r["employee_name"] for r in rows}
+    assert still_active.employee.full_name not in names
+
+
+def test_recent_resignations_respects_campus_scope(
+    client, published_vacancy_factory, hired_employee_factory, db_session
+):
+    sse_vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    sse_hired = hired_employee_factory(sse_vacancy)
+    sse_hired.employee.employment_status = EmploymentStatusEnum.RESIGNED
+    sse_hired.employee.separation_date = date(2026, 1, 1)
+
+    scad_vacancy = published_vacancy_factory(campus_code="SCAD", slot_count=1)
+    scad_hired = hired_employee_factory(scad_vacancy)
+    scad_hired.employee.employment_status = EmploymentStatusEnum.RESIGNED
+    scad_hired.employee.separation_date = date(2026, 1, 2)
+    db_session.commit()
+
+    scoped_response = _kpis(client, sse_vacancy.hod)
+    scoped_campuses = {r["campus"] for r in scoped_response.json()["recent_resignations"]}
+    assert scoped_campuses == {"SSE"}
+
+    global_response = _kpis(client, sse_vacancy.hr_admin)
+    global_campuses = {r["campus"] for r in global_response.json()["recent_resignations"]}
+    assert {"SSE", "SCAD"} <= global_campuses
