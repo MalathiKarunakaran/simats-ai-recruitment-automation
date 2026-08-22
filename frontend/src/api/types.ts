@@ -177,6 +177,37 @@ export interface CategoryBreakdownRow {
   hires: number;
 }
 
+// One bucket of DashboardKpis.application_pipeline_funnel -- always exactly
+// 7 rows, in this fixed order (Applied -> Screening -> Interview -> Selected
+// -> Offer -> Joined -> Rejected). Mirrors
+// app/schemas/reporting.py::PipelineFunnelStage.
+export interface PipelineFunnelStage {
+  stage: string;
+  count: number;
+}
+
+// One row of DashboardKpis.critical_vacancies -- mirrors
+// app/schemas/reporting.py::CriticalVacancyRow. `location` is only ever
+// populated for Housekeeping rows (and optionally Teaching/Non-Teaching rows
+// that have a Location set) -- see that schema's own docstring.
+export interface CriticalVacancyRow {
+  department: string;
+  designation: string;
+  location: string | null;
+  category: string;
+  vacancy_count: number;
+}
+
+// One row of DashboardKpis.recent_joins / .recent_resignations -- mirrors
+// app/schemas/reporting.py::RecentEmployeeEventRow.
+export interface RecentEmployeeEventRow {
+  employee_name: string;
+  department: string | null;
+  designation: string;
+  campus: string;
+  date: string;
+}
+
 export interface DashboardKpis {
   scope_note: string;
   total_applications: number;
@@ -204,6 +235,15 @@ export interface DashboardKpis {
   // hide the sign. See app/services/reporting.py::_sanctioned_strength_totals
   // for the full reasoning.
   sanctioned_vacancy_total: number;
+  // Additive fields (Step 3, dashboard-kpi-additions-backend/-frontend) --
+  // mirrors app/schemas/reporting.py::DashboardKPIResponse's own additive
+  // block. application_pipeline_funnel is always exactly 7 rows, always in
+  // the same Applied -> ... -> Rejected order -- don't re-sort it.
+  urgent_vacancy_count: number;
+  application_pipeline_funnel: PipelineFunnelStage[];
+  critical_vacancies: CriticalVacancyRow[];
+  recent_joins: RecentEmployeeEventRow[];
+  recent_resignations: RecentEmployeeEventRow[];
 }
 
 // Mirrors app/schemas/department.py::DepartmentRead. code/category/parent_group

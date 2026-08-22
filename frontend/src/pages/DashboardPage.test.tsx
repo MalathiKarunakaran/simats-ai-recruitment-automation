@@ -2,16 +2,25 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as dashboardApi from "@/api/dashboard";
-import type { CategoryBreakdownRow, DashboardKpis } from "@/api/types";
+import type {
+  CategoryBreakdownRow,
+  CriticalVacancyRow,
+  DashboardKpis,
+  RecentEmployeeEventRow,
+  VacancyRequestRead,
+} from "@/api/types";
+import * as vacancyRequestsApi from "@/api/vacancyRequests";
 import { CampusProvider } from "@/campus/CampusContext";
 import { DashboardPage } from "@/pages/DashboardPage";
 
 vi.mock("@/api/dashboard");
+vi.mock("@/api/vacancyRequests");
 
 const mockedGetDashboardKpis = vi.mocked(dashboardApi.getDashboardKpis);
+const mockedListVacancyRequests = vi.mocked(vacancyRequestsApi.listVacancyRequests);
 
 function renderWithProviders() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -30,6 +39,90 @@ const REAL_SHAPE_BREAKDOWN: CategoryBreakdownRow[] = [
   { role_category: "TEACHING", applications: 12, open_positions: 3, hires: 2 },
   { role_category: "NON_TEACHING", applications: 20, open_positions: 4, hires: 1 },
   { role_category: "HOUSEKEEPING", applications: 5, open_positions: 1, hires: 0 },
+];
+
+// Fixed order the backend always returns application_pipeline_funnel in --
+// see app/schemas/reporting.py::PipelineFunnelStage's doc comment. Counts are
+// deliberately distinct from every other number in mockKpis' default (42,
+// 25, 19, 6, ...) below -- a couple of tests do an unscoped
+// screen.getByText("42") against the *KPI tile*, which would false-positive
+// (or throw "multiple elements") against an equal-looking funnel bar label.
+const REAL_SHAPE_FUNNEL = [
+  { stage: "Applied", count: 143 },
+  { stage: "Screening", count: 98 },
+  { stage: "Interview", count: 61 },
+  { stage: "Selected", count: 37 },
+  { stage: "Offer", count: 29 },
+  { stage: "Joined", count: 17 },
+  { stage: "Rejected", count: 53 },
+];
+
+const REAL_SHAPE_CRITICAL_VACANCIES: CriticalVacancyRow[] = [
+  { department: "Computer Science", designation: "Assistant Professor", location: null, category: "TEACHING", vacancy_count: 3 },
+  { department: "Housekeeping", designation: "Cleaner", location: "Block A", category: "HOUSEKEEPING", vacancy_count: 2 },
+];
+
+const REAL_SHAPE_RECENT_JOINS: RecentEmployeeEventRow[] = [
+  { employee_name: "Asha Rao", department: "Computer Science", designation: "Assistant Professor", campus: "SSE", date: "2026-08-01" },
+];
+
+const REAL_SHAPE_RECENT_RESIGNATIONS: RecentEmployeeEventRow[] = [
+  { employee_name: "Ravi Kumar", department: "Mechanical", designation: "Lecturer", campus: "SCAD", date: "2026-07-15" },
+];
+
+function makeVR(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
+  return {
+    id: "vr-1",
+    campus_id: "c-sse",
+    department_id: "d-1",
+    designation_id: null,
+    role_category: "TEACHING",
+    position_title: "Assistant Professor",
+    employment_type: "FULL_TIME",
+    requested_count: 2,
+    qualification: "PhD",
+    experience_required: "3+ years",
+    salary_band_min: null,
+    salary_band_max: null,
+    jd_draft: null,
+    remarks: null,
+    skills: null,
+    priority: "NORMAL",
+    status: "SUBMITTED",
+    requested_by_id: "u-1",
+    submitted_at: "2026-07-20T00:00:00Z",
+    dean_reviewed_by_id: null,
+    dean_reviewed_at: null,
+    hr_reviewed_by_id: null,
+    hr_reviewed_at: null,
+    rejected_by_id: null,
+    rejected_at: null,
+    rejection_reason: null,
+    cancelled_by_id: null,
+    cancelled_at: null,
+    cancellation_reason: null,
+    is_over_sanction: false,
+    over_sanction_justification: null,
+    created_at: "2026-07-19T00:00:00Z",
+    updated_at: "2026-07-19T00:00:00Z",
+    ...overrides,
+  };
+}
+
+// 8 requests spanning every status: 1 DRAFT, 2 SUBMITTED, 1 DEAN_APPROVED,
+// 1 APPROVED, 1 PUBLISHED, 1 CLOSED, 1 REJECTED -- so
+// pending (SUBMITTED+DEAN_APPROVED) = 3 and pending+approved
+// (+APPROVED) = 4, distinct from each other and from the total (8), so a
+// test asserting either number can't pass by accident.
+const MIXED_STATUS_VACANCY_REQUESTS: VacancyRequestRead[] = [
+  makeVR({ id: "vr-draft", status: "DRAFT" }),
+  makeVR({ id: "vr-submitted-1", status: "SUBMITTED" }),
+  makeVR({ id: "vr-submitted-2", status: "SUBMITTED" }),
+  makeVR({ id: "vr-dean-approved", status: "DEAN_APPROVED" }),
+  makeVR({ id: "vr-approved", status: "APPROVED" }),
+  makeVR({ id: "vr-published", status: "PUBLISHED" }),
+  makeVR({ id: "vr-closed", status: "CLOSED" }),
+  makeVR({ id: "vr-rejected", status: "REJECTED" }),
 ];
 
 // Mirrors the real /dashboard/kpis response: total_applications (and the
@@ -59,9 +152,23 @@ function mockKpis(overrides: Partial<DashboardKpis> = {}): void {
     sanctioned_approved_total: roleCategory ? 8 : 25,
     sanctioned_working_total: roleCategory ? 6 : 19,
     sanctioned_vacancy_total: roleCategory ? 2 : 6,
+    // Additive fields (Step 3, dashboard-kpi-additions).
+    urgent_vacancy_count: 3,
+    application_pipeline_funnel: REAL_SHAPE_FUNNEL,
+    critical_vacancies: REAL_SHAPE_CRITICAL_VACANCIES,
+    recent_joins: REAL_SHAPE_RECENT_JOINS,
+    recent_resignations: REAL_SHAPE_RECENT_RESIGNATIONS,
     ...overrides,
   }));
 }
+
+beforeEach(() => {
+  // Default for every test that doesn't explicitly mock the Pending
+  // Requests/Approvals composition -- an empty vacancy-requests list so
+  // those two new tiles render "0" rather than hanging on a never-resolving
+  // query and breaking every pre-existing test in this file.
+  mockedListVacancyRequests.mockResolvedValue([]);
+});
 
 describe("DashboardPage", () => {
   it("renders KPI values from the API response using StatTile", async () => {
@@ -157,9 +264,10 @@ describe("DashboardPage", () => {
 
     renderWithProviders();
 
-    // Only 2 CategoryBarChart instances remain (source-wise, rejected-vs-
-    // withdrawn) -- category-wise split is a table now, not a bar chart.
-    await waitFor(() => expect(screen.getAllByTestId("category-bar-chart")).toHaveLength(2));
+    // 3 CategoryBarChart instances now (source-wise, rejected-vs-withdrawn,
+    // and the recruitment pipeline funnel added in Step 3) -- category-wise
+    // split is a table, not a bar chart, so it never counts here.
+    await waitFor(() => expect(screen.getAllByTestId("category-bar-chart")).toHaveLength(3));
     const [sourceChart, rejectedChart] = screen.getAllByTestId("category-bar-chart");
 
     expect(within(sourceChart).getByText("Reference")).toBeInTheDocument();
@@ -281,6 +389,19 @@ describe("DashboardPage", () => {
       source_wise_breakdown: [],
       rejected_count: 0,
       withdrawn_count: 0,
+      // Also zero the funnel out for this "everything is genuinely zero"
+      // scenario -- otherwise the (non-overridden) REAL_SHAPE_FUNNEL default
+      // would render a 3rd CategoryBarChart and break this test's own
+      // "only 2 charts" assertion below.
+      application_pipeline_funnel: [
+        { stage: "Applied", count: 0 },
+        { stage: "Screening", count: 0 },
+        { stage: "Interview", count: 0 },
+        { stage: "Selected", count: 0 },
+        { stage: "Offer", count: 0 },
+        { stage: "Joined", count: 0 },
+        { stage: "Rejected", count: 0 },
+      ],
     });
 
     renderWithProviders();
@@ -331,19 +452,161 @@ describe("DashboardPage", () => {
       source_wise_breakdown: [],
       rejected_count: 0,
       withdrawn_count: 0,
+      // Also zero the funnel out for this "everything is genuinely zero"
+      // scenario -- otherwise the (non-overridden) REAL_SHAPE_FUNNEL default
+      // would render a 3rd CategoryBarChart and break this test's own
+      // "only 2 charts" assertion below.
+      application_pipeline_funnel: [
+        { stage: "Applied", count: 0 },
+        { stage: "Screening", count: 0 },
+        { stage: "Interview", count: 0 },
+        { stage: "Selected", count: 0 },
+        { stage: "Offer", count: 0 },
+        { stage: "Joined", count: 0 },
+        { stage: "Rejected", count: 0 },
+      ],
     });
 
     renderWithProviders();
 
     // Source-wise split (empty array), category-wise split (3 rows, all
-    // zero -- can't use a `.length === 0` check like the widget beside it)
-    // and rejected-vs-withdrawn (both zero) all show the same reusable
-    // empty-state message here.
-    expect(await screen.findAllByText("No applications in this scope yet.")).toHaveLength(2);
+    // zero -- can't use a `.length === 0` check like the widget beside it),
+    // and the recruitment pipeline funnel (all 7 stages zeroed above) all
+    // show the same reusable empty-state message here.
+    expect(await screen.findAllByText("No applications in this scope yet.")).toHaveLength(3);
     expect(screen.getByText("No rejections or withdrawals in this scope yet.")).toBeInTheDocument();
     // Only the source-wise and rejected-vs-withdrawn bar charts still exist;
     // category-wise split never renders a bar chart anymore.
     expect(screen.queryAllByTestId("category-bar-chart")).toHaveLength(0);
     expect(screen.queryByRole("table", { name: "Category-wise split" })).not.toBeInTheDocument();
+  });
+
+  it("renders the Urgent vacancies tile with the real urgent_vacancy_count and a red accent", async () => {
+    mockKpis({ urgent_vacancy_count: 7 });
+
+    renderWithProviders();
+
+    const title = await screen.findByText("Urgent vacancies");
+    const tile = title.closest(".rounded-xl") as HTMLElement;
+    expect(await within(tile).findByText("7")).toBeInTheDocument();
+    // "red" accent renders as the border-l-brand-danger utility class on the
+    // Card -- assert the real class landed, not just that a number rendered.
+    expect(tile.className).toContain("border-l-brand-danger");
+  });
+
+  it("shows the urgent zero caption when there are genuinely no urgent vacancies", async () => {
+    mockKpis({ urgent_vacancy_count: 0 });
+
+    renderWithProviders();
+
+    expect(await screen.findByText("No urgent vacancies right now")).toBeInTheDocument();
+  });
+
+  it("renders the recruitment pipeline funnel's 7 stages in the exact backend order, not re-sorted", async () => {
+    mockKpis();
+
+    renderWithProviders();
+
+    const funnelChart = await screen.findByLabelText("Recruitment pipeline funnel");
+    // recharts renders each YAxis category tick as its own <text> node --
+    // read them back in DOM order and assert against the fixed stage order,
+    // not just that all 7 labels are present somewhere.
+    const tickTexts = within(funnelChart)
+      .getAllByText(/^(Applied|Screening|Interview|Selected|Offer|Joined|Rejected)$/)
+      .map((node) => node.textContent);
+    expect(tickTexts).toEqual(["Applied", "Screening", "Interview", "Selected", "Offer", "Joined", "Rejected"]);
+    // Real counts from the mock, not hard-coded/rendered arbitrarily.
+    expect(await within(funnelChart).findByText("143")).toBeInTheDocument();
+    expect(within(funnelChart).getByText("53")).toBeInTheDocument();
+  });
+
+  it("renders the Critical vacancies table with real mocked rows", async () => {
+    mockKpis();
+
+    renderWithProviders();
+
+    const table = await screen.findByRole("table", { name: "Critical vacancies" });
+    const csRow = (await within(table).findByText("Computer Science")).closest("tr")!;
+    expect(within(csRow).getByText("Assistant Professor")).toBeInTheDocument();
+    expect(within(csRow).getByText("3")).toBeInTheDocument();
+    // location is null for this row -- rendered as an em dash, not blank/"null".
+    expect(within(csRow).getByText("—")).toBeInTheDocument();
+
+    const hkRow = within(table).getByText("Housekeeping").closest("tr")!;
+    expect(within(hkRow).getByText("Block A")).toBeInTheDocument();
+    expect(within(hkRow).getByText("2")).toBeInTheDocument();
+  });
+
+  it("shows the genuinely-good-news empty state when there are no critical vacancies", async () => {
+    mockKpis({ critical_vacancies: [] });
+
+    renderWithProviders();
+
+    const table = await screen.findByRole("table", { name: "Critical vacancies" });
+    expect(
+      await within(table).findByText("No critical vacancies right now -- nothing urgently understaffed."),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the Recent joins and Recent resignations tables as 2 separate cards with real mocked rows", async () => {
+    mockKpis();
+
+    renderWithProviders();
+
+    const joinsTable = await screen.findByRole("table", { name: "Recent joins" });
+    expect(await within(joinsTable).findByText("Asha Rao")).toBeInTheDocument();
+    expect(within(joinsTable).getByText("Computer Science")).toBeInTheDocument();
+    expect(within(joinsTable).getByText("SSE")).toBeInTheDocument();
+
+    const resignationsTable = await screen.findByRole("table", { name: "Recent resignations" });
+    expect(await within(resignationsTable).findByText("Ravi Kumar")).toBeInTheDocument();
+    expect(within(resignationsTable).getByText("Mechanical")).toBeInTheDocument();
+    expect(within(resignationsTable).getByText("SCAD")).toBeInTheDocument();
+
+    // Genuinely 2 distinct cards/tables, not one merged list.
+    expect(joinsTable).not.toBe(resignationsTable);
+  });
+
+  it("shows their own empty states when there are no recent joins/resignations", async () => {
+    mockKpis({ recent_joins: [], recent_resignations: [] });
+
+    renderWithProviders();
+
+    const joinsTable = await screen.findByRole("table", { name: "Recent joins" });
+    expect(await within(joinsTable).findByText("No joinings recorded in this scope yet.")).toBeInTheDocument();
+
+    const resignationsTable = await screen.findByRole("table", { name: "Recent resignations" });
+    expect(
+      await within(resignationsTable).findByText("No resignations recorded in this scope yet."),
+    ).toBeInTheDocument();
+  });
+
+  it("computes Pending requests (SUBMITTED+DEAN_APPROVED) and Pending approvals (+APPROVED) from real listVacancyRequests data, not the /dashboard/kpis response", async () => {
+    mockKpis();
+    mockedListVacancyRequests.mockResolvedValue(MIXED_STATUS_VACANCY_REQUESTS);
+
+    renderWithProviders();
+
+    // Fetched unfiltered, same as VacancyRequestsListPage's own KPI strip.
+    await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith(null));
+
+    const pendingRequestsTile = (await screen.findByText("Pending requests")).closest(".rounded-xl") as HTMLElement;
+    // 2 SUBMITTED + 1 DEAN_APPROVED = 3 (DRAFT/APPROVED/PUBLISHED/CLOSED/
+    // REJECTED all deliberately excluded).
+    expect(within(pendingRequestsTile).getByText("3")).toBeInTheDocument();
+
+    const pendingApprovalsTile = screen.getByText("Pending approvals").closest(".rounded-xl") as HTMLElement;
+    // Same 3, plus 1 APPROVED ("ready to publish") = 4.
+    expect(within(pendingApprovalsTile).getByText("4")).toBeInTheDocument();
+  });
+
+  it("shows the Pending requests/approvals zero captions when there are no vacancy requests at all", async () => {
+    mockKpis();
+    mockedListVacancyRequests.mockResolvedValue([]);
+
+    renderWithProviders();
+
+    expect(await screen.findByText("No requests waiting on an approver right now")).toBeInTheDocument();
+    expect(screen.getByText("Nothing awaiting approval or publishing right now")).toBeInTheDocument();
   });
 });
