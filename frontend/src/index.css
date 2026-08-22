@@ -4,13 +4,23 @@
 
 :root {
   /* Enterprise SaaS identity (2026-08-03 full redesign) -- exact palette per
-     the user's design spec. Teal is the primary action color throughout;
+     the user's design spec. Originally teal; design-system-foundation step 2
+     (2026-08-22, user-confirmed) shifts --brand-primary/-hover from teal to a
+     standard enterprise blue (Tailwind blue-600/700). --brand-secondary stays
+     teal on purpose -- it's a separate, still-valid accent per the app's
+     color spec (Teal/Green=success, Orange=warning, Red=danger,
+     Purple=analytics), not just a shade of --brand-primary.
      success/warning/danger/info are the fixed semantic vocabulary, kept
      independent of the brand accent so status color never competes with
      brand color. */
-  --brand-primary: #0f766e;
-  --brand-primary-hover: #115e59;
-  --brand-primary-light: #ecfdf5;
+  --brand-primary: #2563eb;
+  --brand-primary-hover: #1d4ed8;
+  /* Light tint paired with --brand-primary for active/selected-state
+     backgrounds (VacancyRequestWizard's step indicator, AppShell's active
+     nav hover) -- re-stepped from teal-tinted emerald-50 to blue-50 so it
+     stays a light wash of the (now blue) primary rather than reading as a
+     mismatched green tint next to a blue border/text. */
+  --brand-primary-light: #eff6ff;
   --brand-secondary: #14b8a6;
   --brand-success: #10b981;
   --brand-warning: #f59e0b;
@@ -39,19 +49,26 @@
   --body-foreground: #4b5563;
   --card: #ffffff;
   --card-foreground: #111827;
-  --primary: #0f766e;
+  --primary: #2563eb;
   --primary-foreground: #ffffff;
   --secondary: #f1f5f9;
   --secondary-foreground: #1e293b;
   --muted: #f1f5f9;
   --muted-foreground: #9ca3af;
-  --accent: #ecfdf5;
-  --accent-foreground: #0f766e;
+  /* --accent/--accent-foreground duplicated --brand-primary-light/
+     --brand-primary's exact hex values (#ecfdf5 / #0f766e) pre-shift -- this
+     pair is consistently used together as the "highlighted/selected" hover
+     treatment (button.tsx outline/ghost, select.tsx's highlighted item,
+     AppShell's nav hover, table row hover via bg-accent/50), so it moves to
+     blue in lockstep with --brand-primary rather than being left as a
+     mismatched green wash under blue text. */
+  --accent: #eff6ff;
+  --accent-foreground: #2563eb;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
   --border: #e5e7eb;
   --input: #e5e7eb;
-  --ring: #0f766e;
+  --ring: #2563eb;
   --radius: 0.75rem;
   /* UI redesign Phase 1 (2026-08-17): 18px -> 22px. Evolution of the same
      "Card radius distinct from Button/Input radius" idea from the 2026-08-03
@@ -89,12 +106,13 @@
      a tight near-black hairline (keeps the card's edge legible against the
      light --background) plus a wide, low-opacity blur that does the actual
      "floating" work. The hover state doesn't just deepen the same shadow --
-     it tints the wide blur with --brand-primary (0f766e -> its rgb(15,118,110))
-     so the lift reads as *this app's* brand glow, not a generic elevation
-     bump; still restrained (0.22 alpha) so it stays a hover affordance, not
-     a glow effect. */
+     it tints the wide blur with --brand-primary (2026-08-22: re-tinted from
+     teal's rgb(15,118,110) to blue's rgb(37,99,235) alongside the
+     --brand-primary shift below) so the lift reads as *this app's* brand
+     glow, not a generic elevation bump; still restrained (0.22 alpha) so it
+     stays a hover affordance, not a glow effect. */
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -12px rgba(15, 23, 42, 0.14);
-  --shadow-card-hover: 0 1px 2px rgba(15, 23, 42, 0.05), 0 20px 40px -14px rgba(15, 118, 110, 0.22);
+  --shadow-card-hover: 0 1px 2px rgba(15, 23, 42, 0.05), 0 20px 40px -14px rgba(37, 99, 235, 0.22);
 
   /* Signature accent gradient (UI redesign Phase 1, consumed starting Phase
      2) -- the ONE 3-stop brand gradient for the whole redesign, per the
@@ -119,28 +137,37 @@
 }
 
 .dark {
-  /* Same identity, dark surface -- teal brightened (brand-secondary takes
-     over as --primary) for legibility against the darker background,
-     standard slate neutrals rather than a bespoke dark palette since the
-     spec only defined the light theme explicitly. */
+  /* Same identity, dark surface -- brightened for legibility against the
+     darker background, standard slate neutrals rather than a bespoke dark
+     palette since the spec only defined the light theme explicitly.
+     2026-08-22 (design-system-foundation step 2): --primary/--ring/--accent
+     here were already deliberately decoupled from light mode's --primary --
+     pre-shift, dark mode used --brand-secondary's brighter teal (#14b8a6)
+     rather than --brand-primary's own darker teal (#0f766e), purely for
+     dark-background contrast, not tied to the primary-color identity
+     itself. Now that light mode's primary is blue, leaving this teal would
+     mean the primary color visibly changes hue when a user toggles theme --
+     re-brightened as blue-400 (#60a5fa) instead, the same "brightened for
+     dark-bg legibility" relationship blue-600 -> blue-400 that teal-700 ->
+     teal-500-ish had, so primary reads consistently blue in both themes. */
   --background: #0f172a;
   --foreground: #f8fafc;
   --body-foreground: #cbd5e1;
   --card: #1e293b;
   --card-foreground: #f8fafc;
-  --primary: #14b8a6;
-  --primary-foreground: #0b1a1e;
+  --primary: #60a5fa;
+  --primary-foreground: #0c1e3d;
   --secondary: #1e293b;
   --secondary-foreground: #cbd5e1;
   --muted: #1e293b;
   --muted-foreground: #94a3b8;
-  --accent: #0b3b37;
-  --accent-foreground: #5eead4;
+  --accent: #1e3a5f;
+  --accent-foreground: #93c5fd;
   --destructive: #ef4444;
   --destructive-foreground: #fef2f2;
   --border: #334155;
   --input: #334155;
-  --ring: #14b8a6;
+  --ring: #60a5fa;
 
   /* Chart categorical palette -- dark-mode steps of the same teal/amber/
      plum identity above, independently validated against this theme's real
