@@ -3,15 +3,25 @@ import { Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-export type StatAccent = "gold" | "green" | "orange" | "none";
+export type StatAccent = "gold" | "green" | "orange" | "red" | "none";
 
 // "gold" is kept as a StatAccent name for call-site backward compatibility
 // (DashboardPage picks accents by this string) but now renders the brand's
 // secondary teal, since the redesigned palette has no gold accent.
+// "red" (dashboard-kpi-additions-frontend, Step 3) is the first tile accent
+// to consume --brand-danger -- reserved for the rare KPI that's genuinely
+// meant to read as urgent/needs-attention (e.g. DashboardPage's "Urgent
+// vacancies" tile), matching this app's fixed color spec (Red = urgent/
+// destructive, see index.css's palette comment). Deliberately just the same
+// left-border-stripe treatment as the other 3 accents, not a one-off style --
+// `hero` (below) remains the only "extra-loud" treatment on this page, and
+// it's reserved for exactly one tile by its own contract, so a tile is never
+// both hero and red.
 const ACCENT_BORDER: Record<StatAccent, string> = {
   gold: "border-l-brand-secondary",
   green: "border-l-brand-success",
   orange: "border-l-brand-warning",
+  red: "border-l-brand-danger",
   none: "",
 };
 

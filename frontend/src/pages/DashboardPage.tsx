@@ -4,6 +4,7 @@ import { useState } from "react";
 import { getDashboardKpis } from "@/api/dashboard";
 import { downloadAdBriefingExport } from "@/api/reports";
 import type { CategoryBreakdownRow, DashboardKpis, StaffRoleCategory } from "@/api/types";
+import { listVacancyRequests } from "@/api/vacancyRequests";
 import { useCampus } from "@/campus/CampusContext";
 import { CampusHiringChart } from "@/components/dashboard/CampusHiringChart";
 import { CategoryBarChart } from "@/components/dashboard/CategoryBarChart";
@@ -13,7 +14,9 @@ import { StatTile, type StatAccent } from "@/components/dashboard/StatTile";
 import { CategoryTabs, type CategoryTabValue } from "@/components/domain/CategoryTabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
+import { summarizeVacancyRequestStatuses } from "@/lib/vacancyRequestStats";
 
 const KPI_CARDS: {
   key: keyof DashboardKpis;
@@ -83,6 +86,18 @@ const KPI_CARDS: {
     tooltip:
       "Sanctioned approved minus sanctioned working, net across scope -- NOT the sum of each row's vacancy floored at 0. Negative means net overstaffed overall, not \"no vacancy\".",
     zeroCaption: "Fully staffed -- no net vacancy or overstaffing in this scope",
+  },
+  // Step 3 (dashboard-kpi-additions) -- the one KPI on this whole strip
+  // meant to grab attention, hence StatTile's new "red" accent (--brand-danger)
+  // rather than reusing gold/green/orange, none of which read as "urgent" in
+  // this app's fixed color spec (Red = urgent/destructive, index.css).
+  {
+    key: "urgent_vacancy_count",
+    label: "Urgent vacancies",
+    accent: "red",
+    tooltip:
+      "Vacancy requests in scope with priority = URGENT, excluding CLOSED/REJECTED/CANCELLED ones -- a current-state count, not scoped to the date range above (respects the category tabs above).",
+    zeroCaption: "No urgent vacancies right now",
   },
 ];
 
@@ -166,6 +181,41 @@ export function DashboardPage() {
     { label: "Withdrawn", value: data?.withdrawn_count ?? 0 },
   ];
 
+  const pipelineFunnelData = (data?.application_pipeline_funnel ?? []).map((row) => ({
+    label: row.stage,
+    value: row.count,
+  }));
+  const pipelineFunnelIsEmpty = (data?.application_pipeline_funnel ?? []).every((row) => row.count === 0);
+
+  const criticalVacancies = data?.critical_vacancies ?? [];
+  const recentJoins = data?.recent_joins ?? [];
+  const recentResignations = data?.recent_resignations ?? [];
+
+  // "Pending Requests" / "Pending Approvals" -- composed from the existing
+  // /vacancy-requests list endpoint (no new backend field), the same way
+  // VacancyRequestsListPage's own KPI strip does: fetched unfiltered
+  // (status=null) and bucketed with the single shared
+  // summarizeVacancyRequestStatuses() so this never invents a third,
+  // diverging definition of "pending" (CLAUDE.md-style rule this codebase
+  // already follows for that page). Deliberately not scoped by the category
+  // tabs/date range above -- same "always reflects the whole scope" choice
+  // VacancyRequestsListPage's own KPI strip makes for its equivalent tiles.
+  const { data: vacancyRequests, isLoading: isVacancyRequestsLoading } = useQuery({
+    queryKey: ["vacancy-requests", "ALL"],
+    queryFn: () => listVacancyRequests(null),
+  });
+  const vacancyRequestBuckets = summarizeVacancyRequestStatuses(vacancyRequests ?? []);
+  // "Pending Requests" = SUBMITTED + DEAN_APPROVED -- VacancyRequestsListPage's
+  // own `pending` bucket (rendered there as its "Pending approval" tile).
+  const pendingRequestsCount = vacancyRequestBuckets.pending;
+  // "Pending Approvals" = SUBMITTED + DEAN_APPROVED + APPROVED -- the union of
+  // every status any role's ACTIONABLE_STATUSES_BY_ROLE on VacancyApprovalsPage
+  // can act on (SUPER_ADMIN's own list is exactly this superset), i.e. every
+  // request still awaiting *some* approver's next action anywhere in the
+  // chain. Composed from the same shared buckets as pendingRequestsCount
+  // above (pending + approved), not a separately re-invented filter.
+  const pendingApprovalsCount = vacancyRequestBuckets.pending + vacancyRequestBuckets.approved;
+
   async function handleExport() {
     setExportError(null);
     setIsExporting(true);
@@ -226,6 +276,30 @@ export function DashboardPage() {
             />
           );
         })}
+      </div>
+
+      {/* Pending Requests / Pending Approvals -- composed client-side from the
+          existing /vacancy-requests list, not new /dashboard/kpis fields (see
+          the pendingRequestsCount/pendingApprovalsCount comment above). A
+          separate small row (not folded into KPI_CARDS above) since these two
+          come from a different query than the rest of the strip. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-5">
+        <StatTile
+          label="Pending requests"
+          value={isVacancyRequestsLoading ? undefined : pendingRequestsCount}
+          isLoading={isVacancyRequestsLoading}
+          accent="gold"
+          tooltip="Vacancy requests awaiting the next actor in the approval chain -- status SUBMITTED or DEAN_APPROVED."
+          zeroCaption="No requests waiting on an approver right now"
+        />
+        <StatTile
+          label="Pending approvals"
+          value={isVacancyRequestsLoading ? undefined : pendingApprovalsCount}
+          isLoading={isVacancyRequestsLoading}
+          accent="orange"
+          tooltip="Vacancy requests still actionable by some approver -- status SUBMITTED, DEAN_APPROVED, or APPROVED (ready to publish)."
+          zeroCaption="Nothing awaiting approval or publishing right now"
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -324,6 +398,147 @@ export function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Recruitment pipeline funnel -- application_pipeline_funnel is always
+          exactly 7 rows (Applied -> Screening -> Interview -> Selected ->
+          Offer -> Joined -> Rejected), always in that fixed order (see
+          api/types.ts's PipelineFunnelStage doc comment) -- rendered as-is,
+          never re-sorted, via the same CategoryBarChart horizontal-bar
+          component already used for source-wise/rejected-vs-withdrawn above
+          (no new charting library needed for a "decreasing widths" funnel
+          look; the real data's own counts naturally taper stage over stage). */}
+      <Card>
+        <CardHeader className="p-3 pb-1">
+          <CardTitle className="text-xs">Recruitment pipeline funnel</CardTitle>
+        </CardHeader>
+        <CardContent className="p-3 pt-0">
+          {isLoading ? (
+            <div role="status" aria-label="Loading recruitment pipeline funnel" className="h-32 animate-pulse rounded bg-muted" />
+          ) : !data || pipelineFunnelIsEmpty ? (
+            <EmptyState message="No applications in this scope yet." />
+          ) : (
+            <CategoryBarChart ariaLabel="Recruitment pipeline funnel" data={pipelineFunnelData} color="var(--color-chart-2)" />
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Critical vacancies -- VACANCY_RECRUITMENT_REQUIRED-status rows
+          surfaced from the Sanctioned Strength views (see
+          app/services/reporting.py::_critical_vacancy_rows). An empty list
+          here is a genuinely good sign, not a loading/error state -- worded
+          accordingly rather than the generic "No results found." */}
+      <Card>
+        <CardHeader className="p-3 pb-1">
+          <CardTitle className="text-xs">Critical vacancies</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table aria-label="Critical vacancies">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Department</TableHead>
+                <TableHead>Designation</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead className="text-right">Vacancies</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableEmpty colSpan={5} loading />
+              ) : criticalVacancies.length === 0 ? (
+                <TableEmpty colSpan={5}>No critical vacancies right now -- nothing urgently understaffed.</TableEmpty>
+              ) : (
+                criticalVacancies.map((row, index) => (
+                  <TableRow key={`${row.department}-${row.designation}-${index}`}>
+                    <TableCell className="font-medium text-foreground">{row.department}</TableCell>
+                    <TableCell>{row.designation}</TableCell>
+                    <TableCell>{row.location ?? "—"}</TableCell>
+                    <TableCell>{row.category.replace(/_/g, " ")}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.vacancy_count}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Recent joins / Recent resignations -- 2 separate cards (per the
+          original spec's distinct "D."/"E." sections), each a top-10 list of
+          Employee rows already ordered newest-first by the backend. */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="p-3 pb-1">
+            <CardTitle className="text-xs">Recent joins</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table aria-label="Recent joins">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Employee</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Designation</TableHead>
+                  <TableHead>Campus</TableHead>
+                  <TableHead>Date</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableEmpty colSpan={5} loading />
+                ) : recentJoins.length === 0 ? (
+                  <TableEmpty colSpan={5}>No joinings recorded in this scope yet.</TableEmpty>
+                ) : (
+                  recentJoins.map((row, index) => (
+                    <TableRow key={`${row.employee_name}-${row.date}-${index}`}>
+                      <TableCell className="font-medium text-foreground">{row.employee_name}</TableCell>
+                      <TableCell>{row.department ?? "—"}</TableCell>
+                      <TableCell>{row.designation}</TableCell>
+                      <TableCell>{row.campus}</TableCell>
+                      <TableCell>{new Date(row.date).toLocaleDateString()}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="p-3 pb-1">
+            <CardTitle className="text-xs">Recent resignations</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table aria-label="Recent resignations">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Employee</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Designation</TableHead>
+                  <TableHead>Campus</TableHead>
+                  <TableHead>Date</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableEmpty colSpan={5} loading />
+                ) : recentResignations.length === 0 ? (
+                  <TableEmpty colSpan={5}>No resignations recorded in this scope yet.</TableEmpty>
+                ) : (
+                  recentResignations.map((row, index) => (
+                    <TableRow key={`${row.employee_name}-${row.date}-${index}`}>
+                      <TableCell className="font-medium text-foreground">{row.employee_name}</TableCell>
+                      <TableCell>{row.department ?? "—"}</TableCell>
+                      <TableCell>{row.designation}</TableCell>
+                      <TableCell>{row.campus}</TableCell>
+                      <TableCell>{new Date(row.date).toLocaleDateString()}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
