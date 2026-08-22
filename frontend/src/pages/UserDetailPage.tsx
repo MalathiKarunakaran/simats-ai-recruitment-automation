@@ -12,8 +12,6 @@ import {
   ASSIGNABLE_STAFF_ROLES,
   COORDINATOR_CAPABILITIES,
   COORDINATOR_CAPABILITY_LABELS,
-  PERMISSION_CATEGORIES,
-  PERMISSION_LABELS,
   SINGLE_CAMPUS_SCOPE_ROLES,
   USER_MANAGEMENT_ROLES,
   type AuditLogRead,
@@ -48,6 +46,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PermissionCategoryCards } from "@/components/users/PermissionCategoryCards";
 import { combine, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 function getInitials(fullName: string): string {
@@ -232,12 +231,6 @@ export function UserDetailPage() {
     );
   }
 
-  function togglePermission(permission: Permission) {
-    setSelectedPermissions((prev) =>
-      prev.includes(permission) ? prev.filter((p) => p !== permission) : [...prev, permission],
-    );
-  }
-
   const departmentOptions = (departments ?? []).filter((d) => d.campus_id === campusId);
   const requiresCampus = SINGLE_CAMPUS_SCOPE_ROLES.includes(role);
 
@@ -311,8 +304,13 @@ export function UserDetailPage() {
   });
 
   const [permissionsError, setPermissionsError] = useState<string | null>(null);
+  // Parameterized (unlike saveCapabilitiesMutation above) rather than closing
+  // over `selectedPermissions` -- PermissionCategoryCards' drawer computes
+  // its own full-replace merge (this category's draft toggles folded into
+  // the rest of `selectedPermissions`) and passes it straight through here,
+  // the one and only code path that calls PUT /users/{id}/permissions.
   const savePermissionsMutation = useMutation({
-    mutationFn: () => setUserPermissions(id!, selectedPermissions),
+    mutationFn: (permissions: Permission[]) => setUserPermissions(id!, permissions),
     onSuccess: () => {
       setPermissionsError(null);
       void queryClient.invalidateQueries({ queryKey: ["user-permissions", id] });
@@ -834,48 +832,20 @@ export function UserDetailPage() {
             <CardHeader>
               <CardTitle>Permission Matrix</CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col gap-6">
+            <CardContent className="flex flex-col gap-4">
               <p className="text-sm text-muted-foreground">
                 Grant or revoke fine-grained access for this user, grouped by area. This full-replace matrix is
                 independent of any Coordinator capabilities above.
               </p>
 
-              <div className="flex flex-col gap-6">
-                {PERMISSION_CATEGORIES.map((category) => (
-                  <div key={category.key} className="flex flex-col gap-2">
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {category.label}
-                    </h3>
-                    <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background/40 p-3 backdrop-blur-sm">
-                      {category.permissions.map((permission) => (
-                        <Button
-                          key={permission}
-                          type="button"
-                          variant={selectedPermissions.includes(permission) ? "default" : "outline"}
-                          className="justify-start text-left font-normal"
-                          onClick={() => togglePermission(permission)}
-                        >
-                          {PERMISSION_LABELS[permission]}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {permissionsError ? <p className="text-sm text-destructive">{permissionsError}</p> : null}
-              {savePermissionsMutation.isSuccess ? (
-                <p className="text-sm text-muted-foreground">Permissions saved.</p>
-              ) : null}
-
-              <div>
-                <Button
-                  disabled={savePermissionsMutation.isPending}
-                  onClick={() => savePermissionsMutation.mutate()}
-                >
-                  {savePermissionsMutation.isPending ? "Saving…" : "Save permissions"}
-                </Button>
-              </div>
+              <PermissionCategoryCards
+                permissions={selectedPermissions}
+                onPermissionsChange={setSelectedPermissions}
+                onSave={(permissions, options) => savePermissionsMutation.mutate(permissions, options)}
+                isSaving={savePermissionsMutation.isPending}
+                saveError={permissionsError}
+                onDrawerOpen={() => setPermissionsError(null)}
+              />
             </CardContent>
           </Card>
         ) : null}
