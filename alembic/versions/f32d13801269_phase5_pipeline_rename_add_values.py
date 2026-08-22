@@ -22,18 +22,11 @@ depends_on: Union[str, Sequence[str], None] = None
 # replaces the old generic-ATS pipeline. Postgres has no ALTER TYPE ... DROP
 # VALUE, so the old labels stay in the type forever; this migration only
 # adds the new ones. The next migration (ba2e30350b8a) moves existing rows
-# off the old labels -- it must run separately since a value ADD VALUE
-# introduces can't be used in the same transaction that added it.
-#
-# IMPORTANT: this repo's alembic/env.py wraps a whole `alembic upgrade`
-# invocation in one transaction/connection (context.begin_transaction()
-# around context.run_migrations(), not per-revision), so running
-# `alembic upgrade head` in one command from an earlier revision applies
-# both this migration AND ba2e30350b8a in the same transaction -- which
-# fails with "unsafe use of new value" because the ADD VALUE above never
-# actually committed before ba2e30350b8a's UPDATE tried to use it. Apply
-# these as two separate CLI invocations: `alembic upgrade f32d13801269`
-# then `alembic upgrade head`.
+# off the old labels -- Postgres requires a value ADD VALUE introduces to be
+# committed before it can be used, which is why alembic/env.py runs each
+# migration in its own transaction (transaction_per_migration=True) rather
+# than requiring these to be applied as separate CLI invocations -- see
+# env.py's own comment for the full story.
 _NEW_STATUS_VALUES = (
     "CALLED_FOR_INTERVIEW",
     "INTERVIEWED",
