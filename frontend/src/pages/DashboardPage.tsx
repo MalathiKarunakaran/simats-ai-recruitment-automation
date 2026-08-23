@@ -23,6 +23,7 @@ import type {
   CriticalVacancyRow,
   DashboardKpis,
   StaffRoleCategory,
+  VacancyRequestRead,
   VacancyRequestStatus,
 } from "@/api/types";
 import { listVacancyRequests } from "@/api/vacancyRequests";
@@ -32,7 +33,7 @@ import { CategoryBarChart } from "@/components/dashboard/CategoryBarChart";
 import { CategorySummaryCard } from "@/components/dashboard/CategorySummaryCard";
 import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
 import { EmptyState } from "@/components/dashboard/EmptyState";
-import { RecentActivityFeed } from "@/components/dashboard/RecentActivityFeed";
+import { RecentActivityFeed, type VacancyLifecycleActivityRow } from "@/components/dashboard/RecentActivityFeed";
 import { StatTile, type StatAccent, type StatIconColor } from "@/components/dashboard/StatTile";
 import { CategoryTabs, type CategoryTabValue } from "@/components/domain/CategoryTabs";
 import { Badge } from "@/components/ui/badge";
@@ -316,6 +317,23 @@ export function DashboardPage() {
   // above (pending + approved), not a separately re-invented filter.
   const pendingApprovalsCount = vacancyRequestBuckets.pending + vacancyRequestBuckets.approved;
 
+  // "Vacancy requested"/"Vacancy approved" Recent Activity events (follow-up
+  // patch, 2026-08-23) -- derived from this same already-fetched
+  // vacancy-requests list, no new query. "Requested" = every row with a
+  // non-null submitted_at, dated by that field; "Approved" = every row with
+  // a non-null hr_reviewed_at (HR/final approval -- see VacancyRequestRead's
+  // own field in api/types.ts; dean_reviewed_at is the earlier, separate
+  // Dean-review step, not what "approved" means here), dated by that field.
+  // Department name isn't joined/available client-side without an extra
+  // fetch, so these events show position_title alone, per this patch's own
+  // scope constraint.
+  const vacancyRequestedActivity: VacancyLifecycleActivityRow[] = (vacancyRequests ?? [])
+    .filter((r): r is VacancyRequestRead & { submitted_at: string } => r.submitted_at !== null)
+    .map((r) => ({ position_title: r.position_title, date: r.submitted_at }));
+  const vacancyApprovedActivity: VacancyLifecycleActivityRow[] = (vacancyRequests ?? [])
+    .filter((r): r is VacancyRequestRead & { hr_reviewed_at: string } => r.hr_reviewed_at !== null)
+    .map((r) => ({ position_title: r.position_title, date: r.hr_reviewed_at }));
+
   // Recruitment Pipeline (Enterprise HRMS dashboard redesign, 2026-08-23) --
   // a literal 7-stage view spanning 2 different real datasets already
   // fetched on this page: Requested/Approved/Published are computed
@@ -512,7 +530,7 @@ export function DashboardPage() {
             working={nonTeachingSummary.data?.sanctioned_working_total}
             vacancy={nonTeachingSummary.data?.sanctioned_vacancy_total}
             isLoading={nonTeachingSummary.isLoading}
-            accent="purple"
+            accent="green"
           />
           <CategorySummaryCard
             title="Housekeeping"
@@ -520,7 +538,7 @@ export function DashboardPage() {
             working={housekeepingSummary.data?.sanctioned_working_total}
             vacancy={housekeepingSummary.data?.sanctioned_vacancy_total}
             isLoading={housekeepingSummary.isLoading}
-            accent="green"
+            accent="orange"
           />
         </div>
       </div>
@@ -697,16 +715,24 @@ export function DashboardPage() {
           <CardHeader className="flex flex-row items-center justify-between gap-2 p-3 pb-1">
             <CardTitle className="text-xs">Recent activity</CardTitle>
             {/* Anchors to the full "Recent joins"/"Recent resignations"
-                tables further down this same page -- the only 2 event types
-                this teaser feed covers (see RecentActivityFeed's own doc
-                comment for why "vacancy requested/approved"/"candidate
-                selected" aren't included), so no separate route is needed. */}
+                tables further down this same page -- 2 of this teaser feed's
+                4 event types (the other 2, vacancy requested/approved, have
+                no equivalent full-detail table on this page; see
+                RecentActivityFeed's own doc comment for why "candidate
+                selected" is the one event type still not included), so no
+                separate route is needed. */}
             <Button variant="outline" size="sm" asChild>
               <a href="#recent-joins">View All</a>
             </Button>
           </CardHeader>
           <CardContent className="p-3 pt-0">
-            <RecentActivityFeed joins={recentJoins} resignations={recentResignations} isLoading={isLoading} />
+            <RecentActivityFeed
+              joins={recentJoins}
+              resignations={recentResignations}
+              vacancyRequested={vacancyRequestedActivity}
+              vacancyApproved={vacancyApprovedActivity}
+              isLoading={isLoading || isVacancyRequestsLoading}
+            />
           </CardContent>
         </Card>
       </div>

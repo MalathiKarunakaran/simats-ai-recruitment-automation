@@ -14,14 +14,22 @@ interface CategorySummaryCardProps {
    * left-border `accent` scheme since these 3 cards are always shown
    * side-by-side as one row and a *top* stripe reads more like a card-level
    * category tag than a data-signal stripe would. Optional/defaulted so this
-   * stays a purely additive prop. */
-  accent?: "blue" | "purple" | "green";
+   * stays a purely additive prop.
+   *
+   * "orange" added in the dashboard mockup-comparison follow-up patch
+   * (2026-08-23): the final per-category color spec is Teaching=blue,
+   * Non-Teaching=green, Housekeeping=orange -- Non-Teaching's DashboardPage
+   * call site moved off "purple" (kept here since it's a real,
+   * independently useful accent, not dead code) and Housekeeping's moved
+   * off "green" onto this new "orange" option. */
+  accent?: "blue" | "purple" | "green" | "orange";
 }
 
 const ACCENT_BORDER_TOP: Record<NonNullable<CategorySummaryCardProps["accent"]>, string> = {
   blue: "border-t-4 border-t-brand-primary",
   purple: "border-t-4 border-t-brand-purple",
   green: "border-t-4 border-t-brand-success",
+  orange: "border-t-4 border-t-brand-warning",
 };
 
 /** Same sign-based color decision as DashboardPage.tsx's own `vacancyAccent`

@@ -338,22 +338,36 @@ describe("DashboardPage", () => {
     expect(teachingRowAfter).toBe(teachingRowBefore);
   });
 
-  it("renders the campus-wise hiring chart with a legend and keeps the exact numbers visible in an adjacent table", async () => {
-    mockKpis();
+  // Follow-up patch (2026-08-23): the donut now has one slice per campus
+  // (value = hired + open + in-progress for that campus) instead of 3
+  // status-aggregate slices, with a hand-rolled per-campus legend
+  // ("code: count (percentage%)") and a center label showing the grand
+  // total across every campus.
+  it("renders one donut slice per campus with a per-campus legend, a center total, and keeps the exact numbers visible in an adjacent table", async () => {
+    mockKpis({
+      campus_wise_hiring: [
+        { campus_code: "SSE", hired_count: 5, open_count: 1, in_progress_count: 3 },
+        { campus_code: "SCLAS", hired_count: 2, open_count: 0, in_progress_count: 1 },
+      ],
+    });
 
     renderWithProviders();
 
     await waitFor(() => expect(screen.getByTestId("campus-hiring-chart")).toBeInTheDocument());
 
-    // Grouped bar chart has 3 series, so it needs a legend (scoped to the
-    // chart itself -- "Hired"/"Open" also appear as adjacent table headers).
+    // Legend: one entry per campus (SSE total = 9, SCLAS total = 3, grand
+    // total = 12), scoped to the chart itself.
     const chart = screen.getByTestId("campus-hiring-chart");
-    expect(within(chart).getByText("Hired")).toBeInTheDocument();
-    expect(within(chart).getByText("Open")).toBeInTheDocument();
-    expect(within(chart).getByText("In progress")).toBeInTheDocument();
+    expect(within(chart).getByText(/SSE.*9.*75\.0%/)).toBeInTheDocument();
+    expect(within(chart).getByText(/SCLAS.*3.*25\.0%/)).toBeInTheDocument();
 
-    // The exact numbers stay visible in an adjacent table (there are 2
-    // tables now the split card is one too -- disambiguate by content).
+    // Center label shows the grand total across every campus.
+    expect(within(chart).getByText("12")).toBeInTheDocument();
+    expect(within(chart).getByText("Total")).toBeInTheDocument();
+
+    // The exact per-status numbers stay visible in an adjacent table (there
+    // are 2 tables now the split card is one too -- disambiguate by
+    // content).
     const tables = screen.getAllByRole("table");
     const campusTable = tables.find((t) => within(t).queryByText("SSE"));
     expect(campusTable).toBeDefined();
