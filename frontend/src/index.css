@@ -29,9 +29,14 @@
      `caution` variant), which needs to read as neither "success" nor the
      already-used "warning" orange. Defined once (no separate `.dark`
      override), matching --brand-success/-warning/-danger/-info's existing
-     pattern -- dark-mode legibility for badges comes from Tailwind's
-     `dark:bg-*/20 dark:text-[...]` utility overrides directly in badge.tsx,
-     not from the CSS variable itself changing. */
+     pattern -- dark-mode legibility for badges comes from Tailwind's own
+     dark-variant background/text utility overrides directly in badge.tsx,
+     not from the CSS variable itself changing. (Careful editing this
+     comment: a literal asterisk-slash sequence anywhere in here closes
+     this CSS comment early and corrupts every declaration below it --
+     that exact bug shipped undetected from 2026-08-22 until found live in
+     production on 2026-08-23, silently dropping --brand-primary/
+     -secondary/-success/-warning/-caution from the compiled CSS.) */
   --brand-caution: #eab308;
   --brand-danger: #ef4444;
   --brand-info: #3b82f6;
