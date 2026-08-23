@@ -3,7 +3,12 @@
 # is a build-time arg (Vite inlines import.meta.env.* at build time, not
 # read at container start) -- pass it via docker-compose's build.args, e.g.
 # https://api.malathi.io/api/v1 for the production deployment.
-FROM node:22-alpine AS build
+#
+# Debian-slim, not alpine: Vite 8's Rolldown bundler and lightningcss both
+# ship Rust-native (napi) binaries, and musl (alpine) support for those is
+# far less battle-tested than glibc -- `npm ci` failed outright on
+# node:22-alpine in this project's first deploy attempt.
+FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 
