@@ -13,8 +13,15 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN node --version && npm --version && npm config get registry
-RUN npm ci --loglevel verbose > /tmp/npm-ci.log 2>&1; status=$?; tail -n 150 /tmp/npm-ci.log; exit $status
+# npm install, not npm ci: package-lock.json here was generated on Windows,
+# and npm ci's strict lockfile-fidelity check can miscompute which native
+# optional binaries (Rolldown/lightningcss both ship per-platform napi
+# binaries) apply when installing on a different OS -- a well-known npm bug
+# (npm/cli#4828) that failed npm ci outright in this project's first two
+# production deploy attempts, before any real network install even ran.
+# npm install recomputes the dependency tree fresh instead of trusting the
+# lock strictly, picking the correct linux-x64-gnu binaries at install time.
+RUN npm install
 
 COPY . .
 
