@@ -108,8 +108,7 @@ forwards to `backend`'s port `8000` (internal) / `8010` (host-mapped) and
 `frontend`'s port `80` (internal) / `8011` (host-mapped). On the
 production VPS this is a **host-level Caddy install, not managed by this
 repo or its `docker-compose.yml`** (it predates the frontend/backend
-container split and isn't version-controlled here — check the VPS
-directly, e.g. `/etc/caddy/Caddyfile`, before assuming its exact config):
+container split and isn't version-controlled here):
 
 ```
 # /etc/caddy/Caddyfile
@@ -122,10 +121,27 @@ app.your-domain.com {
 }
 ```
 
+**Known incident (2026-08-23, resolved)**: `app.your-domain.com`'s block
+was actually configured as `root * /opt/simats/app/frontend/dist` +
+`file_server` — serving a one-time static snapshot from disk instead of
+proxying to the `frontend` container. Every `frontend` image rebuild
+landed in the Docker container just fine but never touched that on-disk
+folder, so the live domain silently kept serving an increasingly stale
+build (missing CSS custom properties from later commits, causing
+invisible white-on-white buttons) while direct container access
+(`http://<vps-ip>:8011`) always showed the current one. Fixed by
+switching that block to `reverse_proxy localhost:8011`, matching
+`api.your-domain.com`'s already-correct pattern (backed up as
+`/etc/caddy/Caddyfile.bak-<timestamp>` on the VPS). If a deploy is ever
+"done" per this file but a live domain doesn't reflect it, checking
+`/etc/caddy/Caddyfile` for a stray `file_server`/`root` block instead of
+`reverse_proxy` is the first thing to rule out.
+
 A Docker-based `caddy` service (build-context Caddyfile, `443:443` only)
-was tried first and abandoned once it turned out a host-level proxy
-already existed and already worked -- see git history if that approach is
-ever needed again (e.g. on a fresh VPS with no pre-existing proxy).
+was tried first and abandoned once the host-level proxy was found (and,
+after the fix above, confirmed to actually work) -- see git history if
+that approach is ever needed again (e.g. on a fresh VPS with no
+pre-existing proxy).
 
 `app/core/security_headers.py`'s middleware only adds `Strict-Transport-
 Security` when it sees `X-Forwarded-Proto: https` (or a direct HTTPS

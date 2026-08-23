@@ -180,7 +180,12 @@ FastAPI-injectable dependencies overridden with in-memory fakes in
   `https://app.malathi.io`. The reverse proxy (Caddy) is a pre-existing
   host-level install on that VPS, not managed by this repo's tooling —
   see `DEPLOYMENT.md` section 6 before assuming a from-scratch
-  reverse-proxy setup has been exercised end-to-end.
+  reverse-proxy setup has been exercised end-to-end. That section also
+  documents a real incident (2026-08-23, resolved): `app.malathi.io`'s
+  Caddy block was serving a stale on-disk static snapshot instead of
+  proxying to the `frontend` container, so container rebuilds silently
+  never reached the live domain — check there first if a deploy looks
+  "done" but a live domain doesn't reflect it.
 - The production frontend Docker build uses `npm install`, not `npm ci` —
   the committed `package-lock.json` was generated on Windows, and `npm
   ci`'s strict lockfile-fidelity check miscomputes native optional
