@@ -117,7 +117,11 @@ services:
     container_name: simats_recruitment_caddy
     restart: unless-stopped
     ports:
-      - "80:80"
+      # HTTPS only -- port 80 is occupied by something else on the VPS
+      # outside this compose project, so Caddy doesn't try to bind it (see
+      # Caddyfile: the ACME issuer is configured to skip the HTTP-01
+      # challenge, which needs port 80, and use TLS-ALPN-01 instead, which
+      # only needs 443).
       - "443:443"
     volumes:
       - caddy_data:/data
