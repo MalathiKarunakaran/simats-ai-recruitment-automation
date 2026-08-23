@@ -239,7 +239,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background p-3">
+    <div className="app-canvas flex h-screen overflow-hidden p-3">
       <aside
         className={cn(
           "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-[width] duration-300 ease-out",
