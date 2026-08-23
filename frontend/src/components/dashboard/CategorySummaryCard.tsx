@@ -9,7 +9,20 @@ interface CategorySummaryCardProps {
   working: number | undefined;
   vacancy: number | undefined;
   isLoading: boolean;
+  /** Subtle per-category accent (Enterprise HRMS dashboard redesign,
+   * 2026-08-23) -- a thin top border, distinct from StatTile's own
+   * left-border `accent` scheme since these 3 cards are always shown
+   * side-by-side as one row and a *top* stripe reads more like a card-level
+   * category tag than a data-signal stripe would. Optional/defaulted so this
+   * stays a purely additive prop. */
+  accent?: "blue" | "purple" | "green";
 }
+
+const ACCENT_BORDER_TOP: Record<NonNullable<CategorySummaryCardProps["accent"]>, string> = {
+  blue: "border-t-4 border-t-brand-primary",
+  purple: "border-t-4 border-t-brand-purple",
+  green: "border-t-4 border-t-brand-success",
+};
 
 /** Same sign-based color decision as DashboardPage.tsx's own `vacancyAccent`
  * (StrengthKpiSummary.tsx keeps its own copy too) -- vacancy can legitimately
@@ -49,11 +62,18 @@ function Stat({ label, value, valueClassName }: { label: string; value: ReactNod
  * Deliberately compact/mini-stat styled (not a full StatTile grid) per the
  * redesign's "clean horizontal row of 3 compact cards" spec.
  */
-export function CategorySummaryCard({ title, sanctioned, working, vacancy, isLoading }: CategorySummaryCardProps) {
+export function CategorySummaryCard({
+  title,
+  sanctioned,
+  working,
+  vacancy,
+  isLoading,
+  accent,
+}: CategorySummaryCardProps) {
   const filledPct = computeFilledPct(working, sanctioned);
 
   return (
-    <Card>
+    <Card className={accent ? ACCENT_BORDER_TOP[accent] : undefined}>
       <CardHeader className="p-3 pb-1">
         <CardTitle className="text-xs">{title}</CardTitle>
       </CardHeader>

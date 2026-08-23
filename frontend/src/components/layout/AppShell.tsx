@@ -242,7 +242,12 @@ export function AppShell({ children }: { children?: ReactNode }) {
     <div className="app-canvas flex h-screen overflow-hidden p-3">
       <aside
         className={cn(
-          "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-[width] duration-300 ease-out",
+          // Enterprise HRMS sidebar redesign (2026-08-23): fixed dark-navy
+          // chrome (--sidebar-* tokens, index.css) regardless of the app's
+          // own light/dark theme toggle -- a recolor of this existing
+          // structure, not a restructure; every nav item/group/route/icon and
+          // the collapse behavior below are unchanged.
+          "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-sidebar-border bg-sidebar-background text-sidebar-foreground shadow-sm transition-[width] duration-300 ease-out",
           collapsed ? "w-[76px]" : "w-64",
         )}
       >
@@ -255,24 +260,25 @@ export function AppShell({ children }: { children?: ReactNode }) {
               expressed as Tailwind classes instead of a new global CSS rule.
               The outer span is the gradient disc; padding (2.5px) is the
               ring's visible thickness, and the inner span paints over the
-              gradient's center with the card surface so only a thin colored
-              border reads, not a filled disc -- verified against both
-              --card values (light #ffffff, dark #1e293b) since that's what
-              makes the ring legible rather than a solid blob. Purely a
+              gradient's center -- re-pointed from bg-card to
+              bg-sidebar-background (2026-08-23) so the "hole" matches this
+              sidebar's own fixed dark-navy chrome instead of the app's
+              light/dark --card, which would otherwise render as a mismatched
+              white/slate disc against the new navy background. Purely a
               wrapper around the existing <img>; collapsed/expanded behavior
               (this mark stays visible either way) is unchanged. */}
           <span
             className="grid h-9 w-9 shrink-0 place-items-center rounded-full p-[2.5px]"
             style={{ background: "var(--brand-signature-gradient)" }}
           >
-            <span className="grid h-full w-full place-items-center rounded-full bg-card">
+            <span className="grid h-full w-full place-items-center rounded-full bg-sidebar-background">
               <img src={simatsSeal} alt="SIMATS" className="h-full w-full object-contain" />
             </span>
           </span>
           {!collapsed ? (
             <div className="leading-tight">
-              <div className="font-display text-sm font-bold tracking-normal">SIMATS</div>
-              <div className="text-[11px] text-muted-foreground">Recruitment</div>
+              <div className="font-display text-sm font-bold tracking-normal text-sidebar-foreground">SIMATS</div>
+              <div className="text-[11px] text-sidebar-foreground-muted">Recruitment</div>
             </div>
           ) : null}
         </div>
@@ -281,7 +287,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
           {visibleGroups.map((group) => (
             <div key={group.label ?? "top"} className="flex flex-col gap-0.5">
               {group.label && !collapsed ? (
-                <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-sidebar-foreground-muted uppercase">
                   {group.label}
                 </div>
               ) : null}
@@ -292,10 +298,22 @@ export function AppShell({ children }: { children?: ReactNode }) {
                   title={collapsed ? item.label : undefined}
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm text-foreground/70 transition-colors duration-200 hover:bg-brand-primary-light hover:text-primary",
+                      // Inactive: light navy-tinted text at 70% opacity,
+                      // brightening to full --sidebar-foreground on hover
+                      // with a subtle lighter-navy hover wash (replaces the
+                      // old light-mode `hover:bg-brand-primary-light
+                      // hover:text-primary`, which would render as a pale
+                      // wash barely visible against this dark background).
+                      "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm text-sidebar-foreground/70 transition-colors duration-200 hover:bg-white/10 hover:text-sidebar-foreground",
                       collapsed && "justify-center px-0",
                       isActive &&
-                        "bg-gradient-to-r from-primary to-brand-secondary font-medium text-primary-foreground shadow-sm hover:from-primary hover:to-brand-secondary hover:text-primary-foreground",
+                        // Active pill keeps its signature gradient treatment
+                        // (from --sidebar-active-background, which is just
+                        // --brand-primary, to --brand-secondary) -- white
+                        // pill text already clears AA against this gradient
+                        // regardless of the sidebar's own background color,
+                        // so no further contrast changes needed here.
+                        "bg-gradient-to-r from-[var(--sidebar-active-background)] to-brand-secondary font-medium text-primary-foreground shadow-sm hover:from-[var(--sidebar-active-background)] hover:to-brand-secondary hover:text-primary-foreground",
                     )
                   }
                 >
@@ -307,11 +325,14 @@ export function AppShell({ children }: { children?: ReactNode }) {
           ))}
         </nav>
 
-        <div className="border-t border-border p-3">
+        <div className="border-t border-sidebar-border p-3">
           <Button
             variant="ghost"
             size="sm"
-            className={cn("w-full", collapsed && "px-0")}
+            className={cn(
+              "w-full text-sidebar-foreground hover:bg-white/10 hover:text-sidebar-foreground",
+              collapsed && "px-0",
+            )}
             onClick={() => setCollapsed((c) => !c)}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >

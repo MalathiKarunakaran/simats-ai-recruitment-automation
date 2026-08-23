@@ -1,9 +1,26 @@
-import { Info } from "lucide-react";
+import { Info, type LucideIcon } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 export type StatAccent = "gold" | "green" | "orange" | "red" | "blue" | "none";
+
+// Enterprise HRMS dashboard redesign (2026-08-23) -- colored icon-chip
+// treatment, additive to (not a replacement for) the left-border accent
+// stripe above. Deliberately its own small palette rather than reusing
+// StatAccent 1:1 -- "purple" (the new --brand-purple analytics accent) has no
+// equivalent border accent today, and not every accent maps 1:1 to an icon
+// tone the way the brief describes ("blue=neutral, green=success,
+// purple=analytics, orange=warning, red=urgent").
+export type StatIconColor = "blue" | "green" | "purple" | "orange" | "red";
+
+const ICON_CHIP_CLASSES: Record<StatIconColor, string> = {
+  blue: "bg-brand-primary/10 text-brand-primary",
+  green: "bg-brand-success/10 text-brand-success",
+  purple: "bg-brand-purple/10 text-brand-purple",
+  orange: "bg-brand-warning/10 text-brand-warning",
+  red: "bg-brand-danger/10 text-brand-danger",
+};
 
 // "gold" is kept as a StatAccent name for call-site backward compatibility
 // (DashboardPage picks accents by this string) but now renders the brand's
@@ -68,6 +85,19 @@ interface StatTileProps {
    * ring) so every existing accent/tooltip/zero-caption/hero behavior and
    * its tests keep working unchanged, just at a smaller footprint. */
   size?: "default" | "compact";
+  /** Optional colored icon chip rendered at the top-right of the tile's
+   * header (Enterprise HRMS dashboard redesign, 2026-08-23) -- purely
+   * additive: every pre-existing `<StatTile>` call site across the app
+   * (VacancyRequestsListPage, StrengthKpiSummary, this page's own tiles that
+   * don't pass one) omits this prop and renders exactly as before, no icon
+   * chip at all. */
+  icon?: LucideIcon;
+  /** Tone for the icon chip above -- defaults to "blue" when `icon` is set
+   * without an explicit color. Independent of `accent` (the left-border
+   * stripe) on purpose: a tile can have a blue border but a purple
+   * "analytics" icon, or vice versa, per the redesign's own per-metric color
+   * choices. */
+  iconColor?: StatIconColor;
 }
 
 export function StatTile({
@@ -79,6 +109,8 @@ export function StatTile({
   tooltip,
   hero = false,
   size = "default",
+  icon: Icon,
+  iconColor = "blue",
 }: StatTileProps) {
   const isZero = !isLoading && (value === 0 || value === "0");
   const isEmpty = !isLoading && (value === null || value === undefined);
@@ -127,6 +159,18 @@ export function StatTile({
             >
               {tooltip}
             </span>
+          </span>
+        ) : null}
+        {Icon ? (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "ml-auto flex shrink-0 items-center justify-center rounded-full",
+              isCompact ? "h-5 w-5" : "h-6 w-6",
+              ICON_CHIP_CLASSES[iconColor],
+            )}
+          >
+            <Icon className={isCompact ? "h-3 w-3" : "h-3.5 w-3.5"} />
           </span>
         ) : null}
       </CardHeader>

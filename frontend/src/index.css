@@ -22,7 +22,17 @@
      mismatched green tint next to a blue border/text. */
   --brand-primary-light: #eff6ff;
   --brand-secondary: #14b8a6;
-  --brand-success: #10b981;
+  /* Enterprise HRMS dashboard redesign (2026-08-23) -- a dedicated
+     "analytics" accent, distinct from --brand-plum/-plum-bright above (which
+     stay exactly as-is for their existing outline-badge use). Spent on
+     analytics-flavored KPI tiles (e.g. Avg. time to hire, Vacancy closure
+     rate) via StatTile's new icon-chip treatment. */
+  --brand-purple: #7c3aed;
+  /* User-specified exact value (2026-08-23 dashboard/sidebar redesign) --
+     shifted from emerald-500 to green-600, a deliberate global tone change
+     for every --brand-success consumer (badges, toasts, StatTile's green
+     accent, RecentActivityFeed's join dot, etc.), not a bug. */
+  --brand-success: #16a34a;
   --brand-warning: #f59e0b;
   /* Yellow-500 -- a genuinely distinct hue from --brand-warning's orange,
      for the Vacancy Register's "Approval Pending" badge (badge.tsx's
@@ -164,6 +174,21 @@
     radial-gradient(1100px circle at 100% -10%, rgba(37, 99, 235, 0.055), transparent 55%),
     radial-gradient(1100px circle at -10% 110%, rgba(20, 184, 166, 0.05), transparent 55%),
     linear-gradient(155deg, #eaf1fb 0%, #f5f9fc 55%, #ffffff 100%);
+
+  /* Sidebar chrome tokens (Enterprise HRMS sidebar redesign, 2026-08-23) --
+     fixed dark-navy chrome for AppShell.tsx's aside, deliberately declared
+     only once here (not re-declared under .dark below): this is fixed app
+     chrome, common in enterprise dashboards, not a themed surface, so it
+     stays this same dark navy regardless of whichever light/dark mode the
+     rest of the app is in. Foreground/muted-foreground pass AA against this
+     background (white-ish text on near-black navy). Active background reuses
+     --brand-primary rather than a second hardcoded hex, so it tracks the
+     app's one real primary color automatically. */
+  --sidebar-background: #0f172a;
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-foreground-muted: #94a3b8;
+  --sidebar-active-background: var(--brand-primary);
+  --sidebar-border: #1e293b;
 }
 
 .dark {
@@ -258,6 +283,13 @@
   --color-brand-info: var(--brand-info);
   --color-brand-plum: var(--brand-plum);
   --color-brand-plum-bright: var(--brand-plum-bright);
+  --color-brand-purple: var(--brand-purple);
+
+  --color-sidebar-background: var(--sidebar-background);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-foreground-muted: var(--sidebar-foreground-muted);
+  --color-sidebar-active-background: var(--sidebar-active-background);
+  --color-sidebar-border: var(--sidebar-border);
 
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);

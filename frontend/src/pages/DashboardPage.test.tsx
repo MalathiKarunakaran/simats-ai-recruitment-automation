@@ -485,12 +485,15 @@ describe("DashboardPage", () => {
 
     renderWithProviders();
 
-    // Source-wise split (empty array), category-wise split (3 rows, all
-    // zero -- can't use a `.length === 0` check like the widget beside it),
-    // and the recruitment pipeline funnel (all 7 stages zeroed above) all
-    // show the same reusable empty-state message here.
-    expect(await screen.findAllByText("No applications in this scope yet.")).toHaveLength(3);
+    // Source-wise split (empty array) and category-wise split (3 rows, all
+    // zero -- can't use a `.length === 0` check like the widget beside it)
+    // both show the same reusable empty-state message here.
+    expect(await screen.findAllByText("No applications in this scope yet.")).toHaveLength(2);
     expect(screen.getByText("No rejections or withdrawals in this scope yet.")).toBeInTheDocument();
+    // Recruitment pipeline (Requested/Approved/Published all 0 from the
+    // default empty vacancy-requests list, funnel stages all zeroed above)
+    // shows its own distinct empty-state copy -- see recruitmentPipelineData.
+    expect(screen.getByText("No vacancy requests or applications in this scope yet.")).toBeInTheDocument();
     // Only the source-wise and rejected-vs-withdrawn bar charts still exist;
     // category-wise split never renders a bar chart anymore.
     expect(screen.queryAllByTestId("category-bar-chart")).toHaveLength(0);
@@ -518,22 +521,39 @@ describe("DashboardPage", () => {
     expect(await screen.findByText("No urgent vacancies right now")).toBeInTheDocument();
   });
 
-  it("renders the recruitment pipeline funnel's 7 stages in the exact backend order, not re-sorted", async () => {
+  // UI redesign (2026-08-23, dashboard/sidebar redesign): the Recruitment
+  // pipeline card's stages changed from the raw application funnel
+  // (Applied -> ... -> Rejected) to a literal 7-stage view mixing vacancy
+  // requests (Requested/Approved/Published) with the application funnel
+  // (Screening onward) -- see DashboardPage.tsx's own recruitmentPipelineData
+  // comment for the exact per-stage computation.
+  it("renders the recruitment pipeline's 7 stages (vacancy-request stages first, then the application funnel) in order", async () => {
     mockKpis();
+    mockedListVacancyRequests.mockResolvedValue(MIXED_STATUS_VACANCY_REQUESTS);
 
     renderWithProviders();
 
-    const funnelChart = await screen.findByLabelText("Recruitment pipeline funnel");
+    const pipelineChart = await screen.findByLabelText("Recruitment pipeline");
     // recharts renders each YAxis category tick as its own <text> node --
     // read them back in DOM order and assert against the fixed stage order,
     // not just that all 7 labels are present somewhere.
-    const tickTexts = within(funnelChart)
-      .getAllByText(/^(Applied|Screening|Interview|Selected|Offer|Joined|Rejected)$/)
+    const tickTexts = within(pipelineChart)
+      .getAllByText(/^(Requested|Approved|Published|Screening|Interview|Selected|Joined)$/)
       .map((node) => node.textContent);
-    expect(tickTexts).toEqual(["Applied", "Screening", "Interview", "Selected", "Offer", "Joined", "Rejected"]);
-    // Real counts from the mock, not hard-coded/rendered arbitrarily.
-    expect(await within(funnelChart).findByText("143")).toBeInTheDocument();
-    expect(within(funnelChart).getByText("53")).toBeInTheDocument();
+    expect(tickTexts).toEqual(["Requested", "Approved", "Published", "Screening", "Interview", "Selected", "Joined"]);
+
+    // Requested = 8 total - 1 DRAFT = 7; Approved = APPROVED+PUBLISHED+CLOSED
+    // = 3; Published = PUBLISHED+CLOSED = 2 (see MIXED_STATUS_VACANCY_REQUESTS
+    // above -- distinct numbers so none of these assertions can pass by
+    // accident). Screening/Interview/Selected/Joined come straight from
+    // REAL_SHAPE_FUNNEL's mock counts.
+    expect(await within(pipelineChart).findByText("7")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("3")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("2")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("98")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("61")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("37")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("17")).toBeInTheDocument();
   });
 
   it("renders the Critical vacancies table with real mocked rows", async () => {
@@ -551,6 +571,37 @@ describe("DashboardPage", () => {
     const hkRow = within(table).getByText("Housekeeping").closest("tr")!;
     expect(within(hkRow).getByText("Block A")).toBeInTheDocument();
     expect(within(hkRow).getByText("2")).toBeInTheDocument();
+  });
+
+  // UI redesign (2026-08-23): Priority is a client-side bucketing of
+  // vacancy_count into thirds -- with only 2 rows (REAL_SHAPE_CRITICAL_VACANCIES),
+  // computeCriticalVacancyPriorities' own "fewer than 3 rows" rule makes both
+  // "High" (there's no meaningful middle/low tier to carve out of 2 rows).
+  // Status is a hardcoded "Open" on every row (critical_vacancies only ever
+  // contains open/understaffed rows by construction), not a fetched field.
+  it("shows Priority and Status badges on every Critical vacancies row, computed/constant respectively", async () => {
+    mockKpis();
+
+    renderWithProviders();
+
+    const table = await screen.findByRole("table", { name: "Critical vacancies" });
+    const csRow = (await within(table).findByText("Computer Science")).closest("tr")!;
+    const hkRow = within(table).getByText("Housekeeping").closest("tr")!;
+
+    expect(within(csRow).getByText("High")).toBeInTheDocument();
+    expect(within(hkRow).getByText("High")).toBeInTheDocument();
+    expect(within(csRow).getByText("Open")).toBeInTheDocument();
+    expect(within(hkRow).getByText("Open")).toBeInTheDocument();
+  });
+
+  it("shows a View All link on the Critical vacancies card pointing at Sanctioned Strength", async () => {
+    mockKpis();
+
+    renderWithProviders();
+
+    await screen.findByRole("table", { name: "Critical vacancies" });
+    const viewAllLinks = screen.getAllByRole("link", { name: "View All" });
+    expect(viewAllLinks.some((link) => link.getAttribute("href") === "/sanctioned-strength")).toBe(true);
   });
 
   it("shows the genuinely-good-news empty state when there are no critical vacancies", async () => {
