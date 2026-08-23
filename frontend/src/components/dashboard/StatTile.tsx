@@ -3,7 +3,7 @@ import { Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-export type StatAccent = "gold" | "green" | "orange" | "red" | "none";
+export type StatAccent = "gold" | "green" | "orange" | "red" | "blue" | "none";
 
 // "gold" is kept as a StatAccent name for call-site backward compatibility
 // (DashboardPage picks accents by this string) but now renders the brand's
@@ -17,11 +17,18 @@ export type StatAccent = "gold" | "green" | "orange" | "red" | "none";
 // `hero` (below) remains the only "extra-loud" treatment on this page, and
 // it's reserved for exactly one tile by its own contract, so a tile is never
 // both hero and red.
+// "blue" (Executive Dashboard redesign, 2026-08-23) -- the app's fixed color
+// spec's "normal/neutral" tone (index.css's --brand-primary, already used
+// everywhere else for primary actions/focus rings), added for KPI tiles that
+// are neither a success/warning/danger signal, just a normal headcount/count
+// figure (e.g. "Total Sanctioned", "Active Recruitment"). No existing call
+// site used a "blue" accent before this addition, so this is purely additive.
 const ACCENT_BORDER: Record<StatAccent, string> = {
   gold: "border-l-brand-secondary",
   green: "border-l-brand-success",
   orange: "border-l-brand-warning",
   red: "border-l-brand-danger",
+  blue: "border-l-primary",
   none: "",
 };
 
@@ -50,6 +57,17 @@ interface StatTileProps {
    * DashboardPage's other 8 tiles) renders exactly as before with no prop
    * change required. Purely decorative: never affects content layout. */
   hero?: boolean;
+  /** "default" (unchanged) renders this tile's original full-size Card
+   * layout -- every existing call site (StrengthKpiSummary,
+   * VacancyRequestsListPage, DashboardPage's own primary KPI row) keeps that
+   * look with no prop change required. "compact" (Executive Dashboard
+   * redesign, 2026-08-23) shrinks the padding/type scale for DashboardPage's
+   * secondary stat strip -- 7 lower-priority metrics deliberately
+   * de-emphasized below the 6 primary KPI tiles -- while keeping the exact
+   * same Card structure/classes (`rounded-xl`, the left accent stripe, hero
+   * ring) so every existing accent/tooltip/zero-caption/hero behavior and
+   * its tests keep working unchanged, just at a smaller footprint. */
+  size?: "default" | "compact";
 }
 
 export function StatTile({
@@ -60,9 +78,11 @@ export function StatTile({
   zeroCaption,
   tooltip,
   hero = false,
+  size = "default",
 }: StatTileProps) {
   const isZero = !isLoading && (value === 0 || value === "0");
   const isEmpty = !isLoading && (value === null || value === undefined);
+  const isCompact = size === "compact";
 
   const tile = (
     <Card
@@ -77,6 +97,10 @@ export function StatTile({
         !hero && accent !== "none" && "border-l-4",
         !hero && ACCENT_BORDER[accent],
         hero && "border-transparent",
+        // Compact tiles don't need the default hover-lift affordance of a
+        // full dashboard card -- they read as small inline stats/chips, not
+        // clickable-feeling panels.
+        isCompact && "hover:translate-y-0 hover:shadow-[var(--shadow-card)]",
       )}
     >
       {hero ? (
@@ -91,8 +115,8 @@ export function StatTile({
           style={{ background: "var(--brand-signature-gradient)" }}
         />
       ) : null}
-      <CardHeader className="relative flex flex-row items-center gap-1 p-3 pb-1">
-        <CardTitle className="text-[11px] leading-tight">{label}</CardTitle>
+      <CardHeader className={cn("relative flex flex-row items-center gap-1", isCompact ? "p-2 pb-0.5" : "p-3 pb-1")}>
+        <CardTitle className={cn("leading-tight", isCompact ? "text-[10px]" : "text-[11px]")}>{label}</CardTitle>
         {tooltip ? (
           <span tabIndex={0} className="group relative inline-flex shrink-0 outline-none">
             <Info className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
@@ -106,12 +130,12 @@ export function StatTile({
           </span>
         ) : null}
       </CardHeader>
-      <CardContent className="relative p-3 pt-0">
+      <CardContent className={cn("relative", isCompact ? "p-2 pt-0" : "p-3 pt-0")}>
         {isLoading ? (
           <div
             role="status"
             aria-label={`Loading ${label}`}
-            className="h-6 w-12 animate-pulse rounded bg-muted"
+            className={cn("animate-pulse rounded bg-muted", isCompact ? "h-4 w-10" : "h-6 w-12")}
           />
         ) : isEmpty ? (
           // "Not enough data yet" (not a bare "—") -- an em-dash alone reads
@@ -120,7 +144,9 @@ export function StatTile({
           <span className="text-xs font-medium text-muted-foreground">Not enough data yet</span>
         ) : (
           <>
-            <span className="font-display text-xl font-bold tabular-nums">{value}</span>
+            <span className={cn("font-display font-bold tabular-nums", isCompact ? "text-sm" : "text-xl")}>
+              {value}
+            </span>
             {isZero && zeroCaption ? <p className="mt-0.5 text-[10px] text-muted-foreground">{zeroCaption}</p> : null}
           </>
         )}

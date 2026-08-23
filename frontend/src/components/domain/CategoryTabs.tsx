@@ -25,6 +25,10 @@ interface CategoryTabsProps {
   onValueChange: (value: CategoryTabValue) => void;
   counts: CategoryTabCounts;
   className?: string;
+  /** Forwarded to the underlying Tabs primitive -- "pill" (default) keeps
+   * every existing consumer's current look; "segmented" is DashboardPage's
+   * own opt-in for a visually stronger active state (see ui/tabs.tsx). */
+  variant?: "pill" | "segmented";
 }
 
 // Maps a backend `category_counts` snapshot (VacancyRegisterListResponse/
@@ -46,12 +50,12 @@ export function mapServerCategoryCounts(counts: Record<string, number> | undefin
 // carrying a live count (e.g. "Teaching (18)"). Presentational/controlled
 // only; pairs with hooks/useCategoryTabState.ts for URL persistence, but
 // doesn't require it -- a page can also just useState() the value.
-export function CategoryTabs({ value, onValueChange, counts, className }: CategoryTabsProps) {
+export function CategoryTabs({ value, onValueChange, counts, className, variant }: CategoryTabsProps) {
   const tabs = [
     ...(counts.all !== undefined ? [{ value: "ALL" as const, label: `All (${counts.all})` }] : []),
     { value: "TEACHING" as const, label: `Teaching (${counts.teaching})` },
     { value: "NON_TEACHING" as const, label: `Non-Teaching (${counts.nonTeaching})` },
     { value: "HOUSEKEEPING" as const, label: `Housekeeping (${counts.housekeeping})` },
   ];
-  return <Tabs value={value} onValueChange={onValueChange} tabs={tabs} className={className} />;
+  return <Tabs value={value} onValueChange={onValueChange} tabs={tabs} className={className} variant={variant} />;
 }

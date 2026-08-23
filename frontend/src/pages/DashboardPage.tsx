@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import { getDashboardKpis } from "@/api/dashboard";
 import { downloadAdBriefingExport } from "@/api/reports";
@@ -8,17 +9,26 @@ import { listVacancyRequests } from "@/api/vacancyRequests";
 import { useCampus } from "@/campus/CampusContext";
 import { CampusHiringChart } from "@/components/dashboard/CampusHiringChart";
 import { CategoryBarChart } from "@/components/dashboard/CategoryBarChart";
+import { CategorySummaryCard } from "@/components/dashboard/CategorySummaryCard";
 import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
 import { EmptyState } from "@/components/dashboard/EmptyState";
+import { RecentActivityFeed } from "@/components/dashboard/RecentActivityFeed";
 import { StatTile, type StatAccent } from "@/components/dashboard/StatTile";
 import { CategoryTabs, type CategoryTabValue } from "@/components/domain/CategoryTabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
+import { cn } from "@/lib/utils";
 import { summarizeVacancyRequestStatuses } from "@/lib/vacancyRequestStats";
 
-const KPI_CARDS: {
+// Executive Dashboard redesign (2026-08-23): the page's 7 lower-priority KPI
+// metrics, demoted to small compact StatTile("compact") chips below the 6
+// primary tiles -- see the primary row further down for
+// sanctioned_approved_total/sanctioned_working_total/sanctioned_vacancy_total/
+// open_positions plus the composed Pending requests/approvals tiles, which
+// used to live in this same array pre-redesign.
+const SECONDARY_KPI_CARDS: {
   key: keyof DashboardKpis;
   label: string;
   accent: StatAccent;
@@ -27,69 +37,22 @@ const KPI_CARDS: {
    * some of these tiles have a zero value that means something more specific
    * than "nothing happened here". */
   zeroCaption?: string;
-  /** UI redesign Phase 2: set on ONLY total_applications -- the page's one
-   * hero KPI tile (StatTile's own `hero` prop, consuming
-   * --brand-signature-gradient). Every other tile below, including the
-   * Phase I Sanctioned Strength trio, is untouched. */
-  hero?: boolean;
 }[] = [
-  { key: "total_applications", label: "Total applications", accent: "gold", hero: true },
-  {
-    key: "open_positions",
-    label: "Open positions",
-    accent: "gold",
-    // Precise definition, on hover -- counts individual OPEN HiringSlot
-    // rows (posts), not vacancy requests, so it isn't directly comparable
-    // to "Total requests" on the Vacancy Requests screen (CLAUDE.md B2).
-    tooltip: "Open HiringSlot posts in scope (not requests) -- OPEN status only, RESERVED/FILLED excluded.",
-  },
+  { key: "total_applications", label: "Total applications", accent: "blue" },
   // interviews_today/joinings_today's own labels are computed per-render
   // below (see todayScopedLabel) since the backend genuinely scopes them to
   // whatever the page's date-range control selects, defaulting to the
   // literal calendar day only when no range is chosen -- a hardcoded
   // "today" label was wrong the moment a wider range was selected
   // (CLAUDE.md B4).
-  { key: "interviews_today", label: "Interviews", accent: "gold" },
+  { key: "interviews_today", label: "Interviews", accent: "blue" },
   { key: "joinings_today", label: "Joinings", accent: "green" },
   { key: "offers_pending", label: "Offers pending", accent: "orange" },
-  { key: "average_time_to_hire_days", label: "Avg. time to hire (days)", accent: "gold" },
+  { key: "average_time_to_hire_days", label: "Avg. time to hire (days)", accent: "blue" },
   { key: "vacancy_closure_rate_pct", label: "Vacancy closure rate (%)", accent: "green" },
-  // Phase I (glowing-zooming-hamming.md) Sanctioned Strength tiles. "none"
-  // (unused by any of the 7 tiles above) intentionally sets these two apart
-  // as a distinct neutral-toned group rather than reusing gold/green/orange,
-  // which already carry "activity" connotations that don't fit a headcount
-  // register. All 3 respect the category tabs above (role_category), same as
-  // open_positions etc. -- unlike the always-all-3-categories split card.
-  {
-    key: "sanctioned_approved_total",
-    label: "Sanctioned approved",
-    accent: "none",
-    tooltip:
-      "Sum of approved_strength across every current-effective Sanctioned Strength row in scope (respects the category tabs above).",
-  },
-  {
-    key: "sanctioned_working_total",
-    label: "Sanctioned working",
-    accent: "none",
-    tooltip:
-      "Live headcount currently working against those same rows -- Employees for Teaching/Non-Teaching, active Housekeeping Staff for Housekeeping.",
-    zeroCaption: "No staff currently working against sanctioned strength in this scope",
-  },
-  {
-    key: "sanctioned_vacancy_total",
-    label: "Sanctioned vacancy",
-    // Static fallback only (used while loading / non-numeric) -- the real
-    // accent below reacts to the value's sign so a negative "net
-    // overstaffed" figure doesn't read as a rendering glitch next to 9
-    // otherwise-nonnegative tiles.
-    accent: "gold",
-    tooltip:
-      "Sanctioned approved minus sanctioned working, net across scope -- NOT the sum of each row's vacancy floored at 0. Negative means net overstaffed overall, not \"no vacancy\".",
-    zeroCaption: "Fully staffed -- no net vacancy or overstaffing in this scope",
-  },
   // Step 3 (dashboard-kpi-additions) -- the one KPI on this whole strip
-  // meant to grab attention, hence StatTile's new "red" accent (--brand-danger)
-  // rather than reusing gold/green/orange, none of which read as "urgent" in
+  // meant to grab attention, hence StatTile's "red" accent (--brand-danger)
+  // rather than reusing blue/green/orange, none of which read as "urgent" in
   // this app's fixed color spec (Red = urgent/destructive, index.css).
   {
     key: "urgent_vacancy_count",
@@ -103,9 +66,12 @@ const KPI_CARDS: {
 
 /** sanctioned_vacancy_total is the one KPI that can legitimately go negative
  * (net overstaffed) -- everything else on this strip is a nonnegative count.
- * Color-coding by sign (gold = real vacancy to recruit for, green = exactly
- * staffed, orange = overstaffed) makes the sign read as meaningful, not as a
- * rendering bug, without needing a new StatAccent variant. */
+ * Color-coding by sign (orange = real vacancy to recruit for, green = exactly
+ * staffed) makes the sign read as meaningful, not as a rendering bug, without
+ * needing a new StatAccent variant for it alone. Note: the "Vacancies" tile
+ * below renders as this page's one `hero` tile, which visually supersedes
+ * this accent's left-border stripe -- the sign is still communicated via the
+ * number itself and the zero caption. */
 function vacancyAccent(value: number | string | null | undefined, fallback: StatAccent): StatAccent {
   if (typeof value !== "number") return fallback;
   if (value < 0) return "orange";
@@ -165,6 +131,26 @@ export function DashboardPage() {
     queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, roleCategoryParam),
   });
 
+  // Category Summary section (Executive Dashboard redesign) -- always all 3
+  // categories side by side, deliberately NOT affected by categoryTab above
+  // (same "always all 3" convention the Category-wise split card already
+  // follows). Reuses the exact same query key shape as the main query above
+  // (just with an explicit, fixed role_category instead of the tab-driven
+  // one) so selecting e.g. the Teaching tab shares this cache entry with the
+  // main query rather than double-fetching.
+  const teachingSummary = useQuery({
+    queryKey: ["dashboard-kpis", selectedCampusCode, dateRange.startDate, dateRange.endDate, "TEACHING"],
+    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, "TEACHING"),
+  });
+  const nonTeachingSummary = useQuery({
+    queryKey: ["dashboard-kpis", selectedCampusCode, dateRange.startDate, dateRange.endDate, "NON_TEACHING"],
+    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, "NON_TEACHING"),
+  });
+  const housekeepingSummary = useQuery({
+    queryKey: ["dashboard-kpis", selectedCampusCode, dateRange.startDate, dateRange.endDate, "HOUSEKEEPING"],
+    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, "HOUSEKEEPING"),
+  });
+
   const categoryBreakdown = data?.category_wise_breakdown ?? EMPTY_CATEGORY_BREAKDOWN;
   const categoryTabCounts = {
     all: categoryBreakdown.reduce((sum, row) => sum + row.applications, 0),
@@ -190,6 +176,24 @@ export function DashboardPage() {
   const criticalVacancies = data?.critical_vacancies ?? [];
   const recentJoins = data?.recent_joins ?? [];
   const recentResignations = data?.recent_resignations ?? [];
+
+  // Vacancy Analysis section -- client-side aggregation of critical_vacancies
+  // by department (summed vacancy_count), sorted descending, top 6 shown with
+  // a "View All" link to the Sanctioned Strength page (no new backend
+  // endpoint for this rollup).
+  const departmentVacancyTotals = new Map<string, number>();
+  for (const row of criticalVacancies) {
+    departmentVacancyTotals.set(row.department, (departmentVacancyTotals.get(row.department) ?? 0) + row.vacancy_count);
+  }
+  const departmentVacancyRows = Array.from(departmentVacancyTotals.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+  const departmentVacancyTop6 = departmentVacancyRows.slice(0, 6);
+
+  // Critical vacancies table -- relative highlight for the row(s) at the
+  // current result set's single highest vacancy_count (a client-side
+  // "unusually high" signal, not a fabricated priority field).
+  const criticalVacanciesMax = criticalVacancies.reduce((max, row) => Math.max(max, row.vacancy_count), 0);
 
   // "Pending Requests" / "Pending Approvals" -- composed from the existing
   // /vacancy-requests list endpoint (no new backend field), the same way
@@ -232,13 +236,16 @@ export function DashboardPage() {
     return <p className="text-sm text-destructive">{error instanceof Error ? error.message : "Failed to load"}</p>;
   }
 
+  const vacancyValue = isLoading ? undefined : data?.sanctioned_vacancy_total;
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-display text-lg font-bold tracking-tight">Executive Dashboard</h1>
-          <div className="gear-edge mt-1 w-20" />
-          <p className="mt-1 text-xs text-muted-foreground">{isLoading ? "Loading…" : data?.scope_note}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Recruitment and workforce overview</p>
+          <div className="gear-edge mt-1.5 w-20" />
+          <p className="mt-1 text-[11px] text-muted-foreground/80">{isLoading ? "Loading…" : data?.scope_note}</p>
         </div>
         <div className="flex items-center gap-2">
           <DateRangeControl value={dateRange} onChange={setDateRange} />
@@ -250,45 +257,47 @@ export function DashboardPage() {
       {exportError ? <p className="text-sm text-destructive">{exportError}</p> : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <CategoryTabs
-          value={categoryTab}
-          onValueChange={setCategoryTab}
-          counts={categoryTabCounts}
-        />
+        <CategoryTabs value={categoryTab} onValueChange={setCategoryTab} counts={categoryTabCounts} variant="segmented" />
         <p className="text-[11px] text-muted-foreground">
           Scopes the KPI tiles below. The category-wise split card always shows all 3 categories.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-5">
-        {KPI_CARDS.map(({ key, label, accent, tooltip, zeroCaption, hero }) => {
-          const value = isLoading ? undefined : (data?.[key] as number | string | null | undefined);
-          return (
-            <StatTile
-              key={key}
-              label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
-              value={value}
-              isLoading={isLoading}
-              accent={key === "sanctioned_vacancy_total" ? vacancyAccent(value, accent) : accent}
-              zeroCaption={zeroCaption ?? "No activity in this scope yet"}
-              tooltip={tooltip}
-              hero={hero}
-            />
-          );
-        })}
-      </div>
-
-      {/* Pending Requests / Pending Approvals -- composed client-side from the
-          existing /vacancy-requests list, not new /dashboard/kpis fields (see
-          the pendingRequestsCount/pendingApprovalsCount comment above). A
-          separate small row (not folded into KPI_CARDS above) since these two
-          come from a different query than the rest of the strip. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-5">
+      {/* Primary KPI row -- exactly 6 tiles, "Vacancies" is this page's one
+          hero tile (see StatTile's `hero` prop). Pending requests/approvals
+          are composed from the /vacancy-requests list (see above), not this
+          page's own /dashboard/kpis response. */}
+      <div data-testid="primary-kpi-grid" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        <StatTile
+          label="Total Sanctioned"
+          value={isLoading ? undefined : data?.sanctioned_approved_total}
+          isLoading={isLoading}
+          accent="blue"
+          tooltip="Sum of approved_strength across every current-effective Sanctioned Strength row in scope (respects the category tabs above)."
+          zeroCaption="No activity in this scope yet"
+        />
+        <StatTile
+          label="Working"
+          value={isLoading ? undefined : data?.sanctioned_working_total}
+          isLoading={isLoading}
+          accent="green"
+          tooltip="Live headcount currently working against those same rows -- Employees for Teaching/Non-Teaching, active Housekeeping Staff for Housekeeping."
+          zeroCaption="No staff currently working against sanctioned strength in this scope"
+        />
+        <StatTile
+          label="Vacancies"
+          value={vacancyValue}
+          isLoading={isLoading}
+          accent={vacancyAccent(vacancyValue, "gold")}
+          tooltip={`Sanctioned approved minus sanctioned working, net across scope -- NOT the sum of each row's vacancy floored at 0. Negative means net overstaffed overall, not "no vacancy".`}
+          zeroCaption="Fully staffed -- no net vacancy or overstaffing in this scope"
+          hero
+        />
         <StatTile
           label="Pending requests"
           value={isVacancyRequestsLoading ? undefined : pendingRequestsCount}
           isLoading={isVacancyRequestsLoading}
-          accent="gold"
+          accent="orange"
           tooltip="Vacancy requests awaiting the next actor in the approval chain -- status SUBMITTED or DEAN_APPROVED."
           zeroCaption="No requests waiting on an approver right now"
         />
@@ -300,6 +309,69 @@ export function DashboardPage() {
           tooltip="Vacancy requests still actionable by some approver -- status SUBMITTED, DEAN_APPROVED, or APPROVED (ready to publish)."
           zeroCaption="Nothing awaiting approval or publishing right now"
         />
+        <StatTile
+          label="Active Recruitment"
+          value={isLoading ? undefined : data?.open_positions}
+          isLoading={isLoading}
+          accent="blue"
+          // Precise definition, on hover -- counts individual OPEN HiringSlot
+          // rows (posts), not vacancy requests, so it isn't directly
+          // comparable to "Total requests" on the Vacancy Requests screen
+          // (CLAUDE.md B2).
+          tooltip="Open HiringSlot posts in scope (not requests) -- OPEN status only, RESERVED/FILLED excluded."
+          zeroCaption="No activity in this scope yet"
+        />
+      </div>
+
+      {/* Secondary stat strip -- 7 lower-priority metrics, visually
+          demoted below the primary 6 via StatTile's "compact" size, flowing
+          in a wrap rather than a rigid grid. */}
+      <div className="flex flex-wrap gap-2">
+        {SECONDARY_KPI_CARDS.map(({ key, label, accent, tooltip, zeroCaption }) => {
+          const value = isLoading ? undefined : (data?.[key] as number | string | null | undefined);
+          return (
+            <div key={key} className="w-[calc(50%-0.25rem)] sm:w-[152px]">
+              <StatTile
+                label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
+                value={value}
+                isLoading={isLoading}
+                accent={accent}
+                zeroCaption={zeroCaption ?? "No activity in this scope yet"}
+                tooltip={tooltip}
+                size="compact"
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Category Summary -- always all 3 categories (Teaching/Non-Teaching/
+          Housekeeping) side by side, unaffected by the tabs above. */}
+      <div>
+        <h2 className="mb-2 font-display text-sm font-semibold text-foreground">Category summary</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <CategorySummaryCard
+            title="Teaching"
+            sanctioned={teachingSummary.data?.sanctioned_approved_total}
+            working={teachingSummary.data?.sanctioned_working_total}
+            vacancy={teachingSummary.data?.sanctioned_vacancy_total}
+            isLoading={teachingSummary.isLoading}
+          />
+          <CategorySummaryCard
+            title="Non-Teaching"
+            sanctioned={nonTeachingSummary.data?.sanctioned_approved_total}
+            working={nonTeachingSummary.data?.sanctioned_working_total}
+            vacancy={nonTeachingSummary.data?.sanctioned_vacancy_total}
+            isLoading={nonTeachingSummary.isLoading}
+          />
+          <CategorySummaryCard
+            title="Housekeeping"
+            sanctioned={housekeepingSummary.data?.sanctioned_approved_total}
+            working={housekeepingSummary.data?.sanctioned_working_total}
+            vacancy={housekeepingSummary.data?.sanctioned_vacancy_total}
+            isLoading={housekeepingSummary.isLoading}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -384,49 +456,102 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="p-3 pb-1">
-          <CardTitle className="text-xs">Campus-wise hiring</CardTitle>
-        </CardHeader>
-        <CardContent className="p-3 pt-0">
-          {isLoading ? (
-            <div role="status" aria-label="Loading campus-wise hiring" className="h-24 animate-pulse rounded bg-muted" />
-          ) : !data || data.campus_wise_hiring.length === 0 ? (
-            <EmptyState message="No hires recorded in this scope yet." />
-          ) : (
-            <CampusHiringChart data={data.campus_wise_hiring} />
-          )}
-        </CardContent>
-      </Card>
-
       {/* Recruitment pipeline funnel -- application_pipeline_funnel is always
           exactly 7 rows (Applied -> Screening -> Interview -> Selected ->
           Offer -> Joined -> Rejected), always in that fixed order (see
           api/types.ts's PipelineFunnelStage doc comment) -- rendered as-is,
-          never re-sorted, via the same CategoryBarChart horizontal-bar
-          component already used for source-wise/rejected-vs-withdrawn above
-          (no new charting library needed for a "decreasing widths" funnel
-          look; the real data's own counts naturally taper stage over stage). */}
+          never re-sorted. This is the page's one large/bold chart
+          (CategoryBarChart's `size="lg"`), per the redesign's "Recruitment
+          Pipeline" section. */}
       <Card>
-        <CardHeader className="p-3 pb-1">
-          <CardTitle className="text-xs">Recruitment pipeline funnel</CardTitle>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-sm">Recruitment pipeline</CardTitle>
         </CardHeader>
-        <CardContent className="p-3 pt-0">
+        <CardContent className="p-4 pt-0">
           {isLoading ? (
-            <div role="status" aria-label="Loading recruitment pipeline funnel" className="h-32 animate-pulse rounded bg-muted" />
+            <div role="status" aria-label="Loading recruitment pipeline funnel" className="h-56 animate-pulse rounded bg-muted" />
           ) : !data || pipelineFunnelIsEmpty ? (
             <EmptyState message="No applications in this scope yet." />
           ) : (
-            <CategoryBarChart ariaLabel="Recruitment pipeline funnel" data={pipelineFunnelData} color="var(--color-chart-2)" />
+            <CategoryBarChart
+              ariaLabel="Recruitment pipeline funnel"
+              data={pipelineFunnelData}
+              color="var(--color-chart-2)"
+              size="lg"
+            />
           )}
         </CardContent>
       </Card>
+
+      {/* Vacancy Analysis -- client-side rollup of critical_vacancies (the
+          VACANCY_RECRUITMENT_REQUIRED-status rows already fetched above), NOT
+          every vacancy in the system. "View All" goes to the Sanctioned
+          Strength page -- there's no dedicated "all critical vacancies"
+          view. */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 p-4 pb-1">
+          <CardTitle className="text-sm">Vacancy analysis -- critical vacancies by department</CardTitle>
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/sanctioned-strength">View All</Link>
+          </Button>
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          {isLoading ? (
+            <div role="status" aria-label="Loading vacancy analysis" className="h-56 animate-pulse rounded bg-muted" />
+          ) : departmentVacancyTop6.length === 0 ? (
+            <EmptyState message="No critical vacancies right now -- nothing urgently understaffed." />
+          ) : (
+            <CategoryBarChart
+              ariaLabel="Critical vacancies by department"
+              data={departmentVacancyTop6}
+              color="var(--color-chart-4)"
+              size="lg"
+              testId="critical-vacancies-department-chart"
+            />
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Secondary analytics row -- campus-wise hiring (left, unchanged) and
+          a compact "Recent Activity" teaser feed (right, new) combining
+          recent joins/resignations. The full Recent joins/Recent
+          resignations tables further down stay the detailed view. */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="p-3 pb-1">
+            <CardTitle className="text-xs">Campus-wise hiring</CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0">
+            {isLoading ? (
+              <div role="status" aria-label="Loading campus-wise hiring" className="h-24 animate-pulse rounded bg-muted" />
+            ) : !data || data.campus_wise_hiring.length === 0 ? (
+              <EmptyState message="No hires recorded in this scope yet." />
+            ) : (
+              <CampusHiringChart data={data.campus_wise_hiring} />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="p-3 pb-1">
+            <CardTitle className="text-xs">Recent activity</CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0">
+            <RecentActivityFeed joins={recentJoins} resignations={recentResignations} isLoading={isLoading} />
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Critical vacancies -- VACANCY_RECRUITMENT_REQUIRED-status rows
           surfaced from the Sanctioned Strength views (see
           app/services/reporting.py::_critical_vacancy_rows). An empty list
           here is a genuinely good sign, not a loading/error state -- worded
-          accordingly rather than the generic "No results found." */}
+          accordingly rather than the generic "No results found." Rows at
+          this result set's single highest vacancy_count get a subtle
+          red-tinted highlight (client-side relative signal, not a
+          fabricated "priority" field) -- and each row now has a "View"
+          action to the Sanctioned Strength page (no per-row detail endpoint
+          exists for a critical-vacancy row specifically). */}
       <Card>
         <CardHeader className="p-3 pb-1">
           <CardTitle className="text-xs">Critical vacancies</CardTitle>
@@ -440,23 +565,35 @@ export function DashboardPage() {
                 <TableHead>Location</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead className="text-right">Vacancies</TableHead>
+                <TableHead className="text-right">View</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableEmpty colSpan={5} loading />
+                <TableEmpty colSpan={6} loading />
               ) : criticalVacancies.length === 0 ? (
-                <TableEmpty colSpan={5}>No critical vacancies right now -- nothing urgently understaffed.</TableEmpty>
+                <TableEmpty colSpan={6}>No critical vacancies right now -- nothing urgently understaffed.</TableEmpty>
               ) : (
-                criticalVacancies.map((row, index) => (
-                  <TableRow key={`${row.department}-${row.designation}-${index}`}>
-                    <TableCell className="font-medium text-foreground">{row.department}</TableCell>
-                    <TableCell>{row.designation}</TableCell>
-                    <TableCell>{row.location ?? "—"}</TableCell>
-                    <TableCell>{row.category.replace(/_/g, " ")}</TableCell>
-                    <TableCell className="text-right tabular-nums">{row.vacancy_count}</TableCell>
-                  </TableRow>
-                ))
+                criticalVacancies.map((row, index) => {
+                  const isHighlighted = criticalVacanciesMax > 0 && row.vacancy_count === criticalVacanciesMax;
+                  return (
+                    <TableRow
+                      key={`${row.department}-${row.designation}-${index}`}
+                      className={cn(isHighlighted && "border-l-4 border-l-brand-danger bg-brand-danger/5")}
+                    >
+                      <TableCell className="font-medium text-foreground">{row.department}</TableCell>
+                      <TableCell>{row.designation}</TableCell>
+                      <TableCell>{row.location ?? "—"}</TableCell>
+                      <TableCell>{row.category.replace(/_/g, " ")}</TableCell>
+                      <TableCell className="text-right tabular-nums">{row.vacancy_count}</TableCell>
+                      <TableCell className="text-right">
+                        <Link to="/sanctioned-strength" className="text-xs font-medium text-primary hover:underline">
+                          View
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -465,7 +602,9 @@ export function DashboardPage() {
 
       {/* Recent joins / Recent resignations -- 2 separate cards (per the
           original spec's distinct "D."/"E." sections), each a top-10 list of
-          Employee rows already ordered newest-first by the backend. */}
+          Employee rows already ordered newest-first by the backend. Kept
+          exactly as before -- the "Recent Activity" feed above is a compact
+          teaser, this is the full detail. */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <Card>
           <CardHeader className="p-3 pb-1">
