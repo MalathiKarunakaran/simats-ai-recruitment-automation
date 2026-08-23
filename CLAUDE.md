@@ -173,5 +173,15 @@ FastAPI-injectable dependencies overridden with in-memory fakes in
 - No live AI API keys configured in this dev environment — AI endpoints
   return 503 until `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are set.
 - No GitHub Actions CI — no `.github/workflows/` exists yet.
-- `DEPLOYMENT.md`'s runbook was verified locally via Docker, never against a
-  real remote VPS.
+- **Resolved 2026-08-23**: `DEPLOYMENT.md`'s runbook is now verified live —
+  `backend`, `frontend`, `postgres`, `minio`, `chromadb` all run in
+  production via `docker-compose.yml` on a Hostinger VPS
+  (`srv1922215.hstgr.cloud`), reachable at `https://api.malathi.io` and
+  `https://app.malathi.io`. The reverse proxy (Caddy) is a pre-existing
+  host-level install on that VPS, not managed by this repo's tooling —
+  see `DEPLOYMENT.md` section 6 before assuming a from-scratch
+  reverse-proxy setup has been exercised end-to-end.
+- The production frontend Docker build uses `npm install`, not `npm ci` —
+  the committed `package-lock.json` was generated on Windows, and `npm
+  ci`'s strict lockfile-fidelity check miscomputes native optional
+  binaries (Rolldown/lightningcss) when installing on Linux (npm/cli#4828).

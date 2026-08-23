@@ -99,40 +99,23 @@ services:
     build:
       context: ./frontend
       args:
-        # Cross-origin call to the api.malathi.io domain (see Caddy below),
-        # not same-origin -- backend's CORS_ALLOWED_ORIGINS already allows
-        # https://app.malathi.io for this reason. Baked in at build time:
-        # Vite inlines import.meta.env.* into the static bundle, so this
-        # can't be changed at container start like a normal runtime env var.
+        # Cross-origin call to the api.malathi.io domain, not same-origin --
+        # backend's CORS_ALLOWED_ORIGINS already allows https://app.malathi.io
+        # for this reason. Baked in at build time: Vite inlines
+        # import.meta.env.* into the static bundle, so this can't be changed
+        # at container start like a normal runtime env var.
         VITE_API_BASE_URL: https://api.malathi.io/api/v1
     container_name: simats_recruitment_frontend
     restart: unless-stopped
     ports:
-      # Direct host access (http://<vps-ip>:8011) as an immediate way to see
-      # the deployed UI, independent of the api.malathi.io/app.malathi.io
-      # Caddy routing above -- which is currently blocked by something else
-      # on the VPS already holding ports 80 and 443 outside this project.
+      # A host-level reverse proxy already running on this VPS (outside
+      # Docker -- ports 80/443 are both already bound to it, confirmed live)
+      # terminates TLS for app.malathi.io and proxies here. See
+      # DEPLOYMENT.md section 6 for that proxy's setup; this project doesn't
+      # run its own -- a docker-based `caddy` service was tried first and
+      # abandoned once the host-level proxy turned out to already exist and
+      # already work (git history has that attempt, if ever needed again).
       - "8011:80"
-
-  caddy:
-    build:
-      context: .
-      dockerfile: Caddy.Dockerfile
-    container_name: simats_recruitment_caddy
-    restart: unless-stopped
-    ports:
-      # HTTPS only -- port 80 is occupied by something else on the VPS
-      # outside this compose project, so Caddy doesn't try to bind it (see
-      # Caddyfile: the ACME issuer is configured to skip the HTTP-01
-      # challenge, which needs port 80, and use TLS-ALPN-01 instead, which
-      # only needs 443).
-      - "443:443"
-    volumes:
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - backend
-      - frontend
 
   # Note: n8n itself is NOT self-hosted here -- Phase 6's integration is a
   # webhook client (N8N_BASE_URL) pointing at an existing, externally
@@ -142,5 +125,3 @@ volumes:
   postgres_data:
   minio_data:
   chromadb_data:
-  caddy_data:
-  caddy_config:
