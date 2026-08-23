@@ -13,7 +13,8 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN node --version && npm --version && npm config get registry
+RUN npm ci --loglevel verbose > /tmp/npm-ci.log 2>&1; status=$?; tail -n 150 /tmp/npm-ci.log; exit $status
 
 COPY . .
 
