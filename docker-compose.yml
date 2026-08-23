@@ -107,8 +107,12 @@ services:
         VITE_API_BASE_URL: https://api.malathi.io/api/v1
     container_name: simats_recruitment_frontend
     restart: unless-stopped
-    expose:
-      - "80"
+    ports:
+      # Direct host access (http://<vps-ip>:8011) as an immediate way to see
+      # the deployed UI, independent of the api.malathi.io/app.malathi.io
+      # Caddy routing above -- which is currently blocked by something else
+      # on the VPS already holding ports 80 and 443 outside this project.
+      - "8011:80"
 
   caddy:
     build:
