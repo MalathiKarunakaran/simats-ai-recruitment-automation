@@ -95,6 +95,36 @@ services:
       chromadb:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Cross-origin call to the api.malathi.io domain (see Caddy below),
+        # not same-origin -- backend's CORS_ALLOWED_ORIGINS already allows
+        # https://app.malathi.io for this reason. Baked in at build time:
+        # Vite inlines import.meta.env.* into the static bundle, so this
+        # can't be changed at container start like a normal runtime env var.
+        VITE_API_BASE_URL: https://api.malathi.io/api/v1
+    container_name: simats_recruitment_frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: simats_recruitment_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
   # Note: n8n itself is NOT self-hosted here -- Phase 6's integration is a
   # webhook client (N8N_BASE_URL) pointing at an existing, externally
   # operated n8n pipeline, not a container this compose file manages.
@@ -103,3 +133,5 @@ volumes:
   postgres_data:
   minio_data:
   chromadb_data:
+  caddy_data:
+  caddy_config:
