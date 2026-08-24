@@ -19,7 +19,7 @@ const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "REC
 const SOURCE_OPTIONS: CandidateSource[] = ["Reference", "Job Portal", "FacultyPlus", "Walk-in"];
 
 export function CandidateCreatePage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const navigate = useNavigate();
 
   const fullName = useFieldValidation("", required("Full name is required"));
@@ -43,7 +43,11 @@ export function CandidateCreatePage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Something went wrong"),
   });
 
-  if (!user || !CAN_CREATE_ROLES.includes(user.role)) {
+  // Bug fix: OR'd with hasPermission("CREATE_CANDIDATE") -- candidates.py's
+  // create_candidate is gated by require_permission, not this role list
+  // alone, so an individually-granted permission must also unlock this page
+  // (same pattern as UsersListPage's canManage).
+  if (!user || !(CAN_CREATE_ROLES.includes(user.role) || hasPermission?.("CREATE_CANDIDATE"))) {
     return (
       <p className="text-sm text-muted-foreground">
         Only a Recruitment Officer, HR Admin, Super Admin, or Recruitment Coordinator can add a new candidate.

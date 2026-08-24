@@ -34,7 +34,7 @@ const SOURCE_OPTIONS: CandidateSource[] = ["Reference", "Job Portal", "FacultyPl
 
 export function CandidateDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
 
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +98,13 @@ export function CandidateDetailPage() {
     return <Navigate to="/candidates" replace />;
   }
 
-  const canWithdraw = Boolean(user && CAN_MANAGE_CANDIDATES_ROLES.includes(user.role));
+  // Bug fix: OR'd with hasPermission("EDIT_CANDIDATE") -- both
+  // update_candidate and withdraw_candidate are gated by
+  // require_permission(EDIT_CANDIDATE), not this role list alone (same
+  // pattern as UsersListPage's canManage).
+  const canWithdraw = Boolean(
+    user && (CAN_MANAGE_CANDIDATES_ROLES.includes(user.role) || hasPermission?.("EDIT_CANDIDATE")),
+  );
   // Same write-gate as Withdraw/create -- PATCH /candidates/{id} shares
   // _write_gate with create_candidate/withdraw_candidate in
   // app/api/v1/routers/candidates.py.

@@ -21,12 +21,13 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListAuditLogs = vi.mocked(auditLogsApi.listAuditLogs);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 
-function mockUser(role: UserRead["role"]) {
+function mockUser(role: UserRead["role"], hasPermission: (permission: string) => boolean = () => false) {
   mockedUseAuth.mockReturnValue({
     user: { role } as UserRead,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    hasPermission,
   });
 }
 
@@ -79,6 +80,20 @@ describe("ActivityLogPage", () => {
         "Only Super Admin, HR Admin, Associate Dean (Recruitment), or a Campus HOD can view the activity log.",
       ),
     ).toBeInTheDocument();
+  });
+
+  // RBAC permission-gate audit (2026-08-24): both audit_logs.py endpoints
+  // are gated by require_permission(ACTIVITY_LOG), not CAN_VIEW_ROLES alone
+  // -- this locks in the fix without changing the "blocked" test above
+  // (which passes no grant, so behaves exactly as before).
+  it("unblocks a role outside CAN_VIEW_ROLES individually granted ACTIVITY_LOG", async () => {
+    mockUser("RECRUITMENT_OFFICER", (permission) => permission === "ACTIVITY_LOG");
+    mockedListAuditLogs.mockResolvedValue([ENTRY]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("VacancyRequest.created")).toBeInTheDocument());
   });
 
   it("renders activity entries for a global-scope role", async () => {

@@ -43,7 +43,7 @@ const ALL_STATUSES: ApplicationStatus[] = [...APPLICATION_STATUS_ORDER, "REJECTE
 
 export function ApplicationDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const { getLabel } = useJobPostingLookup();
 
@@ -78,7 +78,13 @@ export function ApplicationDetailPage() {
     enabled: Boolean(application),
   });
 
-  const canScreen = Boolean(user && WRITE_ROLES.includes(user.role));
+  // Bug fix: OR'd with hasPermission("RESUME_SCREENING") -- resume_screening.py's
+  // screen_application is gated by require_permission(RESUME_SCREENING), a
+  // distinct permission from MANAGE_APPLICATIONS that WRITE_ROLES actually
+  // represents (they share the same default role membership today, but an
+  // individually-granted RESUME_SCREENING permission outside WRITE_ROLES
+  // must still unlock this, same pattern as UsersListPage's canManage).
+  const canScreen = Boolean(user && (WRITE_ROLES.includes(user.role) || hasPermission?.("RESUME_SCREENING")));
   const {
     data: resumeScore,
     error: resumeScoreError,
@@ -210,15 +216,24 @@ export function ApplicationDetailPage() {
   const currentIndex = APPLICATION_STATUS_ORDER.indexOf(application.status);
   const forwardStatuses = currentIndex >= 0 ? APPLICATION_STATUS_ORDER.slice(currentIndex + 1) : [];
 
-  const canWrite = WRITE_ROLES.includes(user.role);
+  // Bug fix: OR'd with hasPermission("MANAGE_APPLICATIONS") -- applications.py's
+  // update_pipeline_details/transition_application_status are gated by
+  // require_permission(MANAGE_APPLICATIONS), not this role list alone (same
+  // pattern as UsersListPage's canManage).
+  const canWrite = WRITE_ROLES.includes(user.role) || (hasPermission?.("MANAGE_APPLICATIONS") ?? false);
   const canAdvance = canWrite && !isTerminal && forwardStatuses.length > 0;
   const canReject = canWrite && !isTerminal;
   const canWithdraw = canWrite && !isTerminal;
   const canForce = user.role === "SUPER_ADMIN";
 
   const joiningConfirmedIndex = APPLICATION_STATUS_ORDER.indexOf("JOINING_CONFIRMED");
+  // Bug fix: OR'd with hasPermission("ONBOARDING") -- every joining.py
+  // endpoint (including its GET reads) is gated by
+  // require_permission(ONBOARDING), not this role list alone (same pattern
+  // as UsersListPage's canManage).
   const canViewJoining =
-    CAN_VIEW_JOINING_ROLES.includes(user.role) && currentIndex >= joiningConfirmedIndex;
+    (CAN_VIEW_JOINING_ROLES.includes(user.role) || (hasPermission?.("ONBOARDING") ?? false)) &&
+    currentIndex >= joiningConfirmedIndex;
 
   const label = getLabel(application.job_posting_id);
   const isBusy =
@@ -551,7 +566,10 @@ export function ApplicationDetailPage() {
                 ))}
               </ul>
             )}
-            {user && CAN_CREATE_OFFER_ROLES.includes(user.role) ? (
+            {/* Bug fix: OR'd with hasPermission("OFFERS") -- offers.py's
+                create_offer is gated by require_permission(OFFERS), not this
+                role list alone (same pattern as UsersListPage's canManage). */}
+            {user && (CAN_CREATE_OFFER_ROLES.includes(user.role) || hasPermission?.("OFFERS")) ? (
               <Button variant="outline" size="sm" className="w-fit" asChild>
                 <Link to={`/offers/new?application_id=${application.id}`}>Make an offer</Link>
               </Button>

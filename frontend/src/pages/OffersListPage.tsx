@@ -20,7 +20,12 @@ const CAN_CREATE_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 const STATUSES: OfferStatus[] = ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "EXPIRED", "WITHDRAWN"];
 
 export function OffersListPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
+  // canView deliberately stays role-only -- offers.py's list_offers/get_offer
+  // are gated by a fixed require_roles(HR_ADMIN, SUPER_ADMIN, MANAGEMENT)
+  // (RECRUITMENT_COORDINATOR here is a pre-existing frontend-only addition,
+  // unrelated to this audit), not require_permission, so an individually-
+  // granted OFFERS permission wouldn't actually unlock GET /offers anyway.
   const canView = Boolean(user && CAN_VIEW_ROLES.includes(user.role));
 
   const [statusFilter, setStatusFilter] = useState<OfferStatus | "ALL">("ALL");
@@ -71,7 +76,10 @@ export function OffersListPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Offers</h1>
-        {user && CAN_CREATE_ROLES.includes(user.role) ? (
+        {/* Bug fix: OR'd with hasPermission("OFFERS") -- create_offer is
+            gated by require_permission(OFFERS), not this role list alone
+            (same pattern as UsersListPage's canManage). */}
+        {user && (CAN_CREATE_ROLES.includes(user.role) || hasPermission?.("OFFERS")) ? (
           <Button asChild>
             <Link to="/offers/new">Make an offer</Link>
           </Button>

@@ -43,7 +43,7 @@ function toDatetimeLocal(iso: string): string {
 
 export function InterviewDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const { getLabel } = useJobPostingLookup();
 
@@ -172,8 +172,19 @@ export function InterviewDetailPage() {
     .map((memberId) => users?.find((u) => u.id === memberId))
     .filter((member): member is NonNullable<typeof member> => Boolean(member));
 
+  // Bug fix: role check OR'd with hasPermission("MARK_INTERVIEW_COMPLETED")
+  // -- submit_interview_feedback is gated by
+  // require_permission(MARK_INTERVIEW_COMPLETED), not this role check alone,
+  // so someone individually granted it (and actually assigned to this
+  // interview) must still see the feedback form, same pattern as
+  // UsersListPage's canManage. The panel_member_ids membership check itself
+  // is untouched -- that's a real, separate backend rule
+  // (services/interviews.py::submit_feedback 403s a non-assigned caller
+  // regardless of permission), not part of this bug class.
   const isAssignedPanelMember =
-    (user.role === "INTERVIEW_PANEL_MEMBER" || user.role === "SUPER_ADMIN") &&
+    (user.role === "INTERVIEW_PANEL_MEMBER" ||
+      user.role === "SUPER_ADMIN" ||
+      (hasPermission?.("MARK_INTERVIEW_COMPLETED") ?? false)) &&
     interview.panel_member_ids.includes(user.id);
   const hasSubmittedFeedback = feedbackEntries?.some((f) => f.panel_member_id === user.id) ?? false;
   const canSubmitFeedback = isAssignedPanelMember && !hasSubmittedFeedback;

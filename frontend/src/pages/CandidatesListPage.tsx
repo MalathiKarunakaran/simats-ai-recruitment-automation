@@ -29,7 +29,7 @@ type ResumeFilter = "ALL" | "MISSING" | "UPLOADED";
 const TOTAL_COLUMN_COUNT = 7;
 
 export function CandidatesListPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [resumeFilter, setResumeFilter] = useState<ResumeFilter>("ALL");
@@ -116,7 +116,10 @@ export function CandidatesListPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Candidates</h1>
-        {user && CAN_MANAGE_CANDIDATES_ROLES.includes(user.role) ? (
+        {/* Bug fix: OR'd with hasPermission("CREATE_CANDIDATE") -- candidates.py's
+            create_candidate is gated by require_permission, not this role list
+            alone (same pattern as UsersListPage's canManage). */}
+        {user && (CAN_MANAGE_CANDIDATES_ROLES.includes(user.role) || hasPermission?.("CREATE_CANDIDATE")) ? (
           <Button asChild>
             <Link to="/candidates/new">New candidate</Link>
           </Button>

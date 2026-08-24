@@ -142,4 +142,23 @@ describe("AppShell nav", () => {
     const link = await screen.findByRole("link", { name: "Users" });
     expect(link).toHaveAttribute("href", "/users");
   });
+
+  // RBAC permission-gate audit (2026-08-24): same bug class as the Users fix
+  // above, found on Activity Log -- audit_logs.py's endpoints are gated by
+  // require_permission(ACTIVITY_LOG), not visibleForRoles alone.
+  it("hides Activity Log from a RECRUITMENT_COORDINATOR with no ACTIVITY_LOG grant (unchanged prior behavior)", async () => {
+    mockAuth("RECRUITMENT_COORDINATOR");
+    renderShell();
+
+    await waitFor(() => expect(screen.getByRole("navigation")).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: "Activity Log" })).not.toBeInTheDocument();
+  });
+
+  it("shows Activity Log to a RECRUITMENT_COORDINATOR individually granted ACTIVITY_LOG", async () => {
+    mockAuth("RECRUITMENT_COORDINATOR", (permission) => permission === "ACTIVITY_LOG");
+    renderShell();
+
+    const link = await screen.findByRole("link", { name: "Activity Log" });
+    expect(link).toHaveAttribute("href", "/activity-log");
+  });
 });

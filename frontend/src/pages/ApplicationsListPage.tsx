@@ -46,7 +46,7 @@ const JOINED_STATUSES: ApplicationStatus[] = [
 const REJECTED_OR_WITHDRAWN_STATUSES: ApplicationStatus[] = ["REJECTED", "WITHDRAWN"];
 
 export function ApplicationsListPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [statusFilter, setStatusFilter] = useState<ApplicationStatus | "ALL">("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
@@ -107,7 +107,11 @@ export function ApplicationsListPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Applications</h1>
-        {user && CAN_CREATE_ROLES.includes(user.role) ? (
+        {/* Bug fix: OR'd with hasPermission("MANAGE_APPLICATIONS") --
+            create_application is gated by
+            require_permission(MANAGE_APPLICATIONS), not this role list alone
+            (same pattern as UsersListPage's canManage). */}
+        {user && (CAN_CREATE_ROLES.includes(user.role) || hasPermission?.("MANAGE_APPLICATIONS")) ? (
           <Button asChild>
             <Link to="/applications/new">New application</Link>
           </Button>

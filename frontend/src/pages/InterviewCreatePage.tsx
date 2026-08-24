@@ -23,7 +23,7 @@ const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "REC
 const INTERVIEW_TYPES: InterviewType[] = ["TECHNICAL", "HR", "TEACHING_DEMO", "GENERAL"];
 
 export function InterviewCreatePage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const preselectedApplicationId = searchParams.get("application_id");
@@ -74,7 +74,10 @@ export function InterviewCreatePage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Something went wrong"),
   });
 
-  if (!user || !CAN_CREATE_ROLES.includes(user.role)) {
+  // Bug fix: OR'd with hasPermission("SCHEDULE_INTERVIEW") -- create_interview
+  // is gated by require_permission(SCHEDULE_INTERVIEW), not this role list
+  // alone (same pattern as UsersListPage's canManage).
+  if (!user || !(CAN_CREATE_ROLES.includes(user.role) || hasPermission?.("SCHEDULE_INTERVIEW"))) {
     return (
       <p className="text-sm text-muted-foreground">
         Only a Recruitment Officer, HR Admin, Super Admin, or Recruitment Coordinator can schedule an interview.

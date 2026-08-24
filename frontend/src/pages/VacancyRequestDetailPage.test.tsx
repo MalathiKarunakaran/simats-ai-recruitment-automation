@@ -154,6 +154,28 @@ describe("VacancyRequestDetailPage", () => {
     expect(screen.queryByText("Reject")).not.toBeInTheDocument();
   });
 
+  // RBAC permission-gate audit (2026-08-24): reject/publish/close/cancel are
+  // each gated by their own require_permission(...PermissionEnum), not the
+  // hardcoded role checks alone -- this locks in the fix (Dean-approve stays
+  // hidden -- that's require_roles, a different, unrelated gate -- but
+  // Reject now shows) without changing the test above (no grant passed
+  // there, so it behaves exactly as before).
+  it("shows Reject to an unrelated role individually granted REJECT_VACANCY (but not Dean-approve)", async () => {
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "SUBMITTED" }));
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "REJECT_VACANCY",
+    });
+
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByText("Reject")).toBeInTheDocument());
+    expect(screen.queryByText("Dean-approve")).not.toBeInTheDocument();
+  });
+
   it("clicking Submit calls the mutation and the status updates", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,
@@ -241,6 +263,23 @@ describe("VacancyRequestDetailPage", () => {
     renderDetail();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
     expect(screen.queryByText("Cancel")).not.toBeInTheDocument();
+  });
+
+  it("shows Cancel to an unrelated role individually granted CANCEL_VACANCY", async () => {
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "PUBLISHED" }));
+    mockedGetApprovedVacancyForRequest.mockResolvedValue(baseApprovedVacancy({}));
+    mockedListHiringSlots.mockResolvedValue([slot({ id: "s1" }), slot({ id: "s2", status: "FILLED" })]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "CANCEL_VACANCY",
+    });
+
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByText("Cancel")).toBeInTheDocument());
   });
 
   it("cancelling a request requires a reason and calls the mutation with it", async () => {

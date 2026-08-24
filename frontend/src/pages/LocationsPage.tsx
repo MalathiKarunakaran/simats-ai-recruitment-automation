@@ -41,7 +41,7 @@ interface FormState {
 const EMPTY_FORM: FormState = { campusId: "", blockBuilding: "", floorVenue: "", category: "", isActive: true };
 
 export function LocationsPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -71,7 +71,13 @@ export function LocationsPage() {
   const { data: locations, isLoading } = useQuery({ queryKey: ["locations"], queryFn: listLocations });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
 
-  const canManage = Boolean(user && LOCATION_MANAGEMENT_ROLES.includes(user.role));
+  // Bug fix: OR'd with hasPermission("MANAGE_LOCATIONS") -- backend's
+  // locations.py gates create/update/delete/bulk-upload via require_permission,
+  // not a role list, so an individually-granted permission must also unlock
+  // this page's write controls (same pattern as UsersListPage's canManage).
+  const canManage = Boolean(
+    user && (LOCATION_MANAGEMENT_ROLES.includes(user.role) || hasPermission?.("MANAGE_LOCATIONS")),
+  );
   // A single-campus role's own locations are already all on one campus, so
   // the campus filter would only ever have one meaningful option -- same
   // rationale as ActivityLogPage/SanctionedStrengthPage's own

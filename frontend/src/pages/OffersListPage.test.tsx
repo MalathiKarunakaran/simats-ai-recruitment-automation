@@ -153,6 +153,33 @@ describe("OffersListPage", () => {
     expect(screen.queryByText("Make an offer")).not.toBeInTheDocument();
   });
 
+  // RBAC permission-gate audit (2026-08-24): create_offer is gated by
+  // require_permission(OFFERS), not CAN_CREATE_ROLES alone -- locks in the
+  // fix without changing the Management test above (no grant passed there,
+  // so it behaves exactly as before).
+  it("shows Make an offer to Management individually granted OFFERS", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "MANAGEMENT" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "OFFERS",
+    });
+    mockedListOffers.mockResolvedValue([OFFER]);
+    mockedListApplications.mockResolvedValue([APPLICATION]);
+    mockedListCandidates.mockResolvedValue([CANDIDATE]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Make an offer")).toBeInTheDocument());
+  });
+
   it("blocks the entire page for a role without view access", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,

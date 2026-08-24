@@ -187,6 +187,26 @@ describe("OfferDetailPage", () => {
     expect(screen.queryByText("Decline")).not.toBeInTheDocument();
   });
 
+  // RBAC permission-gate audit (2026-08-24): send/accept/decline/withdraw/
+  // mark-expired are all gated by require_permission(OFFERS), not
+  // WRITE_ROLES alone -- locks in the fix without changing the Management
+  // test above (no grant passed there, so it behaves exactly as before).
+  it("shows Accept/Decline to Management individually granted OFFERS", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "MANAGEMENT" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "OFFERS",
+    });
+    mockedGetOffer.mockResolvedValue(makeOffer({ status: "SENT" }));
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Accept")).toBeInTheDocument());
+    expect(screen.getByText("Decline")).toBeInTheDocument();
+  });
+
   it("requires a reason before confirming decline", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

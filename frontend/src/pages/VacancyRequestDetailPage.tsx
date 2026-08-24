@@ -36,7 +36,7 @@ import { StatusBadge } from "@/components/vacancy-requests/StatusBadge";
 
 export function VacancyRequestDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -173,22 +173,36 @@ export function VacancyRequestDetailPage() {
   const canEdit = canSubmit;
   const canDelete = canSubmit;
   const canDeanApprove = (role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "SUPER_ADMIN") && vr.status === "SUBMITTED";
+  // Bug fix: each of these 4 OR's in hasPermission(...) for the matching
+  // backend permission -- vacancy_requests.py's reject/publish/close/cancel
+  // endpoints are all gated by require_permission(PermissionEnum.X), not a
+  // role list, so someone individually granted the permission outside this
+  // role set must still see (and be able to use) the matching action button,
+  // same pattern as UsersListPage's canManage.
   const canReject =
-    (role === "ASSOCIATE_DEAN_RECRUITMENT" ||
+    ((role === "ASSOCIATE_DEAN_RECRUITMENT" ||
       role === "HR_ADMIN" ||
       role === "SUPER_ADMIN" ||
-      role === "RECRUITMENT_COORDINATOR") &&
+      role === "RECRUITMENT_COORDINATOR") ||
+      (hasPermission?.("REJECT_VACANCY") ?? false)) &&
     (vr.status === "SUBMITTED" || vr.status === "DEAN_APPROVED");
   const canHrApprove =
     (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
     (vr.status === "DEAN_APPROVED" || (vr.status === "SUBMITTED" && role === "SUPER_ADMIN"));
   const canPublish =
-    (role === "HR_ADMIN" || role === "RECRUITMENT_OFFICER" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
+    ((role === "HR_ADMIN" ||
+      role === "RECRUITMENT_OFFICER" ||
+      role === "SUPER_ADMIN" ||
+      role === "RECRUITMENT_COORDINATOR") ||
+      (hasPermission?.("PUBLISH_VACANCY") ?? false)) &&
     vr.status === "APPROVED";
   const canClose =
-    (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") && vr.status === "PUBLISHED";
+    ((role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") ||
+      (hasPermission?.("CLOSE_VACANCY") ?? false)) &&
+    vr.status === "PUBLISHED";
   const canCancel =
-    (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
+    ((role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") ||
+      (hasPermission?.("CANCEL_VACANCY") ?? false)) &&
     ["SUBMITTED", "DEAN_APPROVED", "APPROVED", "PUBLISHED"].includes(vr.status);
   const canAdjustSlotCount =
     (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&

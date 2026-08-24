@@ -33,7 +33,7 @@ const SEPARATION_TYPES: Exclude<EmploymentStatus, "ACTIVE">[] = ["RESIGNED", "TE
 
 export function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
 
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +78,10 @@ export function EmployeeDetailPage() {
   const department = departments?.find((d) => d.id === employee.department_id);
   const campus = campuses?.find((c) => c.id === employee.campus_id);
 
-  const canOffboard = Boolean(user && CAN_OFFBOARD_ROLES.includes(user.role));
+  // Bug fix: OR'd with hasPermission("EDIT_EMPLOYEES") -- offboard_employee
+  // is gated by require_permission(EDIT_EMPLOYEES), not this role list alone
+  // (same pattern as UsersListPage's canManage).
+  const canOffboard = Boolean(user && (CAN_OFFBOARD_ROLES.includes(user.role) || hasPermission?.("EDIT_EMPLOYEES")));
   const isActive = employee.employment_status === "ACTIVE";
 
   function submitOffboard() {

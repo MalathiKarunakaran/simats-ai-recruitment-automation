@@ -25,12 +25,13 @@ const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedOffboardEmployee = vi.mocked(employeesApi.offboardEmployee);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 
-function mockUser(role: UserRead["role"] | null) {
+function mockUser(role: UserRead["role"] | null, hasPermission: (permission: string) => boolean = () => false) {
   mockedUseAuth.mockReturnValue({
     user: role ? ({ role } as UserRead) : null,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    hasPermission,
   });
 }
 
@@ -154,6 +155,21 @@ describe("EmployeeDetailPage", () => {
 
     await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Offboard" })).not.toBeInTheDocument();
+  });
+
+  // RBAC permission-gate audit (2026-08-24): offboard_employee is gated by
+  // require_permission(EDIT_EMPLOYEES), not CAN_OFFBOARD_ROLES alone -- this
+  // locks in the fix without changing the "hides the Offboard button" test
+  // above (no grant passed, so behaves exactly as before).
+  it("shows the Offboard button to a non-HR role individually granted EDIT_EMPLOYEES", async () => {
+    mockUser("CAMPUS_HOD", (permission) => permission === "EDIT_EMPLOYEES");
+    mockedGetEmployee.mockResolvedValue(EMPLOYEE);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Offboard" })).toBeInTheDocument());
   });
 
   it("shows separation details instead of the Offboard button once separated", async () => {

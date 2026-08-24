@@ -129,6 +129,30 @@ describe("JoiningCard", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  // RBAC permission-gate audit (2026-08-24): every joining.py endpoint
+  // (reads and writes alike) is gated by require_permission(ONBOARDING),
+  // not READ_ROLES/HR_ONLY_ROLES alone -- these two lock in the fix without
+  // changing the test above (no grant passed there, so it behaves exactly
+  // as before).
+  it("shows the card to a role outside READ_ROLES individually granted ONBOARDING", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "ONBOARDING",
+    });
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument()]);
+
+    renderCard(makeApplication({ status: "JOINING_CONFIRMED" }));
+
+    await waitFor(() => expect(screen.getByText("Mark joined")).toBeInTheDocument());
+    // canWrite is also unlocked by the same ONBOARDING grant -- the document
+    // toggle (an HR_ONLY_ROLES-gated write action) is visible too.
+    await waitFor(() => expect(screen.getByText("Mark received")).toBeInTheDocument());
+  });
+
   it("shows Mark joined for Recruitment Officer but not the document toggle", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,

@@ -26,7 +26,7 @@ const READ_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITME
 const HR_ONLY_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 export function JoiningCard({ application }: { application: ApplicationRead }) {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [departmentId, setDepartmentId] = useState("");
@@ -35,8 +35,15 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
   const [hodAssigned, setHodAssigned] = useState("");
   const [designation, setDesignation] = useState("");
 
-  const canRead = Boolean(user && READ_ROLES.includes(user.role));
-  const canWrite = Boolean(user && HR_ONLY_ROLES.includes(user.role));
+  // Bug fix: both OR'd with hasPermission("ONBOARDING") -- every joining.py
+  // endpoint (reads and writes alike) is gated by the same
+  // require_permission(ONBOARDING), not either role list alone, so someone
+  // individually granted it outside READ_ROLES/HR_ONLY_ROLES must still see
+  // (and be able to act on) this card, same pattern as UsersListPage's
+  // canManage.
+  const hasOnboardingPermission = hasPermission?.("ONBOARDING") ?? false;
+  const canRead = Boolean(user && (READ_ROLES.includes(user.role) || hasOnboardingPermission));
+  const canWrite = Boolean(user && (HR_ONLY_ROLES.includes(user.role) || hasOnboardingPermission));
 
   const { data: record } = useQuery({
     queryKey: ["joining-record", application.id],

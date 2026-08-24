@@ -242,6 +242,28 @@ describe("InterviewDetailPage", () => {
     expect(screen.queryByText("Generate interview questions")).not.toBeInTheDocument();
   });
 
+  // RBAC permission-gate audit (2026-08-24): submit_interview_feedback is
+  // gated by require_permission(MARK_INTERVIEW_COMPLETED), not
+  // "role === INTERVIEW_PANEL_MEMBER" alone -- for a caller who's actually
+  // assigned to this interview's panel_member_ids (a separate, still-
+  // enforced backend rule this fix doesn't touch), an individually-granted
+  // MARK_INTERVIEW_COMPLETED must still unlock the feedback form even for a
+  // non-INTERVIEW_PANEL_MEMBER role.
+  it("shows the feedback form to an assigned panel member of another role individually granted MARK_INTERVIEW_COMPLETED", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { id: "panel-1", role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "MARK_INTERVIEW_COMPLETED",
+    });
+    mockedGetInterview.mockResolvedValue(makeInterview());
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Submit feedback")).toBeInTheDocument());
+  });
+
   it("shows Generate interview questions for an assigned panel member without write access, and renders results", async () => {
     mockedUseAuth.mockReturnValue({
       user: { id: "panel-1", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,

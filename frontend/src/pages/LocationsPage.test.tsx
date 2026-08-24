@@ -31,12 +31,17 @@ const mockedUpdateLocation = vi.mocked(locationsApi.updateLocation);
 const mockedDeleteLocation = vi.mocked(locationsApi.deleteLocation);
 const mockedListBulkUploads = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthBulkUploads);
 
-function mockUser(role: UserRead["role"], campusId: string | null = null) {
+function mockUser(
+  role: UserRead["role"],
+  campusId: string | null = null,
+  hasPermission: (permission: string) => boolean = () => false,
+) {
   mockedUseAuth.mockReturnValue({
     user: { id: "u-1", role, campus_id: campusId } as UserRead,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    hasPermission,
   });
 }
 
@@ -212,6 +217,31 @@ describe("LocationsPage", () => {
     expect(screen.queryByRole("button", { name: "Bulk upload" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Upload history" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  // RBAC permission-gate audit (2026-08-24): locations.py's write endpoints
+  // are gated by require_permission(MANAGE_LOCATIONS), not
+  // LOCATION_MANAGEMENT_ROLES alone -- these two lock in the fix without
+  // changing the existing role-only behavior for anyone else.
+  it("hides New location for a CAMPUS_HOD with no MANAGE_LOCATIONS grant (unchanged prior behavior)", async () => {
+    mockUser("CAMPUS_HOD", "c-sse", () => false);
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListLocations.mockResolvedValue([LIBRARY]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "New location" })).not.toBeInTheDocument();
+  });
+
+  it("shows New location to a CAMPUS_HOD individually granted MANAGE_LOCATIONS", async () => {
+    mockUser("CAMPUS_HOD", "c-sse", (permission) => permission === "MANAGE_LOCATIONS");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListLocations.mockResolvedValue([LIBRARY]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "New location" })).toBeInTheDocument());
   });
 
   it("shows New location for RECRUITMENT_OFFICER (broader write set than Departments)", async () => {
