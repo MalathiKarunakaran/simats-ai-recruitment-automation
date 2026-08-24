@@ -264,6 +264,50 @@ describe("InterviewDetailPage", () => {
     await waitFor(() => expect(screen.getByText("Submit feedback")).toBeInTheDocument());
   });
 
+  // RBAC permission-gate audit follow-up (2026-08-24): update_interview
+  // (PATCH /interviews/{id}) is gated by two distinct permissions depending
+  // on the payload -- RESCHEDULE_INTERVIEW for everything except cancelling,
+  // CANCEL_INTERVIEW for cancelling -- via an inline has_permission() call
+  // that fell outside the main Step 7 audit's require_permission(...)
+  // dependency grep scope. A CAMPUS_HOD (outside WRITE_ROLES) individually
+  // granted only RESCHEDULE_INTERVIEW must see Edit/Mark completed but NOT
+  // Cancel.
+  it("shows Edit and Mark completed (not Cancel) for a non-write role individually granted RESCHEDULE_INTERVIEW", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "RESCHEDULE_INTERVIEW",
+    });
+    mockedGetInterview.mockResolvedValue(makeInterview());
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Edit")).toBeInTheDocument());
+    expect(screen.getByText("Mark completed")).toBeInTheDocument();
+    expect(screen.queryByText("Cancel")).not.toBeInTheDocument();
+  });
+
+  // Same audit, the mirror case: a non-write role individually granted only
+  // CANCEL_INTERVIEW must see Cancel but NOT Edit/Mark completed.
+  it("shows Cancel (not Edit or Mark completed) for a non-write role individually granted CANCEL_INTERVIEW", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "CANCEL_INTERVIEW",
+    });
+    mockedGetInterview.mockResolvedValue(makeInterview());
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Cancel")).toBeInTheDocument());
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mark completed")).not.toBeInTheDocument();
+  });
+
   it("shows Generate interview questions for an assigned panel member without write access, and renders results", async () => {
     mockedUseAuth.mockReturnValue({
       user: { id: "panel-1", role: "INTERVIEW_PANEL_MEMBER" } as UserRead,

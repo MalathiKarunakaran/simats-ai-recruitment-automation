@@ -14,7 +14,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
-const CAN_VIEW_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN"];
+// Bug fix: was missing RECRUITMENT_COORDINATOR, unlike AppShell.tsx's own
+// nav entry for this exact page (visibleForRoles includes it) and
+// JoiningCard.tsx's READ_ROLES for the same underlying joining-stage data
+// -- a RECRUITMENT_COORDINATOR could see the "Onboarding" nav link but this
+// page's own canView gate then blocked them, a stale role list rather than
+// a missing-permission-fallback bug (this page's data, GET /applications,
+// is broadly staff-readable on the backend, not require_permission-gated).
+const CAN_VIEW_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 const TOTAL_COLUMN_COUNT = 4;
 const ONBOARDING_STATUSES: ApplicationStatus[] = [
   "JOINING_CONFIRMED",
@@ -65,7 +72,7 @@ export function OnboardingListPage() {
   if (!canView) {
     return (
       <p className="text-sm text-muted-foreground">
-        Only a Recruitment Officer, HR Admin, or Super Admin can view onboarding.
+        Only a Recruitment Officer, HR Admin, Recruitment Coordinator, or Super Admin can view onboarding.
       </p>
     );
   }

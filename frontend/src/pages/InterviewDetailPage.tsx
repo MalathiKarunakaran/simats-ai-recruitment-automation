@@ -165,7 +165,20 @@ export function InterviewDetailPage() {
   }
 
   const canWrite = WRITE_ROLES.includes(user.role);
-  const canMarkCompleted = canWrite && interview.status === "SCHEDULED";
+  // Bug fix: this PATCH /interviews/{id} endpoint is gated by two distinct
+  // permissions depending on the payload (app/api/v1/routers/interviews.py's
+  // update_interview: CANCEL_INTERVIEW when payload.status is CANCELLED,
+  // RESCHEDULE_INTERVIEW for everything else -- plain edits, implicit
+  // reschedule, and marking COMPLETED through this endpoint), gated via an
+  // inline has_permission() call rather than a require_permission(...)
+  // dependency -- which is why this fell outside the Step 7 audit's grep
+  // scope and was flagged rather than fixed then. `canWrite` alone doesn't
+  // distinguish them, so someone individually granted only one of the two
+  // permissions must still see exactly the actions it unlocks, not both or
+  // neither, same OR-with-hasPermission pattern as every other Step 7 fix.
+  const canReschedule = canWrite || (hasPermission?.("RESCHEDULE_INTERVIEW") ?? false);
+  const canCancel = canWrite || (hasPermission?.("CANCEL_INTERVIEW") ?? false);
+  const canMarkCompleted = canReschedule && interview.status === "SCHEDULED";
   const positionLabel = application ? getLabel(application.job_posting_id)?.positionTitle : undefined;
 
   const panelMembers = interview.panel_member_ids
@@ -284,62 +297,64 @@ export function InterviewDetailPage() {
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      {canWrite ? (
+      {canReschedule || canCancel ? (
         <div className="flex flex-wrap gap-2">
-          <Dialog open={editOpen} onOpenChange={setEditOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" onClick={openEditDialog}>
-                Edit
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Reschedule interview</DialogTitle>
-              </DialogHeader>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="edit_scheduled_at">Scheduled at</Label>
-                  <Input
-                    id="edit_scheduled_at"
-                    type="datetime-local"
-                    value={editScheduledAt}
-                    onChange={(e) => setEditScheduledAt(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="edit_duration">Duration (minutes)</Label>
-                  <Input
-                    id="edit_duration"
-                    type="number"
-                    min={1}
-                    value={editDuration}
-                    onChange={(e) => setEditDuration(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="edit_meeting_link">Meeting link</Label>
-                  <Input
-                    id="edit_meeting_link"
-                    value={editMeetingLink}
-                    onChange={(e) => setEditMeetingLink(e.target.value)}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="edit_location">Location</Label>
-                  <Input id="edit_location" value={editLocation} onChange={(e) => setEditLocation(e.target.value)} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="edit_notes">Notes</Label>
-                  <Textarea id="edit_notes" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button disabled={editMutation.isPending} onClick={() => editMutation.mutate()}>
-                  {editMutation.isPending ? "Saving…" : "Save changes"}
+          {canReschedule ? (
+            <Dialog open={editOpen} onOpenChange={setEditOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" onClick={openEditDialog}>
+                  Edit
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Reschedule interview</DialogTitle>
+                </DialogHeader>
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="edit_scheduled_at">Scheduled at</Label>
+                    <Input
+                      id="edit_scheduled_at"
+                      type="datetime-local"
+                      value={editScheduledAt}
+                      onChange={(e) => setEditScheduledAt(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="edit_duration">Duration (minutes)</Label>
+                    <Input
+                      id="edit_duration"
+                      type="number"
+                      min={1}
+                      value={editDuration}
+                      onChange={(e) => setEditDuration(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="edit_meeting_link">Meeting link</Label>
+                    <Input
+                      id="edit_meeting_link"
+                      value={editMeetingLink}
+                      onChange={(e) => setEditMeetingLink(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="edit_location">Location</Label>
+                    <Input id="edit_location" value={editLocation} onChange={(e) => setEditLocation(e.target.value)} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="edit_notes">Notes</Label>
+                    <Textarea id="edit_notes" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button disabled={editMutation.isPending} onClick={() => editMutation.mutate()}>
+                    {editMutation.isPending ? "Saving…" : "Save changes"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          ) : null}
 
           {canMarkCompleted ? (
             <Button disabled={completeMutation.isPending} onClick={() => completeMutation.mutate()}>
@@ -347,26 +362,28 @@ export function InterviewDetailPage() {
             </Button>
           ) : null}
 
-          <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="destructive">Cancel</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Cancel interview</DialogTitle>
-              </DialogHeader>
-              <p className="text-sm text-muted-foreground">Cancel this interview? This cannot be undone.</p>
-              <DialogFooter>
-                <Button
-                  variant="destructive"
-                  disabled={cancelMutation.isPending}
-                  onClick={() => cancelMutation.mutate()}
-                >
-                  {cancelMutation.isPending ? "Cancelling…" : "Confirm cancel"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          {canCancel ? (
+            <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="destructive">Cancel</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Cancel interview</DialogTitle>
+                </DialogHeader>
+                <p className="text-sm text-muted-foreground">Cancel this interview? This cannot be undone.</p>
+                <DialogFooter>
+                  <Button
+                    variant="destructive"
+                    disabled={cancelMutation.isPending}
+                    onClick={() => cancelMutation.mutate()}
+                  >
+                    {cancelMutation.isPending ? "Cancelling…" : "Confirm cancel"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          ) : null}
         </div>
       ) : null}
 

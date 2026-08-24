@@ -114,7 +114,32 @@ describe("OnboardingListPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/Only a Recruitment Officer, HR Admin, or Super Admin/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Only a Recruitment Officer, HR Admin, Recruitment Coordinator, or Super Admin/),
+    ).toBeInTheDocument();
+  });
+
+  // Bug fix (2026-08-24): CAN_VIEW_ROLES was missing RECRUITMENT_COORDINATOR,
+  // unlike AppShell.tsx's own nav entry for this page (which already showed
+  // the "Onboarding" link to RECRUITMENT_COORDINATOR) -- so this role could
+  // click into a page that then blocked them. Locks in the fix rather than
+  // just the blocked-role case above.
+  it("allows a Recruitment Coordinator to view onboarding", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_COORDINATOR" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+    mockedListCandidates.mockResolvedValue([]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockByStatus({});
+
+    renderPage();
+
+    expect(screen.queryByText(/can view onboarding/)).not.toBeInTheDocument();
+    await waitFor(() => expect(mockedListApplications).toHaveBeenCalled());
   });
 
   it("renders applications across all 4 onboarding stages joined with candidate and position", async () => {
