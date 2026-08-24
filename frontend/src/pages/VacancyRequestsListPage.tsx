@@ -27,6 +27,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
 import { CategoryTabs } from "@/components/domain/CategoryTabs";
 import { DepartmentSummaryCard, type DepartmentSummary } from "@/components/vacancy-requests/DepartmentSummaryCard";
@@ -716,92 +717,99 @@ export function VacancyRequestsListPage() {
         // already have their own appropriate treatments (isEmpty's dashed
         // empty-state box, GROUPED's accordion + DepartmentSummaryCard grid)
         // that a single outer Card would only clash with, not improve.
+        //
+        // Design-system-foundation step 5: the hand-rolled <table>/<thead>/
+        // <tbody> markup itself is now the shared Table primitive (see
+        // components/ui/table.tsx), same swap SanctionedStrengthPage made in
+        // step 4 -- the fixed-width colgroup/table-fixed layout and every
+        // per-cell className (truncate/whitespace-nowrap/tabular-nums/etc.)
+        // carry over unchanged, only the element names changed.
         <Card>
-          <CardContent className="overflow-x-auto p-0">
-          <table className="w-full min-w-[1080px] table-fixed text-sm">
-            <colgroup>
-              <col className="w-24" />
-              <col />
-              <col className="w-28" />
-              <col className="w-40" />
-              <col className="w-20" />
-              <col className="w-24" />
-              {canResolveRequesterNames ? <col className="w-32" /> : null}
-              <col className="w-24" />
-              <col className="w-32" />
-              <col className="w-28" />
-              <col className="w-32" />
-            </colgroup>
-            <thead>
-              <tr className="border-b border-border bg-muted/50 text-left text-muted-foreground">
-                <th className="px-3 py-2 font-medium">Request ID</th>
-                <th className="px-3 py-2 font-medium">Position</th>
-                <th className="px-3 py-2 font-medium">Category</th>
-                <th className="px-3 py-2 font-medium">Department</th>
-                <th className="px-3 py-2 font-medium">Campus</th>
-                <th className="px-3 py-2 font-medium">Vacancies</th>
-                {canResolveRequesterNames ? <th className="px-3 py-2 font-medium">Requested By</th> : null}
-                <th className="px-3 py-2 font-medium">Priority</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Requested Date</th>
-                <th className="px-3 py-2 text-right font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedFlatRequests.map((vr) => {
-                const department = departmentById.get(vr.department_id);
-                const campus = campusById.get(vr.campus_id);
-                const isSubmittingThisRow = submitRowMutation.isPending && submitRowMutation.variables === vr.id;
-                return (
-                  <tr key={vr.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                    {/* No human-readable request-number field exists on
-                        VacancyRequestRead (see app/schemas/vacancy_request.py)
-                        -- short form of the real id, full id on hover/title,
-                        rather than inventing a field that isn't there. */}
-                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground" title={vr.id}>
-                      #{vr.id.slice(0, 8).toUpperCase()}
-                    </td>
-                    <td className="truncate px-3 py-2 font-medium text-foreground" title={vr.position_title}>
-                      {vr.position_title}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2">{vr.role_category.replace(/_/g, " ")}</td>
-                    <td className="truncate px-3 py-2" title={department?.name}>
-                      {department?.name ?? "—"}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
-                    <td className="px-3 py-2 tabular-nums">{vr.requested_count}</td>
-                    {canResolveRequesterNames ? (
-                      <td className="truncate px-3 py-2">{requesterNameById.get(vr.requested_by_id) ?? "—"}</td>
-                    ) : null}
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <PriorityBadge priority={vr.priority} />
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2">
-                      <StatusBadge status={vr.status} />
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2">{new Date(vr.created_at).toLocaleDateString()}</td>
-                    <td className="px-3 py-2 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {canCreate && vr.status === "DRAFT" ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={isSubmittingThisRow}
-                            onClick={() => submitRowMutation.mutate(vr.id)}
-                          >
-                            {isSubmittingThisRow ? "Submitting…" : "Submit"}
+          <CardContent className="p-0">
+            <Table className="min-w-[1080px] table-fixed">
+              <colgroup>
+                <col className="w-24" />
+                <col />
+                <col className="w-28" />
+                <col className="w-40" />
+                <col className="w-20" />
+                <col className="w-24" />
+                {canResolveRequesterNames ? <col className="w-32" /> : null}
+                <col className="w-24" />
+                <col className="w-32" />
+                <col className="w-28" />
+                <col className="w-32" />
+              </colgroup>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Request ID</TableHead>
+                  <TableHead>Position</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Campus</TableHead>
+                  <TableHead>Vacancies</TableHead>
+                  {canResolveRequesterNames ? <TableHead>Requested By</TableHead> : null}
+                  <TableHead>Priority</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Requested Date</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedFlatRequests.map((vr) => {
+                  const department = departmentById.get(vr.department_id);
+                  const campus = campusById.get(vr.campus_id);
+                  const isSubmittingThisRow = submitRowMutation.isPending && submitRowMutation.variables === vr.id;
+                  return (
+                    <TableRow key={vr.id}>
+                      {/* No human-readable request-number field exists on
+                          VacancyRequestRead (see app/schemas/vacancy_request.py)
+                          -- short form of the real id, full id on hover/title,
+                          rather than inventing a field that isn't there. */}
+                      <TableCell className="font-mono text-xs text-muted-foreground" title={vr.id}>
+                        #{vr.id.slice(0, 8).toUpperCase()}
+                      </TableCell>
+                      <TableCell className="truncate font-medium text-foreground" title={vr.position_title}>
+                        {vr.position_title}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">{vr.role_category.replace(/_/g, " ")}</TableCell>
+                      <TableCell className="truncate" title={department?.name}>
+                        {department?.name ?? "—"}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap font-mono text-xs">{campus?.code ?? "—"}</TableCell>
+                      <TableCell className="tabular-nums">{vr.requested_count}</TableCell>
+                      {canResolveRequesterNames ? (
+                        <TableCell className="truncate">{requesterNameById.get(vr.requested_by_id) ?? "—"}</TableCell>
+                      ) : null}
+                      <TableCell className="whitespace-nowrap">
+                        <PriorityBadge priority={vr.priority} />
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        <StatusBadge status={vr.status} />
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">{new Date(vr.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {canCreate && vr.status === "DRAFT" ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={isSubmittingThisRow}
+                              onClick={() => submitRowMutation.mutate(vr.id)}
+                            >
+                              {isSubmittingThisRow ? "Submitting…" : "Submit"}
+                            </Button>
+                          ) : null}
+                          <Button variant="outline" size="sm" asChild>
+                            <Link to={`/vacancy-requests/${vr.id}`}>View</Link>
                           </Button>
-                        ) : null}
-                        <Button variant="outline" size="sm" asChild>
-                          <Link to={`/vacancy-requests/${vr.id}`}>View</Link>
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       ) : (

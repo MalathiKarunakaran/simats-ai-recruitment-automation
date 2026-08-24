@@ -24,7 +24,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/vacancy-requests/StatusBadge";
 
 // Mirrors the backend's own approval-chain role groupings
@@ -71,8 +73,13 @@ export function VacancyApprovalsPage() {
   const role = user?.role;
   const queryClient = useQueryClient();
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
+  // Design-system-foundation step 5: this page's first real toast.tsx
+  // consumer (that primitive shipped in step 2 with nothing wired to it
+  // yet) -- replaces the old inline `actionError` paragraph entirely, and
+  // adds success feedback on all 4 actions that previously had none at all
+  // (only a failure ever surfaced anything on this page before).
+  const { success, error } = useToast();
 
-  const [actionError, setActionError] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
@@ -109,33 +116,42 @@ export function VacancyApprovalsPage() {
   });
 
   function afterAction() {
-    setActionError(null);
     void queryClient.invalidateQueries({ queryKey: ["vacancy-requests"] });
   }
 
   function onActionError(err: unknown) {
-    setActionError(err instanceof ApiError ? err.message : "Action failed");
+    error(err instanceof ApiError ? err.message : "Action failed");
   }
 
   const deanApproveMutation = useMutation({
     mutationFn: (id: string) => deanApproveVacancyRequest(id),
-    onSuccess: afterAction,
+    onSuccess: () => {
+      afterAction();
+      success("Vacancy request dean-approved.");
+    },
     onError: onActionError,
   });
   const hrApproveMutation = useMutation({
     mutationFn: (id: string) => hrApproveVacancyRequest(id),
-    onSuccess: afterAction,
+    onSuccess: () => {
+      afterAction();
+      success("Vacancy request HR-approved.");
+    },
     onError: onActionError,
   });
   const publishMutation = useMutation({
     mutationFn: (id: string) => publishVacancyRequest(id),
-    onSuccess: afterAction,
+    onSuccess: () => {
+      afterAction();
+      success("Vacancy request published.");
+    },
     onError: onActionError,
   });
   const rejectMutation = useMutation({
     mutationFn: () => rejectVacancyRequest(rejectingId!, rejectReason),
     onSuccess: () => {
       afterAction();
+      success("Vacancy request rejected.");
       setRejectingId(null);
       setRejectReason("");
     },
@@ -155,8 +171,6 @@ export function VacancyApprovalsPage() {
         <p className="text-sm text-muted-foreground">Vacancy requests waiting on your approval.</p>
       </div>
 
-      {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
-
       {/* UI redesign Phase 3 -- one Card boundary shared by every branch
           (no-role / loading / empty / table), not just the loaded table. */}
       <Card>
@@ -168,93 +182,95 @@ export function VacancyApprovalsPage() {
           ) : sortedQueue.length === 0 ? (
             <p className="p-6 text-sm text-muted-foreground">Nothing is waiting on your approval right now.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Position</th>
-                    <th className="py-2 font-medium">Campus</th>
-                    <th className="py-2 font-medium">Priority</th>
-                    <th className="py-2 font-medium">Status</th>
-                    <th className="py-2 font-medium">Next action</th>
-                    <th className="py-2 font-medium">Waiting</th>
-                    <th className="py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedQueue.map((vr) => {
-                    const campus = campuses?.find((c) => c.id === vr.campus_id);
-                    const canDeanApprove =
-                      (role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "SUPER_ADMIN") && vr.status === "SUBMITTED";
-                    const canHrApprove =
-                      (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
-                      (vr.status === "DEAN_APPROVED" || (vr.status === "SUBMITTED" && role === "SUPER_ADMIN"));
-                    const canPublish =
-                      (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
-                      vr.status === "APPROVED";
-                    const canReject =
-                      (role === "ASSOCIATE_DEAN_RECRUITMENT" ||
-                        role === "HR_ADMIN" ||
-                        role === "SUPER_ADMIN" ||
-                        role === "RECRUITMENT_COORDINATOR") &&
-                      (vr.status === "SUBMITTED" || vr.status === "DEAN_APPROVED");
-                    return (
-                      <tr key={vr.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                        <td className="py-2">
-                          <div className="flex items-center gap-2">
-                            <Link to={`/vacancy-requests/${vr.id}`} className="font-medium hover:underline">
-                              {vr.position_title}
-                            </Link>
-                            {/* Phase E badge -- reuses the existing `destructive`
-                                variant, mirrors VacancyRequestDetailPage's. */}
-                            {vr.is_over_sanction ? <Badge variant="destructive">Over-sanction</Badge> : null}
-                          </div>
-                        </td>
-                        <td className="py-2 font-mono text-xs">{campus?.code ?? "—"}</td>
-                        <td className="py-2">{vr.priority}</td>
-                        <td className="py-2">
-                          <StatusBadge status={vr.status} />
-                        </td>
-                        <td className="py-2 text-muted-foreground">{STATUS_ACTION_LABEL[vr.status]}</td>
-                        <td className="py-2">{formatWaiting(waitingSince(vr))}</td>
-                        <td className="py-2">
-                          <div className="flex flex-wrap gap-2">
-                            {canDeanApprove ? (
-                              <Button size="sm" disabled={isBusy} onClick={() => deanApproveMutation.mutate(vr.id)}>
-                                Dean-approve
-                              </Button>
-                            ) : null}
-                            {canHrApprove ? (
-                              <Button size="sm" disabled={isBusy} onClick={() => hrApproveMutation.mutate(vr.id)}>
-                                HR-approve
-                              </Button>
-                            ) : null}
-                            {canPublish ? (
-                              <Button size="sm" disabled={isBusy} onClick={() => publishMutation.mutate(vr.id)}>
-                                Publish
-                              </Button>
-                            ) : null}
-                            {canReject ? (
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                disabled={isBusy}
-                                onClick={() => {
-                                  setRejectingId(vr.id);
-                                  setRejectReason("");
-                                }}
-                              >
-                                Reject
-                              </Button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            // Design-system-foundation step 5: migrated off a hand-rolled
+            // <table> onto the shared Table primitive (components/ui/table.tsx),
+            // same swap VacancyRequestsListPage/DepartmentVacancyDetailTable
+            // made in this same step and SanctionedStrengthPage made in step 4.
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Position</TableHead>
+                  <TableHead>Campus</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Next action</TableHead>
+                  <TableHead>Waiting</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedQueue.map((vr) => {
+                  const campus = campuses?.find((c) => c.id === vr.campus_id);
+                  const canDeanApprove =
+                    (role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "SUPER_ADMIN") && vr.status === "SUBMITTED";
+                  const canHrApprove =
+                    (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
+                    (vr.status === "DEAN_APPROVED" || (vr.status === "SUBMITTED" && role === "SUPER_ADMIN"));
+                  const canPublish =
+                    (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
+                    vr.status === "APPROVED";
+                  const canReject =
+                    (role === "ASSOCIATE_DEAN_RECRUITMENT" ||
+                      role === "HR_ADMIN" ||
+                      role === "SUPER_ADMIN" ||
+                      role === "RECRUITMENT_COORDINATOR") &&
+                    (vr.status === "SUBMITTED" || vr.status === "DEAN_APPROVED");
+                  return (
+                    <TableRow key={vr.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Link to={`/vacancy-requests/${vr.id}`} className="font-medium hover:underline">
+                            {vr.position_title}
+                          </Link>
+                          {/* Phase E badge -- reuses the existing `destructive`
+                              variant, mirrors VacancyRequestDetailPage's. */}
+                          {vr.is_over_sanction ? <Badge variant="destructive">Over-sanction</Badge> : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{campus?.code ?? "—"}</TableCell>
+                      <TableCell>{vr.priority}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={vr.status} />
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{STATUS_ACTION_LABEL[vr.status]}</TableCell>
+                      <TableCell>{formatWaiting(waitingSince(vr))}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          {canDeanApprove ? (
+                            <Button size="sm" disabled={isBusy} onClick={() => deanApproveMutation.mutate(vr.id)}>
+                              Dean-approve
+                            </Button>
+                          ) : null}
+                          {canHrApprove ? (
+                            <Button size="sm" disabled={isBusy} onClick={() => hrApproveMutation.mutate(vr.id)}>
+                              HR-approve
+                            </Button>
+                          ) : null}
+                          {canPublish ? (
+                            <Button size="sm" disabled={isBusy} onClick={() => publishMutation.mutate(vr.id)}>
+                              Publish
+                            </Button>
+                          ) : null}
+                          {canReject ? (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={isBusy}
+                              onClick={() => {
+                                setRejectingId(vr.id);
+                                setRejectReason("");
+                              }}
+                            >
+                              Reject
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

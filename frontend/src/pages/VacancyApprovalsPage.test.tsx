@@ -9,6 +9,7 @@ import * as campusesApi from "@/api/campuses";
 import type { UserRead, VacancyRequestRead } from "@/api/types";
 import * as vacancyRequestsApi from "@/api/vacancyRequests";
 import * as authContext from "@/auth/AuthContext";
+import { ToastProvider } from "@/components/ui/toast";
 import { VacancyApprovalsPage } from "@/pages/VacancyApprovalsPage";
 
 vi.mock("@/api/vacancyRequests");
@@ -65,12 +66,16 @@ function makeVR(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
   };
 }
 
+// Wrapped in ToastProvider -- the page's mutations now call useToast()
+// (design-system-foundation step 5), which throws if rendered outside one.
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <VacancyApprovalsPage />
+        <ToastProvider>
+          <VacancyApprovalsPage />
+        </ToastProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -123,6 +128,9 @@ describe("VacancyApprovalsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Dean-approve" }));
 
     await waitFor(() => expect(mockedDeanApprove).toHaveBeenCalledWith("vr-1"));
+    // Design-system-foundation step 5: a success toast on every action's
+    // onSuccess, where before this page showed no feedback at all on success.
+    expect(await screen.findByRole("status")).toHaveTextContent("Vacancy request dean-approved.");
   });
 
   it("shows HR-approve for DEAN_APPROVED and Publish for APPROVED as HR Admin", async () => {
@@ -166,6 +174,7 @@ describe("VacancyApprovalsPage", () => {
     });
     await userEvent.click(within(labRow).getByRole("button", { name: "HR-approve" }));
     await waitFor(() => expect(mockedHrApprove).toHaveBeenCalledWith("vr-2"));
+    expect(await screen.findByText("Vacancy request HR-approved.")).toBeInTheDocument();
 
     mockedPublish.mockResolvedValue({
       id: "jp-1",
@@ -185,6 +194,7 @@ describe("VacancyApprovalsPage", () => {
     });
     await userEvent.click(within(lecturerRow).getByRole("button", { name: "Publish" }));
     await waitFor(() => expect(mockedPublish).toHaveBeenCalledWith("vr-3"));
+    expect(await screen.findByText("Vacancy request published.")).toBeInTheDocument();
   });
 
   it("sorts the queue by priority first, then by how long each request has been waiting", async () => {
@@ -233,6 +243,9 @@ describe("VacancyApprovalsPage", () => {
     await userEvent.click(confirmButton);
 
     await waitFor(() => expect(mockedReject).toHaveBeenCalledWith("vr-1", "Position no longer needed"));
+    expect(await screen.findByText("Vacancy request rejected.")).toBeInTheDocument();
+    // The reject dialog itself closes on success (rejectingId reset to null).
+    expect(screen.queryByRole("button", { name: "Confirm reject" })).not.toBeInTheDocument();
   });
 
   it("shows the Over-sanction badge next to a request's position title when is_over_sanction is true", async () => {
@@ -251,7 +264,7 @@ describe("VacancyApprovalsPage", () => {
     expect(screen.getByText("Over-sanction")).toBeInTheDocument();
   });
 
-  it("shows an error message when an approval action fails", async () => {
+  it("shows an error toast (not the old inline banner) when an approval action fails", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
       isLoading: false,
@@ -267,6 +280,9 @@ describe("VacancyApprovalsPage", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Dean-approve" }));
 
-    expect(await screen.findByText("Cannot Dean-approve from status SUBMITTED")).toBeInTheDocument();
+    // Design-system-foundation step 5: the backend's own error message now
+    // surfaces via toast.tsx's `role="status"` stack, replacing the old
+    // `<p className="text-destructive">{actionError}</p>` inline banner.
+    expect(await screen.findByRole("status")).toHaveTextContent("Cannot Dean-approve from status SUBMITTED");
   });
 });

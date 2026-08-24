@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { CampusRead, VacancyRequestRead } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/vacancy-requests/StatusBadge";
 
 export interface FillStats {
@@ -43,6 +44,15 @@ interface DepartmentVacancyDetailTableProps {
 // standalone component shown when a DepartmentCard in the Vacancy Requests
 // grid is clicked, so it no longer owns its own department-name header or
 // open/close chrome -- the caller decides how/where to render it.
+//
+// Design-system-foundation step 5: migrated its hand-rolled <table> onto the
+// shared Table primitive (components/ui/table.tsx), same swap
+// SanctionedStrengthPage's own nested breakdown table already made in step
+// 4. The outer `rounded-lg border border-border` box is kept as this
+// component's own wrapper (Table itself only owns the inner
+// `overflow-x-auto`, not a border/radius -- see that primitive's docstring)
+// so the per-campus mini-table still reads as its own bounded card, same as
+// before.
 export function DepartmentVacancyDetailTable({
   requests,
   campusById,
@@ -67,56 +77,54 @@ export function DepartmentVacancyDetailTable({
                 return (
                   <div key={campusId} className="flex flex-col gap-1.5 pl-3">
                     <span className="font-mono text-[11px] text-muted-foreground">{campus?.code ?? "—"}</span>
-                    <div className="overflow-x-auto rounded-lg border border-border">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted">
-                          <tr className="text-left text-muted-foreground">
-                            <th className="px-3 py-2 text-table-header font-medium">Required</th>
-                            <th className="px-3 py-2 text-table-header font-medium">Filled</th>
-                            <th className="px-3 py-2 text-table-header font-medium">Remaining</th>
-                            <th className="px-3 py-2 text-table-header font-medium">Employment</th>
-                            <th className="px-3 py-2 text-table-header font-medium">Priority</th>
-                            <th className="px-3 py-2 text-table-header font-medium">Status</th>
-                            {canResolveRequesterNames ? (
-                              <th className="px-3 py-2 text-table-header font-medium">Requested by</th>
-                            ) : null}
-                            <th className="px-3 py-2 text-table-header font-medium">Requested</th>
-                            <th className="px-3 py-2 text-table-header font-medium">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
+                    <div className="rounded-lg border border-border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Required</TableHead>
+                            <TableHead>Filled</TableHead>
+                            <TableHead>Remaining</TableHead>
+                            <TableHead>Employment</TableHead>
+                            <TableHead>Priority</TableHead>
+                            <TableHead>Status</TableHead>
+                            {canResolveRequesterNames ? <TableHead>Requested by</TableHead> : null}
+                            <TableHead>Requested</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
                           {rows.map((vr) => {
                             const stats = fillStatsByRequestId.get(vr.id) ?? { filled: 0, remaining: vr.requested_count };
                             return (
-                              <tr key={vr.id} className="transition-colors hover:bg-accent/50">
-                                <td className="px-3 py-2 tabular-nums">{vr.requested_count}</td>
-                                <td className="px-3 py-2 tabular-nums">{stats.filled}</td>
-                                <td className="px-3 py-2 tabular-nums">{stats.remaining}</td>
-                                <td className="px-3 py-2">{vr.employment_type.replace(/_/g, " ")}</td>
-                                <td className="px-3 py-2">
+                              <TableRow key={vr.id}>
+                                <TableCell className="tabular-nums">{vr.requested_count}</TableCell>
+                                <TableCell className="tabular-nums">{stats.filled}</TableCell>
+                                <TableCell className="tabular-nums">{stats.remaining}</TableCell>
+                                <TableCell>{vr.employment_type.replace(/_/g, " ")}</TableCell>
+                                <TableCell>
                                   {vr.priority === "URGENT" ? (
                                     <Badge variant="destructive">{vr.priority}</Badge>
                                   ) : (
                                     vr.priority
                                   )}
-                                </td>
-                                <td className="px-3 py-2">
+                                </TableCell>
+                                <TableCell>
                                   <StatusBadge status={vr.status} />
-                                </td>
+                                </TableCell>
                                 {canResolveRequesterNames ? (
-                                  <td className="px-3 py-2">{requesterNameById.get(vr.requested_by_id) ?? "—"}</td>
+                                  <TableCell>{requesterNameById.get(vr.requested_by_id) ?? "—"}</TableCell>
                                 ) : null}
-                                <td className="px-3 py-2">{new Date(vr.created_at).toLocaleDateString()}</td>
-                                <td className="px-3 py-2">
+                                <TableCell>{new Date(vr.created_at).toLocaleDateString()}</TableCell>
+                                <TableCell>
                                   <Button variant="outline" size="sm" asChild>
                                     <Link to={`/vacancy-requests/${vr.id}`}>View</Link>
                                   </Button>
-                                </td>
-                              </tr>
+                                </TableCell>
+                              </TableRow>
                             );
                           })}
-                        </tbody>
-                      </table>
+                        </TableBody>
+                      </Table>
                     </div>
                   </div>
                 );
