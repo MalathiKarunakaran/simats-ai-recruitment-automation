@@ -4,10 +4,18 @@ import anthropic
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db
+from app.core.deps import (
+    CampusScope,
+    DepartmentScope,
+    get_campus_scope,
+    get_current_active_user,
+    get_db,
+    get_department_scope,
+)
 from app.models.enums import UserRoleEnum
 from app.models.user import User
 from app.schemas.assistant import (
+    AssistantAction,
     AssistantQueryRequest,
     AssistantQueryResponse,
     DailyBriefingResponse,
@@ -33,10 +41,20 @@ def query_assistant(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
+    dept_scope: DepartmentScope = Depends(get_department_scope),
     ai: anthropic.Anthropic = Depends(get_ai_client),
 ) -> AssistantQueryResponse:
-    answer, tools_used = hermes.run_assistant_query(
-        db, scope=scope, client=ai, question=payload.question, actor_role=current_user.role.value
+    conversation_history = (
+        [turn.model_dump() for turn in payload.conversation_history] if payload.conversation_history else None
+    )
+    answer, tools_used, actions = hermes.run_assistant_query(
+        db,
+        scope=scope,
+        dept_scope=dept_scope,
+        client=ai,
+        question=payload.question,
+        actor_role=current_user.role.value,
+        conversation_history=conversation_history,
     )
 
     log_event(
@@ -44,11 +62,18 @@ def query_assistant(
         actor=current_user,
         action="ASSISTANT_QUERY",
         campus_context_id=scope.campus_id,
-        after_state={"question": payload.question[:2000], "answer": answer[:4000], "tools_used": tools_used},
+        after_state={
+            "question": payload.question[:2000],
+            "answer": answer[:4000],
+            "tools_used": tools_used,
+            "actions": actions,
+        },
         request=request,
     )
     db.commit()
-    return AssistantQueryResponse(answer=answer, tools_used=tools_used)
+    return AssistantQueryResponse(
+        answer=answer, tools_used=tools_used, actions=[AssistantAction(**action) for action in actions]
+    )
 
 
 @router.get("/daily-briefing", response_model=DailyBriefingResponse)

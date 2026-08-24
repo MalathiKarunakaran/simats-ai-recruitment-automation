@@ -131,6 +131,7 @@ from app.models.application import Application
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.campus import Campus
 from app.models.candidate import Candidate
+from app.models.department import Department
 from app.models.employee import Employee
 from app.models.enums import (
     APPLICATION_TERMINAL_STATUSES,
@@ -1177,6 +1178,76 @@ def sanctioned_strength_reconciliation_report(
     return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
 
 
+def resignation_report(
+    db: Session,
+    scope: CampusScope,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict:
+    """Hermes reporting extension (get_resignation_report tool) -- Employee
+    rows with employment_status == RESIGNED, grouped by (campus, department,
+    role_category), narrowed to separation_date within [start_date,
+    end_date] when given. Same call-shape parity with the other 8
+    REPORT_BUILDERS entries (campus_code/role_category/start_date/end_date),
+    for the same uniform-dispatch reason sanctioned_strength_reconciliation_
+    report's own docstring gives for accepting-but-not-using every kwarg.
+
+    role_category comes from the denormalized Application.role_category
+    column via Employee.application_id (Employee itself has no
+    role_category column) -- the same join campus_role_hiring_report above
+    already uses, not a new join pattern.
+
+    department_id is included on each row (unlike this module's other
+    report rows, which only ever surface department_name) specifically so
+    app/services/hermes.py's department-scope post-filtering has something
+    to filter on -- resignation counts would otherwise only be
+    department_name strings, which can't be matched against
+    DepartmentScope.department_ids (a set of UUIDs) without an extra
+    lookup. Registered in REPORT_BUILDERS below ("resignations") so
+    GET/export /reports/resignations also works for free through the
+    existing generic /reports/{report_type} routes -- no router change
+    needed, since those routes already dispatch on this dict.
+    """
+    campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
+    query = (
+        db.query(
+            Campus.code,
+            Employee.department_id,
+            Department.name,
+            Application.role_category,
+            func.count(Employee.id),
+        )
+        .select_from(Employee)
+        .join(Campus, Employee.campus_id == Campus.id)
+        .join(Application, Employee.application_id == Application.id)
+        .outerjoin(Department, Employee.department_id == Department.id)
+        .filter(Employee.employment_status == EmploymentStatusEnum.RESIGNED)
+    )
+    if campus_id_filter is not None:
+        query = query.filter(Employee.campus_id == campus_id_filter)
+    if role_category is not None:
+        query = query.filter(Application.role_category == role_category)
+    if start_date is not None:
+        query = query.filter(Employee.separation_date >= start_date)
+    if end_date is not None:
+        query = query.filter(Employee.separation_date <= end_date)
+    query = query.group_by(Campus.code, Employee.department_id, Department.name, Application.role_category)
+    rows = [
+        {
+            "campus_code": code,
+            "department_id": department_id,
+            "department_name": dept_name,
+            "role_category": rc.value,
+            "count": count,
+        }
+        for code, department_id, dept_name, rc, count in query.all()
+    ]
+    rows.sort(key=lambda r: (r["campus_code"], r["department_name"] or ""))
+    return {"scope_note": scope_note, "generated_at": datetime.now(timezone.utc), "rows": rows}
+
+
 REPORT_BUILDERS: dict[str, Callable[..., dict]] = {
     "recruitment-funnel": recruitment_funnel_report,
     "campus-role-hiring": campus_role_hiring_report,
@@ -1186,6 +1257,7 @@ REPORT_BUILDERS: dict[str, Callable[..., dict]] = {
     "vacancies": vacancy_report,
     "time-to-hire": time_to_hire_report,
     "sanctioned-strength-reconciliation": sanctioned_strength_reconciliation_report,
+    "resignations": resignation_report,
 }
 
 

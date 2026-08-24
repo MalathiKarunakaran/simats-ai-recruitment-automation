@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 
 import anthropic
@@ -6,9 +7,9 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from app.core.deps import CampusScope
+from app.core.deps import CampusScope, DepartmentScope
 from app.models.audit_log import AuditLog
-from app.models.enums import UserRoleEnum
+from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.services import hermes
 
 from tests.conftest import FakeMessage, FakeTextBlock, FakeToolUseBlock, auth_headers
@@ -52,7 +53,10 @@ def test_single_campus_caller_cannot_see_other_campus_data(db_session, published
         ]
     )
 
-    answer, tools_used = hermes.run_assistant_query(
+    # run_assistant_query now also returns a 3rd `actions` element (Step 6,
+    # deterministic actions metadata) -- discarded here, not asserted on by
+    # this test.
+    answer, tools_used, _actions = hermes.run_assistant_query(
         db_session, scope=scope, client=scripted, question="What's open at SCAD?", actor_role="CAMPUS_HOD"
     )
 
@@ -144,7 +148,7 @@ def test_parallel_tool_calls_in_one_turn_all_execute(db_session, published_vacan
         ]
     )
 
-    answer, tools_used = hermes.run_assistant_query(
+    answer, tools_used, _actions = hermes.run_assistant_query(
         db_session, scope=scope, client=scripted, question="q", actor_role="HR_ADMIN"
     )
 
@@ -155,7 +159,11 @@ def test_parallel_tool_calls_in_one_turn_all_execute(db_session, published_vacan
     assert answer == "Combined answer."
 
 
-def test_iteration_cap_raises_502_after_four_calls(db_session, campus_factory):
+def test_iteration_cap_raises_502_after_six_calls(db_session, campus_factory):
+    # _MAX_TOOL_CALLS was raised from 4 to 6 (app/services/hermes.py) once
+    # the reporting-tool set roughly tripled the number of available tools --
+    # a compound question can legitimately need more sequential round trips
+    # before Claude has enough to answer. Updated here to match.
     campus_factory("SSE")
     scope = CampusScope(is_global=True, campus_id=None)
     calls: list[dict] = []
@@ -170,22 +178,27 @@ def test_iteration_cap_raises_502_after_four_calls(db_session, campus_factory):
         hermes.run_assistant_query(db_session, scope=scope, client=scripted, question="q", actor_role="HR_ADMIN")
 
     assert exc_info.value.status_code == 502
-    assert len(calls) == 4
+    assert len(calls) == hermes._MAX_TOOL_CALLS
 
 
-def test_reporting_question_passes_through_without_forcing_a_tool(db_session, campus_factory):
+def test_plain_text_answer_passes_through_without_forcing_a_tool(db_session, campus_factory):
+    # Renamed from test_reporting_question_passes_through_without_forcing_a_tool
+    # -- reporting questions now DO route to a real tool (HERMES_SYSTEM_PROMPT
+    # rule 2 was rewritten; reporting is no longer "not available yet"). What
+    # this test actually exercises -- a scripted end_turn text response
+    # passing straight through with zero tool calls -- is unrelated to that
+    # wording and still a real behavior worth covering.
     campus_factory("SSE")
     scope = CampusScope(is_global=True, campus_id=None)
-    scripted = _ScriptedClient(
-        [FakeMessage(content=[FakeTextBlock("Reporting isn't available yet.")], stop_reason="end_turn")]
-    )
+    scripted = _ScriptedClient([FakeMessage(content=[FakeTextBlock("All quiet.")], stop_reason="end_turn")])
 
-    answer, tools_used = hermes.run_assistant_query(
-        db_session, scope=scope, client=scripted, question="Show me a dashboard", actor_role="HR_ADMIN"
+    answer, tools_used, actions = hermes.run_assistant_query(
+        db_session, scope=scope, client=scripted, question="Any updates?", actor_role="HR_ADMIN"
     )
 
     assert tools_used == []
-    assert answer == "Reporting isn't available yet."
+    assert answer == "All quiet."
+    assert actions == []
     assert len(scripted.calls) == 1
 
 
@@ -199,11 +212,12 @@ def test_unknown_tool_name_produces_is_error_result_and_loop_continues(db_sessio
         ]
     )
 
-    answer, tools_used = hermes.run_assistant_query(
+    answer, tools_used, actions = hermes.run_assistant_query(
         db_session, scope=scope, client=scripted, question="q", actor_role="HR_ADMIN"
     )
 
     assert tools_used == []
+    assert actions == []
     tool_results = scripted.calls[1]["messages"][-1]["content"]
     assert tool_results[0]["is_error"] is True
     assert "Unknown tool" in json.loads(tool_results[0]["content"])["error"]
@@ -314,3 +328,199 @@ def test_daily_briefing_endpoint_uses_narrative_from_single_call(client, user_fa
 
     rows = db_session.query(AuditLog).filter(AuditLog.action == "ASSISTANT_DAILY_BRIEFING").all()
     assert len(rows) == 1
+
+
+# --- New reporting-tool coverage --------------------------------------------
+
+
+def test_get_vacancy_summary_reports_open_positions_and_actions(db_session, published_vacancy_factory):
+    published_vacancy_factory(campus_code="SSE", slot_count=2)
+    scope = CampusScope(is_global=True, campus_id=None)
+    scripted = _ScriptedClient(
+        [
+            FakeMessage(content=[FakeToolUseBlock("get_vacancy_summary", {})], stop_reason="tool_use"),
+            FakeMessage(content=[FakeTextBlock("Summary provided.")], stop_reason="end_turn"),
+        ]
+    )
+
+    answer, tools_used, actions = hermes.run_assistant_query(
+        db_session, scope=scope, client=scripted, question="How are vacancies looking?", actor_role="HR_ADMIN"
+    )
+
+    assert tools_used == ["get_vacancy_summary"]
+    payload = _last_tool_result_payload(scripted, 1)
+    assert payload["total_open_positions"] == 2
+    assert "by_category" in payload
+    assert len(payload["by_category"]) == 3
+    assert answer == "Summary provided."
+    assert any(a["type"] == "open_page" and a["path"] == "/dashboard" for a in actions)
+
+
+def test_get_department_vacancies_sorted_desc_and_min_vacancy_count_filter(
+    db_session, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory
+):
+    campus = campus_factory("SSE")
+    dept_high = department_factory("SSE", name="CS Dept", category=StaffRoleCategoryEnum.TEACHING)
+    dept_low = department_factory("SSE", name="Physics Dept", category=StaffRoleCategoryEnum.TEACHING)
+    admin = user_factory(UserRoleEnum.HR_ADMIN)
+    designation_high = designation_factory(category=StaffRoleCategoryEnum.TEACHING, department=dept_high)
+    designation_low = designation_factory(category=StaffRoleCategoryEnum.TEACHING, department=dept_low)
+    sanctioned_strength_factory(
+        campus=campus, department=dept_high, designation=designation_high, approved_strength=10, created_by=admin
+    )
+    sanctioned_strength_factory(
+        campus=campus, department=dept_low, designation=designation_low, approved_strength=3, created_by=admin
+    )
+
+    scope = CampusScope(is_global=True, campus_id=None)
+    unrestricted = DepartmentScope(is_restricted=False, department_ids=None)
+
+    result = hermes.TOOL_EXECUTORS["get_department_vacancies"](db_session, scope, unrestricted, {})
+    names_in_order = [r["department_name"] for r in result["results"]]
+    assert names_in_order.index(dept_high.name) < names_in_order.index(dept_low.name)
+
+    filtered = hermes.TOOL_EXECUTORS["get_department_vacancies"](
+        db_session, scope, unrestricted, {"min_vacancy_count": 5}
+    )
+    filtered_names = {r["department_name"] for r in filtered["results"]}
+    assert dept_high.name in filtered_names
+    assert dept_low.name not in filtered_names
+
+
+def test_get_open_vacancy_aging_filters_by_min_days_open(db_session, published_vacancy_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    vacancy.job_posting.published_at = vacancy.job_posting.published_at - timedelta(days=40)
+    db_session.flush()
+
+    scope = CampusScope(is_global=True, campus_id=None)
+    unrestricted = DepartmentScope(is_restricted=False, department_ids=None)
+
+    result = hermes.TOOL_EXECUTORS["get_open_vacancy_aging"](db_session, scope, unrestricted, {"min_days_open": 30})
+    assert result["count"] == 1
+    assert result["results"][0]["days_open"] >= 30
+
+    empty = hermes.TOOL_EXECUTORS["get_open_vacancy_aging"](db_session, scope, unrestricted, {"min_days_open": 100})
+    assert empty["count"] == 0
+
+
+def test_department_scope_restricts_department_vacancy_tools(
+    db_session, campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory
+):
+    campus = campus_factory("SSE")
+    dept_allowed = department_factory("SSE", name="Allowed Dept", category=StaffRoleCategoryEnum.TEACHING)
+    dept_blocked = department_factory("SSE", name="Blocked Dept", category=StaffRoleCategoryEnum.TEACHING)
+    admin = user_factory(UserRoleEnum.HR_ADMIN)
+    designation_allowed = designation_factory(category=StaffRoleCategoryEnum.TEACHING, department=dept_allowed)
+    designation_blocked = designation_factory(category=StaffRoleCategoryEnum.TEACHING, department=dept_blocked)
+    sanctioned_strength_factory(
+        campus=campus, department=dept_allowed, designation=designation_allowed, approved_strength=5, created_by=admin
+    )
+    sanctioned_strength_factory(
+        campus=campus, department=dept_blocked, designation=designation_blocked, approved_strength=5, created_by=admin
+    )
+
+    scope = CampusScope(is_global=True, campus_id=None)
+    restricted = DepartmentScope(is_restricted=True, department_ids=frozenset({dept_allowed.id}))
+
+    result = hermes.TOOL_EXECUTORS["get_department_vacancies"](db_session, scope, restricted, {})
+    names = {r["department_name"] for r in result["results"]}
+    assert names == {dept_allowed.name}
+
+    # An unrestricted caller sees both, proving the restriction above is what
+    # narrowed the result, not some other filter.
+    unrestricted = DepartmentScope(is_restricted=False, department_ids=None)
+    unrestricted_result = hermes.TOOL_EXECUTORS["get_department_vacancies"](db_session, scope, unrestricted, {})
+    unrestricted_names = {r["department_name"] for r in unrestricted_result["results"]}
+    assert unrestricted_names == {dept_allowed.name, dept_blocked.name}
+
+
+def test_resignation_linkage_fallback_instruction_present_and_no_vacancy_link_tool():
+    assert (
+        "That information is not currently available in the recruitment database."
+        in hermes.HERMES_SYSTEM_PROMPT
+    )
+    resignation_tool_def = next(t for t in hermes.HERMES_TOOL_DEFS if t["name"] == "get_resignation_report")
+    # get_resignation_report aggregates resignation *counts* -- it has no
+    # vacancy-linking argument, so it (and every other tool) genuinely
+    # cannot answer "was this vacancy caused by that resignation".
+    assert "vacancy_request_id" not in resignation_tool_def["input_schema"]["properties"]
+    assert not any("vacancy_request_id" in t["input_schema"]["properties"] for t in hermes.HERMES_TOOL_DEFS if "resignation" in t["name"])
+
+
+def test_conversation_history_is_prepended_before_new_question(db_session, campus_factory):
+    campus_factory("SSE")
+    scope = CampusScope(is_global=True, campus_id=None)
+    scripted = _ScriptedClient([FakeMessage(content=[FakeTextBlock("Sure, following up.")], stop_reason="end_turn")])
+
+    history = [
+        {"role": "user", "content": "How many vacancies at SSE?"},
+        {"role": "assistant", "content": "There are 3 open vacancies at SSE."},
+    ]
+    answer, tools_used, actions = hermes.run_assistant_query(
+        db_session,
+        scope=scope,
+        client=scripted,
+        question="And how many of those are urgent?",
+        actor_role="HR_ADMIN",
+        conversation_history=history,
+    )
+
+    messages = scripted.calls[0]["messages"]
+    assert messages[0] == {"role": "user", "content": "How many vacancies at SSE?"}
+    assert messages[1] == {"role": "assistant", "content": "There are 3 open vacancies at SSE."}
+    assert messages[2]["role"] == "user"
+    assert "And how many of those are urgent?" in messages[2]["content"]
+    assert answer == "Sure, following up."
+    assert tools_used == []
+    assert actions == []
+
+
+def test_conversation_history_is_capped_to_max_turns(db_session, campus_factory):
+    campus_factory("SSE")
+    scope = CampusScope(is_global=True, campus_id=None)
+    scripted = _ScriptedClient([FakeMessage(content=[FakeTextBlock("ok")], stop_reason="end_turn")])
+
+    history = [{"role": "user", "content": f"turn {i}"} for i in range(20)]
+    hermes.run_assistant_query(
+        db_session,
+        scope=scope,
+        client=scripted,
+        question="latest",
+        actor_role="HR_ADMIN",
+        conversation_history=history,
+    )
+
+    messages = scripted.calls[0]["messages"]
+    assert len(messages) == hermes._MAX_CONVERSATION_HISTORY_TURNS + 1
+    assert messages[0]["content"] == f"turn {20 - hermes._MAX_CONVERSATION_HISTORY_TURNS}"
+
+
+def test_query_assistant_endpoint_accepts_conversation_history_and_returns_actions(
+    client, user_factory, fake_ai_client, published_vacancy_factory
+):
+    published_vacancy_factory(campus_code="SSE", slot_count=1)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    def _create(**kwargs):
+        if kwargs["messages"][-1]["role"] == "user" and isinstance(kwargs["messages"][-1]["content"], str):
+            return FakeMessage(
+                content=[FakeToolUseBlock("get_vacancy_summary", {})], stop_reason="tool_use"
+            )
+        return FakeMessage(content=[FakeTextBlock("Here's the summary.")], stop_reason="end_turn")
+
+    fake_ai_client.messages.create = _create
+
+    response = client.post(
+        "/api/v1/assistant/query",
+        headers=auth_headers(client, hr_admin),
+        json={
+            "question": "Summarize vacancies",
+            "conversation_history": [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"}],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "Here's the summary."
+    assert body["tools_used"] == ["get_vacancy_summary"]
+    assert isinstance(body["actions"], list)
+    assert any(action["type"] == "open_page" for action in body["actions"])
