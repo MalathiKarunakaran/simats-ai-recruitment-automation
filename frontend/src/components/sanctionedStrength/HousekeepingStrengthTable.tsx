@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -23,8 +23,9 @@ import { StrengthKpiSummary } from "@/components/sanctionedStrength/StrengthKpiS
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 // Housekeeping operational view (glowing-zooming-hamming.md Phase G) -- the
 // Location-grained, every-row-inline table for categoryFilter ===
@@ -183,56 +184,58 @@ function RosterExpandRow({
         ) : !data || data.length === 0 ? (
           <p className="px-3 py-2 text-sm text-muted-foreground">No housekeeping staff currently at this location.</p>
         ) : (
-          <table className="w-full max-w-3xl text-sm">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th className="px-3 py-1.5 text-table-header font-medium">Bio ID</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Name</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Designation</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Shift</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Supervisor</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Status</th>
-                {canManage ? <th className="px-3 py-1.5 text-table-header font-medium">Actions</th> : null}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {data.map((staff) => (
-                <tr key={staff.id}>
-                  <td className="px-3 py-1.5 font-mono text-xs">{staff.bio_id}</td>
-                  <td className="px-3 py-1.5">{staff.name}</td>
-                  <td className="px-3 py-1.5">{designationById.get(staff.designation_id) ?? "—"}</td>
-                  <td className="px-3 py-1.5">{SHIFT_LABELS[staff.shift] ?? staff.shift}</td>
-                  <td className="px-3 py-1.5">{staff.supervisor ?? "—"}</td>
-                  <td className="px-3 py-1.5">
-                    <Badge variant={staff.is_active ? "success" : "destructive"}>
-                      {staff.is_active ? "Active" : "Inactive"}
-                    </Badge>
-                  </td>
-                  {canManage ? (
-                    <td className="px-3 py-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <Button variant="outline" size="sm" onClick={() => onEdit(staff)}>
-                          Edit
-                        </Button>
-                        <DeleteConfirmDialog
-                          triggerAriaLabel={`Delete housekeeping staff ${staff.name}`}
-                          title="Delete housekeeping staff"
-                          description={
-                            <>
-                              Remove <span className="font-medium text-foreground">{staff.name}</span>? This is a
-                              soft delete -- the record stays visible (as Inactive) and can be reactivated later.
-                            </>
-                          }
-                          onDelete={() => deleteHousekeepingStaff(staff.id)}
-                          onDeleted={afterRosterChange}
-                        />
-                      </div>
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="max-w-3xl">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="py-1.5">Bio ID</TableHead>
+                  <TableHead className="py-1.5">Name</TableHead>
+                  <TableHead className="py-1.5">Designation</TableHead>
+                  <TableHead className="py-1.5">Shift</TableHead>
+                  <TableHead className="py-1.5">Supervisor</TableHead>
+                  <TableHead className="py-1.5">Status</TableHead>
+                  {canManage ? <TableHead className="py-1.5">Actions</TableHead> : null}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.map((staff) => (
+                  <TableRow key={staff.id}>
+                    <TableCell className="py-1.5 font-mono text-xs">{staff.bio_id}</TableCell>
+                    <TableCell className="py-1.5">{staff.name}</TableCell>
+                    <TableCell className="py-1.5">{designationById.get(staff.designation_id) ?? "—"}</TableCell>
+                    <TableCell className="py-1.5">{SHIFT_LABELS[staff.shift] ?? staff.shift}</TableCell>
+                    <TableCell className="py-1.5">{staff.supervisor ?? "—"}</TableCell>
+                    <TableCell className="py-1.5">
+                      <Badge variant={staff.is_active ? "success" : "destructive"}>
+                        {staff.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                    </TableCell>
+                    {canManage ? (
+                      <TableCell className="py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <Button variant="outline" size="sm" onClick={() => onEdit(staff)}>
+                            Edit
+                          </Button>
+                          <DeleteConfirmDialog
+                            triggerAriaLabel={`Delete housekeeping staff ${staff.name}`}
+                            title="Delete housekeeping staff"
+                            description={
+                              <>
+                                Remove <span className="font-medium text-foreground">{staff.name}</span>? This is a
+                                soft delete -- the record stays visible (as Inactive) and can be reactivated later.
+                              </>
+                            }
+                            onDelete={() => deleteHousekeepingStaff(staff.id)}
+                            onDeleted={afterRosterChange}
+                          />
+                        </div>
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </td>
     </tr>
@@ -407,10 +410,12 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
 
   const rows = data?.items ?? [];
   const total = data?.total ?? 0;
-  const offset = data?.offset ?? page * PAGE_SIZE;
   const limit = data?.limit ?? PAGE_SIZE;
-  const showingFrom = total === 0 ? 0 : offset + 1;
-  const showingTo = Math.min(offset + limit, total);
+  // See TeachingStrengthTable.tsx's own comment on this same computation --
+  // derived from local `page` state, not `data?.offset`, so Pagination's
+  // Previous/Next enabled-state stays in sync with this component's own
+  // pagination state.
+  const offset = page * limit;
 
   return (
     <>
@@ -539,74 +544,39 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
         />
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-muted">
-            <tr className="text-left text-muted-foreground">
+      <div className="rounded-lg border border-border">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-muted">
+            <TableRow>
               {/* Leading, unlabeled expand/chevron column. */}
-              <th className="w-8 px-3 py-2" aria-hidden="true" />
+              <TableHead className="w-8" aria-hidden="true" />
               {COLUMNS.map((column) => {
                 const isSorted = column.sortBy && sortBy === column.sortBy;
-                const ariaSort: "ascending" | "descending" | "none" = isSorted
-                  ? sortDir === "asc"
-                    ? "ascending"
-                    : "descending"
-                  : "none";
                 return (
-                  <th
+                  <TableHead
                     key={column.key}
-                    className="px-3 py-2 text-table-header font-medium"
-                    aria-sort={column.sortBy ? ariaSort : undefined}
+                    sorted={isSorted ? sortDir : false}
+                    onSort={column.sortBy ? () => handleSort(column) : undefined}
                   >
-                    {column.sortBy ? (
-                      <button
-                        type="button"
-                        onClick={() => handleSort(column)}
-                        className={cn(
-                          "flex items-center gap-1 transition-colors hover:text-foreground",
-                          isSorted && "text-foreground",
-                        )}
-                      >
-                        {column.label}
-                        {isSorted ? (
-                          sortDir === "asc" ? (
-                            <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
-                          ) : (
-                            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                          )
-                        ) : (
-                          <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />
-                        )}
-                      </button>
-                    ) : (
-                      column.label
-                    )}
-                  </th>
+                    {column.label}
+                  </TableHead>
                 );
               })}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {isLoading ? (
-              <tr>
-                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
+              <TableEmpty colSpan={TOTAL_COLUMN_COUNT} loading />
             ) : isError ? (
-              <tr>
-                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-destructive">
-                  {error instanceof ApiError ? error.message : "Failed to load the Housekeeping strength view."}
-                </td>
-              </tr>
+              <TableEmpty colSpan={TOTAL_COLUMN_COUNT} className="text-destructive">
+                {error instanceof ApiError ? error.message : "Failed to load the Housekeeping strength view."}
+              </TableEmpty>
             ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
-                  {hasAnyFilter
-                    ? "No locations match these filters."
-                    : "No sanctioned Housekeeping locations found."}
-                </td>
-              </tr>
+              <TableEmpty colSpan={TOTAL_COLUMN_COUNT}>
+                {hasAnyFilter
+                  ? "No locations match these filters."
+                  : "No sanctioned Housekeeping locations found."}
+              </TableEmpty>
             ) : (
               rows.map((row: HousekeepingStrengthRow) => {
                 const statusDisplay = STATUS_DISPLAY[row.status];
@@ -614,8 +584,8 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
                 const rowLabel = row.location_name ?? "this location";
                 return (
                   <Fragment key={row.location_id}>
-                    <tr className="transition-colors hover:bg-accent/50">
-                      <td className="px-3 py-2">
+                    <TableRow>
+                      <TableCell>
                         <button
                           type="button"
                           onClick={() => toggleExpandedLocation(row.location_id)}
@@ -629,14 +599,14 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
                             <ChevronRight className="h-4 w-4" aria-hidden="true" />
                           )}
                         </button>
-                      </td>
-                      <td className="px-3 py-2 font-medium">{row.location_name ?? "—"}</td>
-                      <td className="px-3 py-2">{row.block ?? "—"}</td>
-                      <td className="px-3 py-2">{row.floor_venue ?? "—"}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.required}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.available}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.vacancy}</td>
-                      <td className="px-3 py-2">
+                      </TableCell>
+                      <TableCell className="font-medium">{row.location_name ?? "—"}</TableCell>
+                      <TableCell>{row.block ?? "—"}</TableCell>
+                      <TableCell>{row.floor_venue ?? "—"}</TableCell>
+                      <TableCell className="tabular-nums">{row.required}</TableCell>
+                      <TableCell className="tabular-nums">{row.available}</TableCell>
+                      <TableCell className="tabular-nums">{row.vacancy}</TableCell>
+                      <TableCell>
                         {row.shifts.length === 0 ? (
                           "—"
                         ) : (
@@ -648,11 +618,11 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
                             ))}
                           </div>
                         )}
-                      </td>
-                      <td className="px-3 py-2">
+                      </TableCell>
+                      <TableCell>
                         <Badge variant={statusDisplay.variant}>{statusDisplay.label}</Badge>
-                      </td>
-                      <td className="px-3 py-2">
+                      </TableCell>
+                      <TableCell>
                         {canManage ? (
                           <Button variant="outline" size="sm" onClick={() => openAddStaffDrawer(row)}>
                             Add staff
@@ -660,8 +630,8 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
                         ) : (
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                     {isExpanded ? (
                       <RosterExpandRow
                         locationId={row.location_id}
@@ -674,33 +644,11 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
                 );
               })
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          Showing {showingFrom}–{showingTo} of {total} locations
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page === 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={offset + limit >= total}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      <Pagination total={total} limit={limit} offset={offset} onOffsetChange={(next) => setPage(next / limit)} itemLabel="locations" />
 
       {canManage ? (
         <HousekeepingStaffFormDrawer

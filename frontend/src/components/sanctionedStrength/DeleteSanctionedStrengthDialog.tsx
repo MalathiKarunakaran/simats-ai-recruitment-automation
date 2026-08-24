@@ -1,18 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
-import { ApiError } from "@/api/client";
 import { deleteSanctionedStrength } from "@/api/sanctionedStrength";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
 
-// Soft-delete confirm dialog (zany-snuggling-pie.md Phase D, item 3) --
-// same Dialog/DialogHeader/DialogTitle/DialogFooter + destructive Button
-// shape as ApplicationDetailPage's reject/withdraw dialogs. No reason-gate
-// (this is a toggle, not a rejection), but the backend's 409 "N active
-// employees, cannot delete" is surfaced inline in the dialog body, not as a
-// page-level banner or generic toast (this codebase has no toast system).
+// Soft-delete confirm dialog (zany-snuggling-pie.md Phase D, item 3).
 //
 // **Bug found and fixed (2026-08-17, live report)**: this dialog's own
 // built-in invalidation (`sanctioned-strength-breakdown`/
@@ -34,6 +25,25 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 // same view-scoped invalidation callback it already threads to
 // SanctionedStrengthDrawer for the Edit path -- Delete was simply the one
 // path that never received it.
+//
+// **Sanctioned-strength-polish (Step 4) reconciliation, 2026-08-22**: this
+// used to be a fully separate hand-rolled Dialog/DialogHeader/DialogTitle/
+// DialogFooter implementation, deliberately kept apart from the generic
+// `components/domain/DeleteConfirmDialog` because of "entity-specific
+// messaging + query-invalidation wiring." Re-checked at this step: the
+// generic dialog already parameterizes both of those (`title`/`description`
+// props for messaging, a required `onDeleted` callback for invalidation --
+// see its own docstring), so there was no real remaining reason to hand-roll
+// a second Dialog/DialogFooter/error-banner implementation. This is now a
+// thin wrapper around the generic dialog: same trigger aria-label, same
+// title/body copy, same error rendering (verbatim, since DeleteConfirmDialog
+// already renders the backend's message the identical way), and the exact
+// same invalidation + onDeleted sequencing as before, just expressed as the
+// generic dialog's own `onDeleted` callback instead of a bespoke
+// useMutation's onSuccess. The stale-cache bug fix above is untouched --
+// `onDeleted` (this component's own optional prop) is still called
+// *in addition to* the unconditional breakdown/register invalidation below,
+// exactly as before.
 
 export interface DeleteSanctionedStrengthDialogProps {
   sanctionedStrengthId: string;
@@ -56,53 +66,24 @@ export function DeleteSanctionedStrengthDialog({
   onDeleted,
 }: DeleteSanctionedStrengthDialogProps) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const deleteMutation = useMutation({
-    mutationFn: () => deleteSanctionedStrength(sanctionedStrengthId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-breakdown", departmentId] });
-      void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-register"] });
-      onDeleted?.();
-      setOpen(false);
-      setError(null);
-    },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Failed to delete sanctioned strength"),
-  });
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setError(null);
+    <DeleteConfirmDialog
+      triggerAriaLabel={`Delete sanctioned strength for ${designationName}`}
+      title="Delete sanctioned strength"
+      description={
+        <>
+          Remove the sanctioned strength record for{" "}
+          <span className="font-medium text-foreground">{designationName}</span>? This is a soft delete -- it can
+          be re-added later, but the current ceiling is removed immediately.
+        </>
+      }
+      onDelete={() => deleteSanctionedStrength(sanctionedStrengthId)}
+      onDeleted={() => {
+        void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-breakdown", departmentId] });
+        void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-register"] });
+        onDeleted?.();
       }}
-    >
-      <DialogTrigger asChild>
-        <Button type="button" variant="destructive" size="sm" aria-label={`Delete sanctioned strength for ${designationName}`}>
-          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete sanctioned strength</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Remove the sanctioned strength record for <span className="font-medium text-foreground">{designationName}</span>?
-          This is a soft delete -- it can be re-added later, but the current ceiling is removed immediately.
-        </p>
-        {error ? (
-          <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
-        <DialogFooter>
-          <Button variant="destructive" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate()}>
-            {deleteMutation.isPending ? "Deleting…" : "Confirm delete"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    />
   );
 }

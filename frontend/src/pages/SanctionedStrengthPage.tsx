@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { Fragment, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
@@ -34,11 +34,12 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs } from "@/components/ui/tabs";
 import { CategoryTabs, mapServerCategoryCounts } from "@/components/domain/CategoryTabs";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
-import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
 
@@ -122,12 +123,12 @@ function DesignationRow({
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <tr>
-      <td className="px-3 py-1.5">{row.designation_name}</td>
-      <td className="px-3 py-1.5 tabular-nums">{row.approved}</td>
-      <td className="px-3 py-1.5 tabular-nums">{row.working}</td>
-      <td className="px-3 py-1.5 tabular-nums">{row.vacancy}</td>
-      <td className="px-3 py-1.5">
+    <TableRow>
+      <TableCell className="py-1.5">{row.designation_name}</TableCell>
+      <TableCell className="py-1.5 tabular-nums">{row.approved}</TableCell>
+      <TableCell className="py-1.5 tabular-nums">{row.working}</TableCell>
+      <TableCell className="py-1.5 tabular-nums">{row.vacancy}</TableCell>
+      <TableCell className="py-1.5">
         <div className="flex items-center gap-1.5">
           <Button
             type="button"
@@ -146,7 +147,7 @@ function DesignationRow({
             />
           ) : null}
         </div>
-      </td>
+      </TableCell>
       <SanctionedStrengthDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
@@ -161,7 +162,7 @@ function DesignationRow({
         designationId={row.designation_id}
         designationName={row.designation_name}
       />
-    </tr>
+    </TableRow>
   );
 }
 
@@ -192,13 +193,13 @@ function AddDesignationTrigger({
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <tr>
-      <td colSpan={columnCount} className="px-3 py-1.5">
+    <TableRow>
+      <TableCell colSpan={columnCount} className="py-1.5">
         <Button type="button" variant="outline" size="sm" onClick={() => setDrawerOpen(true)}>
           <Plus className="h-3.5 w-3.5" aria-hidden="true" />
           Add designation
         </Button>
-      </td>
+      </TableCell>
       <SanctionedStrengthDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
@@ -212,7 +213,7 @@ function AddDesignationTrigger({
         category={category as StaffRoleCategory | null}
         designationId={null}
       />
-    </tr>
+    </TableRow>
   );
 }
 
@@ -255,43 +256,45 @@ function DepartmentBreakdownRow({
         ) : !data || data.length === 0 ? (
           <p className="px-3 py-2 text-sm text-muted-foreground">No designations linked to this department.</p>
         ) : (
-          <table className="w-full max-w-3xl text-sm">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th className="px-3 py-1.5 text-table-header font-medium">Designation</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Approved</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Working</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Vacancy</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {data.map((row) => (
-                <DesignationRow
-                  key={row.designation_id}
-                  row={row}
-                  departmentId={departmentId}
-                  campusId={campusId}
-                  campusLabel={campusLabel}
-                  departmentLabel={departmentLabel}
-                  category={category}
-                  canManage={canManage}
-                  canViewAuditLog={canViewAuditLog}
-                />
-              ))}
-              {canManage ? (
-                <AddDesignationTrigger
-                  departmentId={departmentId}
-                  campusId={campusId}
-                  campusLabel={campusLabel}
-                  departmentLabel={departmentLabel}
-                  category={category}
-                  canViewAuditLog={canViewAuditLog}
-                  columnCount={BREAKDOWN_COLUMN_COUNT}
-                />
-              ) : null}
-            </tbody>
-          </table>
+          <div className="max-w-3xl">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="py-1.5">Designation</TableHead>
+                  <TableHead className="py-1.5">Approved</TableHead>
+                  <TableHead className="py-1.5">Working</TableHead>
+                  <TableHead className="py-1.5">Vacancy</TableHead>
+                  <TableHead className="py-1.5">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.map((row) => (
+                  <DesignationRow
+                    key={row.designation_id}
+                    row={row}
+                    departmentId={departmentId}
+                    campusId={campusId}
+                    campusLabel={campusLabel}
+                    departmentLabel={departmentLabel}
+                    category={category}
+                    canManage={canManage}
+                    canViewAuditLog={canViewAuditLog}
+                  />
+                ))}
+                {canManage ? (
+                  <AddDesignationTrigger
+                    departmentId={departmentId}
+                    campusId={campusId}
+                    campusLabel={campusLabel}
+                    departmentLabel={departmentLabel}
+                    category={category}
+                    canViewAuditLog={canViewAuditLog}
+                    columnCount={BREAKDOWN_COLUMN_COUNT}
+                  />
+                ) : null}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </td>
     </tr>
@@ -441,10 +444,12 @@ export function SanctionedStrengthPage() {
 
   const rows = data?.items ?? [];
   const total = data?.total ?? 0;
-  const offset = data?.offset ?? page * PAGE_SIZE;
   const limit = data?.limit ?? PAGE_SIZE;
-  const showingFrom = total === 0 ? 0 : offset + 1;
-  const showingTo = Math.min(offset + limit, total);
+  // See TeachingStrengthTable.tsx's own comment on this same computation --
+  // derived from local `page` state, not `data?.offset`, so Pagination's
+  // Previous/Next enabled-state stays in sync with this page's own
+  // pagination state.
+  const offset = page * limit;
 
   return (
     <div className="flex flex-col gap-6">
@@ -624,72 +629,37 @@ export function SanctionedStrengthPage() {
               language (legacy "All" rollup table only; the 3 dedicated
               Teaching/Non-Teaching/Housekeeping tables are out of scope). */}
           <Card>
-          <CardContent className="overflow-x-auto p-0">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-muted">
-                <tr className="text-left text-muted-foreground">
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader className="sticky top-0 z-10 bg-muted">
+                <TableRow>
                   {/* Leading, unlabeled expand/chevron column. */}
-                  <th className="w-8 px-3 py-2" aria-hidden="true" />
+                  <TableHead className="w-8" aria-hidden="true" />
                   {COLUMNS.map((column) => {
                     const isSorted = column.sortBy && sortBy === column.sortBy;
-                    const ariaSort: "ascending" | "descending" | "none" = isSorted
-                      ? sortDir === "asc"
-                        ? "ascending"
-                        : "descending"
-                      : "none";
                     return (
-                      <th
+                      <TableHead
                         key={column.key}
-                        className="px-3 py-2 text-table-header font-medium"
-                        aria-sort={column.sortBy ? ariaSort : undefined}
+                        sorted={isSorted ? sortDir : false}
+                        onSort={column.sortBy ? () => handleSort(column) : undefined}
                       >
-                        {column.sortBy ? (
-                          <button
-                            type="button"
-                            onClick={() => handleSort(column)}
-                            className={cn(
-                              "flex items-center gap-1 transition-colors hover:text-foreground",
-                              isSorted && "text-foreground",
-                            )}
-                          >
-                            {column.label}
-                            {isSorted ? (
-                              sortDir === "asc" ? (
-                                <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
-                              ) : (
-                                <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                              )
-                            ) : (
-                              <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />
-                            )}
-                          </button>
-                        ) : (
-                          column.label
-                        )}
-                      </th>
+                        {column.label}
+                      </TableHead>
                     );
                   })}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {isLoading ? (
-                  <tr>
-                    <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
-                      Loading…
-                    </td>
-                  </tr>
+                  <TableEmpty colSpan={TOTAL_COLUMN_COUNT} loading />
                 ) : isError ? (
-                  <tr>
-                    <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-destructive">
-                      {error instanceof ApiError ? error.message : "Failed to load sanctioned strength."}
-                    </td>
-                  </tr>
+                  <TableEmpty colSpan={TOTAL_COLUMN_COUNT} className="text-destructive">
+                    {error instanceof ApiError ? error.message : "Failed to load sanctioned strength."}
+                  </TableEmpty>
                 ) : rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
-                      {hasAnyFilter ? "No departments match these filters." : "No departments found."}
-                    </td>
-                  </tr>
+                  <TableEmpty colSpan={TOTAL_COLUMN_COUNT}>
+                    {hasAnyFilter ? "No departments match these filters." : "No departments found."}
+                  </TableEmpty>
                 ) : (
                   rows.map((row) => {
                     const recruitmentDisplay = RECRUITMENT_STATUS_DISPLAY[row.recruitment_status];
@@ -697,8 +667,8 @@ export function SanctionedStrengthPage() {
                     const isExpanded = expandedDepartmentIds.has(row.department_id);
                     return (
                       <Fragment key={row.department_id}>
-                        <tr className="transition-colors hover:bg-accent/50">
-                          <td className="px-3 py-2">
+                        <TableRow>
+                          <TableCell>
                             <button
                               type="button"
                               onClick={() => toggleExpandedDepartment(row.department_id)}
@@ -712,8 +682,8 @@ export function SanctionedStrengthPage() {
                                 <ChevronRight className="h-4 w-4" aria-hidden="true" />
                               )}
                             </button>
-                          </td>
-                          <td className="px-3 py-2 font-medium">
+                          </TableCell>
+                          <TableCell className="font-medium">
                             <button
                               type="button"
                               onClick={() => toggleExpandedDepartment(row.department_id)}
@@ -722,12 +692,12 @@ export function SanctionedStrengthPage() {
                               {row.department_name}
                               {!row.is_active ? <Badge variant="destructive">Inactive</Badge> : null}
                             </button>
-                          </td>
-                          <td className="px-3 py-2">{row.category ? row.category.replace(/_/g, " ") : "—"}</td>
-                          <td className="px-3 py-2 tabular-nums">{row.approved_count}</td>
-                          <td className="px-3 py-2 tabular-nums">{row.working_count}</td>
-                          <td className="px-3 py-2 tabular-nums">{row.vacancy_count}</td>
-                          <td className="px-3 py-2">
+                          </TableCell>
+                          <TableCell>{row.category ? row.category.replace(/_/g, " ") : "—"}</TableCell>
+                          <TableCell className="tabular-nums">{row.approved_count}</TableCell>
+                          <TableCell className="tabular-nums">{row.working_count}</TableCell>
+                          <TableCell className="tabular-nums">{row.vacancy_count}</TableCell>
+                          <TableCell>
                             <div className="flex flex-col gap-1">
                               <span className="tabular-nums">{row.filled_pct !== null ? `${row.filled_pct}%` : "—"}</span>
                               <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -737,8 +707,8 @@ export function SanctionedStrengthPage() {
                                 />
                               </div>
                             </div>
-                          </td>
-                          <td className="px-3 py-2">
+                          </TableCell>
+                          <TableCell>
                             {/* Phase E item 28: clickable through to the requests
                                 that produced this status -- department-level
                                 only (no single designation to filter by here;
@@ -753,18 +723,18 @@ export function SanctionedStrengthPage() {
                                 {recruitmentDisplay.label} ({row.recruitment_status_request_count})
                               </Badge>
                             </Link>
-                          </td>
-                          <td className="px-3 py-2">
+                          </TableCell>
+                          <TableCell>
                             <Link to={`/vacancy-requests?department=${row.department_id}`}>
                               <Badge variant={approvalDisplay.variant}>
                                 {approvalDisplay.label} ({row.approval_status_request_count})
                               </Badge>
                             </Link>
-                          </td>
-                          <td className="px-3 py-2">{formatDate(row.last_join)}</td>
-                          <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
-                          <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
-                        </tr>
+                          </TableCell>
+                          <TableCell>{formatDate(row.last_join)}</TableCell>
+                          <TableCell>{formatDate(row.last_resignation)}</TableCell>
+                          <TableCell>{new Date(row.last_updated).toLocaleDateString()}</TableCell>
+                        </TableRow>
                         {isExpanded ? (
                           <DepartmentBreakdownRow
                             departmentId={row.department_id}
@@ -780,34 +750,12 @@ export function SanctionedStrengthPage() {
                     );
                   })
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </CardContent>
           </Card>
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
-              Showing {showingFrom}–{showingTo} of {total} departments
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page === 0}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={offset + limit >= total}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
+          <Pagination total={total} limit={limit} offset={offset} onOffsetChange={(next) => setPage(next / limit)} itemLabel="departments" />
             </>
           )}
         </>

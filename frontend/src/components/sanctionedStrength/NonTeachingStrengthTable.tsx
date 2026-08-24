@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -15,10 +15,10 @@ import type { CampusRead, EmployeeRead, NonTeachingStrengthRow, NonTeachingStren
 import { StrengthKpiSummary } from "@/components/sanctionedStrength/StrengthKpiSummary";
 import { StrengthRowActions } from "@/components/sanctionedStrength/TeachingStrengthTable";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 // Non-Teaching operational view (glowing-zooming-hamming.md Phase F) -- the
 // designation-level, every-row-inline table for categoryFilter ===
@@ -150,24 +150,26 @@ function EmployeeExpandRow({ departmentId, designationId }: { departmentId: stri
             No employees currently assigned to this department/designation.
           </p>
         ) : (
-          <table className="w-full max-w-2xl text-sm">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th className="px-3 py-1.5 text-table-header font-medium">Name</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Employee Code</th>
-                <th className="px-3 py-1.5 text-table-header font-medium">Employment Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {data.map((employee) => (
-                <tr key={employee.id}>
-                  <td className="px-3 py-1.5">{employee.full_name}</td>
-                  <td className="px-3 py-1.5">{employee.employee_code}</td>
-                  <td className="px-3 py-1.5">{employmentStatusLabel(employee.employment_status)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="max-w-2xl">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="py-1.5">Name</TableHead>
+                  <TableHead className="py-1.5">Employee Code</TableHead>
+                  <TableHead className="py-1.5">Employment Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.map((employee) => (
+                  <TableRow key={employee.id}>
+                    <TableCell className="py-1.5">{employee.full_name}</TableCell>
+                    <TableCell className="py-1.5">{employee.employee_code}</TableCell>
+                    <TableCell className="py-1.5">{employmentStatusLabel(employee.employment_status)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </td>
     </tr>
@@ -296,10 +298,12 @@ export function NonTeachingStrengthTable({
 
   const rows = data?.items ?? [];
   const total = data?.total ?? 0;
-  const offset = data?.offset ?? page * PAGE_SIZE;
   const limit = data?.limit ?? PAGE_SIZE;
-  const showingFrom = total === 0 ? 0 : offset + 1;
-  const showingTo = Math.min(offset + limit, total);
+  // See TeachingStrengthTable.tsx's own comment on this same computation --
+  // derived from local `page` state, not `data?.offset`, so Pagination's
+  // Previous/Next enabled-state stays in sync with this component's own
+  // pagination state.
+  const offset = page * limit;
 
   return (
     <>
@@ -421,74 +425,39 @@ export function NonTeachingStrengthTable({
         />
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-muted">
-            <tr className="text-left text-muted-foreground">
+      <div className="rounded-lg border border-border">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-muted">
+            <TableRow>
               {/* Leading, unlabeled expand/chevron column. */}
-              <th className="w-8 px-3 py-2" aria-hidden="true" />
+              <TableHead className="w-8" aria-hidden="true" />
               {COLUMNS.map((column) => {
                 const isSorted = column.sortBy && sortBy === column.sortBy;
-                const ariaSort: "ascending" | "descending" | "none" = isSorted
-                  ? sortDir === "asc"
-                    ? "ascending"
-                    : "descending"
-                  : "none";
                 return (
-                  <th
+                  <TableHead
                     key={column.key}
-                    className="px-3 py-2 text-table-header font-medium"
-                    aria-sort={column.sortBy ? ariaSort : undefined}
+                    sorted={isSorted ? sortDir : false}
+                    onSort={column.sortBy ? () => handleSort(column) : undefined}
                   >
-                    {column.sortBy ? (
-                      <button
-                        type="button"
-                        onClick={() => handleSort(column)}
-                        className={cn(
-                          "flex items-center gap-1 transition-colors hover:text-foreground",
-                          isSorted && "text-foreground",
-                        )}
-                      >
-                        {column.label}
-                        {isSorted ? (
-                          sortDir === "asc" ? (
-                            <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
-                          ) : (
-                            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                          )
-                        ) : (
-                          <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />
-                        )}
-                      </button>
-                    ) : (
-                      column.label
-                    )}
-                  </th>
+                    {column.label}
+                  </TableHead>
                 );
               })}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {isLoading ? (
-              <tr>
-                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
+              <TableEmpty colSpan={TOTAL_COLUMN_COUNT} loading />
             ) : isError ? (
-              <tr>
-                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-destructive">
-                  {error instanceof ApiError ? error.message : "Failed to load the Non-Teaching strength view."}
-                </td>
-              </tr>
+              <TableEmpty colSpan={TOTAL_COLUMN_COUNT} className="text-destructive">
+                {error instanceof ApiError ? error.message : "Failed to load the Non-Teaching strength view."}
+              </TableEmpty>
             ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={TOTAL_COLUMN_COUNT} className="px-3 py-4 text-sm text-muted-foreground">
-                  {hasAnyFilter
-                    ? "No designations match these filters."
-                    : "No sanctioned Non-Teaching designations found."}
-                </td>
-              </tr>
+              <TableEmpty colSpan={TOTAL_COLUMN_COUNT}>
+                {hasAnyFilter
+                  ? "No designations match these filters."
+                  : "No sanctioned Non-Teaching designations found."}
+              </TableEmpty>
             ) : (
               rows.map((row: NonTeachingStrengthRow) => {
                 const statusDisplay = STATUS_DISPLAY[row.status];
@@ -496,8 +465,8 @@ export function NonTeachingStrengthTable({
                 const rowLabel = `${row.department_name ?? ""} ${row.designation_name ?? ""}`.trim() || "this row";
                 return (
                   <Fragment key={row.sanctioned_strength_id}>
-                    <tr className="transition-colors hover:bg-accent/50">
-                      <td className="px-3 py-2">
+                    <TableRow>
+                      <TableCell>
                         <button
                           type="button"
                           onClick={() => toggleExpandedRow(row.sanctioned_strength_id)}
@@ -511,23 +480,23 @@ export function NonTeachingStrengthTable({
                             <ChevronRight className="h-4 w-4" aria-hidden="true" />
                           )}
                         </button>
-                      </td>
-                      <td className="px-3 py-2 font-medium">{row.department_name ?? "—"}</td>
-                      <td className="px-3 py-2">{row.designation_name ?? "—"}</td>
-                      <td className="px-3 py-2">
+                      </TableCell>
+                      <TableCell className="font-medium">{row.department_name ?? "—"}</TableCell>
+                      <TableCell>{row.designation_name ?? "—"}</TableCell>
+                      <TableCell>
                         {row.location_id ? blockByLocationId.get(row.location_id) ?? "—" : "—"}
-                      </td>
-                      <td className="px-3 py-2">{row.location_name ?? "—"}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.approved}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.working}</td>
-                      <td className="px-3 py-2 tabular-nums">{row.vacancy}</td>
-                      <td className="px-3 py-2">
+                      </TableCell>
+                      <TableCell>{row.location_name ?? "—"}</TableCell>
+                      <TableCell className="tabular-nums">{row.approved}</TableCell>
+                      <TableCell className="tabular-nums">{row.working}</TableCell>
+                      <TableCell className="tabular-nums">{row.vacancy}</TableCell>
+                      <TableCell>
                         <Badge variant={statusDisplay.variant}>{statusDisplay.label}</Badge>
-                      </td>
-                      <td className="px-3 py-2">{formatDate(row.last_join)}</td>
-                      <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
-                      <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
-                      <td className="px-3 py-2">
+                      </TableCell>
+                      <TableCell>{formatDate(row.last_join)}</TableCell>
+                      <TableCell>{formatDate(row.last_resignation)}</TableCell>
+                      <TableCell>{new Date(row.last_updated).toLocaleDateString()}</TableCell>
+                      <TableCell>
                         <StrengthRowActions
                           row={row}
                           canManage={canManage}
@@ -537,8 +506,8 @@ export function NonTeachingStrengthTable({
                             queryClient.invalidateQueries({ queryKey: ["non-teaching-strength-view"] })
                           }
                         />
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                     {isExpanded ? (
                       <EmployeeExpandRow departmentId={row.department_id} designationId={row.designation_id} />
                     ) : null}
@@ -546,33 +515,11 @@ export function NonTeachingStrengthTable({
                 );
               })
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          Showing {showingFrom}–{showingTo} of {total} designations
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page === 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={offset + limit >= total}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      <Pagination total={total} limit={limit} offset={offset} onOffsetChange={(next) => setPage(next / limit)} itemLabel="designations" />
     </>
   );
 }

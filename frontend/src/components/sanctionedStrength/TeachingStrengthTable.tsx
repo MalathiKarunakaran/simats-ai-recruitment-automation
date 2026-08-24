@@ -1,5 +1,4 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { useState } from "react";
 
 import { ApiError } from "@/api/client";
@@ -14,8 +13,9 @@ import type { CampusRead, StaffRoleCategory, TeachingStrengthRow, TeachingStreng
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
 import { SanctionedStrengthDrawer } from "@/components/sanctionedStrength/SanctionedStrengthDrawer";
@@ -320,10 +320,16 @@ export function TeachingStrengthTable({
 
   const rows = data?.items ?? [];
   const total = data?.total ?? 0;
-  const offset = data?.offset ?? page * PAGE_SIZE;
   const limit = data?.limit ?? PAGE_SIZE;
-  const showingFrom = total === 0 ? 0 : offset + 1;
-  const showingTo = Math.min(offset + limit, total);
+  // Derived from the local `page` state (the single source of truth for
+  // what was actually requested), not `data?.offset` -- a well-behaved
+  // backend always echoes back the offset it was sent, so these agree in
+  // practice, but computing from `page` keeps Pagination's Previous/Next
+  // enabled-state exactly in sync with this component's own pagination
+  // state rather than depending on the response having a fresh, request-
+  // matching `offset` field (the pre-migration Previous button's own
+  // `disabled={page === 0}` never depended on `data?.offset` either).
+  const offset = page * limit;
 
   return (
     <>
@@ -445,83 +451,48 @@ export function TeachingStrengthTable({
         />
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-muted">
-            <tr className="text-left text-muted-foreground">
+      <div className="rounded-lg border border-border">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-muted">
+            <TableRow>
               {COLUMNS.map((column) => {
                 const isSorted = column.sortBy && sortBy === column.sortBy;
-                const ariaSort: "ascending" | "descending" | "none" = isSorted
-                  ? sortDir === "asc"
-                    ? "ascending"
-                    : "descending"
-                  : "none";
                 return (
-                  <th
+                  <TableHead
                     key={column.key}
-                    className="px-3 py-2 text-table-header font-medium"
-                    aria-sort={column.sortBy ? ariaSort : undefined}
+                    sorted={isSorted ? sortDir : false}
+                    onSort={column.sortBy ? () => handleSort(column) : undefined}
                   >
-                    {column.sortBy ? (
-                      <button
-                        type="button"
-                        onClick={() => handleSort(column)}
-                        className={cn(
-                          "flex items-center gap-1 transition-colors hover:text-foreground",
-                          isSorted && "text-foreground",
-                        )}
-                      >
-                        {column.label}
-                        {isSorted ? (
-                          sortDir === "asc" ? (
-                            <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
-                          ) : (
-                            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                          )
-                        ) : (
-                          <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />
-                        )}
-                      </button>
-                    ) : (
-                      column.label
-                    )}
-                  </th>
+                    {column.label}
+                  </TableHead>
                 );
               })}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {isLoading ? (
-              <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-4 text-sm text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
+              <TableEmpty colSpan={COLUMNS.length} loading />
             ) : isError ? (
-              <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-4 text-sm text-destructive">
-                  {error instanceof ApiError ? error.message : "Failed to load the Teaching strength view."}
-                </td>
-              </tr>
+              <TableEmpty colSpan={COLUMNS.length} className="text-destructive">
+                {error instanceof ApiError ? error.message : "Failed to load the Teaching strength view."}
+              </TableEmpty>
             ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={COLUMNS.length} className="px-3 py-4 text-sm text-muted-foreground">
-                  {hasAnyFilter ? "No designations match these filters." : "No sanctioned Teaching designations found."}
-                </td>
-              </tr>
+              <TableEmpty colSpan={COLUMNS.length}>
+                {hasAnyFilter ? "No designations match these filters." : "No sanctioned Teaching designations found."}
+              </TableEmpty>
             ) : (
               rows.map((row) => {
                 const statusDisplay = STATUS_DISPLAY[row.status];
                 return (
-                  <tr key={row.sanctioned_strength_id} className="transition-colors hover:bg-accent/50">
-                    <td className="px-3 py-2">{row.campus_code ?? "—"}</td>
-                    <td className="px-3 py-2 font-medium">{row.department_name ?? "—"}</td>
-                    <td className="px-3 py-2">{row.designation_name ?? "—"}</td>
-                    <td className="px-3 py-2">{row.location_name ?? "—"}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.approved}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.working}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.vacancy}</td>
-                    <td className="px-3 py-2">
+                  <TableRow key={row.sanctioned_strength_id}>
+                    <TableCell>{row.campus_code ?? "—"}</TableCell>
+                    <TableCell className="font-medium">{row.department_name ?? "—"}</TableCell>
+                    <TableCell>{row.designation_name ?? "—"}</TableCell>
+                    <TableCell>{row.location_name ?? "—"}</TableCell>
+                    <TableCell className="tabular-nums">{row.approved}</TableCell>
+                    <TableCell className="tabular-nums">{row.working}</TableCell>
+                    <TableCell className="tabular-nums">{row.vacancy}</TableCell>
+                    <TableCell>
                       <div className="flex flex-col gap-1">
                         <span className="tabular-nums">{row.filled_pct !== null ? `${row.filled_pct}%` : "—"}</span>
                         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -531,14 +502,14 @@ export function TeachingStrengthTable({
                           />
                         </div>
                       </div>
-                    </td>
-                    <td className="px-3 py-2">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={statusDisplay.variant}>{statusDisplay.label}</Badge>
-                    </td>
-                    <td className="px-3 py-2">{formatDate(row.last_join)}</td>
-                    <td className="px-3 py-2">{formatDate(row.last_resignation)}</td>
-                    <td className="px-3 py-2">{new Date(row.last_updated).toLocaleDateString()}</td>
-                    <td className="px-3 py-2">
+                    </TableCell>
+                    <TableCell>{formatDate(row.last_join)}</TableCell>
+                    <TableCell>{formatDate(row.last_resignation)}</TableCell>
+                    <TableCell>{new Date(row.last_updated).toLocaleDateString()}</TableCell>
+                    <TableCell>
                       <StrengthRowActions
                         row={row}
                         canManage={canManage}
@@ -546,38 +517,16 @@ export function TeachingStrengthTable({
                         category="TEACHING"
                         onSaved={() => queryClient.invalidateQueries({ queryKey: ["teaching-strength-view"] })}
                       />
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 );
               })
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          Showing {showingFrom}–{showingTo} of {total} designations
-        </p>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page === 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={offset + limit >= total}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+      <Pagination total={total} limit={limit} offset={offset} onOffsetChange={(next) => setPage(next / limit)} itemLabel="designations" />
     </>
   );
 }
