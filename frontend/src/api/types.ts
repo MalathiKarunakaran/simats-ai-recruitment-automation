@@ -1829,3 +1829,38 @@ export interface HousekeepingStaffBulkUploadValidationResponse {
 export interface HousekeepingStaffBulkUploadCommitResponse extends HousekeepingStaffBulkUploadValidationResponse {
   bulk_upload_log_id: string;
 }
+
+// Module 14 "Hermes" assistant (frontend/src/components/assistant/) --
+// mirrors app/schemas/assistant.py exactly.
+
+// Mirrors app/schemas/assistant.py::ConversationTurn. Frontend-owned chat
+// history -- there is no server-side session, the widget resends whatever
+// turns it wants included (capped client-side, see AssistantWidget.tsx).
+export interface ConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+// Mirrors app/schemas/assistant.py::AssistantAction -- a deterministic,
+// code-generated UI affordance (never derived from the LLM's own answer
+// text). `report_type` is deliberately a bare string, not the narrower
+// ReportType union above: app/services/hermes.py::_EXPORT_TOOLS can emit
+// report types (e.g. "resignations") added to REPORT_BUILDERS after
+// ReportType was last updated, and GET /reports/{report_type}/export
+// accepts any string it recognizes server-side regardless of this file's
+// own ReportType union.
+export interface AssistantAction {
+  type: "open_page" | "export_excel";
+  label: string;
+  path?: string | null;
+  query?: Record<string, string> | null;
+  report_type?: string | null;
+  params?: Record<string, string> | null;
+}
+
+// Mirrors app/schemas/assistant.py::AssistantQueryResponse.
+export interface AssistantQueryResponse {
+  answer: string;
+  tools_used: string[];
+  actions: AssistantAction[];
+}

@@ -29,6 +29,7 @@ import { Link, NavLink, Outlet } from "react-router-dom";
 
 import simatsSeal from "@/assets/simats-seal.png";
 import { useAuth } from "@/auth/AuthContext";
+import { AssistantWidget } from "@/components/assistant/AssistantWidget";
 import { CampusSwitcher } from "@/components/layout/CampusSwitcher";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { NotificationBell } from "@/components/layout/NotificationBell";
@@ -389,6 +390,14 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <div className="mx-auto w-full max-w-[1600px] p-8">{children ?? <Outlet />}</div>
         </main>
       </div>
+
+      {/* Module 14 "Hermes" assistant -- mounted once here (not per-page) so
+          it's a persistent floating affordance across every authenticated
+          page, the same way NotificationBell/ThemeToggle live in the header
+          rather than each page. Hides itself for CANDIDATE (mirrors
+          assistant.py's own _staff_only gate) and renders nothing until
+          `user` resolves. */}
+      <AssistantWidget />
     </div>
   );
 }
