@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -88,6 +88,20 @@ function mockAuth(role: UserRead["role"]) {
   });
 }
 
+// Step 6 KPI strip -- "Active"/"Withdrawn" collide with the per-row
+// StatusBadge's own identical text (components/candidates/StatusBadge.tsx),
+// so a bare screen.getByText(label) can match more than one element once
+// the KPI strip is on-screen. Filters getAllByText's matches down to the
+// one that's actually inside a StatTile Card (".rounded-xl", same selector
+// convention SanctionedStrengthPage.test.tsx's own getKpiTile helper uses)
+// rather than a table row's badge.
+function getKpiTile(label: string): HTMLElement {
+  const matches = screen.getAllByText(label);
+  const tile = matches.map((el) => el.closest(".rounded-xl")).find((el): el is HTMLElement => el !== null);
+  if (!tile) throw new Error(`No KPI tile found for label "${label}"`);
+  return tile;
+}
+
 describe("CandidatesListPage", () => {
   it("renders candidates from the API response", async () => {
     mockAuth("HR_ADMIN");
@@ -126,8 +140,11 @@ describe("CandidatesListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
-    expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByText("Withdrawn")).toBeInTheDocument();
+    // Scoped to the table -- the Step 6 KPI strip above it also has "Active"/
+    // "Withdrawn" tile labels, so a bare screen.getByText would match twice.
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("Active")).toBeInTheDocument();
+    expect(within(table).getByText("Withdrawn")).toBeInTheDocument();
   });
 
   it("threads the status filter into listCandidates as isWithdrawn", async () => {
@@ -242,5 +259,44 @@ describe("CandidatesListPage", () => {
 
     expect(screen.getByText("Jane Doe")).toBeInTheDocument();
     expect(screen.queryByText("John Teaching")).not.toBeInTheDocument();
+  });
+
+  it("shows KPI tiles reflecting total/active/withdrawn/resume-uploaded counts, narrowed by the currently active filters", async () => {
+    mockAuth("HR_ADMIN");
+    const withdrawnWithResume = {
+      ...CANDIDATE,
+      id: "cand-2",
+      full_name: "Withdrawn Resume",
+      email: "wr@example.com",
+      is_withdrawn: true,
+      resume_storage_key: "resumes/cand-2.pdf",
+    };
+    const activeWithResume = {
+      ...CANDIDATE,
+      id: "cand-3",
+      full_name: "Active Resume",
+      email: "ar@example.com",
+      resume_storage_key: "resumes/cand-3.pdf",
+    };
+    // CANDIDATE ("Jane Doe") is active, no resume.
+    mockedListCandidates.mockResolvedValue([CANDIDATE, withdrawnWithResume, activeWithResume]);
+    mockedListApplications.mockResolvedValue([]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    expect(within(getKpiTile("Total candidates")).getByText("3")).toBeInTheDocument();
+    expect(within(getKpiTile("Active")).getByText("2")).toBeInTheDocument();
+    expect(within(getKpiTile("Withdrawn")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Resume uploaded")).getByText("2")).toBeInTheDocument();
+
+    // Narrowing the table via search narrows the KPI strip identically --
+    // only Jane Doe (active, no resume) matches "jane".
+    await userEvent.type(screen.getByPlaceholderText("Search by name or email"), "jane");
+
+    expect(within(getKpiTile("Total candidates")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Active")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Withdrawn")).getByText("0")).toBeInTheDocument();
+    expect(within(getKpiTile("Resume uploaded")).getByText("0")).toBeInTheDocument();
   });
 });

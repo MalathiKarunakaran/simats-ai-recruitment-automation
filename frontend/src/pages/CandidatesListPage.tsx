@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { FileCheck2, UserCheck, UserMinus, Users } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -6,10 +7,12 @@ import { listApplications } from "@/api/applications";
 import { listCandidates } from "@/api/candidates";
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/candidates/StatusBadge";
+import { StatTile } from "@/components/dashboard/StatTile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CategoryTabs } from "@/components/domain/CategoryTabs";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 
@@ -22,6 +25,8 @@ export const CAN_MANAGE_CANDIDATES_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "
 
 type StatusFilter = "ACTIVE" | "WITHDRAWN" | "ALL";
 type ResumeFilter = "ALL" | "MISSING" | "UPLOADED";
+
+const TOTAL_COLUMN_COUNT = 7;
 
 export function CandidatesListPage() {
   const { user } = useAuth();
@@ -95,6 +100,18 @@ export function CandidatesListPage() {
     ? preCategoryFiltered.filter((c) => categoryTab === "ALL" || hasApplicationInCategory(c.id, categoryTab))
     : undefined;
 
+  // Step 6 KPI strip -- derived from `filteredCandidates`, i.e. the exact
+  // rows the table below renders, so every tile reflects the search/status/
+  // resume/category filters currently applied (same "don't show a static
+  // unfiltered count next to a filtered table" rule CategoryTabs' own counts
+  // already follow above). No new fetch: both fields these tiles read
+  // (is_withdrawn, resume_storage_key) are already on CandidateRead and
+  // already part of the `candidates` query this page fetches regardless.
+  const candidateRows = filteredCandidates ?? [];
+  const activeCandidateCount = candidateRows.filter((c) => !c.is_withdrawn).length;
+  const withdrawnCandidateCount = candidateRows.filter((c) => c.is_withdrawn).length;
+  const resumeUploadedCount = candidateRows.filter((c) => c.resume_storage_key).length;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -104,6 +121,38 @@ export function CandidatesListPage() {
             <Link to="/candidates/new">New candidate</Link>
           </Button>
         ) : null}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatTile
+          label="Total candidates"
+          value={candidateRows.length}
+          isLoading={isLoading}
+          icon={Users}
+          iconColor="blue"
+        />
+        <StatTile
+          label="Active"
+          value={activeCandidateCount}
+          isLoading={isLoading}
+          accent="green"
+          icon={UserCheck}
+          iconColor="green"
+        />
+        <StatTile
+          label="Withdrawn"
+          value={withdrawnCandidateCount}
+          isLoading={isLoading}
+          icon={UserMinus}
+          iconColor="red"
+        />
+        <StatTile
+          label="Resume uploaded"
+          value={resumeUploadedCount}
+          isLoading={isLoading}
+          icon={FileCheck2}
+          iconColor="purple"
+        />
       </div>
 
       <CategoryTabs value={categoryTab} onValueChange={setCategoryTab} counts={categoryTabCounts} />
@@ -143,51 +192,54 @@ export function CandidatesListPage() {
       </div>
 
       {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
-          empty/table states, not just the loaded table. */}
+          empty/table states, not just the loaded table. Design-system-
+          foundation step 6: the hand-rolled <table>/<thead>/<tbody> markup
+          itself is now the shared Table primitive (see components/ui/table.tsx),
+          same swap SanctionedStrengthPage/VacancyRequestsListPage made in
+          steps 4-5 -- every column's exact content/formatting carries over
+          unchanged, only the element names changed. */}
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
-          ) : !filteredCandidates || filteredCandidates.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">
-              {candidates && candidates.length > 0 ? "No candidates match these filters." : "No candidates found."}
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Name</th>
-                    <th className="py-2 font-medium">Email</th>
-                    <th className="py-2 font-medium">Phone</th>
-                    <th className="py-2 font-medium">Source</th>
-                    <th className="py-2 font-medium">Resume</th>
-                    <th className="py-2 font-medium">Status</th>
-                    <th className="py-2 font-medium">Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCandidates.map((candidate) => (
-                    <tr key={candidate.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                      <td className="py-2">
-                        <Link to={`/candidates/${candidate.id}`} className="font-medium hover:underline">
-                          {candidate.full_name}
-                        </Link>
-                      </td>
-                      <td className="py-2">{candidate.email}</td>
-                      <td className="py-2">{candidate.phone_number ?? "—"}</td>
-                      <td className="py-2">{candidate.source ?? "—"}</td>
-                      <td className="py-2">{candidate.resume_storage_key ? "Yes" : "No"}</td>
-                      <td className="py-2">
-                        <StatusBadge status={candidate.is_withdrawn} />
-                      </td>
-                      <td className="py-2">{new Date(candidate.created_at).toLocaleDateString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Phone</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead>Resume</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT} loading />
+              ) : !filteredCandidates || filteredCandidates.length === 0 ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT}>
+                  {candidates && candidates.length > 0 ? "No candidates match these filters." : "No candidates found."}
+                </TableEmpty>
+              ) : (
+                filteredCandidates.map((candidate) => (
+                  <TableRow key={candidate.id}>
+                    <TableCell>
+                      <Link to={`/candidates/${candidate.id}`} className="font-medium hover:underline">
+                        {candidate.full_name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{candidate.email}</TableCell>
+                    <TableCell>{candidate.phone_number ?? "—"}</TableCell>
+                    <TableCell>{candidate.source ?? "—"}</TableCell>
+                    <TableCell>{candidate.resume_storage_key ? "Yes" : "No"}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={candidate.is_withdrawn} />
+                    </TableCell>
+                    <TableCell>{new Date(candidate.created_at).toLocaleDateString()}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

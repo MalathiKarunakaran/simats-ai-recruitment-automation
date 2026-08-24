@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Award, ClipboardList, LogIn, Search, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -9,15 +10,40 @@ import { APPLICATION_STATUS_ORDER } from "@/api/types";
 import type { ApplicationRead, ApplicationStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/applications/StatusBadge";
+import { StatTile } from "@/components/dashboard/StatTile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CategoryTabs } from "@/components/domain/CategoryTabs";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
 const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
+
+const TOTAL_COLUMN_COUNT = 4;
+
+// Step 6 KPI strip's funnel buckets -- a fresh, page-local grouping over
+// ApplicationStatus (mirrors APPLICATION_STATUS_ORDER's own forward
+// progression, api/types.ts), deliberately NOT the same computation as
+// DashboardPage's `application_pipeline_funnel` (that's a dedicated
+// dashboard-summary endpoint field computed server-side; reusing it here
+// would mean a new backend call, out of scope for this step). This page
+// already fetches every Application row it needs for its own filters, so
+// these buckets are just a client-side reduction over that same data --
+// every ApplicationStatus maps to exactly one bucket, so
+// inReview+selectedOrOffer+joined+rejectedOrWithdrawn+APPLIED always sums to
+// total (asserted in ApplicationsListPage.test.tsx).
+const IN_REVIEW_STATUSES: ApplicationStatus[] = ["SCREENING", "CALLED_FOR_INTERVIEW", "INTERVIEWED"];
+const SELECTED_OR_OFFER_STATUSES: ApplicationStatus[] = ["SELECTED", "OFFER_SENT", "OFFER_ACCEPTED", "JOINING_CONFIRMED"];
+const JOINED_STATUSES: ApplicationStatus[] = [
+  "JOINED",
+  "DEPARTMENT_ROOM_ALLOTTED",
+  "ORIENTATION_COMPLETE",
+  "HANDED_OVER_TO_HOD",
+];
+const REJECTED_OR_WITHDRAWN_STATUSES: ApplicationStatus[] = ["REJECTED", "WITHDRAWN"];
 
 export function ApplicationsListPage() {
   const { user } = useAuth();
@@ -64,6 +90,19 @@ export function ApplicationsListPage() {
     ? preCategoryFiltered.filter((a) => categoryTab === "ALL" || a.role_category === categoryTab)
     : undefined;
 
+  // KPI strip -- derived from `filteredApplications`, the exact rows the
+  // table below renders, so every tile reflects the status/campus/search/
+  // category filters currently applied (same convention as the KPI strip
+  // added to CandidatesListPage in this same step).
+  const applicationRows = filteredApplications ?? [];
+  const appliedCount = applicationRows.filter((a) => a.status === "APPLIED").length;
+  const inReviewCount = applicationRows.filter((a) => IN_REVIEW_STATUSES.includes(a.status)).length;
+  const selectedOrOfferCount = applicationRows.filter((a) => SELECTED_OR_OFFER_STATUSES.includes(a.status)).length;
+  const joinedCount = applicationRows.filter((a) => JOINED_STATUSES.includes(a.status)).length;
+  const rejectedOrWithdrawnCount = applicationRows.filter((a) =>
+    REJECTED_OR_WITHDRAWN_STATUSES.includes(a.status),
+  ).length;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -73,6 +112,15 @@ export function ApplicationsListPage() {
             <Link to="/applications/new">New application</Link>
           </Button>
         ) : null}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <StatTile label="Total applications" value={applicationRows.length} isLoading={isLoading} icon={ClipboardList} iconColor="blue" />
+        <StatTile label="Applied" value={appliedCount} isLoading={isLoading} />
+        <StatTile label="In review" value={inReviewCount} isLoading={isLoading} icon={Search} iconColor="purple" />
+        <StatTile label="Selected / Offer" value={selectedOrOfferCount} isLoading={isLoading} accent="gold" icon={Award} iconColor="orange" />
+        <StatTile label="Joined" value={joinedCount} isLoading={isLoading} accent="green" icon={LogIn} iconColor="green" />
+        <StatTile label="Rejected / Withdrawn" value={rejectedOrWithdrawnCount} isLoading={isLoading} icon={XCircle} iconColor="red" />
       </div>
 
       <CategoryTabs value={categoryTab} onValueChange={setCategoryTab} counts={categoryTabCounts} />
@@ -118,52 +166,55 @@ export function ApplicationsListPage() {
       </div>
 
       {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
-          empty/table states, not just the loaded table. */}
+          empty/table states, not just the loaded table. Design-system-
+          foundation step 6: the hand-rolled <table>/<thead>/<tbody> markup
+          itself is now the shared Table primitive (see components/ui/table.tsx),
+          same swap SanctionedStrengthPage/VacancyRequestsListPage made in
+          steps 4-5 -- every column's exact content/formatting carries over
+          unchanged, only the element names changed. */}
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
-          ) : !filteredApplications || filteredApplications.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">
-              {applications && applications.length > 0
-                ? "No applications match these filters."
-                : "No applications in this scope yet."}
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Candidate</th>
-                    <th className="py-2 font-medium">Position</th>
-                    <th className="py-2 font-medium">Status</th>
-                    <th className="py-2 font-medium">Applied</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredApplications.map((application) => {
-                    const candidate = candidates?.find((c) => c.id === application.candidate_id);
-                    const label = getLabel(application.job_posting_id);
-                    return (
-                      <tr key={application.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                        <td className="py-2">
-                          <Link to={`/applications/${application.id}`} className="font-medium hover:underline">
-                            {candidate?.full_name ?? "Unknown candidate"}
-                          </Link>
-                          <div className="text-xs text-muted-foreground">{candidate?.email}</div>
-                        </td>
-                        <td className="py-2">{label?.positionTitle ?? "—"}</td>
-                        <td className="py-2">
-                          <StatusBadge status={application.status} />
-                        </td>
-                        <td className="py-2">{new Date(application.applied_at).toLocaleDateString()}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Candidate</TableHead>
+                <TableHead>Position</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Applied</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT} loading />
+              ) : !filteredApplications || filteredApplications.length === 0 ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT}>
+                  {applications && applications.length > 0
+                    ? "No applications match these filters."
+                    : "No applications in this scope yet."}
+                </TableEmpty>
+              ) : (
+                filteredApplications.map((application) => {
+                  const candidate = candidates?.find((c) => c.id === application.candidate_id);
+                  const label = getLabel(application.job_posting_id);
+                  return (
+                    <TableRow key={application.id}>
+                      <TableCell>
+                        <Link to={`/applications/${application.id}`} className="font-medium hover:underline">
+                          {candidate?.full_name ?? "Unknown candidate"}
+                        </Link>
+                        <div className="text-xs text-muted-foreground">{candidate?.email}</div>
+                      </TableCell>
+                      <TableCell>{label?.positionTitle ?? "—"}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={application.status} />
+                      </TableCell>
+                      <TableCell>{new Date(application.applied_at).toLocaleDateString()}</TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
