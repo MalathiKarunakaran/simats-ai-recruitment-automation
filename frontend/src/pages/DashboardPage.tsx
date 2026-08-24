@@ -585,26 +585,28 @@ export function DashboardPage() {
               // render a chart of 3 zero-height bars instead (CLAUDE.md B5).
               <EmptyState message="No applications in this scope yet." />
             ) : (
-              <table className="w-full text-xs" aria-label="Category-wise split">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-1 font-medium">Category</th>
-                    <th className="py-1 text-right font-medium">Applications</th>
-                    <th className="py-1 text-right font-medium">Open positions</th>
-                    <th className="py-1 text-right font-medium">Hires</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="text-xs" aria-label="Category-wise split">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="px-0 py-1">Category</TableHead>
+                    <TableHead className="px-0 py-1 text-right">Applications</TableHead>
+                    <TableHead className="px-0 py-1 text-right">Open positions</TableHead>
+                    <TableHead className="px-0 py-1 text-right">Hires</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {categoryBreakdown.map((row) => (
-                    <tr key={row.role_category} className="border-b border-border last:border-0">
-                      <td className="py-1 font-medium text-foreground">{ROLE_CATEGORY_LABELS[row.role_category]}</td>
-                      <td className="py-1 text-right tabular-nums">{row.applications}</td>
-                      <td className="py-1 text-right tabular-nums">{row.open_positions}</td>
-                      <td className="py-1 text-right tabular-nums">{row.hires}</td>
-                    </tr>
+                    <TableRow key={row.role_category}>
+                      <TableCell className="px-0 py-1 font-medium text-foreground">
+                        {ROLE_CATEGORY_LABELS[row.role_category]}
+                      </TableCell>
+                      <TableCell className="px-0 py-1 text-right tabular-nums">{row.applications}</TableCell>
+                      <TableCell className="px-0 py-1 text-right tabular-nums">{row.open_positions}</TableCell>
+                      <TableCell className="px-0 py-1 text-right tabular-nums">{row.hires}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>

@@ -9,6 +9,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const CAN_IMPORT_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
 
@@ -126,23 +127,23 @@ export function VacancyImportPage() {
               rows)
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-muted-foreground">
-                  <th className="py-2 font-medium">Row</th>
-                  <th className="py-2 font-medium">Status</th>
-                  <th className="py-2 font-medium">Details</th>
-                </tr>
-              </thead>
-              <tbody>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Row</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Details</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {result.rows.map((row) => (
-                  <tr key={row.row_number} className="border-b border-border last:border-0">
-                    <td className="py-2">{row.row_number}</td>
-                    <td className="py-2">
+                  <TableRow key={row.row_number}>
+                    <TableCell>{row.row_number}</TableCell>
+                    <TableCell>
                       <Badge variant={row.status === "created" ? "success" : "destructive"}>{row.status}</Badge>
-                    </td>
-                    <td className="py-2">
+                    </TableCell>
+                    <TableCell>
                       {row.status === "created" ? (
                         row.vacancy_request_id ? (
                           <Link to={`/vacancy-requests/${row.vacancy_request_id}`} className="hover:underline">
@@ -156,11 +157,11 @@ export function VacancyImportPage() {
                           ))}
                         </ul>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       ) : null}
