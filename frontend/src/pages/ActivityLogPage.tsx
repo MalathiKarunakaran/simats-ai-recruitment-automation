@@ -8,6 +8,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 // Mirrors the backend's own read-role gate exactly
 // (app/api/v1/routers/audit_logs.py::_READ_ROLES).
@@ -22,6 +23,8 @@ const ENTITY_TYPES = [
   "User",
   "Employee",
 ];
+
+const TOTAL_COLUMN_COUNT = 4;
 
 export function ActivityLogPage() {
   const { user, hasPermission } = useAuth();
@@ -107,37 +110,35 @@ export function ActivityLogPage() {
           than only wrapping the table once data loads. */}
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
-          ) : !entries || entries.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">No activity recorded in this scope yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">When</th>
-                    <th className="py-2 font-medium">Actor</th>
-                    <th className="py-2 font-medium">Action</th>
-                    <th className="py-2 font-medium">Entity</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map((entry) => (
-                    <tr key={entry.id} className="border-b border-border last:border-0">
-                      <td className="py-2 whitespace-nowrap">{new Date(entry.created_at).toLocaleString()}</td>
-                      <td className="py-2">{entry.actor_role_snapshot?.replace(/_/g, " ") ?? "System"}</td>
-                      <td className="py-2 font-mono text-xs">{entry.action}</td>
-                      <td className="py-2 text-muted-foreground">
-                        {entry.entity_type ?? "—"}
-                        {entry.entity_id ? ` · ${entry.entity_id.slice(0, 8)}` : ""}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Actor</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Entity</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT} loading />
+              ) : !entries || entries.length === 0 ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT}>No activity recorded in this scope yet.</TableEmpty>
+              ) : (
+                entries.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="whitespace-nowrap">{new Date(entry.created_at).toLocaleString()}</TableCell>
+                    <TableCell>{entry.actor_role_snapshot?.replace(/_/g, " ") ?? "System"}</TableCell>
+                    <TableCell className="font-mono text-xs">{entry.action}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {entry.entity_type ?? "—"}
+                      {entry.entity_id ? ` · ${entry.entity_id.slice(0, 8)}` : ""}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
