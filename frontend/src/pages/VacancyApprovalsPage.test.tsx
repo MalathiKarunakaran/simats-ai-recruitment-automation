@@ -104,6 +104,31 @@ describe("VacancyApprovalsPage", () => {
     expect(await screen.findByText("Your role doesn't take part in the approval chain.")).toBeInTheDocument();
   });
 
+  // RBAC permission-gate audit (2026-08-24): reject/publish are gated by
+  // require_permission(REJECT_VACANCY)/require_permission(PUBLISH_VACANCY),
+  // not ACTIONABLE_STATUSES_BY_ROLE alone -- this locks in the fix (a role
+  // completely outside the table, e.g. a RECRUITMENT_OFFICER, individually
+  // granted PUBLISH_VACANCY now sees the APPROVED queue and a working
+  // Publish button) without changing the "scope message" test above (no
+  // grant passed there, so it behaves exactly as before).
+  it("shows the APPROVED queue and Publish to a role outside the approval chain individually granted PUBLISH_VACANCY", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "PUBLISH_VACANCY",
+    });
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+    mockQueue({ APPROVED: [makeVR({ status: "APPROVED" })] });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument());
+  });
+
   it("shows Dean-approve and Reject for a SUBMITTED request as Associate Dean", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,

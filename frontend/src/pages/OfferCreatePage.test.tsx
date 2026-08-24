@@ -103,6 +103,27 @@ describe("OfferCreatePage", () => {
     expect(screen.getByText(/Only HR Admin, Super Admin, or Recruitment Coordinator/)).toBeInTheDocument();
   });
 
+  // RBAC permission-gate audit (2026-08-24): create_offer is gated by
+  // require_permission(OFFERS), not CAN_CREATE_ROLES alone -- locks in the
+  // fix without changing the test above (no grant passed there, so it
+  // behaves exactly as before).
+  it("unblocks Management individually granted OFFERS", () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "MANAGEMENT" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "OFFERS",
+    });
+    mockedListApplications.mockResolvedValue([]);
+    mockedListCandidates.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+
+    renderPage();
+
+    expect(screen.queryByText(/Only HR Admin, Super Admin, or Recruitment Coordinator/)).not.toBeInTheDocument();
+  });
+
   it("pre-fills the application from the query param and requires salary and joining date", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

@@ -26,7 +26,7 @@ const WRITE_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 export function OfferDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
   const { getLabel } = useJobPostingLookup();
 
@@ -90,7 +90,10 @@ export function OfferDetailPage() {
     return <Navigate to="/offers" replace />;
   }
 
-  const canWrite = WRITE_ROLES.includes(user.role);
+  // Bug fix: OR'd with hasPermission("OFFERS") -- send/accept/decline/withdraw/
+  // mark-expired are all gated by require_permission(OFFERS), not this role
+  // list alone (same pattern as UsersListPage's canManage).
+  const canWrite = WRITE_ROLES.includes(user.role) || (hasPermission?.("OFFERS") ?? false);
   const canSend = canWrite && offer.status === "DRAFT";
   const canRespond = canWrite && offer.status === "SENT";
   const positionLabel = application ? getLabel(application.job_posting_id)?.positionTitle : undefined;

@@ -22,12 +22,13 @@ const mockedCreateCampus = vi.mocked(campusesApi.createCampus);
 const mockedUpdateCampus = vi.mocked(campusesApi.updateCampus);
 const mockedDeleteCampus = vi.mocked(campusesApi.deleteCampus);
 
-function mockUser(role: UserRead["role"]) {
+function mockUser(role: UserRead["role"], hasPermission: (permission: string) => boolean = () => false) {
   mockedUseAuth.mockReturnValue({
     user: { id: "u-1", role, campus_id: null } as UserRead,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    hasPermission,
   });
 }
 
@@ -85,6 +86,29 @@ describe("CampusesPage", () => {
     await waitFor(() => expect(screen.getByText("SSE")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "New campus" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  // RBAC permission-gate audit (2026-08-24): campuses.py's create/update/
+  // delete are gated by require_permission(MANAGE_CAMPUSES), not
+  // CAMPUS_WRITE_ROLES alone -- these two lock in the fix without changing
+  // the existing role-only behavior for anyone else.
+  it("hides New campus for an HR_ADMIN with no MANAGE_CAMPUSES grant (unchanged prior behavior)", async () => {
+    mockUser("HR_ADMIN", () => false);
+    mockedListCampuses.mockResolvedValue([SSE]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("SSE")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "New campus" })).not.toBeInTheDocument();
+  });
+
+  it("shows New campus to an HR_ADMIN individually granted MANAGE_CAMPUSES", async () => {
+    mockUser("HR_ADMIN", (permission) => permission === "MANAGE_CAMPUSES");
+    mockedListCampuses.mockResolvedValue([SSE]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "New campus" })).toBeInTheDocument());
   });
 
   it("disables New campus once all 7 institutional codes are already in use", async () => {

@@ -32,7 +32,7 @@ const TOTAL_COLUMN_COUNT = 5;
 const CANCELLED_OR_RESCHEDULED_STATUSES: InterviewScheduleStatus[] = ["CANCELLED", "RESCHEDULED"];
 
 export function InterviewsListPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [statusFilter, setStatusFilter] = useState<InterviewScheduleStatus | "ALL">("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
@@ -77,7 +77,10 @@ export function InterviewsListPage() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Interviews</h1>
-        {user && CAN_CREATE_ROLES.includes(user.role) ? (
+        {/* Bug fix: OR'd with hasPermission("SCHEDULE_INTERVIEW") -- create_interview
+            is gated by require_permission(SCHEDULE_INTERVIEW), not this role list
+            alone (same pattern as UsersListPage's canManage). */}
+        {user && (CAN_CREATE_ROLES.includes(user.role) || hasPermission?.("SCHEDULE_INTERVIEW")) ? (
           <Button asChild>
             <Link to="/interviews/new">Schedule interview</Link>
           </Button>

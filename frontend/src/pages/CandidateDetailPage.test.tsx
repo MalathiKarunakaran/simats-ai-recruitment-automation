@@ -26,12 +26,13 @@ const mockedUpdateCandidate = vi.mocked(candidatesApi.updateCandidate);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 
-function mockUser(role: UserRead["role"] | null) {
+function mockUser(role: UserRead["role"] | null, hasPermission: (permission: string) => boolean = () => false) {
   mockedUseAuth.mockReturnValue({
     user: role ? ({ role } as UserRead) : null,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    hasPermission,
   });
 }
 
@@ -150,6 +151,22 @@ describe("CandidateDetailPage", () => {
 
     await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Withdraw" })).not.toBeInTheDocument();
+  });
+
+  // RBAC permission-gate audit (2026-08-24): update_candidate and
+  // withdraw_candidate are both gated by require_permission(EDIT_CANDIDATE),
+  // not CAN_MANAGE_CANDIDATES_ROLES alone -- this locks in the fix without
+  // changing the "hides the Withdraw button" test above (no grant passed,
+  // so behaves exactly as before).
+  it("shows the Withdraw button to a role outside CAN_MANAGE_CANDIDATES_ROLES individually granted EDIT_CANDIDATE", async () => {
+    mockUser("CAMPUS_HOD", (permission) => permission === "EDIT_CANDIDATE");
+    mockedGetCandidate.mockResolvedValue(CANDIDATE);
+    mockedListApplications.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Withdraw" })).toBeInTheDocument());
   });
 
   it("shows withdrawal details instead of the Withdraw button once withdrawn", async () => {

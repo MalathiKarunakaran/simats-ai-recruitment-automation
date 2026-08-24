@@ -174,6 +174,27 @@ describe("ApplicationDetailPage", () => {
     expect(screen.queryByText("Advance to")).not.toBeInTheDocument();
   });
 
+  // RBAC permission-gate audit (2026-08-24): transition_application_status
+  // and update_pipeline_details are both gated by
+  // require_permission(MANAGE_APPLICATIONS), not WRITE_ROLES alone -- this
+  // locks in the fix without changing the "read-only role" test above (no
+  // grant passed there, so it behaves exactly as before).
+  it("shows advance/reject controls to a read-only role individually granted MANAGE_APPLICATIONS", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "MANAGE_APPLICATIONS",
+    });
+    mockedGetApplication.mockResolvedValue(makeApplication());
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Reject")).toBeInTheDocument());
+    expect(screen.getByText("Advance to")).toBeInTheDocument();
+  });
+
   it("hides advance/reject controls once the application is terminal", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

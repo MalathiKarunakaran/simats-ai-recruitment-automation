@@ -19,7 +19,7 @@ import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 const CAN_CREATE_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 export function OfferCreatePage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const preselectedApplicationId = searchParams.get("application_id");
@@ -61,7 +61,10 @@ export function OfferCreatePage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Something went wrong"),
   });
 
-  if (!user || !CAN_CREATE_ROLES.includes(user.role)) {
+  // Bug fix: OR'd with hasPermission("OFFERS") -- create_offer is gated by
+  // require_permission(OFFERS), not this role list alone (same pattern as
+  // UsersListPage's canManage).
+  if (!user || !(CAN_CREATE_ROLES.includes(user.role) || hasPermission?.("OFFERS"))) {
     return (
       <p className="text-sm text-muted-foreground">
         Only HR Admin, Super Admin, or Recruitment Coordinator can make an offer.

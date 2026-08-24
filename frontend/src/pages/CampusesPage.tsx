@@ -37,7 +37,7 @@ interface FormState {
 const EMPTY_FORM: FormState = { code: "", name: "", isActive: true };
 
 export function CampusesPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -49,7 +49,11 @@ export function CampusesPage() {
 
   const { data: campuses, isLoading } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
 
-  const canManage = Boolean(user && CAMPUS_WRITE_ROLES.includes(user.role));
+  // Bug fix: OR'd with hasPermission("MANAGE_CAMPUSES") -- backend's
+  // campuses.py gates create/update/delete via require_permission, not a
+  // role list, so an individually-granted permission must also unlock this
+  // page's write controls (same pattern as UsersListPage's canManage).
+  const canManage = Boolean(user && (CAMPUS_WRITE_ROLES.includes(user.role) || hasPermission?.("MANAGE_CAMPUSES")));
 
   // Campus.code is a fixed institutional allowlist, one campus per code --
   // a code already in use (active or not) can't be picked again for a new

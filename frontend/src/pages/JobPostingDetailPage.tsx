@@ -17,9 +17,12 @@ const SUPPORTED_PORTALS: JobPortal[] = ["LINKEDIN", "INDEED", "NAUKRI", "FACULTY
 
 export function JobPostingDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const { getLabel } = useJobPostingLookup();
-  const canDistribute = Boolean(user && DISTRIBUTE_ROLES.includes(user.role));
+  // Bug fix: OR'd with hasPermission("JOB_DISTRIBUTION") -- distribute_job_posting
+  // is gated by require_permission(JOB_DISTRIBUTION), not this role list
+  // alone (same pattern as UsersListPage's canManage).
+  const canDistribute = Boolean(user && (DISTRIBUTE_ROLES.includes(user.role) || hasPermission?.("JOB_DISTRIBUTION")));
 
   const [distributionError, setDistributionError] = useState<string | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);

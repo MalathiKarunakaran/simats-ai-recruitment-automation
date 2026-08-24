@@ -25,12 +25,13 @@ const mockedCreateDepartment = vi.mocked(departmentsApi.createDepartment);
 const mockedUpdateDepartment = vi.mocked(departmentsApi.updateDepartment);
 const mockedDeleteDepartment = vi.mocked(departmentsApi.deleteDepartment);
 
-function mockUser(role: UserRead["role"]) {
+function mockUser(role: UserRead["role"], hasPermission: (permission: string) => boolean = () => false) {
   mockedUseAuth.mockReturnValue({
     user: { id: "u-1", role, campus_id: null } as UserRead,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    hasPermission,
   });
 }
 
@@ -160,6 +161,31 @@ describe("DepartmentsPage", () => {
     await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "New department" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  // RBAC permission-gate audit (2026-08-24): departments.py's create/update/
+  // delete are gated by require_permission(MANAGE_DEPARTMENTS), not
+  // DEPARTMENT_MANAGEMENT_ROLES alone -- these two lock in the fix without
+  // changing the existing role-only behavior for anyone else.
+  it("hides New department for a CAMPUS_HOD with no MANAGE_DEPARTMENTS grant (unchanged prior behavior)", async () => {
+    mockUser("CAMPUS_HOD", () => false);
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartments.mockResolvedValue([CSE]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "New department" })).not.toBeInTheDocument();
+  });
+
+  it("shows New department to a CAMPUS_HOD individually granted MANAGE_DEPARTMENTS", async () => {
+    mockUser("CAMPUS_HOD", (permission) => permission === "MANAGE_DEPARTMENTS");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartments.mockResolvedValue([CSE]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "New department" })).toBeInTheDocument());
   });
 
   it("creates a department with code/category/parent_group for HR Admin", async () => {

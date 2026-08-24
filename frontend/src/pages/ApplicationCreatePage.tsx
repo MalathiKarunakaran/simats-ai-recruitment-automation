@@ -17,7 +17,7 @@ import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 export function ApplicationCreatePage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const navigate = useNavigate();
 
   const [candidate, setCandidate] = useState<CandidateRead | null>(null);
@@ -36,7 +36,10 @@ export function ApplicationCreatePage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Something went wrong"),
   });
 
-  if (!user || !CAN_CREATE_ROLES.includes(user.role)) {
+  // Bug fix: OR'd with hasPermission("MANAGE_APPLICATIONS") -- create_application
+  // is gated by require_permission(MANAGE_APPLICATIONS), not this role list
+  // alone (same pattern as UsersListPage's canManage).
+  if (!user || !(CAN_CREATE_ROLES.includes(user.role) || hasPermission?.("MANAGE_APPLICATIONS"))) {
     return (
       <p className="text-sm text-muted-foreground">
         Only a Recruitment Officer, HR Admin, Super Admin, or Recruitment Coordinator can record a new application.

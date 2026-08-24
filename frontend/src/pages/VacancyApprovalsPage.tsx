@@ -69,7 +69,7 @@ function formatWaiting(iso: string): string {
 }
 
 export function VacancyApprovalsPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const role = user?.role;
   const queryClient = useQueryClient();
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
@@ -83,7 +83,20 @@ export function VacancyApprovalsPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
-  const statuses = (user && ACTIONABLE_STATUSES_BY_ROLE[user.role as UserRole]) ?? [];
+  // Bug fix: unioned with statuses unlocked by an individually-granted
+  // REJECT_VACANCY/PUBLISH_VACANCY permission -- vacancy_requests.py's
+  // reject/publish endpoints are gated by require_permission, not this role
+  // table alone, so a role outside ACTIONABLE_STATUSES_BY_ROLE (e.g. a
+  // RECRUITMENT_OFFICER individually granted REJECT_VACANCY) must still see
+  // the matching queue rows to act on, same pattern as UsersListPage's
+  // canManage. REJECT_VACANCY covers SUBMITTED/DEAN_APPROVED (matches
+  // canReject below); PUBLISH_VACANCY covers APPROVED (matches canPublish).
+  const roleStatuses = (user && ACTIONABLE_STATUSES_BY_ROLE[user.role as UserRole]) ?? [];
+  const permissionStatuses: VacancyRequestStatus[] = [
+    ...(hasPermission?.("REJECT_VACANCY") ? (["SUBMITTED", "DEAN_APPROVED"] as VacancyRequestStatus[]) : []),
+    ...(hasPermission?.("PUBLISH_VACANCY") ? (["APPROVED"] as VacancyRequestStatus[]) : []),
+  ];
+  const statuses = Array.from(new Set([...roleStatuses, ...permissionStatuses]));
 
   // Unrolled per-status queries (not `.map(() => useQuery(...))`) so hook
   // calls stay static -- same pattern as the Dashboard's category split.
@@ -206,14 +219,18 @@ export function VacancyApprovalsPage() {
                   const canHrApprove =
                     (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
                     (vr.status === "DEAN_APPROVED" || (vr.status === "SUBMITTED" && role === "SUPER_ADMIN"));
+                  // Bug fix: OR'd with hasPermission(...) -- see the
+                  // `statuses` computation above for the full explanation.
                   const canPublish =
-                    (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
+                    ((role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") ||
+                      (hasPermission?.("PUBLISH_VACANCY") ?? false)) &&
                     vr.status === "APPROVED";
                   const canReject =
-                    (role === "ASSOCIATE_DEAN_RECRUITMENT" ||
+                    ((role === "ASSOCIATE_DEAN_RECRUITMENT" ||
                       role === "HR_ADMIN" ||
                       role === "SUPER_ADMIN" ||
-                      role === "RECRUITMENT_COORDINATOR") &&
+                      role === "RECRUITMENT_COORDINATOR") ||
+                      (hasPermission?.("REJECT_VACANCY") ?? false)) &&
                     (vr.status === "SUBMITTED" || vr.status === "DEAN_APPROVED");
                   return (
                     <TableRow key={vr.id}>

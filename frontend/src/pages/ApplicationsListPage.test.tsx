@@ -158,6 +158,28 @@ describe("ApplicationsListPage", () => {
     expect(screen.queryByText("New application")).not.toBeInTheDocument();
   });
 
+  // RBAC permission-gate audit (2026-08-24): create_application is gated by
+  // require_permission(MANAGE_APPLICATIONS), not CAN_CREATE_ROLES alone --
+  // locks in the fix without changing the test above (no grant passed
+  // there, so it behaves exactly as before).
+  it("shows the create button to a role without write access individually granted MANAGE_APPLICATIONS", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "MANAGE_APPLICATIONS",
+    });
+    mockedListApplications.mockResolvedValue([]);
+    mockedListCandidates.mockResolvedValue([]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("New application")).toBeInTheDocument());
+  });
+
   it("narrows the list client-side by campus without re-fetching", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

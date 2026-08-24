@@ -24,12 +24,17 @@ const ENTITY_TYPES = [
 ];
 
 export function ActivityLogPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [entityType, setEntityType] = useState<string>("ALL");
   const [campusId, setCampusId] = useState<string>("ALL");
   const [dateRange, setDateRange] = useState<DateRangeValue>({ startDate: null, endDate: null });
 
-  const canView = Boolean(user && CAN_VIEW_ROLES.includes(user.role));
+  // Bug fix: OR'd with hasPermission("ACTIVITY_LOG") -- both audit_logs.py
+  // endpoints are gated by require_permission(ACTIVITY_LOG), not a role
+  // list, so someone individually granted the permission (but outside
+  // CAN_VIEW_ROLES) must still be able to view this page, same pattern as
+  // UsersListPage's canManage.
+  const canView = Boolean(user && (CAN_VIEW_ROLES.includes(user.role) || hasPermission?.("ACTIVITY_LOG")));
   // CAMPUS_HOD is hard-pinned to their own campus server-side regardless of
   // any campus_id passed, so the filter only means anything for the 3
   // global-scope roles among the readers.

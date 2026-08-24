@@ -302,7 +302,7 @@ function DepartmentBreakdownRow({
 }
 
 export function SanctionedStrengthPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   // Phase E item 29's reverse link -- VacancyRequestDetailPage links here
   // as ?department=X&designation=Y. Only the department id drives the
   // expand-state addition below (designation isn't its own row/section to
@@ -377,8 +377,11 @@ export function SanctionedStrengthPage() {
   // app/api/v1/routers/audit_logs.py's own read-role gate (same set
   // AppShell.tsx's "Activity Log" nav item already uses), a different (and
   // broader-in-one-direction, narrower-in-another) role set than `canManage`
-  // above.
-  const canViewAuditLog = Boolean(user && AUDIT_LOG_READ_ROLES.includes(user.role));
+  // above. Bug fix: OR'd with hasPermission("ACTIVITY_LOG") -- both
+  // audit_logs.py endpoints are actually gated by
+  // require_permission(ACTIVITY_LOG), not this role list alone, same fix as
+  // ActivityLogPage's own canView.
+  const canViewAuditLog = Boolean(user && (AUDIT_LOG_READ_ROLES.includes(user.role) || hasPermission?.("ACTIVITY_LOG")));
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses, enabled: canFilterByCampus });
 
   const { data, isLoading, isError, error } = useQuery({

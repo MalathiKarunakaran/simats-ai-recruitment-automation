@@ -168,6 +168,26 @@ describe("JobPostingDetailPage", () => {
     expect(mockedGetJobAd).not.toHaveBeenCalled();
   });
 
+  // RBAC permission-gate audit (2026-08-24): distribute_job_posting is
+  // gated by require_permission(JOB_DISTRIBUTION), not DISTRIBUTE_ROLES
+  // alone -- locks in the fix without changing the negative test above (no
+  // grant passed there, so it behaves exactly as before).
+  it("shows the Distribution card to a CAMPUS_HOD individually granted JOB_DISTRIBUTION", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission: string) => permission === "JOB_DISTRIBUTION",
+    });
+    mockNoRankedCandidates();
+    mockedGetJobAd.mockResolvedValue(JOB_AD);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Distribution")).toBeInTheDocument());
+  });
+
   it("shows the job ad text and lets HR Admin copy it", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

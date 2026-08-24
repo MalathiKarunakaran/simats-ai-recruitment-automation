@@ -79,12 +79,13 @@ function renderPage() {
   );
 }
 
-function mockAuth(role: UserRead["role"]) {
+function mockAuth(role: UserRead["role"], hasPermission: (permission: string) => boolean = () => false) {
   mockedUseAuth.mockReturnValue({
     user: { role } as UserRead,
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    hasPermission,
   });
 }
 
@@ -127,6 +128,20 @@ describe("CandidatesListPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/No candidates found/)).toBeInTheDocument());
     expect(screen.queryByText("New candidate")).not.toBeInTheDocument();
+  });
+
+  // RBAC permission-gate audit (2026-08-24): create_candidate is gated by
+  // require_permission(CREATE_CANDIDATE), not CAN_MANAGE_CANDIDATES_ROLES
+  // alone -- locks in the fix without changing the test above (no grant
+  // passed there, so it behaves exactly as before).
+  it("shows the create button to an unrelated role individually granted CREATE_CANDIDATE", async () => {
+    mockedListCandidates.mockResolvedValue([]);
+    mockedListApplications.mockResolvedValue([]);
+    mockAuth("INTERVIEW_PANEL_MEMBER", (permission) => permission === "CREATE_CANDIDATE");
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("New candidate")).toBeInTheDocument());
   });
 
   it("renders a status badge per row", async () => {

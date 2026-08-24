@@ -124,6 +124,28 @@ describe("InterviewCreatePage", () => {
     expect(screen.getByText(/Only a Recruitment Officer/)).toBeInTheDocument();
   });
 
+  // RBAC permission-gate audit (2026-08-24): create_interview is gated by
+  // require_permission(SCHEDULE_INTERVIEW), not CAN_CREATE_ROLES alone --
+  // locks in the fix without changing the test above (no grant passed
+  // there, so it behaves exactly as before).
+  it("unblocks a role outside CAN_CREATE_ROLES individually granted SCHEDULE_INTERVIEW", () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "SCHEDULE_INTERVIEW",
+    });
+    mockedListApplications.mockResolvedValue([]);
+    mockedListCandidates.mockResolvedValue([]);
+    mockedListUsers.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+
+    renderPage();
+
+    expect(screen.queryByText(/Only a Recruitment Officer/)).not.toBeInTheDocument();
+  });
+
   it("pre-fills the application from the query param and requires at least one panel member", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

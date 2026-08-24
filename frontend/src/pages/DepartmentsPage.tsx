@@ -39,7 +39,7 @@ interface FormState {
 const EMPTY_FORM: FormState = { campusId: "", code: "", category: "", parentGroup: "", isActive: true };
 
 export function DepartmentsPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -61,7 +61,13 @@ export function DepartmentsPage() {
   const { data: departments, isLoading } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
 
-  const canManage = Boolean(user && DEPARTMENT_MANAGEMENT_ROLES.includes(user.role));
+  // Bug fix: OR'd with hasPermission("MANAGE_DEPARTMENTS") -- backend's
+  // departments.py gates create/update/delete via require_permission, not a
+  // role list, so an individually-granted permission must also unlock this
+  // page's write controls (same pattern as UsersListPage's canManage).
+  const canManage = Boolean(
+    user && (DEPARTMENT_MANAGEMENT_ROLES.includes(user.role) || hasPermission?.("MANAGE_DEPARTMENTS")),
+  );
 
   const campusById = new Map((campuses ?? []).map((c) => [c.id, c]));
 
