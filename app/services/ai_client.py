@@ -1,19 +1,27 @@
 """Centralized AI client construction and call patterns.
 
-Two providers are used side by side, deliberately not unified behind one
-interface:
+As of the Module 14 ("Hermes") OpenAI port, everything in this codebase runs
+on OpenAI (gpt-4o):
 
-- OpenAI (gpt-4o): generate_jd, score_and_extract_resume,
-  generate_interview_questions -- the three structured-output calls behind
-  Module 3 (JD generation) and Module 6 (resume screening/interview
-  questions). Never import `openai` directly in a router or another service
-  file; go through get_openai_client()/these three functions.
-- Anthropic (claude-opus-4-8): call_with_tools, generate_narrative -- used
-  only by Module 14 ("Hermes", assistant chat + daily briefing) via
-  get_ai_client(). Kept on Anthropic because Hermes's tool-calling loop
-  (app/services/hermes.py) is written against Anthropic's tool_use content-
-  block format, which doesn't map 1:1 onto OpenAI's function-calling shape --
-  not touched by the OpenAI migration below.
+- generate_jd, score_and_extract_resume, generate_interview_questions -- the
+  three structured-output calls behind Module 3 (JD generation) and Module 6
+  (resume screening/interview questions).
+- call_with_tools_openai, generate_narrative_openai -- Module 14 ("Hermes",
+  assistant chat + daily briefing)'s tool-calling loop and single-call
+  narrative generation, both via get_openai_client(). Hermes was originally
+  built against Anthropic's tool_use content-block format; it was ported to
+  OpenAI's `tools`/`tool_calls` function-calling shape (see
+  app/services/hermes.py's module docstring) because production has a
+  working OPENAI_API_KEY but no ANTHROPIC_API_KEY configured.
+
+Never import `openai` directly in a router or another service file; always
+go through get_openai_client()/the functions below.
+
+get_ai_client()/call_with_tools()/generate_narrative() (Anthropic) are kept
+here, unused by any current caller, in case Anthropic is reintroduced later --
+not deleted as part of this port since removing them isn't needed to
+complete it. `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL` remain valid config either
+way.
 
 Anthropic has no public embeddings endpoint -- semantic similarity is
 handled by ChromaDB's own default embedding function (see
@@ -383,3 +391,45 @@ def generate_narrative(client: anthropic.Anthropic, *, system: str, user_content
             status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"
         )
     return text_block.text
+
+
+def call_with_tools_openai(
+    client: openai.OpenAI, *, messages: list[dict], tools: list[dict], max_completion_tokens: int = 1500
+):
+    """Raw OpenAI chat-completions call for Module 14 (Hermes)'s tool-calling
+    loop -- returns the SDK response object as-is; the caller
+    (app/services/hermes.py) branches on
+    response.choices[0].message.tool_calls and builds the next turn.
+    `tool_choice="auto"` (the SDK default when `tools` is given) so the
+    model can also answer with no tool call, matching this loop's previous
+    Anthropic behavior. This establishes this codebase's first tool-calling
+    OpenAI integration -- no other OpenAI call site here uses `tools` -- so
+    it follows OpenAI's own standard Chat Completions tool-calling shape
+    rather than inventing a new convention."""
+    return _call_openai(
+        client.chat.completions.create,
+        model=settings.OPENAI_MODEL,
+        max_completion_tokens=max_completion_tokens,
+        messages=messages,
+        tools=tools,
+        tool_choice="auto",
+    )
+
+
+def generate_narrative_openai(
+    client: openai.OpenAI, *, system: str, user_content: str, max_completion_tokens: int = 800
+) -> str:
+    """Single-call plain-text generation (no tools) -- used for Module 14's
+    daily-briefing narrative summary."""
+    response = _call_openai(
+        client.chat.completions.create,
+        model=settings.OPENAI_MODEL,
+        max_completion_tokens=max_completion_tokens,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user_content}],
+    )
+    content = response.choices[0].message.content if response.choices else None
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"
+        )
+    return content

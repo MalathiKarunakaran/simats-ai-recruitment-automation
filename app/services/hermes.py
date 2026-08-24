@@ -4,12 +4,15 @@ Hermes never mutates data. Every tool executor below performs the same kind
 of query an existing router would, filtered by the caller's CampusScope
 exactly like every router in app/api/v1/routers already does. A
 single-campus caller's `campus_code` tool argument is always ignored --
-resolve_campus_filter substitutes scope.campus_id regardless of what Claude
-passed. This is the single safety-critical function in this file.
+resolve_campus_filter substitutes scope.campus_id regardless of what the
+model passed. This is the single safety-critical function in this file.
 
-Uses a manual Claude tool-use loop (not the SDK's beta Tool Runner -- see
-app/services/ai_client.py's module docstring for why) capped at
-_MAX_TOOL_CALLS API calls per query.
+Uses a manual OpenAI function-calling loop (not the SDK's beta Tool Runner --
+see app/services/ai_client.py's module docstring for why) capped at
+_MAX_TOOL_CALLS API calls per query. Originally written against Anthropic's
+tool_use content-block format; ported to OpenAI's tools/tool_calls shape
+(production has a working OPENAI_API_KEY but no ANTHROPIC_API_KEY) -- every
+tool executor below is provider-agnostic and was untouched by that port.
 """
 
 import calendar
@@ -48,8 +51,8 @@ from app.services.scoping import resolve_campus_filter
 # ...) were added alongside the original 5 read-only lookup tools, roughly
 # tripling the tool surface. A compound question ("compare Teaching,
 # Non-Teaching and Housekeeping hiring") can legitimately need several
-# sequential tool calls before Claude has enough to answer (parallel
-# tool_use blocks in one turn don't each cost a call here -- only the
+# sequential tool calls before the model has enough to answer (parallel
+# tool_calls in one turn don't each cost a call here -- only the
 # round-trip does), so the old cap of 4 was raised to 6: enough for e.g.
 # 5 sequential single-tool round trips plus the final text-answering turn,
 # while still bounding worst-case latency/cost per query. See
@@ -134,10 +137,10 @@ _STAGE_TO_STATUSES = {
 # --- Shared arg-parsing helpers for the reporting tools below -------------
 # Mirror app/services/reporting.py's validate_campus_code/validate_role_category
 # in spirit, but raise plain ValueError (not HTTPException) -- like every
-# other tool executor in this file, a bad argument from Claude should
-# degrade to an is_error tool_result the model can react to, not blow up the
-# whole request the way a raw HTTPException from inside the tool-call loop
-# would.
+# other tool executor in this file, a bad argument from the model should
+# degrade to an error tool-result message the model can react to, not blow
+# up the whole request the way a raw HTTPException from inside the
+# tool-call loop would.
 
 
 def _parse_role_category(value: str | None) -> StaffRoleCategoryEnum | None:
@@ -797,392 +800,544 @@ TOOL_EXECUTORS = {
 
 HERMES_TOOL_DEFS = [
     {
-        "name": "list_pending_vacancy_approvals",
-        "description": (
-            "List vacancy requests awaiting Dean and/or HR approval, oldest first. Use this for any "
-            "question about which vacancy requests are pending/awaiting approval right now -- e.g. "
-            "'which vacancies are pending approval', 'what's stuck with the Dean/HR'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to, e.g. SSE. Ignored for single-campus callers.",
-                },
-                "stage": {
-                    "type": "string",
-                    "enum": ["AWAITING_DEAN", "AWAITING_HR", "ANY_PENDING"],
-                    "description": "Which approval stage to filter to. Defaults to ANY_PENDING.",
-                },
-                "limit": {"type": "integer", "description": "Max rows to return, default 20, max 50."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "list_pending_vacancy_approvals",
+            "description": "List vacancy requests awaiting Dean and/or HR approval, oldest first. Use this for any question about which vacancy requests are pending/awaiting approval right now -- e.g. 'which vacancies are pending approval', 'what's stuck with the Dean/HR'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to, e.g. SSE. Ignored for single-campus callers."
+                    },
+                    "stage": {
+                        "type": "string",
+                        "enum": [
+                            "AWAITING_DEAN",
+                            "AWAITING_HR",
+                            "ANY_PENDING"
+                        ],
+                        "description": "Which approval stage to filter to. Defaults to ANY_PENDING."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return, default 20, max 50."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "list_open_vacancies",
-        "description": "List currently published, active job postings with their open hiring slots.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to, e.g. SSE. Ignored for single-campus callers.",
-                },
-                "role_category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter to.",
-                },
-                "limit": {"type": "integer", "description": "Max rows to return, default 20, max 50."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "list_open_vacancies",
+            "description": "List currently published, active job postings with their open hiring slots.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to, e.g. SSE. Ignored for single-campus callers."
+                    },
+                    "role_category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter to."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return, default 20, max 50."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "list_interviews",
-        "description": "List interview schedules.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "status": {
-                    "type": "string",
-                    "enum": ["SCHEDULED", "COMPLETED", "CANCELLED", "RESCHEDULED"],
-                    "description": "Defaults to SCHEDULED.",
-                },
-                "upcoming_only": {
-                    "type": "boolean",
-                    "description": "If true (default), only interviews scheduled at or after now.",
-                },
-                "limit": {"type": "integer", "description": "Max rows to return, default 20, max 50."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "list_interviews",
+            "description": "List interview schedules.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "SCHEDULED",
+                            "COMPLETED",
+                            "CANCELLED",
+                            "RESCHEDULED"
+                        ],
+                        "description": "Defaults to SCHEDULED."
+                    },
+                    "upcoming_only": {
+                        "type": "boolean",
+                        "description": "If true (default), only interviews scheduled at or after now."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return, default 20, max 50."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "list_pending_offers",
-        "description": "List job offers, defaulting to draft/sent (not yet accepted/declined/expired/withdrawn).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "status": {
-                    "type": "string",
-                    "enum": ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "EXPIRED", "WITHDRAWN"],
-                    "description": "Single status override. Defaults to DRAFT+SENT.",
-                },
-                "limit": {"type": "integer", "description": "Max rows to return, default 20, max 50."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "list_pending_offers",
+            "description": "List job offers, defaulting to draft/sent (not yet accepted/declined/expired/withdrawn).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "DRAFT",
+                            "SENT",
+                            "ACCEPTED",
+                            "DECLINED",
+                            "EXPIRED",
+                            "WITHDRAWN"
+                        ],
+                        "description": "Single status override. Defaults to DRAFT+SENT."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return, default 20, max 50."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "pipeline_status_counts",
-        "description": "Aggregate counts of applications by pipeline status, optionally for one job posting.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "job_posting_id": {
-                    "type": "string",
-                    "description": "UUID of a specific job posting to restrict counts to.",
-                },
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "pipeline_status_counts",
+            "description": "Aggregate counts of applications by pipeline status, optionally for one job posting.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "job_posting_id": {
+                        "type": "string",
+                        "description": "UUID of a specific job posting to restrict counts to."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_vacancy_summary",
-        "description": (
-            "High-level vacancy summary: total open positions, urgent vacancy count, and an always-all-3 "
-            "Teaching/Non-Teaching/Housekeeping breakdown. Good first tool for a broad 'how are we doing on "
-            "vacancies' question."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "role_category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter the top-line totals to.",
-                },
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_vacancy_summary",
+            "description": "High-level vacancy summary: total open positions, urgent vacancy count, and an always-all-3 Teaching/Non-Teaching/Housekeeping breakdown. Good first tool for a broad 'how are we doing on vacancies' question.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "role_category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter the top-line totals to."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_department_vacancies",
-        "description": (
-            "Department-level vacancy register rows (working/approved/vacancy counts, filled %, statuses). "
-            "Sorted by vacancy_count descending by default -- use this for 'which departments have the "
-            "highest vacancies' and, with min_vacancy_count, 'departments with more than N vacancies'."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter to.",
-                },
-                "department_id": {"type": "string", "description": "UUID of a specific department."},
-                "min_vacancy_count": {
-                    "type": "integer",
-                    "description": "Only include departments with at least this many vacancies.",
-                },
-                "limit": {"type": "integer", "description": "Max rows to return, default 20, max 50."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_department_vacancies",
+            "description": "Department-level vacancy register rows (working/approved/vacancy counts, filled %, statuses). Sorted by vacancy_count descending by default -- use this for 'which departments have the highest vacancies' and, with min_vacancy_count, 'departments with more than N vacancies'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter to."
+                    },
+                    "department_id": {
+                        "type": "string",
+                        "description": "UUID of a specific department."
+                    },
+                    "min_vacancy_count": {
+                        "type": "integer",
+                        "description": "Only include departments with at least this many vacancies."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return, default 20, max 50."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_campus_vacancy_report",
-        "description": "Vacancy request counts grouped by campus (with a status breakdown per campus).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "role_category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter to.",
-                },
-                "start_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive lower bound."},
-                "end_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive upper bound."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_campus_vacancy_report",
+            "description": "Vacancy request counts grouped by campus (with a status breakdown per campus).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "role_category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter to."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive lower bound."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive upper bound."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_category_vacancy_report",
-        "description": (
-            "Working/approved/vacancy totals grouped by staff role category (always Teaching, Non-Teaching, "
-            "and Housekeeping) -- use this to compare the three categories."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_category_vacancy_report",
+            "description": "Working/approved/vacancy totals grouped by staff role category (always Teaching, Non-Teaching, and Housekeeping) -- use this to compare the three categories.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_sanctioned_vs_working",
-        "description": (
-            "Sanctioned (approved) strength vs. actual working headcount vs. vacancy. Without department_id, "
-            "returns campus/org-wide totals; with department_id, returns that department's own row."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "role_category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter to.",
-                },
-                "department_id": {"type": "string", "description": "UUID of a specific department."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_sanctioned_vs_working",
+            "description": "Sanctioned (approved) strength vs. actual working headcount vs. vacancy. Without department_id, returns campus/org-wide totals; with department_id, returns that department's own row.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "role_category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter to."
+                    },
+                    "department_id": {
+                        "type": "string",
+                        "description": "UUID of a specific department."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_vacancy_approval_status",
-        "description": "Per-department vacancy-request approval status (APPROVAL_PENDING/REJECTED/APPROVED/NO_REQUESTS).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "department_id": {"type": "string", "description": "UUID of a specific department."},
-                "limit": {"type": "integer", "description": "Max rows to return, default 20, max 50."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_vacancy_approval_status",
+            "description": "Per-department vacancy-request approval status (APPROVAL_PENDING/REJECTED/APPROVED/NO_REQUESTS).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "department_id": {
+                        "type": "string",
+                        "description": "UUID of a specific department."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return, default 20, max 50."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_recruitment_pipeline",
-        "description": (
-            "Application pipeline funnel (Applied -> Screening -> Interview -> Selected -> Offer -> Joined -> "
-            "Rejected) plus a per-campus/role-category/status breakdown."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "role_category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter to.",
-                },
-                "start_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive lower bound."},
-                "end_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive upper bound."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_recruitment_pipeline",
+            "description": "Application pipeline funnel (Applied -> Screening -> Interview -> Selected -> Offer -> Joined -> Rejected) plus a per-campus/role-category/status breakdown.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "role_category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter to."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive lower bound."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive upper bound."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_interview_status",
-        "description": (
-            "Interview counts aggregated by campus/role-category/status/type -- for questions like 'how many "
-            "interviews are completed/scheduled/cancelled'. For a literal upcoming-interview list, use "
-            "list_interviews instead."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "role_category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter to.",
-                },
-                "status": {
-                    "type": "string",
-                    "enum": ["SCHEDULED", "COMPLETED", "CANCELLED", "RESCHEDULED"],
-                    "description": "Filter to a single status.",
-                },
-                "start_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive lower bound."},
-                "end_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive upper bound."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_interview_status",
+            "description": "Interview counts aggregated by campus/role-category/status/type -- for questions like 'how many interviews are completed/scheduled/cancelled'. For a literal upcoming-interview list, use list_interviews instead.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "role_category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter to."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "SCHEDULED",
+                            "COMPLETED",
+                            "CANCELLED",
+                            "RESCHEDULED"
+                        ],
+                        "description": "Filter to a single status."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive lower bound."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive upper bound."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_offer_status",
-        "description": (
-            "Offer counts aggregated by campus/role-category/status -- for questions like 'how many offers "
-            "were accepted/declined this month'. For a literal pending-offers list, use list_pending_offers "
-            "instead."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "role_category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter to.",
-                },
-                "status": {
-                    "type": "string",
-                    "enum": ["DRAFT", "SENT", "ACCEPTED", "DECLINED", "EXPIRED", "WITHDRAWN"],
-                    "description": "Filter to a single status.",
-                },
-                "start_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive lower bound."},
-                "end_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive upper bound."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_offer_status",
+            "description": "Offer counts aggregated by campus/role-category/status -- for questions like 'how many offers were accepted/declined this month'. For a literal pending-offers list, use list_pending_offers instead.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "role_category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter to."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "DRAFT",
+                            "SENT",
+                            "ACCEPTED",
+                            "DECLINED",
+                            "EXPIRED",
+                            "WITHDRAWN"
+                        ],
+                        "description": "Filter to a single status."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive lower bound."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive upper bound."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_joining_report",
-        "description": "Joining/onboarding counts aggregated by campus/role-category/onboarding-completion status.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "role_category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter to.",
-                },
-                "start_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive lower bound."},
-                "end_date": {"type": "string", "description": "ISO date (YYYY-MM-DD), inclusive upper bound."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_joining_report",
+            "description": "Joining/onboarding counts aggregated by campus/role-category/onboarding-completion status.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "role_category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter to."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive lower bound."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive upper bound."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_resignation_report",
-        "description": "Resigned-employee counts grouped by campus, department, and role category.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "start_date": {
-                    "type": "string",
-                    "description": "ISO date (YYYY-MM-DD), inclusive lower bound on separation_date.",
-                },
-                "end_date": {
-                    "type": "string",
-                    "description": "ISO date (YYYY-MM-DD), inclusive upper bound on separation_date.",
-                },
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_resignation_report",
+            "description": "Resigned-employee counts grouped by campus, department, and role category.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive lower bound on separation_date."
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "ISO date (YYYY-MM-DD), inclusive upper bound on separation_date."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_open_vacancy_aging",
-        "description": (
-            "How long currently-open published vacancies have been open (days since the job posting was "
-            "published), sorted longest-open first -- use for 'vacancies open for more than N days' with "
-            "min_days_open."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-                "role_category": {
-                    "type": "string",
-                    "enum": ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"],
-                    "description": "Staff role category to filter to.",
-                },
-                "min_days_open": {
-                    "type": "integer",
-                    "description": "Only include postings open at least this many days.",
-                },
-                "limit": {"type": "integer", "description": "Max rows to return, default 20, max 50."},
-            },
-        },
+        "type": "function",
+        "function": {
+            "name": "get_open_vacancy_aging",
+            "description": "How long currently-open published vacancies have been open (days since the job posting was published), sorted longest-open first -- use for 'vacancies open for more than N days' with min_days_open.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    },
+                    "role_category": {
+                        "type": "string",
+                        "enum": [
+                            "TEACHING",
+                            "NON_TEACHING",
+                            "HOUSEKEEPING"
+                        ],
+                        "description": "Staff role category to filter to."
+                    },
+                    "min_days_open": {
+                        "type": "integer",
+                        "description": "Only include postings open at least this many days."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max rows to return, default 20, max 50."
+                    }
+                }
+            }
+        }
     },
     {
-        "name": "get_monthly_recruitment_report",
-        "description": (
-            "Combined one-month snapshot (vacancy request / interview / offer / joining counts) for a "
-            "given month and year -- defaults to the current month if omitted."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "month": {"type": "integer", "description": "1-12. Defaults to the current month."},
-                "year": {"type": "integer", "description": "e.g. 2026. Defaults to the current year."},
-                "campus_code": {
-                    "type": "string",
-                    "description": "Campus code to narrow to. Ignored for single-campus callers.",
-                },
-            },
-        },
-    },
+        "type": "function",
+        "function": {
+            "name": "get_monthly_recruitment_report",
+            "description": "Combined one-month snapshot (vacancy request / interview / offer / joining counts) for a given month and year -- defaults to the current month if omitted.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "month": {
+                        "type": "integer",
+                        "description": "1-12. Defaults to the current month."
+                    },
+                    "year": {
+                        "type": "integer",
+                        "description": "e.g. 2026. Defaults to the current year."
+                    },
+                    "campus_code": {
+                        "type": "string",
+                        "description": "Campus code to narrow to. Ignored for single-campus callers."
+                    }
+                }
+            }
+        }
+    }
 ]
 
 
@@ -1305,7 +1460,10 @@ def run_assistant_query(
     dept_scope = dept_scope or DepartmentScope(is_restricted=False, department_ids=None)
 
     today = datetime.now(timezone.utc).date().isoformat()
-    messages: list[dict] = []
+    # OpenAI has no separate top-level `system` param like Anthropic's
+    # messages.create(system=..., messages=...) -- the system prompt is just
+    # the first message in the list, role "system".
+    messages: list[dict] = [{"role": "system", "content": HERMES_SYSTEM_PROMPT}]
     if conversation_history:
         # Additive (AssistantQueryRequest.conversation_history) -- capped to
         # the last _MAX_CONVERSATION_HISTORY_TURNS entries so a long-running
@@ -1321,17 +1479,17 @@ def run_assistant_query(
     tool_calls: list[tuple[str, dict]] = []
 
     for call_number in range(1, _MAX_TOOL_CALLS + 1):
-        response = ai_client.call_with_tools(
-            client, system=HERMES_SYSTEM_PROMPT, tools=HERMES_TOOL_DEFS, messages=messages
-        )
+        response = ai_client.call_with_tools_openai(client, messages=messages, tools=HERMES_TOOL_DEFS)
+        message = response.choices[0].message if response.choices else None
+        requested_tool_calls = getattr(message, "tool_calls", None) if message is not None else None
 
-        if response.stop_reason != "tool_use":
-            text_block = next((block for block in response.content if block.type == "text"), None)
-            if text_block is None:
+        if not requested_tool_calls:
+            answer = getattr(message, "content", None) if message is not None else None
+            if not answer:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"
                 )
-            return text_block.text, tools_used, _build_actions(tool_calls)
+            return answer, tools_used, _build_actions(tool_calls)
 
         if call_number == _MAX_TOOL_CALLS:
             raise HTTPException(
@@ -1339,30 +1497,43 @@ def run_assistant_query(
                 detail="Could not reach a final answer within the allotted steps",
             )
 
-        messages.append({"role": "assistant", "content": response.content})
-
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            executor = TOOL_EXECUTORS.get(block.name)
-            try:
-                if executor is None:
-                    raise ValueError(f"Unknown tool '{block.name}'")
-                payload = executor(db, scope, dept_scope, block.input or {})
-                tools_used.append(block.name)
-                tool_calls.append((block.name, block.input or {}))
-                tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(payload)})
-            except Exception as exc:
-                tool_results.append(
+        # The assistant's tool-call turn must be echoed back verbatim (per
+        # OpenAI's documented tool-calling shape) before any "tool" role
+        # messages answering it -- unlike Anthropic, each tool result is its
+        # own message (role "tool"), not one message with several content
+        # blocks.
+        messages.append(
+            {
+                "role": "assistant",
+                "content": message.content,
+                "tool_calls": [
                     {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": json.dumps({"error": str(exc)}),
-                        "is_error": True,
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
                     }
-                )
-        messages.append({"role": "user", "content": tool_results})
+                    for tc in requested_tool_calls
+                ],
+            }
+        )
+
+        for tc in requested_tool_calls:
+            tool_name = tc.function.name
+            try:
+                executor = TOOL_EXECUTORS.get(tool_name)
+                if executor is None:
+                    raise ValueError(f"Unknown tool '{tool_name}'")
+                try:
+                    args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Malformed arguments for tool '{tool_name}': {exc}") from exc
+                payload = executor(db, scope, dept_scope, args or {})
+                tools_used.append(tool_name)
+                tool_calls.append((tool_name, args or {}))
+                content = json.dumps(payload)
+            except Exception as exc:
+                content = json.dumps({"error": str(exc)})
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
 
     raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Assistant query failed")
 
@@ -1437,6 +1608,6 @@ points."""
 
 
 def narrate_daily_briefing(client, stats: dict) -> str:
-    return ai_client.generate_narrative(
-        client, system=_DAILY_BRIEFING_SYSTEM_PROMPT, user_content=json.dumps(stats), max_tokens=400
+    return ai_client.generate_narrative_openai(
+        client, system=_DAILY_BRIEFING_SYSTEM_PROMPT, user_content=json.dumps(stats), max_completion_tokens=400
     )

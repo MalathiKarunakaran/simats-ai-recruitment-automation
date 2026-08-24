@@ -2,8 +2,8 @@ import json
 from datetime import timedelta
 from types import SimpleNamespace
 
-import anthropic
 import httpx
+import openai
 import pytest
 from fastapi import HTTPException
 
@@ -12,19 +12,32 @@ from app.models.audit_log import AuditLog
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.services import hermes
 
-from tests.conftest import FakeMessage, FakeTextBlock, FakeToolUseBlock, auth_headers
+from tests.conftest import (
+    FakeOpenAIChoiceMessage,
+    FakeOpenAIResponse,
+    FakeOpenAIToolCall,
+    auth_headers,
+)
+
+
+def _text_response(text: str) -> FakeOpenAIResponse:
+    return FakeOpenAIResponse(FakeOpenAIChoiceMessage(content=text, tool_calls=None))
+
+
+def _tool_call_response(*tool_calls: FakeOpenAIToolCall) -> FakeOpenAIResponse:
+    return FakeOpenAIResponse(FakeOpenAIChoiceMessage(content=None, tool_calls=list(tool_calls)))
 
 
 class _ScriptedClient:
-    """Fake Anthropic client whose messages.create returns a scripted
+    """Fake OpenAI client whose chat.completions.create returns a scripted
     sequence of responses, one per call -- used to drive
-    hermes.run_assistant_query through multi-turn tool-use loops
+    hermes.run_assistant_query through multi-turn tool-calling loops
     deterministically. Records every call's kwargs for inspection."""
 
     def __init__(self, responses):
         self._responses = list(responses)
         self.calls: list[dict] = []
-        self.messages = SimpleNamespace(create=self._create)
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
         self.calls.append(kwargs)
@@ -33,10 +46,21 @@ class _ScriptedClient:
         return self._responses.pop(0)
 
 
-def _last_tool_result_payload(scripted_client: _ScriptedClient, call_index: int, block_index: int = 0) -> dict:
+def _tool_messages(scripted_client: _ScriptedClient, call_index: int) -> list[dict]:
+    """Every `role: tool` message appended after the most recent
+    `role: assistant` tool-calling turn in the given call's `messages` kwarg
+    -- OpenAI's shape appends one `tool` message per tool call (unlike
+    Anthropic's single `user` message carrying a list of tool_result content
+    blocks), so tests must collect them rather than reading one list index."""
     messages = scripted_client.calls[call_index]["messages"]
-    tool_results = messages[-1]["content"]
-    return json.loads(tool_results[block_index]["content"])
+    last_assistant_idx = max(
+        i for i, m in enumerate(messages) if m["role"] == "assistant" and m.get("tool_calls")
+    )
+    return [m for m in messages[last_assistant_idx + 1 :] if m["role"] == "tool"]
+
+
+def _last_tool_result_payload(scripted_client: _ScriptedClient, call_index: int, block_index: int = 0) -> dict:
+    return json.loads(_tool_messages(scripted_client, call_index)[block_index]["content"])
 
 
 def test_single_campus_caller_cannot_see_other_campus_data(db_session, published_vacancy_factory):
@@ -46,10 +70,8 @@ def test_single_campus_caller_cannot_see_other_campus_data(db_session, published
     scope = CampusScope(is_global=False, campus_id=vacancy_sse.campus.id)
     scripted = _ScriptedClient(
         [
-            FakeMessage(
-                content=[FakeToolUseBlock("list_open_vacancies", {"campus_code": "SCAD"})], stop_reason="tool_use"
-            ),
-            FakeMessage(content=[FakeTextBlock("Here is what I found.")], stop_reason="end_turn"),
+            _tool_call_response(FakeOpenAIToolCall("list_open_vacancies", {"campus_code": "SCAD"})),
+            _text_response("Here is what I found."),
         ]
     )
 
@@ -77,10 +99,8 @@ def test_global_caller_narrows_via_campus_code(db_session, published_vacancy_fac
     scope = CampusScope(is_global=True, campus_id=None)
     scripted = _ScriptedClient(
         [
-            FakeMessage(
-                content=[FakeToolUseBlock("list_open_vacancies", {"campus_code": "SCAD"})], stop_reason="tool_use"
-            ),
-            FakeMessage(content=[FakeTextBlock("SCAD only.")], stop_reason="end_turn"),
+            _tool_call_response(FakeOpenAIToolCall("list_open_vacancies", {"campus_code": "SCAD"})),
+            _text_response("SCAD only."),
         ]
     )
 
@@ -99,8 +119,8 @@ def test_global_caller_with_no_campus_code_spans_all_campuses(db_session, publis
     scope = CampusScope(is_global=True, campus_id=None)
     scripted = _ScriptedClient(
         [
-            FakeMessage(content=[FakeToolUseBlock("list_open_vacancies", {})], stop_reason="tool_use"),
-            FakeMessage(content=[FakeTextBlock("Org-wide view.")], stop_reason="end_turn"),
+            _tool_call_response(FakeOpenAIToolCall("list_open_vacancies", {})),
+            _text_response("Org-wide view."),
         ]
     )
 
@@ -118,10 +138,8 @@ def test_invalid_campus_code_from_global_caller_returns_empty_not_error(db_sessi
     scope = CampusScope(is_global=True, campus_id=None)
     scripted = _ScriptedClient(
         [
-            FakeMessage(
-                content=[FakeToolUseBlock("list_open_vacancies", {"campus_code": "ZZZZ"})], stop_reason="tool_use"
-            ),
-            FakeMessage(content=[FakeTextBlock("No such campus.")], stop_reason="end_turn"),
+            _tool_call_response(FakeOpenAIToolCall("list_open_vacancies", {"campus_code": "ZZZZ"})),
+            _text_response("No such campus."),
         ]
     )
 
@@ -137,14 +155,11 @@ def test_parallel_tool_calls_in_one_turn_all_execute(db_session, published_vacan
     scope = CampusScope(is_global=True, campus_id=None)
     scripted = _ScriptedClient(
         [
-            FakeMessage(
-                content=[
-                    FakeToolUseBlock("list_open_vacancies", {}, id="tu_1"),
-                    FakeToolUseBlock("pipeline_status_counts", {}, id="tu_2"),
-                ],
-                stop_reason="tool_use",
+            _tool_call_response(
+                FakeOpenAIToolCall("list_open_vacancies", {}, id="tu_1"),
+                FakeOpenAIToolCall("pipeline_status_counts", {}, id="tu_2"),
             ),
-            FakeMessage(content=[FakeTextBlock("Combined answer.")], stop_reason="end_turn"),
+            _text_response("Combined answer."),
         ]
     )
 
@@ -153,9 +168,9 @@ def test_parallel_tool_calls_in_one_turn_all_execute(db_session, published_vacan
     )
 
     assert set(tools_used) == {"list_open_vacancies", "pipeline_status_counts"}
-    tool_results = scripted.calls[1]["messages"][-1]["content"]
+    tool_results = _tool_messages(scripted, 1)
     assert len(tool_results) == 2
-    assert {r["tool_use_id"] for r in tool_results} == {"tu_1", "tu_2"}
+    assert {r["tool_call_id"] for r in tool_results} == {"tu_1", "tu_2"}
     assert answer == "Combined answer."
 
 
@@ -163,16 +178,16 @@ def test_iteration_cap_raises_502_after_six_calls(db_session, campus_factory):
     # _MAX_TOOL_CALLS was raised from 4 to 6 (app/services/hermes.py) once
     # the reporting-tool set roughly tripled the number of available tools --
     # a compound question can legitimately need more sequential round trips
-    # before Claude has enough to answer. Updated here to match.
+    # before the model has enough to answer. Updated here to match.
     campus_factory("SSE")
     scope = CampusScope(is_global=True, campus_id=None)
     calls: list[dict] = []
 
     def _always_tool_use(**kwargs):
         calls.append(kwargs)
-        return FakeMessage(content=[FakeToolUseBlock("pipeline_status_counts", {})], stop_reason="tool_use")
+        return _tool_call_response(FakeOpenAIToolCall("pipeline_status_counts", {}))
 
-    scripted = SimpleNamespace(messages=SimpleNamespace(create=_always_tool_use))
+    scripted = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_always_tool_use)))
 
     with pytest.raises(HTTPException) as exc_info:
         hermes.run_assistant_query(db_session, scope=scope, client=scripted, question="q", actor_role="HR_ADMIN")
@@ -185,12 +200,12 @@ def test_plain_text_answer_passes_through_without_forcing_a_tool(db_session, cam
     # Renamed from test_reporting_question_passes_through_without_forcing_a_tool
     # -- reporting questions now DO route to a real tool (HERMES_SYSTEM_PROMPT
     # rule 2 was rewritten; reporting is no longer "not available yet"). What
-    # this test actually exercises -- a scripted end_turn text response
+    # this test actually exercises -- a scripted no-tool-call text response
     # passing straight through with zero tool calls -- is unrelated to that
     # wording and still a real behavior worth covering.
     campus_factory("SSE")
     scope = CampusScope(is_global=True, campus_id=None)
-    scripted = _ScriptedClient([FakeMessage(content=[FakeTextBlock("All quiet.")], stop_reason="end_turn")])
+    scripted = _ScriptedClient([_text_response("All quiet.")])
 
     answer, tools_used, actions = hermes.run_assistant_query(
         db_session, scope=scope, client=scripted, question="Any updates?", actor_role="HR_ADMIN"
@@ -202,13 +217,13 @@ def test_plain_text_answer_passes_through_without_forcing_a_tool(db_session, cam
     assert len(scripted.calls) == 1
 
 
-def test_unknown_tool_name_produces_is_error_result_and_loop_continues(db_session, campus_factory):
+def test_unknown_tool_name_produces_error_result_and_loop_continues(db_session, campus_factory):
     campus_factory("SSE")
     scope = CampusScope(is_global=True, campus_id=None)
     scripted = _ScriptedClient(
         [
-            FakeMessage(content=[FakeToolUseBlock("delete_everything", {})], stop_reason="tool_use"),
-            FakeMessage(content=[FakeTextBlock("I can't do that.")], stop_reason="end_turn"),
+            _tool_call_response(FakeOpenAIToolCall("delete_everything", {})),
+            _text_response("I can't do that."),
         ]
     )
 
@@ -218,21 +233,20 @@ def test_unknown_tool_name_produces_is_error_result_and_loop_continues(db_sessio
 
     assert tools_used == []
     assert actions == []
-    tool_results = scripted.calls[1]["messages"][-1]["content"]
-    assert tool_results[0]["is_error"] is True
+    tool_results = _tool_messages(scripted, 1)
     assert "Unknown tool" in json.loads(tool_results[0]["content"])["error"]
     assert answer == "I can't do that."
 
 
-def test_ai_rate_limit_error_maps_to_503(client, user_factory, fake_ai_client):
+def test_ai_rate_limit_error_maps_to_503(client, user_factory, fake_openai_client):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 
     def _raise_rate_limit(**kwargs):
-        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        req = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
         resp = httpx.Response(429, request=req)
-        raise anthropic.RateLimitError("rate limited", response=resp, body=None)
+        raise openai.RateLimitError("rate limited", response=resp, body=None)
 
-    fake_ai_client.messages.create = _raise_rate_limit
+    fake_openai_client.chat.completions.create = _raise_rate_limit
 
     response = client.post(
         "/api/v1/assistant/query", headers=auth_headers(client, hr_admin), json={"question": "Any updates?"}
@@ -240,14 +254,14 @@ def test_ai_rate_limit_error_maps_to_503(client, user_factory, fake_ai_client):
     assert response.status_code == 503
 
 
-def test_ai_connection_error_maps_to_502(client, user_factory, fake_ai_client):
+def test_ai_connection_error_maps_to_502(client, user_factory, fake_openai_client):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 
     def _raise_connection_error(**kwargs):
-        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
-        raise anthropic.APIConnectionError(request=req)
+        req = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+        raise openai.APIConnectionError(request=req)
 
-    fake_ai_client.messages.create = _raise_connection_error
+    fake_openai_client.chat.completions.create = _raise_connection_error
 
     response = client.post(
         "/api/v1/assistant/query", headers=auth_headers(client, hr_admin), json={"question": "Any updates?"}
@@ -255,11 +269,9 @@ def test_ai_connection_error_maps_to_502(client, user_factory, fake_ai_client):
     assert response.status_code == 502
 
 
-def test_candidate_cannot_use_assistant(client, user_factory, fake_ai_client):
+def test_candidate_cannot_use_assistant(client, user_factory, fake_openai_client):
     candidate_user = user_factory(UserRoleEnum.CANDIDATE)
-    fake_ai_client.messages.create = lambda **kwargs: FakeMessage(
-        content=[FakeTextBlock("n/a")], stop_reason="end_turn"
-    )
+    fake_openai_client.chat.completions.create = lambda **kwargs: _text_response("n/a")
 
     response = client.post(
         "/api/v1/assistant/query", headers=auth_headers(client, candidate_user), json={"question": "q"}
@@ -270,11 +282,9 @@ def test_candidate_cannot_use_assistant(client, user_factory, fake_ai_client):
     assert response.status_code == 403
 
 
-def test_hod_can_query_assistant_and_audit_log_is_written(client, user_factory, fake_ai_client, db_session):
+def test_hod_can_query_assistant_and_audit_log_is_written(client, user_factory, fake_openai_client, db_session):
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
-    fake_ai_client.messages.create = lambda **kwargs: FakeMessage(
-        content=[FakeTextBlock("There are no pending approvals.")], stop_reason="end_turn"
-    )
+    fake_openai_client.chat.completions.create = lambda **kwargs: _text_response("There are no pending approvals.")
 
     response = client.post(
         "/api/v1/assistant/query",
@@ -308,15 +318,15 @@ def test_daily_briefing_stats_scoped_per_campus(db_session, published_vacancy_fa
     assert global_stats["scope_note"] == "Global access: results span all campuses."
 
 
-def test_daily_briefing_endpoint_uses_narrative_from_single_call(client, user_factory, fake_ai_client, db_session):
+def test_daily_briefing_endpoint_uses_narrative_from_single_call(client, user_factory, fake_openai_client, db_session):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     calls = []
 
     def _create(**kwargs):
         calls.append(kwargs)
-        return FakeMessage(content=[FakeTextBlock("All quiet today.")], stop_reason="end_turn")
+        return _text_response("All quiet today.")
 
-    fake_ai_client.messages.create = _create
+    fake_openai_client.chat.completions.create = _create
 
     response = client.get("/api/v1/assistant/daily-briefing", headers=auth_headers(client, hr_admin))
     assert response.status_code == 200
@@ -338,8 +348,8 @@ def test_get_vacancy_summary_reports_open_positions_and_actions(db_session, publ
     scope = CampusScope(is_global=True, campus_id=None)
     scripted = _ScriptedClient(
         [
-            FakeMessage(content=[FakeToolUseBlock("get_vacancy_summary", {})], stop_reason="tool_use"),
-            FakeMessage(content=[FakeTextBlock("Summary provided.")], stop_reason="end_turn"),
+            _tool_call_response(FakeOpenAIToolCall("get_vacancy_summary", {})),
+            _text_response("Summary provided."),
         ]
     )
 
@@ -439,18 +449,22 @@ def test_resignation_linkage_fallback_instruction_present_and_no_vacancy_link_to
         "That information is not currently available in the recruitment database."
         in hermes.HERMES_SYSTEM_PROMPT
     )
-    resignation_tool_def = next(t for t in hermes.HERMES_TOOL_DEFS if t["name"] == "get_resignation_report")
+    resignation_tool_def = next(t for t in hermes.HERMES_TOOL_DEFS if t["function"]["name"] == "get_resignation_report")
     # get_resignation_report aggregates resignation *counts* -- it has no
     # vacancy-linking argument, so it (and every other tool) genuinely
     # cannot answer "was this vacancy caused by that resignation".
-    assert "vacancy_request_id" not in resignation_tool_def["input_schema"]["properties"]
-    assert not any("vacancy_request_id" in t["input_schema"]["properties"] for t in hermes.HERMES_TOOL_DEFS if "resignation" in t["name"])
+    assert "vacancy_request_id" not in resignation_tool_def["function"]["parameters"]["properties"]
+    assert not any(
+        "vacancy_request_id" in t["function"]["parameters"]["properties"]
+        for t in hermes.HERMES_TOOL_DEFS
+        if "resignation" in t["function"]["name"]
+    )
 
 
 def test_conversation_history_is_prepended_before_new_question(db_session, campus_factory):
     campus_factory("SSE")
     scope = CampusScope(is_global=True, campus_id=None)
-    scripted = _ScriptedClient([FakeMessage(content=[FakeTextBlock("Sure, following up.")], stop_reason="end_turn")])
+    scripted = _ScriptedClient([_text_response("Sure, following up.")])
 
     history = [
         {"role": "user", "content": "How many vacancies at SSE?"},
@@ -466,10 +480,13 @@ def test_conversation_history_is_prepended_before_new_question(db_session, campu
     )
 
     messages = scripted.calls[0]["messages"]
-    assert messages[0] == {"role": "user", "content": "How many vacancies at SSE?"}
-    assert messages[1] == {"role": "assistant", "content": "There are 3 open vacancies at SSE."}
-    assert messages[2]["role"] == "user"
-    assert "And how many of those are urgent?" in messages[2]["content"]
+    # messages[0] is now the system prompt (OpenAI has no separate top-level
+    # `system` param) -- history turns follow it, ahead of the new question.
+    assert messages[0]["role"] == "system"
+    assert messages[1] == {"role": "user", "content": "How many vacancies at SSE?"}
+    assert messages[2] == {"role": "assistant", "content": "There are 3 open vacancies at SSE."}
+    assert messages[3]["role"] == "user"
+    assert "And how many of those are urgent?" in messages[3]["content"]
     assert answer == "Sure, following up."
     assert tools_used == []
     assert actions == []
@@ -478,7 +495,7 @@ def test_conversation_history_is_prepended_before_new_question(db_session, campu
 def test_conversation_history_is_capped_to_max_turns(db_session, campus_factory):
     campus_factory("SSE")
     scope = CampusScope(is_global=True, campus_id=None)
-    scripted = _ScriptedClient([FakeMessage(content=[FakeTextBlock("ok")], stop_reason="end_turn")])
+    scripted = _ScriptedClient([_text_response("ok")])
 
     history = [{"role": "user", "content": f"turn {i}"} for i in range(20)]
     hermes.run_assistant_query(
@@ -491,24 +508,25 @@ def test_conversation_history_is_capped_to_max_turns(db_session, campus_factory)
     )
 
     messages = scripted.calls[0]["messages"]
-    assert len(messages) == hermes._MAX_CONVERSATION_HISTORY_TURNS + 1
-    assert messages[0]["content"] == f"turn {20 - hermes._MAX_CONVERSATION_HISTORY_TURNS}"
+    # +1 for the system prompt, +1 for the new question, on top of the
+    # capped history turns.
+    assert len(messages) == hermes._MAX_CONVERSATION_HISTORY_TURNS + 2
+    assert messages[1]["content"] == f"turn {20 - hermes._MAX_CONVERSATION_HISTORY_TURNS}"
 
 
 def test_query_assistant_endpoint_accepts_conversation_history_and_returns_actions(
-    client, user_factory, fake_ai_client, published_vacancy_factory
+    client, user_factory, fake_openai_client, published_vacancy_factory
 ):
     published_vacancy_factory(campus_code="SSE", slot_count=1)
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 
     def _create(**kwargs):
-        if kwargs["messages"][-1]["role"] == "user" and isinstance(kwargs["messages"][-1]["content"], str):
-            return FakeMessage(
-                content=[FakeToolUseBlock("get_vacancy_summary", {})], stop_reason="tool_use"
-            )
-        return FakeMessage(content=[FakeTextBlock("Here's the summary.")], stop_reason="end_turn")
+        last_message = kwargs["messages"][-1]
+        if last_message["role"] == "user" and isinstance(last_message["content"], str):
+            return _tool_call_response(FakeOpenAIToolCall("get_vacancy_summary", {}))
+        return _text_response("Here's the summary.")
 
-    fake_ai_client.messages.create = _create
+    fake_openai_client.chat.completions.create = _create
 
     response = client.post(
         "/api/v1/assistant/query",

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-import anthropic
+import openai
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
@@ -22,7 +22,7 @@ from app.schemas.assistant import (
     DailyBriefingStats,
 )
 from app.services import hermes
-from app.services.ai_client import get_ai_client
+from app.services.ai_client import get_openai_client
 from app.services.audit import log_event
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
@@ -42,7 +42,7 @@ def query_assistant(
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
     dept_scope: DepartmentScope = Depends(get_department_scope),
-    ai: anthropic.Anthropic = Depends(get_ai_client),
+    ai: openai.OpenAI = Depends(get_openai_client),
 ) -> AssistantQueryResponse:
     conversation_history = (
         [turn.model_dump() for turn in payload.conversation_history] if payload.conversation_history else None
@@ -82,7 +82,7 @@ def get_daily_briefing(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
-    ai: anthropic.Anthropic = Depends(get_ai_client),
+    ai: openai.OpenAI = Depends(get_openai_client),
 ) -> DailyBriefingResponse:
     stats = hermes.build_daily_briefing_stats(db, scope)
     narrative = hermes.narrate_daily_briefing(ai, stats)
