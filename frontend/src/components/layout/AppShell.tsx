@@ -27,8 +27,10 @@ import {
 import { type ReactNode, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 
+import type { Permission } from "@/api/types";
 import simatsSeal from "@/assets/simats-seal.png";
 import { useAuth } from "@/auth/AuthContext";
+import { AssistantWidget } from "@/components/assistant/AssistantWidget";
 import { CampusSwitcher } from "@/components/layout/CampusSwitcher";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { NotificationBell } from "@/components/layout/NotificationBell";
@@ -47,6 +49,14 @@ interface NavItem {
   icon: typeof LayoutDashboard;
   /** Roles that may see this link at all; undefined means every staff role. */
   visibleForRoles?: string[];
+  /** Bug fix (2026-08-24): an item is ALSO shown if the current user has been
+   * individually granted this permission via the Permission Matrix, even
+   * when their role isn't in visibleForRoles -- previously a granted
+   * permission had no effect on nav visibility at all, so e.g. a
+   * RECRUITMENT_COORDINATOR given MANAGE_USERS could call the API but never
+   * saw the "Users" link to get there. Additive: doesn't change any
+   * already-visible-by-role item's behavior. */
+  visibleForPermission?: Permission;
 }
 
 interface NavGroup {
@@ -131,8 +141,11 @@ const NAV_GROUPS: NavGroup[] = [
         to: "/users",
         label: "Users",
         icon: UserCog,
-        // Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES.
+        // Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES, PLUS anyone
+        // individually granted MANAGE_USERS via the Permission Matrix (bug
+        // fix 2026-08-24 -- see NavItem.visibleForPermission's own comment).
         visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN"],
+        visibleForPermission: "MANAGE_USERS",
       },
       {
         to: "/eligibility-rules",
@@ -226,12 +239,19 @@ const QUICK_ACTIONS: { label: string; to: string; visibleForRoles?: string[] }[]
 ];
 
 export function AppShell({ children }: { children?: ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+
+  function isNavItemVisible(item: { visibleForRoles?: string[]; visibleForPermission?: Permission }): boolean {
+    if (!item.visibleForRoles && !item.visibleForPermission) return true;
+    const roleMatch = Boolean(item.visibleForRoles && user && item.visibleForRoles.includes(user.role));
+    const permissionMatch = Boolean(item.visibleForPermission && (hasPermission?.(item.visibleForPermission) ?? false));
+    return roleMatch || permissionMatch;
+  }
 
   const visibleGroups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !item.visibleForRoles || (user && item.visibleForRoles.includes(user.role))),
+    items: group.items.filter(isNavItemVisible),
   })).filter((group) => group.items.length > 0);
 
   const visibleQuickActions = QUICK_ACTIONS.filter(
@@ -239,10 +259,15 @@ export function AppShell({ children }: { children?: ReactNode }) {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background p-3">
+    <div className="app-canvas flex h-screen overflow-hidden p-3">
       <aside
         className={cn(
-          "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-[width] duration-300 ease-out",
+          // Enterprise HRMS sidebar redesign (2026-08-23): fixed dark-navy
+          // chrome (--sidebar-* tokens, index.css) regardless of the app's
+          // own light/dark theme toggle -- a recolor of this existing
+          // structure, not a restructure; every nav item/group/route/icon and
+          // the collapse behavior below are unchanged.
+          "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-sidebar-border bg-sidebar-background text-sidebar-foreground shadow-sm transition-[width] duration-300 ease-out",
           collapsed ? "w-[76px]" : "w-64",
         )}
       >
@@ -255,24 +280,25 @@ export function AppShell({ children }: { children?: ReactNode }) {
               expressed as Tailwind classes instead of a new global CSS rule.
               The outer span is the gradient disc; padding (2.5px) is the
               ring's visible thickness, and the inner span paints over the
-              gradient's center with the card surface so only a thin colored
-              border reads, not a filled disc -- verified against both
-              --card values (light #ffffff, dark #1e293b) since that's what
-              makes the ring legible rather than a solid blob. Purely a
+              gradient's center -- re-pointed from bg-card to
+              bg-sidebar-background (2026-08-23) so the "hole" matches this
+              sidebar's own fixed dark-navy chrome instead of the app's
+              light/dark --card, which would otherwise render as a mismatched
+              white/slate disc against the new navy background. Purely a
               wrapper around the existing <img>; collapsed/expanded behavior
               (this mark stays visible either way) is unchanged. */}
           <span
             className="grid h-9 w-9 shrink-0 place-items-center rounded-full p-[2.5px]"
             style={{ background: "var(--brand-signature-gradient)" }}
           >
-            <span className="grid h-full w-full place-items-center rounded-full bg-card">
+            <span className="grid h-full w-full place-items-center rounded-full bg-sidebar-background">
               <img src={simatsSeal} alt="SIMATS" className="h-full w-full object-contain" />
             </span>
           </span>
           {!collapsed ? (
             <div className="leading-tight">
-              <div className="font-display text-sm font-bold tracking-normal">SIMATS</div>
-              <div className="text-[11px] text-muted-foreground">Recruitment</div>
+              <div className="font-display text-sm font-bold tracking-normal text-sidebar-foreground">SIMATS</div>
+              <div className="text-[11px] text-sidebar-foreground-muted">Recruitment</div>
             </div>
           ) : null}
         </div>
@@ -281,7 +307,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
           {visibleGroups.map((group) => (
             <div key={group.label ?? "top"} className="flex flex-col gap-0.5">
               {group.label && !collapsed ? (
-                <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-sidebar-foreground-muted uppercase">
                   {group.label}
                 </div>
               ) : null}
@@ -292,10 +318,22 @@ export function AppShell({ children }: { children?: ReactNode }) {
                   title={collapsed ? item.label : undefined}
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm text-foreground/70 transition-colors duration-200 hover:bg-brand-primary-light hover:text-primary",
+                      // Inactive: light navy-tinted text at 70% opacity,
+                      // brightening to full --sidebar-foreground on hover
+                      // with a subtle lighter-navy hover wash (replaces the
+                      // old light-mode `hover:bg-brand-primary-light
+                      // hover:text-primary`, which would render as a pale
+                      // wash barely visible against this dark background).
+                      "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm text-sidebar-foreground/70 transition-colors duration-200 hover:bg-white/10 hover:text-sidebar-foreground",
                       collapsed && "justify-center px-0",
                       isActive &&
-                        "bg-gradient-to-r from-primary to-brand-secondary font-medium text-primary-foreground shadow-sm hover:from-primary hover:to-brand-secondary hover:text-primary-foreground",
+                        // Active pill keeps its signature gradient treatment
+                        // (from --sidebar-active-background, which is just
+                        // --brand-primary, to --brand-secondary) -- white
+                        // pill text already clears AA against this gradient
+                        // regardless of the sidebar's own background color,
+                        // so no further contrast changes needed here.
+                        "bg-gradient-to-r from-[var(--sidebar-active-background)] to-brand-secondary font-medium text-primary-foreground shadow-sm hover:from-[var(--sidebar-active-background)] hover:to-brand-secondary hover:text-primary-foreground",
                     )
                   }
                 >
@@ -307,11 +345,14 @@ export function AppShell({ children }: { children?: ReactNode }) {
           ))}
         </nav>
 
-        <div className="border-t border-border p-3">
+        <div className="border-t border-sidebar-border p-3">
           <Button
             variant="ghost"
             size="sm"
-            className={cn("w-full", collapsed && "px-0")}
+            className={cn(
+              "w-full text-sidebar-foreground hover:bg-white/10 hover:text-sidebar-foreground",
+              collapsed && "px-0",
+            )}
             onClick={() => setCollapsed((c) => !c)}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
@@ -368,6 +409,14 @@ export function AppShell({ children }: { children?: ReactNode }) {
           <div className="mx-auto w-full max-w-[1600px] p-8">{children ?? <Outlet />}</div>
         </main>
       </div>
+
+      {/* Module 14 "Hermes" assistant -- mounted once here (not per-page) so
+          it's a persistent floating affordance across every authenticated
+          page, the same way NotificationBell/ThemeToggle live in the header
+          rather than each page. Hides itself for CANDIDATE (mirrors
+          assistant.py's own _staff_only gate) and renders nothing until
+          `user` resolves. */}
+      <AssistantWidget />
     </div>
   );
 }

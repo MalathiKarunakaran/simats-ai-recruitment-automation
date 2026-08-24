@@ -182,22 +182,29 @@ describe("DashboardPage", () => {
     expect(screen.getByText("7")).toBeInTheDocument();
   });
 
+  // UI redesign (2026-08-23): the 3 Sanctioned Strength tiles moved into the
+  // page's primary KPI row and were relabeled to match the new spec ("Total
+  // Sanctioned"/"Working"/"Vacancies") -- scoped to the primary-kpi-grid
+  // container since "Working" is also, by design, one of the mini-stat
+  // labels inside each of the 3 new Category Summary cards further down the
+  // page (a real, deliberate text collision, not a bug).
   it("renders the 3 Sanctioned Strength tiles (approved/working/vacancy) from the API response", async () => {
     mockKpis();
 
     renderWithProviders();
 
-    expect(screen.getByText("Sanctioned approved")).toBeInTheDocument();
-    expect(screen.getByText("Sanctioned working")).toBeInTheDocument();
-    expect(screen.getByText("Sanctioned vacancy")).toBeInTheDocument();
+    const primaryGrid = screen.getByTestId("primary-kpi-grid");
+    expect(within(primaryGrid).getByText("Total Sanctioned")).toBeInTheDocument();
+    expect(within(primaryGrid).getByText("Working")).toBeInTheDocument();
+    expect(within(primaryGrid).getByText("Vacancies")).toBeInTheDocument();
     // Unscoped (no category tab selected) values from mockKpis' default --
     // scoped to each tile's own card (not a bare page-wide getByText) since
     // small integers also coincidentally show up as chart axis-tick labels
     // elsewhere on the page; wait for the query to resolve (labels render
     // immediately even while loading, values don't).
-    const approvedTile = screen.getByText("Sanctioned approved").closest(".rounded-xl") as HTMLElement;
-    const workingTile = screen.getByText("Sanctioned working").closest(".rounded-xl") as HTMLElement;
-    const vacancyTile = screen.getByText("Sanctioned vacancy").closest(".rounded-xl") as HTMLElement;
+    const approvedTile = within(primaryGrid).getByText("Total Sanctioned").closest(".rounded-xl") as HTMLElement;
+    const workingTile = within(primaryGrid).getByText("Working").closest(".rounded-xl") as HTMLElement;
+    const vacancyTile = within(primaryGrid).getByText("Vacancies").closest(".rounded-xl") as HTMLElement;
     expect(await within(approvedTile).findByText("25")).toBeInTheDocument();
     expect(within(workingTile).getByText("19")).toBeInTheDocument();
     expect(within(vacancyTile).getByText("6")).toBeInTheDocument();
@@ -212,22 +219,24 @@ describe("DashboardPage", () => {
     // the unrelated "Rejected vs withdrawn" bar chart's own label) -- the
     // real minus sign must survive rendering on *this* tile specifically, not
     // silently drop the "net overstaffed" meaning documented in reporting.py.
-    const title = await screen.findByText("Sanctioned vacancy");
+    const primaryGrid = await screen.findByTestId("primary-kpi-grid");
+    const title = await within(primaryGrid).findByText("Vacancies");
     const tile = title.closest(".rounded-xl") as HTMLElement;
     expect(await within(tile).findByText("-4")).toBeInTheDocument();
     expect(within(tile).queryByText("4")).not.toBeInTheDocument();
   });
 
-  it("shows the Sanctioned vacancy tooltip explaining the signed-net meaning", async () => {
+  it("shows the Vacancies tooltip explaining the signed-net meaning", async () => {
     mockKpis();
     renderWithProviders();
 
-    await waitFor(() => expect(screen.getByText("Sanctioned vacancy")).toBeInTheDocument());
+    const primaryGrid = screen.getByTestId("primary-kpi-grid");
+    await waitFor(() => expect(within(primaryGrid).getByText("Vacancies")).toBeInTheDocument());
     const tooltips = screen.getAllByRole("tooltip");
     expect(tooltips.some((t) => /Negative means net overstaffed overall/.test(t.textContent ?? ""))).toBe(true);
   });
 
-  it("shows the exactly-staffed zero caption on Sanctioned vacancy instead of the generic 'No activity' text", async () => {
+  it("shows the exactly-staffed zero caption on Vacancies instead of the generic 'No activity' text", async () => {
     mockKpis({ sanctioned_vacancy_total: 0 });
     renderWithProviders();
 
@@ -307,14 +316,17 @@ describe("DashboardPage", () => {
     await waitFor(() => expect(screen.queryByText("42")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByText("12").length).toBeGreaterThan(0));
 
-    // The Sanctioned Strength tiles narrow along with the rest of the KPI
-    // strip -- unscoped 25/19/6 replaced by the category-scoped 8/6/2 (see
-    // mockKpis' own roleCategory branching above). Scoped to each tile's own
-    // card (not a bare page-wide getByText) -- small integers like 8 also
-    // coincidentally show up as chart axis-tick labels elsewhere on the page.
-    const approvedTile = screen.getByText("Sanctioned approved").closest(".rounded-xl") as HTMLElement;
-    const workingTile = screen.getByText("Sanctioned working").closest(".rounded-xl") as HTMLElement;
-    const vacancyTile = screen.getByText("Sanctioned vacancy").closest(".rounded-xl") as HTMLElement;
+    // The Sanctioned Strength tiles (now in the primary KPI row, labeled
+    // "Total Sanctioned"/"Working"/"Vacancies") narrow along with the rest of
+    // the KPI strip -- unscoped 25/19/6 replaced by the category-scoped 8/6/2
+    // (see mockKpis' own roleCategory branching above). Scoped to the
+    // primary-kpi-grid container -- "Working" is also, by design, a mini-stat
+    // label inside each of the 3 Category Summary cards further down the
+    // page.
+    const primaryGrid = screen.getByTestId("primary-kpi-grid");
+    const approvedTile = within(primaryGrid).getByText("Total Sanctioned").closest(".rounded-xl") as HTMLElement;
+    const workingTile = within(primaryGrid).getByText("Working").closest(".rounded-xl") as HTMLElement;
+    const vacancyTile = within(primaryGrid).getByText("Vacancies").closest(".rounded-xl") as HTMLElement;
     expect(within(approvedTile).queryByText("25")).not.toBeInTheDocument();
     expect(within(approvedTile).getByText("8")).toBeInTheDocument();
     expect(within(workingTile).getByText("6")).toBeInTheDocument();
@@ -326,33 +338,49 @@ describe("DashboardPage", () => {
     expect(teachingRowAfter).toBe(teachingRowBefore);
   });
 
-  it("renders the campus-wise hiring chart with a legend and keeps the exact numbers visible in an adjacent table", async () => {
-    mockKpis();
+  // Follow-up patch (2026-08-23): the donut now has one slice per campus
+  // (value = hired + open + in-progress for that campus) instead of 3
+  // status-aggregate slices, with a hand-rolled per-campus legend
+  // ("code: count (percentage%)") and a center label showing the grand
+  // total across every campus.
+  it("renders one donut slice per campus with a per-campus legend, a center total, and keeps the exact numbers visible in an adjacent table", async () => {
+    mockKpis({
+      campus_wise_hiring: [
+        { campus_code: "SSE", hired_count: 5, open_count: 1, in_progress_count: 3 },
+        { campus_code: "SCLAS", hired_count: 2, open_count: 0, in_progress_count: 1 },
+      ],
+    });
 
     renderWithProviders();
 
     await waitFor(() => expect(screen.getByTestId("campus-hiring-chart")).toBeInTheDocument());
 
-    // Grouped bar chart has 3 series, so it needs a legend (scoped to the
-    // chart itself -- "Hired"/"Open" also appear as adjacent table headers).
+    // Legend: one entry per campus (SSE total = 9, SCLAS total = 3, grand
+    // total = 12), scoped to the chart itself.
     const chart = screen.getByTestId("campus-hiring-chart");
-    expect(within(chart).getByText("Hired")).toBeInTheDocument();
-    expect(within(chart).getByText("Open")).toBeInTheDocument();
-    expect(within(chart).getByText("In progress")).toBeInTheDocument();
+    expect(within(chart).getByText(/SSE.*9.*75\.0%/)).toBeInTheDocument();
+    expect(within(chart).getByText(/SCLAS.*3.*25\.0%/)).toBeInTheDocument();
 
-    // The exact numbers stay visible in an adjacent table (there are 2
-    // tables now the split card is one too -- disambiguate by content).
+    // Center label shows the grand total across every campus.
+    expect(within(chart).getByText("12")).toBeInTheDocument();
+    expect(within(chart).getByText("Total")).toBeInTheDocument();
+
+    // The exact per-status numbers stay visible in an adjacent table (there
+    // are 2 tables now the split card is one too -- disambiguate by
+    // content).
     const tables = screen.getAllByRole("table");
     const campusTable = tables.find((t) => within(t).queryByText("SSE"));
     expect(campusTable).toBeDefined();
     expect(within(campusTable!).getByText("5")).toBeInTheDocument();
   });
 
-  // UI redesign Phase 2: exactly one tile on this page consumes StatTile's
-  // `hero` prop (the gradient ring/glow, marked via `data-hero="true"` on
-  // the underlying Card) -- total_applications, and no other KPI tile
-  // (including the Phase I Sanctioned Strength trio).
-  it("marks only the Total applications tile as the hero KPI tile", async () => {
+  // UI redesign (2026-08-23): exactly one tile on this page consumes
+  // StatTile's `hero` prop (the gradient ring/glow, marked via
+  // `data-hero="true"` on the underlying Card) -- the "Vacancies" primary KPI
+  // tile (sanctioned_vacancy_total), the one the redesign spec calls out as
+  // this page's single visually prominent tile. Moved here from "Total
+  // applications" (Phase 2's original hero tile), which is no longer hero.
+  it("marks only the Vacancies tile as the hero KPI tile", async () => {
     mockKpis();
     const { container } = renderWithProviders();
 
@@ -360,7 +388,7 @@ describe("DashboardPage", () => {
 
     const heroTiles = container.querySelectorAll('[data-hero="true"]');
     expect(heroTiles).toHaveLength(1);
-    expect(within(heroTiles[0] as HTMLElement).getByText("Total applications")).toBeInTheDocument();
+    expect(within(heroTiles[0] as HTMLElement).getByText("Vacancies")).toBeInTheDocument();
   });
 
   it("shows an error message when the request fails", async () => {
@@ -418,11 +446,13 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Joinings today")).toBeInTheDocument();
   });
 
-  it("shows the Open positions tooltip's precise definition on focus", async () => {
+  // Renamed from "Open positions" to "Active Recruitment" (UI redesign,
+  // 2026-08-23) -- same tile, same underlying open_positions field/tooltip.
+  it("shows the Active Recruitment tooltip's precise definition on focus", async () => {
     mockKpis();
     renderWithProviders();
 
-    await waitFor(() => expect(screen.getByText("Open positions")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Active Recruitment")).toBeInTheDocument());
     // Text is present twice by design: a visually-hidden sr-only span (for
     // screen readers, always in the DOM) and the visible hover/focus bubble
     // (role="tooltip") -- both carry the same definition. Multiple tiles now
@@ -469,12 +499,15 @@ describe("DashboardPage", () => {
 
     renderWithProviders();
 
-    // Source-wise split (empty array), category-wise split (3 rows, all
-    // zero -- can't use a `.length === 0` check like the widget beside it),
-    // and the recruitment pipeline funnel (all 7 stages zeroed above) all
-    // show the same reusable empty-state message here.
-    expect(await screen.findAllByText("No applications in this scope yet.")).toHaveLength(3);
+    // Source-wise split (empty array) and category-wise split (3 rows, all
+    // zero -- can't use a `.length === 0` check like the widget beside it)
+    // both show the same reusable empty-state message here.
+    expect(await screen.findAllByText("No applications in this scope yet.")).toHaveLength(2);
     expect(screen.getByText("No rejections or withdrawals in this scope yet.")).toBeInTheDocument();
+    // Recruitment pipeline (Requested/Approved/Published all 0 from the
+    // default empty vacancy-requests list, funnel stages all zeroed above)
+    // shows its own distinct empty-state copy -- see recruitmentPipelineData.
+    expect(screen.getByText("No vacancy requests or applications in this scope yet.")).toBeInTheDocument();
     // Only the source-wise and rejected-vs-withdrawn bar charts still exist;
     // category-wise split never renders a bar chart anymore.
     expect(screen.queryAllByTestId("category-bar-chart")).toHaveLength(0);
@@ -502,22 +535,39 @@ describe("DashboardPage", () => {
     expect(await screen.findByText("No urgent vacancies right now")).toBeInTheDocument();
   });
 
-  it("renders the recruitment pipeline funnel's 7 stages in the exact backend order, not re-sorted", async () => {
+  // UI redesign (2026-08-23, dashboard/sidebar redesign): the Recruitment
+  // pipeline card's stages changed from the raw application funnel
+  // (Applied -> ... -> Rejected) to a literal 7-stage view mixing vacancy
+  // requests (Requested/Approved/Published) with the application funnel
+  // (Screening onward) -- see DashboardPage.tsx's own recruitmentPipelineData
+  // comment for the exact per-stage computation.
+  it("renders the recruitment pipeline's 7 stages (vacancy-request stages first, then the application funnel) in order", async () => {
     mockKpis();
+    mockedListVacancyRequests.mockResolvedValue(MIXED_STATUS_VACANCY_REQUESTS);
 
     renderWithProviders();
 
-    const funnelChart = await screen.findByLabelText("Recruitment pipeline funnel");
+    const pipelineChart = await screen.findByLabelText("Recruitment pipeline");
     // recharts renders each YAxis category tick as its own <text> node --
     // read them back in DOM order and assert against the fixed stage order,
     // not just that all 7 labels are present somewhere.
-    const tickTexts = within(funnelChart)
-      .getAllByText(/^(Applied|Screening|Interview|Selected|Offer|Joined|Rejected)$/)
+    const tickTexts = within(pipelineChart)
+      .getAllByText(/^(Requested|Approved|Published|Screening|Interview|Selected|Joined)$/)
       .map((node) => node.textContent);
-    expect(tickTexts).toEqual(["Applied", "Screening", "Interview", "Selected", "Offer", "Joined", "Rejected"]);
-    // Real counts from the mock, not hard-coded/rendered arbitrarily.
-    expect(await within(funnelChart).findByText("143")).toBeInTheDocument();
-    expect(within(funnelChart).getByText("53")).toBeInTheDocument();
+    expect(tickTexts).toEqual(["Requested", "Approved", "Published", "Screening", "Interview", "Selected", "Joined"]);
+
+    // Requested = 8 total - 1 DRAFT = 7; Approved = APPROVED+PUBLISHED+CLOSED
+    // = 3; Published = PUBLISHED+CLOSED = 2 (see MIXED_STATUS_VACANCY_REQUESTS
+    // above -- distinct numbers so none of these assertions can pass by
+    // accident). Screening/Interview/Selected/Joined come straight from
+    // REAL_SHAPE_FUNNEL's mock counts.
+    expect(await within(pipelineChart).findByText("7")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("3")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("2")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("98")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("61")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("37")).toBeInTheDocument();
+    expect(within(pipelineChart).getByText("17")).toBeInTheDocument();
   });
 
   it("renders the Critical vacancies table with real mocked rows", async () => {
@@ -535,6 +585,37 @@ describe("DashboardPage", () => {
     const hkRow = within(table).getByText("Housekeeping").closest("tr")!;
     expect(within(hkRow).getByText("Block A")).toBeInTheDocument();
     expect(within(hkRow).getByText("2")).toBeInTheDocument();
+  });
+
+  // UI redesign (2026-08-23): Priority is a client-side bucketing of
+  // vacancy_count into thirds -- with only 2 rows (REAL_SHAPE_CRITICAL_VACANCIES),
+  // computeCriticalVacancyPriorities' own "fewer than 3 rows" rule makes both
+  // "High" (there's no meaningful middle/low tier to carve out of 2 rows).
+  // Status is a hardcoded "Open" on every row (critical_vacancies only ever
+  // contains open/understaffed rows by construction), not a fetched field.
+  it("shows Priority and Status badges on every Critical vacancies row, computed/constant respectively", async () => {
+    mockKpis();
+
+    renderWithProviders();
+
+    const table = await screen.findByRole("table", { name: "Critical vacancies" });
+    const csRow = (await within(table).findByText("Computer Science")).closest("tr")!;
+    const hkRow = within(table).getByText("Housekeeping").closest("tr")!;
+
+    expect(within(csRow).getByText("High")).toBeInTheDocument();
+    expect(within(hkRow).getByText("High")).toBeInTheDocument();
+    expect(within(csRow).getByText("Open")).toBeInTheDocument();
+    expect(within(hkRow).getByText("Open")).toBeInTheDocument();
+  });
+
+  it("shows a View All link on the Critical vacancies card pointing at Sanctioned Strength", async () => {
+    mockKpis();
+
+    renderWithProviders();
+
+    await screen.findByRole("table", { name: "Critical vacancies" });
+    const viewAllLinks = screen.getAllByRole("link", { name: "View All" });
+    expect(viewAllLinks.some((link) => link.getAttribute("href") === "/sanctioned-strength")).toBe(true);
   });
 
   it("shows the genuinely-good-news empty state when there are no critical vacancies", async () => {

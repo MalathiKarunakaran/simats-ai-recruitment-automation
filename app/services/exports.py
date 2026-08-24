@@ -43,6 +43,7 @@ _REPORT_FIELDS: dict[str, list[str]] = {
         "already_requested",
         "over_by",
     ],
+    "resignations": ["campus_code", "department_name", "role_category", "count"],
 }
 
 

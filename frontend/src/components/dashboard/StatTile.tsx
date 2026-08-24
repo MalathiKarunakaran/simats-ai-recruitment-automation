@@ -1,9 +1,26 @@
-import { Info } from "lucide-react";
+import { Info, type LucideIcon } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-export type StatAccent = "gold" | "green" | "orange" | "red" | "none";
+export type StatAccent = "gold" | "green" | "orange" | "red" | "blue" | "none";
+
+// Enterprise HRMS dashboard redesign (2026-08-23) -- colored icon-chip
+// treatment, additive to (not a replacement for) the left-border accent
+// stripe above. Deliberately its own small palette rather than reusing
+// StatAccent 1:1 -- "purple" (the new --brand-purple analytics accent) has no
+// equivalent border accent today, and not every accent maps 1:1 to an icon
+// tone the way the brief describes ("blue=neutral, green=success,
+// purple=analytics, orange=warning, red=urgent").
+export type StatIconColor = "blue" | "green" | "purple" | "orange" | "red";
+
+const ICON_CHIP_CLASSES: Record<StatIconColor, string> = {
+  blue: "bg-brand-primary/10 text-brand-primary",
+  green: "bg-brand-success/10 text-brand-success",
+  purple: "bg-brand-purple/10 text-brand-purple",
+  orange: "bg-brand-warning/10 text-brand-warning",
+  red: "bg-brand-danger/10 text-brand-danger",
+};
 
 // "gold" is kept as a StatAccent name for call-site backward compatibility
 // (DashboardPage picks accents by this string) but now renders the brand's
@@ -17,11 +34,18 @@ export type StatAccent = "gold" | "green" | "orange" | "red" | "none";
 // `hero` (below) remains the only "extra-loud" treatment on this page, and
 // it's reserved for exactly one tile by its own contract, so a tile is never
 // both hero and red.
+// "blue" (Executive Dashboard redesign, 2026-08-23) -- the app's fixed color
+// spec's "normal/neutral" tone (index.css's --brand-primary, already used
+// everywhere else for primary actions/focus rings), added for KPI tiles that
+// are neither a success/warning/danger signal, just a normal headcount/count
+// figure (e.g. "Total Sanctioned", "Active Recruitment"). No existing call
+// site used a "blue" accent before this addition, so this is purely additive.
 const ACCENT_BORDER: Record<StatAccent, string> = {
   gold: "border-l-brand-secondary",
   green: "border-l-brand-success",
   orange: "border-l-brand-warning",
   red: "border-l-brand-danger",
+  blue: "border-l-primary",
   none: "",
 };
 
@@ -50,6 +74,30 @@ interface StatTileProps {
    * DashboardPage's other 8 tiles) renders exactly as before with no prop
    * change required. Purely decorative: never affects content layout. */
   hero?: boolean;
+  /** "default" (unchanged) renders this tile's original full-size Card
+   * layout -- every existing call site (StrengthKpiSummary,
+   * VacancyRequestsListPage, DashboardPage's own primary KPI row) keeps that
+   * look with no prop change required. "compact" (Executive Dashboard
+   * redesign, 2026-08-23) shrinks the padding/type scale for DashboardPage's
+   * secondary stat strip -- 7 lower-priority metrics deliberately
+   * de-emphasized below the 6 primary KPI tiles -- while keeping the exact
+   * same Card structure/classes (`rounded-xl`, the left accent stripe, hero
+   * ring) so every existing accent/tooltip/zero-caption/hero behavior and
+   * its tests keep working unchanged, just at a smaller footprint. */
+  size?: "default" | "compact";
+  /** Optional colored icon chip rendered at the top-right of the tile's
+   * header (Enterprise HRMS dashboard redesign, 2026-08-23) -- purely
+   * additive: every pre-existing `<StatTile>` call site across the app
+   * (VacancyRequestsListPage, StrengthKpiSummary, this page's own tiles that
+   * don't pass one) omits this prop and renders exactly as before, no icon
+   * chip at all. */
+  icon?: LucideIcon;
+  /** Tone for the icon chip above -- defaults to "blue" when `icon` is set
+   * without an explicit color. Independent of `accent` (the left-border
+   * stripe) on purpose: a tile can have a blue border but a purple
+   * "analytics" icon, or vice versa, per the redesign's own per-metric color
+   * choices. */
+  iconColor?: StatIconColor;
 }
 
 export function StatTile({
@@ -60,9 +108,13 @@ export function StatTile({
   zeroCaption,
   tooltip,
   hero = false,
+  size = "default",
+  icon: Icon,
+  iconColor = "blue",
 }: StatTileProps) {
   const isZero = !isLoading && (value === 0 || value === "0");
   const isEmpty = !isLoading && (value === null || value === undefined);
+  const isCompact = size === "compact";
 
   const tile = (
     <Card
@@ -77,6 +129,10 @@ export function StatTile({
         !hero && accent !== "none" && "border-l-4",
         !hero && ACCENT_BORDER[accent],
         hero && "border-transparent",
+        // Compact tiles don't need the default hover-lift affordance of a
+        // full dashboard card -- they read as small inline stats/chips, not
+        // clickable-feeling panels.
+        isCompact && "hover:translate-y-0 hover:shadow-[var(--shadow-card)]",
       )}
     >
       {hero ? (
@@ -91,8 +147,8 @@ export function StatTile({
           style={{ background: "var(--brand-signature-gradient)" }}
         />
       ) : null}
-      <CardHeader className="relative flex flex-row items-center gap-1 p-3 pb-1">
-        <CardTitle className="text-[11px] leading-tight">{label}</CardTitle>
+      <CardHeader className={cn("relative flex flex-row items-center gap-1", isCompact ? "p-2 pb-0.5" : "p-3 pb-1")}>
+        <CardTitle className={cn("leading-tight", isCompact ? "text-[10px]" : "text-[11px]")}>{label}</CardTitle>
         {tooltip ? (
           <span tabIndex={0} className="group relative inline-flex shrink-0 outline-none">
             <Info className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
@@ -105,13 +161,25 @@ export function StatTile({
             </span>
           </span>
         ) : null}
+        {Icon ? (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "ml-auto flex shrink-0 items-center justify-center rounded-full",
+              isCompact ? "h-5 w-5" : "h-6 w-6",
+              ICON_CHIP_CLASSES[iconColor],
+            )}
+          >
+            <Icon className={isCompact ? "h-3 w-3" : "h-3.5 w-3.5"} />
+          </span>
+        ) : null}
       </CardHeader>
-      <CardContent className="relative p-3 pt-0">
+      <CardContent className={cn("relative", isCompact ? "p-2 pt-0" : "p-3 pt-0")}>
         {isLoading ? (
           <div
             role="status"
             aria-label={`Loading ${label}`}
-            className="h-6 w-12 animate-pulse rounded bg-muted"
+            className={cn("animate-pulse rounded bg-muted", isCompact ? "h-4 w-10" : "h-6 w-12")}
           />
         ) : isEmpty ? (
           // "Not enough data yet" (not a bare "—") -- an em-dash alone reads
@@ -120,7 +188,9 @@ export function StatTile({
           <span className="text-xs font-medium text-muted-foreground">Not enough data yet</span>
         ) : (
           <>
-            <span className="font-display text-xl font-bold tabular-nums">{value}</span>
+            <span className={cn("font-display font-bold tabular-nums", isCompact ? "text-sm" : "text-xl")}>
+              {value}
+            </span>
             {isZero && zeroCaption ? <p className="mt-0.5 text-[10px] text-muted-foreground">{zeroCaption}</p> : null}
           </>
         )}

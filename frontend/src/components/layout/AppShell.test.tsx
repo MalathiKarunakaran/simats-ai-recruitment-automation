@@ -46,7 +46,7 @@ window.matchMedia =
       dispatchEvent: vi.fn(),
     }) as unknown as MediaQueryList);
 
-function mockAuth(role: UserRole) {
+function mockAuth(role: UserRole, hasPermission: (permission: string) => boolean = () => false) {
   mockedUseAuth.mockReturnValue({
     user: { role, full_name: "Test User", campus_id: "c-1" } as UserRead,
     isLoading: false,
@@ -54,6 +54,7 @@ function mockAuth(role: UserRole) {
     requestOtp: vi.fn(),
     loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    hasPermission,
   });
 }
 
@@ -117,5 +118,28 @@ describe("AppShell nav", () => {
 
     const link = await screen.findByRole("link", { name: /Sanctioned Strength/ });
     expect(link).toHaveAttribute("href", "/sanctioned-strength");
+  });
+
+  // Bug fix (2026-08-24): a RECRUITMENT_COORDINATOR individually granted
+  // MANAGE_USERS via the Permission Matrix could call the backend API (it
+  // correctly checks require_permission(MANAGE_USERS)) but never saw the
+  // "Users" nav link at all -- visibility only ever checked role against
+  // the hardcoded visibleForRoles allowlist. These two tests lock in the
+  // fix (visibleForPermission consulting the real granted-permission set)
+  // without changing the existing role-only behavior for anyone else.
+  it("hides Users from a RECRUITMENT_COORDINATOR with no MANAGE_USERS grant (unchanged prior behavior)", async () => {
+    mockAuth("RECRUITMENT_COORDINATOR");
+    renderShell();
+
+    await waitFor(() => expect(screen.getByRole("navigation")).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
+  });
+
+  it("shows Users to a RECRUITMENT_COORDINATOR individually granted MANAGE_USERS", async () => {
+    mockAuth("RECRUITMENT_COORDINATOR", (permission) => permission === "MANAGE_USERS");
+    renderShell();
+
+    const link = await screen.findByRole("link", { name: "Users" });
+    expect(link).toHaveAttribute("href", "/users");
   });
 });

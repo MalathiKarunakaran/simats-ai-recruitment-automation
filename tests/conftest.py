@@ -199,19 +199,47 @@ class FakeAnthropicClient:
         return self.response_provider(kwargs)
 
 
+class FakeOpenAIFunctionCall:
+    """Fake for an OpenAI tool call's nested `.function` -- `arguments` is a
+    JSON-encoded *string*, matching the real API (callers must json.loads it
+    themselves, unlike Anthropic's already-parsed tool_use.input dict)."""
+
+    def __init__(self, name: str, arguments: str):
+        self.name = name
+        self.arguments = arguments
+
+
+class FakeOpenAIToolCall:
+    """Fake for one entry of `response.choices[0].message.tool_calls` --
+    used by app/services/hermes.py's Module 14 tool-calling loop tests.
+    `arguments` is given here as a plain dict and JSON-encoded internally."""
+
+    def __init__(self, name: str, arguments: dict, id: str | None = None):
+        self.id = id or f"call_{uuid.uuid4().hex[:16]}"
+        self.type = "function"
+        self.function = FakeOpenAIFunctionCall(name, json.dumps(arguments))
+
+
 class FakeOpenAIChoiceMessage:
-    def __init__(self, content: str):
+    def __init__(self, content: str | None = None, tool_calls: list | None = None):
         self.content = content
+        self.tool_calls = tool_calls
 
 
 class FakeOpenAIChoice:
-    def __init__(self, content: str):
-        self.message = FakeOpenAIChoiceMessage(content)
+    def __init__(self, message: FakeOpenAIChoiceMessage):
+        self.message = message
 
 
 class FakeOpenAIResponse:
-    def __init__(self, content: str):
-        self.choices = [FakeOpenAIChoice(content)]
+    """Takes a `FakeOpenAIChoiceMessage` directly (not a raw content string)
+    so both plain-text and tool-call responses share one constructor --
+    `_default_openai_response` below still builds it from a text/JSON
+    string, unchanged for existing JD-gen/resume-scoring/interview-question
+    callers."""
+
+    def __init__(self, message: FakeOpenAIChoiceMessage):
+        self.choices = [FakeOpenAIChoice(message)]
 
 
 def _default_openai_response(kwargs: dict) -> FakeOpenAIResponse:
@@ -253,7 +281,7 @@ def _default_openai_response(kwargs: dict) -> FakeOpenAIResponse:
         }
     else:
         payload = {}
-    return FakeOpenAIResponse(json.dumps(payload))
+    return FakeOpenAIResponse(FakeOpenAIChoiceMessage(content=json.dumps(payload)))
 
 
 class FakeOpenAIClient:

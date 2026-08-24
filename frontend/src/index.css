@@ -22,16 +22,31 @@
      mismatched green tint next to a blue border/text. */
   --brand-primary-light: #eff6ff;
   --brand-secondary: #14b8a6;
-  --brand-success: #10b981;
+  /* Enterprise HRMS dashboard redesign (2026-08-23) -- a dedicated
+     "analytics" accent, distinct from --brand-plum/-plum-bright above (which
+     stay exactly as-is for their existing outline-badge use). Spent on
+     analytics-flavored KPI tiles (e.g. Avg. time to hire, Vacancy closure
+     rate) via StatTile's new icon-chip treatment. */
+  --brand-purple: #7c3aed;
+  /* User-specified exact value (2026-08-23 dashboard/sidebar redesign) --
+     shifted from emerald-500 to green-600, a deliberate global tone change
+     for every --brand-success consumer (badges, toasts, StatTile's green
+     accent, RecentActivityFeed's join dot, etc.), not a bug. */
+  --brand-success: #16a34a;
   --brand-warning: #f59e0b;
   /* Yellow-500 -- a genuinely distinct hue from --brand-warning's orange,
      for the Vacancy Register's "Approval Pending" badge (badge.tsx's
      `caution` variant), which needs to read as neither "success" nor the
      already-used "warning" orange. Defined once (no separate `.dark`
      override), matching --brand-success/-warning/-danger/-info's existing
-     pattern -- dark-mode legibility for badges comes from Tailwind's
-     `dark:bg-*/20 dark:text-[...]` utility overrides directly in badge.tsx,
-     not from the CSS variable itself changing. */
+     pattern -- dark-mode legibility for badges comes from Tailwind's own
+     dark-variant background/text utility overrides directly in badge.tsx,
+     not from the CSS variable itself changing. (Careful editing this
+     comment: a literal asterisk-slash sequence anywhere in here closes
+     this CSS comment early and corrupts every declaration below it --
+     that exact bug shipped undetected from 2026-08-22 until found live in
+     production on 2026-08-23, silently dropping --brand-primary/
+     -secondary/-success/-warning/-caution from the compiled CSS.) */
   --brand-caution: #eab308;
   --brand-danger: #ef4444;
   --brand-info: #3b82f6;
@@ -41,7 +56,15 @@
   --brand-plum: #6b4c8a;
   --brand-plum-bright: #a687c4;
 
-  --background: #f8fafc;
+  /* Premium background pass (2026-08-23, user spec: "Modern premium
+     enterprise HRMS background"). Shifted from a neutral slate (#f8fafc) to
+     a very light cool blue-white -- still the solid fallback consumed by
+     the plain `bg-background` utility (Input/Textarea/Select/Button-outline
+     fills, index.css's own `body` rule), which benefits the same way: a
+     hair cooler/bluer than pure --card white, reading as "premium cool
+     white" rather than gray, and giving those form-control fills a touch
+     more contrast against the white cards they usually sit inside. */
+  --background: #eef4fb;
   --foreground: #111827;
   /* New middle text tier ("Body" in the spec) -- not yet the default for
      --muted-foreground (see index.css commit note); adopt via
@@ -134,6 +157,38 @@
      ring's "inner surface = --card" trick and the glow's low opacity
      (~0.18) don't depend on which theme --card resolves to. */
   --brand-signature-gradient: linear-gradient(135deg, #0d9488 0%, #6b4c8a 52%, #b45309 100%);
+
+  /* Premium background pass (2026-08-23, user spec): the actual page
+     canvas -- AppShell.tsx's outer shell wrapper (the one div behind the
+     whole app; sidebar/header/every page's cards all float on top of it)
+     uses this via the .app-canvas class below instead of the plain
+     bg-background utility, since a gradient can't be expressed through a
+     background-color-only utility. Two very low-opacity radial "ambient"
+     glows in the top-right/bottom-left corners (blue/teal, matching
+     --brand-primary/--brand-secondary) sit over a soft diagonal
+     light-blue-to-white wash. Deliberately restrained -- large soft radii,
+     alpha under 0.06 -- so it reads as ambient light, not a colored panel.
+     Light-theme only by design (see .dark's override below): the user's
+     spec was explicit that dark mode isn't the target of this pass. */
+  --background-gradient:
+    radial-gradient(1100px circle at 100% -10%, rgba(37, 99, 235, 0.055), transparent 55%),
+    radial-gradient(1100px circle at -10% 110%, rgba(20, 184, 166, 0.05), transparent 55%),
+    linear-gradient(155deg, #eaf1fb 0%, #f5f9fc 55%, #ffffff 100%);
+
+  /* Sidebar chrome tokens (Enterprise HRMS sidebar redesign, 2026-08-23) --
+     fixed dark-navy chrome for AppShell.tsx's aside, deliberately declared
+     only once here (not re-declared under .dark below): this is fixed app
+     chrome, common in enterprise dashboards, not a themed surface, so it
+     stays this same dark navy regardless of whichever light/dark mode the
+     rest of the app is in. Foreground/muted-foreground pass AA against this
+     background (white-ish text on near-black navy). Active background reuses
+     --brand-primary rather than a second hardcoded hex, so it tracks the
+     app's one real primary color automatically. */
+  --sidebar-background: #0f172a;
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-foreground-muted: #94a3b8;
+  --sidebar-active-background: var(--brand-primary);
+  --sidebar-border: #1e293b;
 }
 
 .dark {
@@ -190,6 +245,11 @@
      theme's teal, not a light-mode color bleeding through. */
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px -12px rgba(0, 0, 0, 0.55);
   --shadow-card-hover: 0 1px 2px rgba(0, 0, 0, 0.35), 0 20px 40px -14px rgba(20, 184, 166, 0.28);
+
+  /* Premium background pass (2026-08-23): explicitly NOT applied here --
+     dark mode keeps its plain solid --background exactly as before, this
+     pass is scoped to the light theme only (see :root's own comment). */
+  --background-gradient: var(--background);
 }
 
 @theme inline {
@@ -223,6 +283,13 @@
   --color-brand-info: var(--brand-info);
   --color-brand-plum: var(--brand-plum);
   --color-brand-plum-bright: var(--brand-plum-bright);
+  --color-brand-purple: var(--brand-purple);
+
+  --color-sidebar-background: var(--sidebar-background);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-foreground-muted: var(--sidebar-foreground-muted);
+  --color-sidebar-active-background: var(--sidebar-active-background);
+  --color-sidebar-border: var(--sidebar-border);
 
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -282,6 +349,13 @@
 body {
   margin: 0;
   @apply bg-background text-foreground font-sans text-sm;
+}
+
+/* Premium background pass (2026-08-23): consumed by AppShell.tsx's outer
+   shell wrapper in place of the plain bg-background utility -- see
+   --background-gradient's own comment in :root for why. */
+.app-canvas {
+  background: var(--background-gradient);
 }
 
 h1 {

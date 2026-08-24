@@ -36,9 +36,14 @@ assuming a page exists.
 Backend (`requirements.txt`): FastAPI (>=0.115), SQLAlchemy 2.0 (>=2.0.36),
 Alembic (>=1.14), `psycopg[binary]` (>=3.2), Pydantic v2 (>=2.9) +
 pydantic-settings, PyJWT (>=2.9), `argon2-cffi` (Argon2id password hashing),
-`anthropic` SDK (>=0.40, model `claude-opus-4-8` — Module 14 "Hermes" only),
+`anthropic` SDK (>=0.40 — still a dependency, but dormant: `ai_client.py`'s
+Anthropic call functions are unused code since Module 14 "Hermes" was
+ported to OpenAI 2026-08-24 (no Anthropic key was available; kept in place
+in case Anthropic is reintroduced later, not deleted),
 `openai` SDK (>=1.55, model `gpt-4o` — JD generation/resume scoring/interview
-questions), `pypdf`, `minio`, `chromadb`, `openpyxl`, `python-pptx`, `qrcode`.
+questions, **and Module 14 "Hermes" as of 2026-08-24**, including its
+tool-calling reporting chatbot), `pypdf`, `minio`, `chromadb`, `openpyxl`,
+`python-pptx`, `qrcode`.
 Python 3.14 (see `Dockerfile`). Postgres 16.
 
 Frontend (`frontend/package.json`): React 19.2, Vite 8, TypeScript ~6.0 (project
@@ -170,8 +175,28 @@ FastAPI-injectable dependencies overridden with in-memory fakes in
 
 ## Known gaps (be honest about these, don't paper over them)
 
-- No live AI API keys configured in this dev environment — AI endpoints
-  return 503 until `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` are set.
+- No live `ANTHROPIC_API_KEY` anywhere (local dev or production) — moot for
+  Module 14 "Hermes" since its 2026-08-24 port to OpenAI, but still means
+  no other Anthropic-backed feature could be added without one.
+  `OPENAI_API_KEY` **is** configured in production (JD generation, resume
+  scoring, interview questions, and now Hermes all work live there) but is
+  not set in local `.env` — those endpoints return 503 in local dev until
+  it's added there too.
 - No GitHub Actions CI — no `.github/workflows/` exists yet.
-- `DEPLOYMENT.md`'s runbook was verified locally via Docker, never against a
-  real remote VPS.
+- **Resolved 2026-08-23**: `DEPLOYMENT.md`'s runbook is now verified live —
+  `backend`, `frontend`, `postgres`, `minio`, `chromadb` all run in
+  production via `docker-compose.yml` on a Hostinger VPS
+  (`srv1922215.hstgr.cloud`), reachable at `https://api.malathi.io` and
+  `https://app.malathi.io`. The reverse proxy (Caddy) is a pre-existing
+  host-level install on that VPS, not managed by this repo's tooling —
+  see `DEPLOYMENT.md` section 6 before assuming a from-scratch
+  reverse-proxy setup has been exercised end-to-end. That section also
+  documents a real incident (2026-08-23, resolved): `app.malathi.io`'s
+  Caddy block was serving a stale on-disk static snapshot instead of
+  proxying to the `frontend` container, so container rebuilds silently
+  never reached the live domain — check there first if a deploy looks
+  "done" but a live domain doesn't reflect it.
+- The production frontend Docker build uses `npm install`, not `npm ci` —
+  the committed `package-lock.json` was generated on Windows, and `npm
+  ci`'s strict lockfile-fidelity check miscomputes native optional
+  binaries (Rolldown/lightningcss) when installing on Linux (npm/cli#4828).

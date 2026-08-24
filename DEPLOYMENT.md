@@ -1,12 +1,13 @@
 # Deployment Runbook
 
 This is a Docker-based deployment guide for the SIMATS AI Recruitment
-Automation System. It was written and verified in Phase 7 by actually
-building and running the full stack locally via Docker — **no real VPS
-was available in the environment this was built in**, so this has not
-been run against a live remote server. Follow this runbook when a real
-VPS becomes available; every command here is exactly what was used for
-local verification, just pointed at `localhost` instead of a real host.
+Automation System. Written in Phase 7 and verified locally via Docker at
+the time; **since verified for real** against the production VPS
+(`srv1922215.hstgr.cloud`, a Hostinger KVM 2 instance) on 2026-08-23 --
+`backend`, `frontend`, `postgres`, `minio`, and `chromadb` are all live
+there via `docker-compose.yml`, reachable at `https://api.malathi.io` and
+`https://app.malathi.io` respectively. Every command here is the real one
+used for that deployment.
 
 ## Prerequisites
 
@@ -34,14 +35,20 @@ Edit `.env` for production:
 ## 2. Build and start the stack
 
 ```bash
-docker compose build backend
+docker compose build
 docker compose up -d
 ```
 
-This starts `postgres`, `minio`, `chromadb`, and `backend` (the FastAPI
-app). `backend`'s entrypoint (`scripts/docker-entrypoint.sh`) runs
-`alembic upgrade head` automatically before starting the server — no
-separate migration step needed on first boot or subsequent deploys.
+This starts `postgres`, `minio`, `chromadb`, `backend` (the FastAPI app),
+and `frontend` (the built React app, served by nginx). `backend`'s
+entrypoint (`scripts/docker-entrypoint.sh`) runs `alembic upgrade head`
+automatically before starting the server — no separate migration step
+needed on first boot or subsequent deploys.
+
+`frontend`'s `VITE_API_BASE_URL` build arg is baked into the static
+bundle at build time (Vite inlines `import.meta.env.*`, it isn't read at
+container start) — set it to your real API domain, e.g.
+`https://api.your-domain.com/api/v1`, before building for production.
 
 By default `backend` runs with **4 uvicorn workers** (see
 `scripts/docker-entrypoint.sh` and `LOAD_TEST_RESULTS.md` for why — a
@@ -60,10 +67,11 @@ default in the `postgres:16-alpine` image used here).
 curl http://localhost:8010/health          # {"status": "ok"}
 curl http://localhost:8010/docs            # Swagger UI
 curl http://localhost:8010/openapi.json -o openapi.json   # static snapshot, if wanted
+curl http://localhost:8011/                # frontend index.html
 ```
 
-(Port `8010` per `docker-compose.yml`'s host mapping — adjust if you
-changed it.)
+(Ports `8010`/`8011` per `docker-compose.yml`'s host mappings -- adjust
+if you changed them.)
 
 ## 4. Seed data (optional, first run only)
 
@@ -93,19 +101,47 @@ export format wasn't available when this was built). Every imported row
 lands as a `DRAFT` vacancy request for human review; nothing is
 auto-submitted or auto-published.
 
-## 6. Reverse proxy / TLS (not deployed here, example only)
+## 6. Reverse proxy / TLS
 
 This app should sit behind a reverse proxy that terminates TLS and
-forwards to `backend`'s port `8000` (internal) / `8010` (host-mapped).
-Example using Caddy (simplest option — automatic Let's Encrypt, no manual
-cert management):
+forwards to `backend`'s port `8000` (internal) / `8010` (host-mapped) and
+`frontend`'s port `80` (internal) / `8011` (host-mapped). On the
+production VPS this is a **host-level Caddy install, not managed by this
+repo or its `docker-compose.yml`** (it predates the frontend/backend
+container split and isn't version-controlled here):
 
 ```
 # /etc/caddy/Caddyfile
 api.your-domain.com {
     reverse_proxy localhost:8010
 }
+
+app.your-domain.com {
+    reverse_proxy localhost:8011
+}
 ```
+
+**Known incident (2026-08-23, resolved)**: `app.your-domain.com`'s block
+was actually configured as `root * /opt/simats/app/frontend/dist` +
+`file_server` — serving a one-time static snapshot from disk instead of
+proxying to the `frontend` container. Every `frontend` image rebuild
+landed in the Docker container just fine but never touched that on-disk
+folder, so the live domain silently kept serving an increasingly stale
+build (missing CSS custom properties from later commits, causing
+invisible white-on-white buttons) while direct container access
+(`http://<vps-ip>:8011`) always showed the current one. Fixed by
+switching that block to `reverse_proxy localhost:8011`, matching
+`api.your-domain.com`'s already-correct pattern (backed up as
+`/etc/caddy/Caddyfile.bak-<timestamp>` on the VPS). If a deploy is ever
+"done" per this file but a live domain doesn't reflect it, checking
+`/etc/caddy/Caddyfile` for a stray `file_server`/`root` block instead of
+`reverse_proxy` is the first thing to rule out.
+
+A Docker-based `caddy` service (build-context Caddyfile, `443:443` only)
+was tried first and abandoned once the host-level proxy was found (and,
+after the fix above, confirmed to actually work) -- see git history if
+that approach is ever needed again (e.g. on a fresh VPS with no
+pre-existing proxy).
 
 `app/core/security_headers.py`'s middleware only adds `Strict-Transport-
 Security` when it sees `X-Forwarded-Proto: https` (or a direct HTTPS
@@ -130,11 +166,16 @@ way (volume snapshot, or `mc mirror` to another bucket/host).
 docker compose logs -f backend
 ```
 
-## Known limitation of this runbook
+## Known limitations of this runbook
 
-Everything above was verified by building and running the full stack
-**locally** (not on a remote VPS — none was available/authorized in this
-environment). The commands are the real ones used; only the target host
-changes for a real deployment. Treat step 2's Docker build and step 3's
-verification as proven; treat the reverse-proxy/TLS section as guidance,
-since no real domain/certificate was involved in verification.
+- The `frontend` service's `npm ci` fails outright in this VPS's build
+  sandbox (Windows-generated `package-lock.json` + a Linux build target,
+  a known npm bug — npm/cli#4828) — `frontend/Dockerfile` uses `npm
+  install` instead. If regenerating the lockfile on Linux at some point,
+  `npm ci` can likely go back to being the stricter, faster choice.
+- Steps 1–5 and the frontend build/serve piece of step 6 have now been
+  verified for real on the production VPS (see the top of this file).
+  The **reverse proxy itself** (Caddy) was verified only as a pre-existing
+  host-level install discovered live, not deployed by this repo's tooling
+  — a from-scratch reverse-proxy setup on a brand new VPS with nothing
+  already listening on 80/443 has not been exercised end-to-end.
