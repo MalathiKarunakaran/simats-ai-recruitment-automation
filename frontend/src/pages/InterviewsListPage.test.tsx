@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -103,6 +103,19 @@ function renderPage() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+// Step 6 KPI strip -- same "scope getAllByText to the element actually
+// inside a StatTile Card" convention as CandidatesListPage.test.tsx's own
+// getKpiTile helper (see that file's docstring); no known label collision
+// on this page today (InterviewScheduleStatus badges render the raw
+// upper-case enum value, e.g. "SCHEDULED", never the tile's own
+// sentence-case "Scheduled"), kept consistent in case that ever changes.
+function getKpiTile(label: string): HTMLElement {
+  const matches = screen.getAllByText(label);
+  const tile = matches.map((el) => el.closest(".rounded-xl")).find((el): el is HTMLElement => el !== null);
+  if (!tile) throw new Error(`No KPI tile found for label "${label}"`);
+  return tile;
 }
 
 describe("InterviewsListPage", () => {
@@ -253,5 +266,59 @@ describe("InterviewsListPage", () => {
 
     expect(screen.getByText("Jane Doe")).toBeInTheDocument();
     expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
+  });
+
+  it("shows KPI tiles reflecting total/scheduled/completed/cancelled-or-rescheduled counts, narrowed by the currently active filters", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN", id: "u-1" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    const completed: InterviewScheduleRead = { ...INTERVIEW, id: "int-2", application_id: "app-2", status: "COMPLETED" };
+    const cancelled: InterviewScheduleRead = { ...INTERVIEW, id: "int-3", application_id: "app-3", status: "CANCELLED" };
+    const rescheduled: InterviewScheduleRead = {
+      ...INTERVIEW,
+      id: "int-4",
+      application_id: "app-4",
+      status: "RESCHEDULED",
+    };
+    // INTERVIEW itself ("int-1") is SCHEDULED, for app-1/Jane Doe.
+    mockedListInterviews.mockResolvedValue([INTERVIEW, completed, cancelled, rescheduled]);
+    mockedListApplications.mockResolvedValue([
+      APPLICATION,
+      { ...APPLICATION, id: "app-2", candidate_id: "cand-2" },
+      { ...APPLICATION, id: "app-3", candidate_id: "cand-3" },
+      { ...APPLICATION, id: "app-4", candidate_id: "cand-4" },
+    ]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "Completed Candidate", email: "c@example.com" },
+      { ...CANDIDATE, id: "cand-3", full_name: "Cancelled Candidate", email: "x@example.com" },
+      { ...CANDIDATE, id: "cand-4", full_name: "Rescheduled Candidate", email: "re@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    expect(within(getKpiTile("Total interviews")).getByText("4")).toBeInTheDocument();
+    expect(within(getKpiTile("Scheduled")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Completed")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Cancelled / Rescheduled")).getByText("2")).toBeInTheDocument();
+
+    // Narrowing via search narrows the KPI strip identically -- only Jane
+    // Doe's own SCHEDULED interview matches "jane".
+    await userEvent.type(screen.getByPlaceholderText("Search by candidate or position"), "jane");
+
+    expect(within(getKpiTile("Total interviews")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Scheduled")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Completed")).getByText("0")).toBeInTheDocument();
+    expect(within(getKpiTile("Cancelled / Rescheduled")).getByText("0")).toBeInTheDocument();
   });
 });

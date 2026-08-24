@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -83,6 +83,18 @@ function renderPage() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+// Step 6 KPI strip -- same "scope getAllByText to the element actually
+// inside a StatTile Card" convention as CandidatesListPage.test.tsx's own
+// getKpiTile helper (see that file's docstring); no known label collision
+// on this page today, but kept consistent in case one of these labels ever
+// matches a StatusBadge/Select option string later.
+function getKpiTile(label: string): HTMLElement {
+  const matches = screen.getAllByText(label);
+  const tile = matches.map((el) => el.closest(".rounded-xl")).find((el): el is HTMLElement => el !== null);
+  if (!tile) throw new Error(`No KPI tile found for label "${label}"`);
+  return tile;
 }
 
 describe("ApplicationsListPage", () => {
@@ -237,5 +249,55 @@ describe("ApplicationsListPage", () => {
     await userEvent.type(screen.getByPlaceholderText("Search by candidate or position"), "nonexistent");
 
     expect(await screen.findByText("No applications match these filters.")).toBeInTheDocument();
+  });
+
+  it("shows funnel-stage KPI tiles reflecting the currently filtered rows, one bucket per application status", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    // One application per funnel bucket: APPLIED (applied), SCREENING (in
+    // review), OFFER_SENT (selected/offer), JOINED (joined), REJECTED
+    // (rejected/withdrawn) -- see the page's own IN_REVIEW_STATUSES/
+    // SELECTED_OR_OFFER_STATUSES/JOINED_STATUSES/REJECTED_OR_WITHDRAWN_STATUSES.
+    const inReview: ApplicationRead = { ...APPLICATION, id: "app-2", candidate_id: "cand-2", status: "SCREENING" };
+    const selectedOrOffer: ApplicationRead = { ...APPLICATION, id: "app-3", candidate_id: "cand-3", status: "OFFER_SENT" };
+    const joined: ApplicationRead = { ...APPLICATION, id: "app-4", candidate_id: "cand-4", status: "JOINED" };
+    const rejected: ApplicationRead = { ...APPLICATION, id: "app-5", candidate_id: "cand-5", status: "REJECTED" };
+    mockedListApplications.mockResolvedValue([APPLICATION, inReview, selectedOrOffer, joined, rejected]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "Screening Candidate", email: "s@example.com" },
+      { ...CANDIDATE, id: "cand-3", full_name: "Offer Candidate", email: "o@example.com" },
+      { ...CANDIDATE, id: "cand-4", full_name: "Joined Candidate", email: "j@example.com" },
+      { ...CANDIDATE, id: "cand-5", full_name: "Rejected Candidate", email: "r@example.com" },
+    ]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    expect(within(getKpiTile("Total applications")).getByText("5")).toBeInTheDocument();
+    expect(within(getKpiTile("Applied")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("In review")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Selected / Offer")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Joined")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Rejected / Withdrawn")).getByText("1")).toBeInTheDocument();
+
+    // Narrowing via search narrows the KPI strip identically -- only Jane
+    // Doe's own APPLIED row matches "jane".
+    await userEvent.type(screen.getByPlaceholderText("Search by candidate or position"), "jane");
+
+    expect(within(getKpiTile("Total applications")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("Applied")).getByText("1")).toBeInTheDocument();
+    expect(within(getKpiTile("In review")).getByText("0")).toBeInTheDocument();
+    expect(within(getKpiTile("Joined")).getByText("0")).toBeInTheDocument();
   });
 });

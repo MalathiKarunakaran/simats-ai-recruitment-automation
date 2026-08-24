@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { CalendarCheck, CalendarClock, CalendarDays, CalendarX } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -8,15 +9,27 @@ import { listCandidates } from "@/api/candidates";
 import { listInterviews } from "@/api/interviews";
 import type { InterviewScheduleStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { StatTile } from "@/components/dashboard/StatTile";
 import { StatusBadge } from "@/components/interviews/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
 const STATUSES: InterviewScheduleStatus[] = ["SCHEDULED", "COMPLETED", "CANCELLED", "RESCHEDULED"];
 const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+
+const TOTAL_COLUMN_COUNT = 5;
+
+// KPI strip's "cancelled/rescheduled" bucket -- CANCELLED and RESCHEDULED
+// are the two non-"still on the calendar", non-"already happened" outcomes
+// of InterviewScheduleStatus, grouped into one tile per this step's brief
+// ("total, scheduled (upcoming), completed, cancelled/rescheduled"). Every
+// InterviewScheduleStatus maps to exactly one of these 4 tiles, so
+// scheduled+completed+cancelledOrRescheduled always equals total.
+const CANCELLED_OR_RESCHEDULED_STATUSES: InterviewScheduleStatus[] = ["CANCELLED", "RESCHEDULED"];
 
 export function InterviewsListPage() {
   const { user } = useAuth();
@@ -48,6 +61,18 @@ export function InterviewsListPage() {
     );
   });
 
+  // KPI strip -- derived from `filteredInterviews`, the exact rows the
+  // table below renders, so every tile reflects the status/campus/search/
+  // "my interviews only" filters currently applied (same convention as the
+  // KPI strips added to CandidatesListPage/ApplicationsListPage in this
+  // same step).
+  const interviewRows = filteredInterviews ?? [];
+  const scheduledCount = interviewRows.filter((i) => i.status === "SCHEDULED").length;
+  const completedCount = interviewRows.filter((i) => i.status === "COMPLETED").length;
+  const cancelledOrRescheduledCount = interviewRows.filter((i) =>
+    CANCELLED_OR_RESCHEDULED_STATUSES.includes(i.status),
+  ).length;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -57,6 +82,19 @@ export function InterviewsListPage() {
             <Link to="/interviews/new">Schedule interview</Link>
           </Button>
         ) : null}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatTile label="Total interviews" value={interviewRows.length} isLoading={isLoading} icon={CalendarDays} iconColor="blue" />
+        <StatTile label="Scheduled" value={scheduledCount} isLoading={isLoading} icon={CalendarClock} iconColor="purple" />
+        <StatTile label="Completed" value={completedCount} isLoading={isLoading} accent="green" icon={CalendarCheck} iconColor="green" />
+        <StatTile
+          label="Cancelled / Rescheduled"
+          value={cancelledOrRescheduledCount}
+          isLoading={isLoading}
+          icon={CalendarX}
+          iconColor="red"
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -107,57 +145,62 @@ export function InterviewsListPage() {
       </div>
 
       {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
-          empty/table states, not just the loaded table. */}
+          empty/table states, not just the loaded table. Design-system-
+          foundation step 6: the hand-rolled <table>/<thead>/<tbody> markup
+          itself is now the shared Table primitive (see components/ui/table.tsx),
+          same swap SanctionedStrengthPage/VacancyRequestsListPage made in
+          steps 4-5 -- every column's exact content/formatting carries over
+          unchanged, only the element names changed. Interviews' own
+          calendar/agenda view is explicitly out of scope for this step (see
+          this step's own report) -- still a filterable list only. */}
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
-          ) : !filteredInterviews || filteredInterviews.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">
-              {interviews && interviews.length > 0
-                ? "No interviews match these filters."
-                : "No interviews in this scope yet."}
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Candidate</th>
-                    <th className="py-2 font-medium">Position</th>
-                    <th className="py-2 font-medium">Type</th>
-                    <th className="py-2 font-medium">Scheduled</th>
-                    <th className="py-2 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredInterviews.map((interview) => {
-                    const application = applications?.find((a) => a.id === interview.application_id);
-                    const candidate = application
-                      ? candidates?.find((c) => c.id === application.candidate_id)
-                      : undefined;
-                    const label = application ? getLabel(application.job_posting_id) : undefined;
-                    return (
-                      <tr key={interview.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                        <td className="py-2">
-                          <Link to={`/interviews/${interview.id}`} className="font-medium hover:underline">
-                            {candidate?.full_name ?? "Unknown candidate"}
-                          </Link>
-                          <div className="text-xs text-muted-foreground">{candidate?.email}</div>
-                        </td>
-                        <td className="py-2">{label?.positionTitle ?? "—"}</td>
-                        <td className="py-2">{interview.interview_type.replace(/_/g, " ")}</td>
-                        <td className="py-2">{new Date(interview.scheduled_at).toLocaleString()}</td>
-                        <td className="py-2">
-                          <StatusBadge status={interview.status} />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Candidate</TableHead>
+                <TableHead>Position</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Scheduled</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT} loading />
+              ) : !filteredInterviews || filteredInterviews.length === 0 ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT}>
+                  {interviews && interviews.length > 0
+                    ? "No interviews match these filters."
+                    : "No interviews in this scope yet."}
+                </TableEmpty>
+              ) : (
+                filteredInterviews.map((interview) => {
+                  const application = applications?.find((a) => a.id === interview.application_id);
+                  const candidate = application
+                    ? candidates?.find((c) => c.id === application.candidate_id)
+                    : undefined;
+                  const label = application ? getLabel(application.job_posting_id) : undefined;
+                  return (
+                    <TableRow key={interview.id}>
+                      <TableCell>
+                        <Link to={`/interviews/${interview.id}`} className="font-medium hover:underline">
+                          {candidate?.full_name ?? "Unknown candidate"}
+                        </Link>
+                        <div className="text-xs text-muted-foreground">{candidate?.email}</div>
+                      </TableCell>
+                      <TableCell>{label?.positionTitle ?? "—"}</TableCell>
+                      <TableCell>{interview.interview_type.replace(/_/g, " ")}</TableCell>
+                      <TableCell>{new Date(interview.scheduled_at).toLocaleString()}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={interview.status} />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
