@@ -10,7 +10,10 @@ import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
+
+const RANKED_CANDIDATES_COLUMN_COUNT = 5;
 
 const DISTRIBUTE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 const SUPPORTED_PORTALS: JobPortal[] = ["LINKEDIN", "INDEED", "NAUKRI", "FACULTYPLUS"];
@@ -199,47 +202,42 @@ export function JobPostingDetailPage() {
             region), rather than CardContent's default p-6 padding doubling
             up with the table's own per-cell padding. */}
         <CardContent className="p-0">
-          {!rankedCandidates || rankedCandidates.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">No applications for this posting yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Candidate</th>
-                    <th className="py-2 font-medium">Status</th>
-                    <th className="py-2 font-medium">Overall score</th>
-                    <th className="py-2 font-medium">Eligibility score</th>
-                    <th className="py-2 font-medium">Flags</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rankedCandidates.map((row) => (
-                    <tr
-                      key={row.application_id}
-                      className="border-b border-border last:border-0 hover:bg-accent/50"
-                    >
-                      <td className="py-2">
-                        <Link to={`/applications/${row.application_id}`} className="font-medium hover:underline">
-                          {row.candidate_full_name}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">{row.candidate_email}</div>
-                      </td>
-                      <td className="py-2">{row.application_status.replace(/_/g, " ")}</td>
-                      <td className="py-2">{row.overall_recruitment_score ?? "—"}</td>
-                      <td className="py-2">{row.eligibility_score ?? "—"}</td>
-                      <td className="py-2">
-                        <div className="flex gap-1">
-                          {row.is_duplicate ? <Badge variant="warning">Duplicate</Badge> : null}
-                          {row.is_incomplete_profile ? <Badge variant="warning">Incomplete</Badge> : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Candidate</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Overall score</TableHead>
+                <TableHead>Eligibility score</TableHead>
+                <TableHead>Flags</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!rankedCandidates || rankedCandidates.length === 0 ? (
+                <TableEmpty colSpan={RANKED_CANDIDATES_COLUMN_COUNT}>No applications for this posting yet.</TableEmpty>
+              ) : (
+                rankedCandidates.map((row) => (
+                  <TableRow key={row.application_id}>
+                    <TableCell>
+                      <Link to={`/applications/${row.application_id}`} className="font-medium hover:underline">
+                        {row.candidate_full_name}
+                      </Link>
+                      <div className="text-xs text-muted-foreground">{row.candidate_email}</div>
+                    </TableCell>
+                    <TableCell>{row.application_status.replace(/_/g, " ")}</TableCell>
+                    <TableCell>{row.overall_recruitment_score ?? "—"}</TableCell>
+                    <TableCell>{row.eligibility_score ?? "—"}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        {row.is_duplicate ? <Badge variant="warning">Duplicate</Badge> : null}
+                        {row.is_incomplete_profile ? <Badge variant="warning">Incomplete</Badge> : null}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

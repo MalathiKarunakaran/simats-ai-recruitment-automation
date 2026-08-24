@@ -11,9 +11,11 @@ import { StatusBadge } from "@/components/applications/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
 const CAN_VIEW_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN"];
+const TOTAL_COLUMN_COUNT = 4;
 const ONBOARDING_STATUSES: ApplicationStatus[] = [
   "JOINING_CONFIRMED",
   "JOINED",
@@ -146,48 +148,46 @@ export function OnboardingListPage() {
           empty/table states, not just the loaded table. */}
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
-          ) : filteredApplications.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">
-              {applications.length > 0
-                ? "No one in the onboarding pipeline matches these filters."
-                : "No one is in the onboarding pipeline right now."}
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Candidate</th>
-                    <th className="py-2 font-medium">Position</th>
-                    <th className="py-2 font-medium">Status</th>
-                    <th className="py-2 font-medium">Last updated</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredApplications.map((application) => {
-                    const candidate = candidates?.find((c) => c.id === application.candidate_id);
-                    const label = getLabel(application.job_posting_id);
-                    return (
-                      <tr key={application.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                        <td className="py-2">
-                          <Link to={`/applications/${application.id}`} className="font-medium hover:underline">
-                            {candidate?.full_name ?? "Unknown candidate"}
-                          </Link>
-                        </td>
-                        <td className="py-2">{label?.positionTitle ?? "—"}</td>
-                        <td className="py-2">
-                          <StatusBadge status={application.status} />
-                        </td>
-                        <td className="py-2">{new Date(application.updated_at).toLocaleDateString()}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Candidate</TableHead>
+                <TableHead>Position</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Last updated</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT} loading />
+              ) : filteredApplications.length === 0 ? (
+                <TableEmpty colSpan={TOTAL_COLUMN_COUNT}>
+                  {applications.length > 0
+                    ? "No one in the onboarding pipeline matches these filters."
+                    : "No one is in the onboarding pipeline right now."}
+                </TableEmpty>
+              ) : (
+                filteredApplications.map((application) => {
+                  const candidate = candidates?.find((c) => c.id === application.candidate_id);
+                  const label = getLabel(application.job_posting_id);
+                  return (
+                    <TableRow key={application.id}>
+                      <TableCell>
+                        <Link to={`/applications/${application.id}`} className="font-medium hover:underline">
+                          {candidate?.full_name ?? "Unknown candidate"}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{label?.positionTitle ?? "—"}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={application.status} />
+                      </TableCell>
+                      <TableCell>{new Date(application.updated_at).toLocaleDateString()}</TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

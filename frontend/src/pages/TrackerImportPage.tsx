@@ -10,8 +10,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const CAN_IMPORT_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
+const IMPORT_RESULT_COLUMN_COUNT = 3;
 
 // Import runs can carry hundreds of rows -- a status filter on each result
 // table lets HR jump straight to what needs review (flagged/warning) rather
@@ -185,28 +187,28 @@ export function TrackerImportPage() {
                       />
                     ) : null}
                   </CardHeader>
-                  <CardContent>
-                    {result.vacancy_rows.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No rows to import.</p>
-                    ) : visibleVacancyRows.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No rows match this filter.</p>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border text-left text-muted-foreground">
-                            <th className="py-2 font-medium">Row</th>
-                            <th className="py-2 font-medium">Status</th>
-                            <th className="py-2 font-medium">Details</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleVacancyRows.map((row) => (
-                            <tr key={row.row_number} className="border-b border-border last:border-0">
-                              <td className="py-2">{row.row_number}</td>
-                              <td className="py-2">
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Row</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Details</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {result.vacancy_rows.length === 0 ? (
+                          <TableEmpty colSpan={IMPORT_RESULT_COLUMN_COUNT}>No rows to import.</TableEmpty>
+                        ) : visibleVacancyRows.length === 0 ? (
+                          <TableEmpty colSpan={IMPORT_RESULT_COLUMN_COUNT}>No rows match this filter.</TableEmpty>
+                        ) : (
+                          visibleVacancyRows.map((row) => (
+                            <TableRow key={row.row_number}>
+                              <TableCell>{row.row_number}</TableCell>
+                              <TableCell>
                                 <RowStatusBadge status={row.status} />
-                              </td>
-                              <td className="py-2">
+                              </TableCell>
+                              <TableCell>
                                 {row.status !== "flagged" && row.vacancy_request_id ? (
                                   <div className="flex flex-col gap-1">
                                     <Link
@@ -230,12 +232,12 @@ export function TrackerImportPage() {
                                     ))}
                                   </ul>
                                 )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
                   </CardContent>
                 </Card>
 
@@ -253,28 +255,28 @@ export function TrackerImportPage() {
                       />
                     ) : null}
                   </CardHeader>
-                  <CardContent>
-                    {result.candidate_rows.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No rows to import.</p>
-                    ) : visibleCandidateRows.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No rows match this filter.</p>
-                    ) : (
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border text-left text-muted-foreground">
-                            <th className="py-2 font-medium">Row</th>
-                            <th className="py-2 font-medium">Status</th>
-                            <th className="py-2 font-medium">Details</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleCandidateRows.map((row) => (
-                            <tr key={row.row_number} className="border-b border-border last:border-0">
-                              <td className="py-2">{row.row_number}</td>
-                              <td className="py-2">
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Row</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Details</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {result.candidate_rows.length === 0 ? (
+                          <TableEmpty colSpan={IMPORT_RESULT_COLUMN_COUNT}>No rows to import.</TableEmpty>
+                        ) : visibleCandidateRows.length === 0 ? (
+                          <TableEmpty colSpan={IMPORT_RESULT_COLUMN_COUNT}>No rows match this filter.</TableEmpty>
+                        ) : (
+                          visibleCandidateRows.map((row) => (
+                            <TableRow key={row.row_number}>
+                              <TableCell>{row.row_number}</TableCell>
+                              <TableCell>
                                 <RowStatusBadge status={row.status} />
-                              </td>
-                              <td className="py-2">
+                              </TableCell>
+                              <TableCell>
                                 {row.status !== "flagged" && row.application_id ? (
                                   <Link to={`/applications/${row.application_id}`} className="hover:underline">
                                     View application
@@ -287,12 +289,12 @@ export function TrackerImportPage() {
                                     ))}
                                   </ul>
                                 ) : null}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
                   </CardContent>
                 </Card>
               </>

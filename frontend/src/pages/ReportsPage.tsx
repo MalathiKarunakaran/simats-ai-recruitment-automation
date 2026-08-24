@@ -17,6 +17,7 @@ import { GenericReportTable } from "@/components/reports/GenericReportTable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 
 const REPORT_TYPES: { value: ReportType; label: string }[] = [
@@ -44,6 +45,9 @@ const KPI_HEADLINE_LABELS: Record<string, string> = {
   offers_pending: "Offers pending",
   vacancy_closure_rate_pct: "Vacancy closure rate (%)",
 };
+
+const TEACHING_ROWS_COLUMN_COUNT = 5;
+const NON_TEACHING_ROWS_COLUMN_COUNT = 7;
 
 const WEEKLY_KPI_TILES: { key: keyof WeeklyRecruitmentStatusResponse; label: string }[] = [
   { key: "total_interviewed", label: "Total Interviewed" },
@@ -369,32 +373,34 @@ export function ReportsPage() {
 
               <div>
                 <h3 className="mb-2 text-sm font-medium">Teaching Staff — Campus-wise</h3>
-                {weeklyStatus.teaching_rows.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No data in this scope yet.</p>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left text-muted-foreground">
-                        <th className="py-1.5 pr-4 font-medium">Campus</th>
-                        <th className="py-1.5 pr-4 font-medium">Attended</th>
-                        <th className="py-1.5 pr-4 font-medium">Selected</th>
-                        <th className="py-1.5 pr-4 font-medium">Waiting</th>
-                        <th className="py-1.5 pr-4 font-medium">Rejected</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {weeklyStatus.teaching_rows.map((row) => (
-                        <tr key={row.group_label} className="border-b border-border last:border-0">
-                          <td className="py-1.5 pr-4">{row.group_label}</td>
-                          <td className="py-1.5 pr-4">{row.attended}</td>
-                          <td className="py-1.5 pr-4">{row.selected}</td>
-                          <td className="py-1.5 pr-4">{row.waiting}</td>
-                          <td className="py-1.5 pr-4">{row.rejected}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="px-0 py-1.5 pr-4">Campus</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Attended</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Selected</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Waiting</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Rejected</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {weeklyStatus.teaching_rows.length === 0 ? (
+                      <TableEmpty colSpan={TEACHING_ROWS_COLUMN_COUNT} className="px-0">
+                        No data in this scope yet.
+                      </TableEmpty>
+                    ) : (
+                      weeklyStatus.teaching_rows.map((row) => (
+                        <TableRow key={row.group_label}>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.group_label}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.attended}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.selected}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.waiting}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.rejected}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
               </div>
 
               <div>
@@ -411,36 +417,38 @@ export function ReportsPage() {
 
               <div>
                 <h3 className="mb-2 text-sm font-medium">Non-Teaching Staff — Position-wise</h3>
-                {weeklyStatus.non_teaching_rows.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No data in this scope yet.</p>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left text-muted-foreground">
-                        <th className="py-1.5 pr-4 font-medium">Department</th>
-                        <th className="py-1.5 pr-4 font-medium">Attended</th>
-                        <th className="py-1.5 pr-4 font-medium">Selected</th>
-                        <th className="py-1.5 pr-4 font-medium">Waiting</th>
-                        <th className="py-1.5 pr-4 font-medium">Rejected</th>
-                        <th className="py-1.5 pr-4 font-medium">Upcoming Join</th>
-                        <th className="py-1.5 pr-4 font-medium">Joined</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {weeklyStatus.non_teaching_rows.map((row) => (
-                        <tr key={row.group_label} className="border-b border-border last:border-0">
-                          <td className="py-1.5 pr-4">{row.group_label}</td>
-                          <td className="py-1.5 pr-4">{row.attended}</td>
-                          <td className="py-1.5 pr-4">{row.selected}</td>
-                          <td className="py-1.5 pr-4">{row.waiting}</td>
-                          <td className="py-1.5 pr-4">{row.rejected}</td>
-                          <td className="py-1.5 pr-4">{row.upcoming_join ?? "—"}</td>
-                          <td className="py-1.5 pr-4">{row.joined ?? "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="px-0 py-1.5 pr-4">Department</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Attended</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Selected</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Waiting</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Rejected</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Upcoming Join</TableHead>
+                      <TableHead className="px-0 py-1.5 pr-4">Joined</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {weeklyStatus.non_teaching_rows.length === 0 ? (
+                      <TableEmpty colSpan={NON_TEACHING_ROWS_COLUMN_COUNT} className="px-0">
+                        No data in this scope yet.
+                      </TableEmpty>
+                    ) : (
+                      weeklyStatus.non_teaching_rows.map((row) => (
+                        <TableRow key={row.group_label}>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.group_label}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.attended}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.selected}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.waiting}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.rejected}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.upcoming_join ?? "—"}</TableCell>
+                          <TableCell className="px-0 py-1.5 pr-4">{row.joined ?? "—"}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
               </div>
 
               <p className="text-sm text-muted-foreground">
