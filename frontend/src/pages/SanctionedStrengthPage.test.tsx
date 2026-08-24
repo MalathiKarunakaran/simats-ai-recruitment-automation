@@ -1483,6 +1483,61 @@ describe("SanctionedStrengthPage", () => {
     });
   });
 
+  // Sanctioned-strength-polish (Step 4) explicit re-verification: the
+  // Table/Pagination primitive migration must not have touched the
+  // category-mutual-exclusivity behavior (Teaching/Non-Teaching/Housekeeping
+  // each render ONLY their own category's rows/endpoint, never another
+  // category's). The three describe blocks below already assert this
+  // pairwise in each direction (Teaching's own test checks the legacy
+  // register table isn't rendered; Non-Teaching's own test checks Teaching's
+  // endpoint isn't called; Housekeeping's own test checks neither
+  // Teaching's nor Non-Teaching's endpoint is called) -- this single test
+  // drives all three tabs from one render instead, asserting on rows (not
+  // just endpoint call counts) so a regression that fetched the right
+  // endpoint but rendered a stale/leftover row from a previously-selected
+  // tab would also be caught.
+  describe("category tab mutual exclusivity", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("shows ONLY the selected category's rows when switching between Teaching/Non-Teaching/Housekeeping tabs, never a leftover row from a previously-selected tab", async () => {
+      mockAuth("HR_ADMIN");
+      mockCampuses();
+      mockTeachingFilterData();
+      mockedListTeachingStrengthRows.mockResolvedValue(paginatedTeaching([TEACHING_ROW_1]));
+      mockedListNonTeachingStrengthRows.mockResolvedValue(paginatedNonTeaching([NON_TEACHING_ROW_1]));
+      mockedListHousekeepingStrengthRows.mockResolvedValue(paginatedHousekeeping([HOUSEKEEPING_ROW_1]));
+      mockedListLocations.mockResolvedValue([]);
+      mockedListDesignations.mockResolvedValue([]);
+
+      renderPage(["/sanctioned-strength"]);
+
+      // Defaults to Teaching -- only its own row/endpoint.
+      expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+      expect(screen.queryByText("Office Assistant")).not.toBeInTheDocument();
+      expect(screen.queryByText("Central Library")).not.toBeInTheDocument();
+      expect(mockedListTeachingStrengthRows).toHaveBeenCalled();
+      expect(mockedListNonTeachingStrengthRows).not.toHaveBeenCalled();
+      expect(mockedListHousekeepingStrengthRows).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole("tab", { name: /^Non-Teaching/ }));
+
+      await waitFor(() => expect(screen.getByText("Office Assistant")).toBeInTheDocument());
+      expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+      expect(screen.queryByText("Central Library")).not.toBeInTheDocument();
+      expect(mockedListNonTeachingStrengthRows).toHaveBeenCalled();
+      expect(mockedListHousekeepingStrengthRows).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByRole("tab", { name: /^Housekeeping/ }));
+
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+      expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+      expect(screen.queryByText("Office Assistant")).not.toBeInTheDocument();
+      expect(mockedListHousekeepingStrengthRows).toHaveBeenCalled();
+    });
+  });
+
   describe("Teaching operational view (Phase E)", () => {
     // Same reasoning as the "expandable department row" describe above --
     // vi.mock() call histories aren't cleared automatically between tests
