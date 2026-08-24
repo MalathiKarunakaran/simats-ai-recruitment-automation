@@ -102,7 +102,7 @@ function describeAuditEntry(entry: AuditLogRead): string {
 
 export function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, hasPermission } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -375,7 +375,14 @@ export function UserDetailPage() {
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
-  if (!target || !currentUser || !USER_MANAGEMENT_ROLES.includes(currentUser.role)) {
+  // Bug fix (2026-08-24): OR'd with hasPermission("MANAGE_USERS") -- mirrors
+  // the backend's own require_permission(PermissionEnum.MANAGE_USERS) gate
+  // on PATCH /users/{id} (this page's main edit action). canForceLogout/
+  // canResetPassword/canDelete/canManageCapabilities below stay role-only
+  // on purpose -- their backend endpoints are require_roles(...)-gated, not
+  // permission-gated, so granting MANAGE_USERS alone shouldn't surface
+  // those buttons (they'd just 403 if clicked).
+  if (!target || !currentUser || (!USER_MANAGEMENT_ROLES.includes(currentUser.role) && !hasPermission?.("MANAGE_USERS"))) {
     return <Navigate to="/users" replace />;
   }
 

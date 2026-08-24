@@ -27,6 +27,7 @@ import {
 import { type ReactNode, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 
+import type { Permission } from "@/api/types";
 import simatsSeal from "@/assets/simats-seal.png";
 import { useAuth } from "@/auth/AuthContext";
 import { AssistantWidget } from "@/components/assistant/AssistantWidget";
@@ -48,6 +49,14 @@ interface NavItem {
   icon: typeof LayoutDashboard;
   /** Roles that may see this link at all; undefined means every staff role. */
   visibleForRoles?: string[];
+  /** Bug fix (2026-08-24): an item is ALSO shown if the current user has been
+   * individually granted this permission via the Permission Matrix, even
+   * when their role isn't in visibleForRoles -- previously a granted
+   * permission had no effect on nav visibility at all, so e.g. a
+   * RECRUITMENT_COORDINATOR given MANAGE_USERS could call the API but never
+   * saw the "Users" link to get there. Additive: doesn't change any
+   * already-visible-by-role item's behavior. */
+  visibleForPermission?: Permission;
 }
 
 interface NavGroup {
@@ -132,8 +141,11 @@ const NAV_GROUPS: NavGroup[] = [
         to: "/users",
         label: "Users",
         icon: UserCog,
-        // Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES.
+        // Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES, PLUS anyone
+        // individually granted MANAGE_USERS via the Permission Matrix (bug
+        // fix 2026-08-24 -- see NavItem.visibleForPermission's own comment).
         visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN"],
+        visibleForPermission: "MANAGE_USERS",
       },
       {
         to: "/eligibility-rules",
@@ -227,12 +239,19 @@ const QUICK_ACTIONS: { label: string; to: string; visibleForRoles?: string[] }[]
 ];
 
 export function AppShell({ children }: { children?: ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+
+  function isNavItemVisible(item: { visibleForRoles?: string[]; visibleForPermission?: Permission }): boolean {
+    if (!item.visibleForRoles && !item.visibleForPermission) return true;
+    const roleMatch = Boolean(item.visibleForRoles && user && item.visibleForRoles.includes(user.role));
+    const permissionMatch = Boolean(item.visibleForPermission && (hasPermission?.(item.visibleForPermission) ?? false));
+    return roleMatch || permissionMatch;
+  }
 
   const visibleGroups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !item.visibleForRoles || (user && item.visibleForRoles.includes(user.role))),
+    items: group.items.filter(isNavItemVisible),
   })).filter((group) => group.items.length > 0);
 
   const visibleQuickActions = QUICK_ACTIONS.filter(

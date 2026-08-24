@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 const ALL_USER_ROLES: readonly UserRole[] = [...ASSIGNABLE_STAFF_ROLES, "CANDIDATE"];
 
 export function UsersListPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<UserRole | "ALL">("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
@@ -30,7 +30,9 @@ export function UsersListPage() {
   const { data: users, isLoading } = useQuery({ queryKey: ["users"], queryFn: listUsers });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
 
-  const canManage = Boolean(user && USER_MANAGEMENT_ROLES.includes(user.role));
+  // Bug fix (2026-08-24): OR'd with hasPermission("MANAGE_USERS") -- see
+  // AppShell.tsx's NavItem.visibleForPermission comment for the full story.
+  const canManage = Boolean(user && (USER_MANAGEMENT_ROLES.includes(user.role) || hasPermission?.("MANAGE_USERS")));
 
   const normalizedSearch = search.trim().toLowerCase();
   const filteredUsers = users?.filter((row) => {

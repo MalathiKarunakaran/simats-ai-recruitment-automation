@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 
 import * as authApi from "@/api/auth";
 import { configureAuth } from "@/api/client";
-import type { UserRead } from "@/api/types";
+import type { Permission, UserRead } from "@/api/types";
+import { getUserPermissions } from "@/api/users";
 
 const REFRESH_TOKEN_STORAGE_KEY = "simats_refresh_token";
 
@@ -24,6 +25,22 @@ interface AuthContextValue {
   // change (PATCH /users/me) -- updates the cached profile and clears the
   // forced-change flag so ProtectedRoute lets the user through again.
   completePasswordChange: (updatedUser: UserRead) => void;
+  // Bug fix (2026-08-24): nav visibility previously only ever checked
+  // user.role against a hardcoded allowlist (AppShell.tsx's
+  // visibleForRoles), which meant an individually-granted permission from
+  // the Permission Matrix (e.g. a RECRUITMENT_COORDINATOR given
+  // MANAGE_USERS) had zero effect on whether that user could even SEE the
+  // relevant nav link -- the backend correctly allowed the API call, but
+  // the frontend never routed them there. hasPermission consults the
+  // user's actual granted permissions (GET /users/{id}/permissions,
+  // self-readable per that endpoint's own RBAC) so nav items can opt into
+  // permission-based visibility (AppShell.tsx's new visibleForPermission)
+  // in addition to the existing role-based visibleForRoles, without
+  // changing how any already-working role-based item behaves. Optional
+  // (not every test mock across this app's ~37 files that stub useAuth's
+  // return value cares about it) -- the real AuthProvider below always
+  // supplies a real function; call sites use `hasPermission?.(x) ?? false`.
+  hasPermission?: (permission: Permission) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -32,6 +49,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserRead | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+  // SUPER_ADMIN is never represented by stored grant rows (has_permission's
+  // backend bypass is unconditional for that role, see
+  // app/services/permissions.py) -- fetching would just return an empty
+  // list, so hasPermission special-cases the role directly instead of
+  // relying on this array for it.
+  const [permissions, setPermissions] = useState<Permission[]>([]);
+
+  async function loadPermissions(loadedUser: UserRead) {
+    if (loadedUser.role === "SUPER_ADMIN" || loadedUser.role === "CANDIDATE") {
+      setPermissions([]);
+      return;
+    }
+    try {
+      const result = await getUserPermissions(loadedUser.id);
+      setPermissions(result.permissions);
+    } catch {
+      // Non-fatal -- worst case, permission-gated nav items some role
+      // wouldn't otherwise see stay hidden, same as before this fetch existed.
+      setPermissions([]);
+    }
+  }
   // In-memory only -- the access token intentionally never touches
   // localStorage/sessionStorage (see Foundation-phase plan's token-storage
   // decision). A ref, not state, because client.ts's configureAuth hooks
@@ -63,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     setUser(null);
     setMustChangePassword(false);
+    setPermissions([]);
   }
 
   useEffect(() => {
@@ -83,7 +122,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = await refreshAccessToken();
       if (token) {
         try {
-          setUser(await authApi.getMe());
+          const restoredUser = await authApi.getMe();
+          setUser(restoredUser);
+          await loadPermissions(restoredUser);
         } catch {
           clearSession();
         }
@@ -97,7 +138,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     accessTokenRef.current = tokens.access_token;
     localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refresh_token);
     setMustChangePassword(tokens.must_change_password);
-    setUser(await authApi.getMe());
+    const loggedInUser = await authApi.getMe();
+    setUser(loggedInUser);
+    await loadPermissions(loggedInUser);
   }
 
   async function login(email: string, password: string) {
@@ -135,9 +178,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMustChangePassword(false);
   }
 
+  function hasPermission(permission: Permission): boolean {
+    if (!user) return false;
+    if (user.role === "SUPER_ADMIN") return true;
+    return permissions.includes(permission);
+  }
+
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, mustChangePassword, login, requestOtp, loginWithOtp, logout, completePasswordChange }}
+      value={{
+        user,
+        isLoading,
+        mustChangePassword,
+        login,
+        requestOtp,
+        loginWithOtp,
+        logout,
+        completePasswordChange,
+        hasPermission,
+      }}
     >
       {children}
     </AuthContext.Provider>

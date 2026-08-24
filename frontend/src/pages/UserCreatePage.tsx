@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { combine, email as emailValidator, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 export function UserCreatePage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const navigate = useNavigate();
 
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
@@ -52,7 +52,12 @@ export function UserCreatePage() {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Something went wrong"),
   });
 
-  if (!user || !USER_MANAGEMENT_ROLES.includes(user.role)) {
+  // Bug fix (2026-08-24): OR'd with hasPermission("MANAGE_USERS") -- a role
+  // outside USER_MANAGEMENT_ROLES individually granted this permission via
+  // the Permission Matrix was previously blocked here regardless, since
+  // this only ever checked role. Mirrors the backend's own
+  // require_permission(PermissionEnum.MANAGE_USERS) gate on POST /users.
+  if (!user || (!USER_MANAGEMENT_ROLES.includes(user.role) && !hasPermission?.("MANAGE_USERS"))) {
     return (
       <p className="text-sm text-muted-foreground">Only a Super Admin or HR Admin can create new users.</p>
     );
