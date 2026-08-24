@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CategoryTabs, mapServerCategoryCounts } from "@/components/domain/CategoryTabs";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
@@ -241,6 +242,8 @@ const EMPTY_FORM: FormState = {
   isActive: true,
   departmentIds: [],
 };
+
+const BASE_COLUMN_COUNT = 7;
 
 export function DesignationsPage() {
   const { user } = useAuth();
@@ -564,94 +567,94 @@ export function DesignationsPage() {
           empty/table states, not just the loaded table. */}
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
-          ) : visibleDesignations.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">
-              {filtersActive ? "No designations match the current filters." : "No designations found."}
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-        <table className="w-full table-fixed text-sm">
-          <colgroup>
-            {/* Name/Departments/Employment type/Category/Active/Min. experience/Actions all get a
-                fixed rem-based width sized for their real content (see DesignationsPage.test.tsx and
-                the live dev DB check that motivated this) -- deliberately not percentages, so these
-                columns never shrink into overflow-collision territory on a narrower viewport.
-                Qualification is the one column left unsized, so it alone absorbs all remaining
-                table width (per the table-layout: fixed spec) and truncates instead of colliding
-                into "Min. experience" when the text is long. */}
-            <col className="w-44" />
-            <col className="w-32" />
-            <col className="w-32" />
-            <col />
-            <col className="w-40" />
-            <col className="w-32" />
-            <col className="w-24" />
-            {canManage ? <col className="w-28" /> : null}
-          </colgroup>
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">Name</th>
-              <th className="py-2 font-medium">Category</th>
-              <th className="py-2 font-medium">Departments</th>
-              <th className="py-2 font-medium">Qualification</th>
-              <th className="py-2 font-medium">Min. experience</th>
-              <th className="py-2 font-medium">Employment type</th>
-              <th className="py-2 font-medium">Active</th>
-              {canManage ? <th className="py-2 text-right font-medium">Actions</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleDesignations.map((designation) => (
-              <tr key={designation.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                <td className="truncate py-2 font-medium text-foreground" title={designation.name}>
-                  {designation.name}
-                </td>
-                <td className="whitespace-nowrap py-2">{CATEGORY_LABELS[designation.category]}</td>
-                <td className="py-2">
-                  <DesignationDepartmentsCell designation={designation} departmentNameById={departmentNameById} />
-                </td>
-                <td className="truncate py-2" title={designation.qualification}>
-                  {designation.qualification}
-                </td>
-                <td className="truncate py-2" title={designation.min_experience}>
-                  {designation.min_experience}
-                </td>
-                <td className="whitespace-nowrap py-2">{designation.employment_type.replace(/_/g, " ")}</td>
-                <td className="whitespace-nowrap py-2">
-                  <Badge variant={designation.is_active ? "success" : "destructive"}>
-                    {designation.is_active ? "Active" : "Inactive"}
-                  </Badge>
-                </td>
-                {canManage ? (
-                  <td className="py-2 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Button variant="outline" size="sm" onClick={() => openEditDialog(designation)}>
-                        Edit
-                      </Button>
-                      <DeleteConfirmDialog
-                        triggerAriaLabel={`Delete designation ${designation.name}`}
-                        title="Delete designation"
-                        description={
-                          <>
-                            Remove <span className="font-medium text-foreground">{designation.name}</span>? This
-                            is a soft delete -- the designation stays visible (as Inactive) and can be
-                            reactivated later.
-                          </>
-                        }
-                        onDelete={() => deleteDesignation(designation.id)}
-                        onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["designations"] })}
-                      />
-                    </div>
-                  </td>
-                ) : null}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-            </div>
-          )}
+          <Table className="table-fixed">
+            <colgroup>
+              {/* Name/Departments/Employment type/Category/Active/Min. experience/Actions all get a
+                  fixed rem-based width sized for their real content (see DesignationsPage.test.tsx and
+                  the live dev DB check that motivated this) -- deliberately not percentages, so these
+                  columns never shrink into overflow-collision territory on a narrower viewport.
+                  Qualification is the one column left unsized, so it alone absorbs all remaining
+                  table width (per the table-layout: fixed spec) and truncates instead of colliding
+                  into "Min. experience" when the text is long. */}
+              <col className="w-44" />
+              <col className="w-32" />
+              <col className="w-32" />
+              <col />
+              <col className="w-40" />
+              <col className="w-32" />
+              <col className="w-24" />
+              {canManage ? <col className="w-28" /> : null}
+            </colgroup>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Departments</TableHead>
+                <TableHead>Qualification</TableHead>
+                <TableHead>Min. experience</TableHead>
+                <TableHead>Employment type</TableHead>
+                <TableHead>Active</TableHead>
+                {canManage ? <TableHead className="text-right">Actions</TableHead> : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableEmpty colSpan={BASE_COLUMN_COUNT + (canManage ? 1 : 0)} loading />
+              ) : visibleDesignations.length === 0 ? (
+                <TableEmpty colSpan={BASE_COLUMN_COUNT + (canManage ? 1 : 0)}>
+                  {filtersActive ? "No designations match the current filters." : "No designations found."}
+                </TableEmpty>
+              ) : (
+                visibleDesignations.map((designation) => (
+                  <TableRow key={designation.id}>
+                    <TableCell className="truncate font-medium text-foreground" title={designation.name}>
+                      {designation.name}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">{CATEGORY_LABELS[designation.category]}</TableCell>
+                    <TableCell>
+                      <DesignationDepartmentsCell designation={designation} departmentNameById={departmentNameById} />
+                    </TableCell>
+                    <TableCell className="truncate" title={designation.qualification}>
+                      {designation.qualification}
+                    </TableCell>
+                    <TableCell className="truncate" title={designation.min_experience}>
+                      {designation.min_experience}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {designation.employment_type.replace(/_/g, " ")}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <Badge variant={designation.is_active ? "success" : "destructive"}>
+                        {designation.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                    </TableCell>
+                    {canManage ? (
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button variant="outline" size="sm" onClick={() => openEditDialog(designation)}>
+                            Edit
+                          </Button>
+                          <DeleteConfirmDialog
+                            triggerAriaLabel={`Delete designation ${designation.name}`}
+                            title="Delete designation"
+                            description={
+                              <>
+                                Remove <span className="font-medium text-foreground">{designation.name}</span>? This
+                                is a soft delete -- the designation stays visible (as Inactive) and can be
+                                reactivated later.
+                              </>
+                            }
+                            onDelete={() => deleteDesignation(designation.id)}
+                            onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["designations"] })}
+                          />
+                        </div>
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
