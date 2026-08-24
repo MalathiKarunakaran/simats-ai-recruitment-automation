@@ -17,6 +17,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 
 // Bare list page (glowing-zooming-hamming.md Phase D) -- sufficient to
@@ -33,6 +34,10 @@ const SHIFT_LABELS: Record<string, string> = {
   EVENING: "Evening",
   NIGHT: "Night",
 };
+
+// Base columns: Name, Bio ID, Designation, Location, Block, Shift, Supervisor, Status.
+// Campus and Actions are each conditionally shown (canFilterByCampus / canManage).
+const BASE_COLUMN_COUNT = 8;
 
 export function HousekeepingStaffListPage() {
   const { user } = useAuth();
@@ -171,77 +176,78 @@ export function HousekeepingStaffListPage() {
           empty/table states, not just the loaded table. */}
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
-          ) : visibleStaff.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">
-              {filtersActive ? "No housekeeping staff match the current filters." : "No housekeeping staff found."}
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Name</th>
-                    <th className="py-2 font-medium">Bio ID</th>
-                    {canFilterByCampus ? <th className="py-2 font-medium">Campus</th> : null}
-                    <th className="py-2 font-medium">Designation</th>
-                    <th className="py-2 font-medium">Location</th>
-                    <th className="py-2 font-medium">Block</th>
-                    <th className="py-2 font-medium">Shift</th>
-                    <th className="py-2 font-medium">Supervisor</th>
-                    <th className="py-2 font-medium">Status</th>
-                    {canManage ? <th className="py-2 font-medium">Actions</th> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleStaff.map((s) => (
-                    <tr key={s.id} className="border-b border-border last:border-0 hover:bg-accent/50">
-                      <td className="py-2 font-medium text-foreground">{s.name}</td>
-                      <td className="py-2 font-mono text-xs">{s.bio_id}</td>
-                      {canFilterByCampus ? (
-                        <td className="py-2 font-mono text-xs">{campusById.get(s.campus_id)?.code ?? "—"}</td>
-                      ) : null}
-                      <td className="py-2">{designationById.get(s.designation_id)?.name ?? "—"}</td>
-                      <td className="py-2">{locationById.get(s.location_id)?.name ?? "—"}</td>
-                      <td className="py-2">{s.block ?? "—"}</td>
-                      <td className="py-2">{SHIFT_LABELS[s.shift] ?? s.shift}</td>
-                      <td className="py-2">{s.supervisor ?? "—"}</td>
-                      <td className="py-2">
-                        <Badge variant={s.is_active ? "success" : "destructive"}>
-                          {s.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </td>
-                      {canManage ? (
-                        <td className="py-2">
-                          <div className="flex items-center gap-1.5">
-                            <Button variant="outline" size="sm" onClick={() => openEditDrawer(s)}>
-                              Edit
-                            </Button>
-                            <DeleteConfirmDialog
-                              triggerAriaLabel={`Delete housekeeping staff ${s.name}`}
-                              title="Delete housekeeping staff"
-                              description={
-                                <>
-                                  Remove <span className="font-medium text-foreground">{s.name}</span>? This is a
-                                  soft delete -- the record stays visible (as Inactive) and can be reactivated
-                                  later.
-                                </>
-                              }
-                              onDelete={() => deleteHousekeepingStaff(s.id)}
-                              onDeleted={() =>
-                                void queryClient.invalidateQueries({ queryKey: ["housekeeping-staff"] })
-                              }
-                            />
-                          </div>
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Bio ID</TableHead>
+                {canFilterByCampus ? <TableHead>Campus</TableHead> : null}
+                <TableHead>Designation</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>Block</TableHead>
+                <TableHead>Shift</TableHead>
+                <TableHead>Supervisor</TableHead>
+                <TableHead>Status</TableHead>
+                {canManage ? <TableHead>Actions</TableHead> : null}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableEmpty
+                  colSpan={BASE_COLUMN_COUNT + (canFilterByCampus ? 1 : 0) + (canManage ? 1 : 0)}
+                  loading
+                />
+              ) : visibleStaff.length === 0 ? (
+                <TableEmpty colSpan={BASE_COLUMN_COUNT + (canFilterByCampus ? 1 : 0) + (canManage ? 1 : 0)}>
+                  {filtersActive ? "No housekeeping staff match the current filters." : "No housekeeping staff found."}
+                </TableEmpty>
+              ) : (
+                visibleStaff.map((s) => (
+                  <TableRow key={s.id}>
+                    <TableCell className="font-medium text-foreground">{s.name}</TableCell>
+                    <TableCell className="font-mono text-xs">{s.bio_id}</TableCell>
+                    {canFilterByCampus ? (
+                      <TableCell className="font-mono text-xs">{campusById.get(s.campus_id)?.code ?? "—"}</TableCell>
+                    ) : null}
+                    <TableCell>{designationById.get(s.designation_id)?.name ?? "—"}</TableCell>
+                    <TableCell>{locationById.get(s.location_id)?.name ?? "—"}</TableCell>
+                    <TableCell>{s.block ?? "—"}</TableCell>
+                    <TableCell>{SHIFT_LABELS[s.shift] ?? s.shift}</TableCell>
+                    <TableCell>{s.supervisor ?? "—"}</TableCell>
+                    <TableCell>
+                      <Badge variant={s.is_active ? "success" : "destructive"}>
+                        {s.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                    </TableCell>
+                    {canManage ? (
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Button variant="outline" size="sm" onClick={() => openEditDrawer(s)}>
+                            Edit
+                          </Button>
+                          <DeleteConfirmDialog
+                            triggerAriaLabel={`Delete housekeeping staff ${s.name}`}
+                            title="Delete housekeeping staff"
+                            description={
+                              <>
+                                Remove <span className="font-medium text-foreground">{s.name}</span>? This is a
+                                soft delete -- the record stays visible (as Inactive) and can be reactivated
+                                later.
+                              </>
+                            }
+                            onDelete={() => deleteHousekeepingStaff(s.id)}
+                            onDeleted={() =>
+                              void queryClient.invalidateQueries({ queryKey: ["housekeeping-staff"] })
+                            }
+                          />
+                        </div>
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 
