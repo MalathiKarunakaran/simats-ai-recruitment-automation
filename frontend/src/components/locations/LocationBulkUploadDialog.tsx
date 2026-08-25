@@ -229,7 +229,8 @@ export function LocationBulkUploadDialog() {
           <DialogTitle>Bulk upload locations</DialogTitle>
           <DialogDescription>
             Upload a filled-in workbook to preview created/updated/unchanged/rejected rows before committing. Rows
-            are matched by Campus Code and Location Name.
+            are matched by Campus Code, Location Name, Block/Building, Floor/Venue, and Category together -- so
+            different floors of the same building are separate, valid locations.
           </DialogDescription>
         </DialogHeader>
 
@@ -266,7 +267,22 @@ export function LocationBulkUploadDialog() {
 
           {commitResult ? (
             <>
-              <p className="text-sm font-medium text-brand-success">Upload committed.</p>
+              <p className="text-sm font-medium text-brand-success">
+                Upload committed. {commitResult.created_count} created, {commitResult.updated_count} updated,{" "}
+                {commitResult.unchanged_count} unchanged, {commitResult.rejected_count} rejected.
+              </p>
+              {commitResult.storage_warning ? (
+                // A non-blocking warning, deliberately NOT the same
+                // destructive-red styling as `error` below -- the commit
+                // itself genuinely succeeded (the counts above are real);
+                // only the original workbook's archival copy failed. See
+                // app/services/storage.py::try_upload_bulk_upload_file's
+                // own docstring for the "Could not reach object storage"
+                // bug this distinction fixes.
+                <p className="rounded-md border border-brand-warning/30 bg-brand-warning/10 px-3 py-2 text-sm text-brand-warning">
+                  {commitResult.storage_warning}
+                </p>
+              ) : null}
               <PreviewTable result={commitResult} filter={filter} onFilterChange={setFilter} />
               <DialogFooter className="justify-between sm:justify-between">
                 {commitResult.rejected_count > 0 ? (

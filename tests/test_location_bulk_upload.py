@@ -240,6 +240,47 @@ def test_commit_creates_row_and_log(client, location_upload_setup, db_session):
     assert log.stored_file_object_key is not None
 
 
+def test_commit_succeeds_with_a_storage_warning_when_object_storage_is_unavailable(
+    client, location_upload_setup, db_session, fake_minio_client
+):
+    """The exact bug this fix closes: 22 valid rows parsed/validated, but
+    object storage (MinIO) unreachable during commit -- the real Location
+    rows must still be created and the response must still be a 200 with
+    the created rows reported, not a 502 "Could not reach object storage"
+    that throws away 22 valid rows just because an unrelated archival copy
+    couldn't be written."""
+    fake_minio_client.fail_puts = True
+
+    response = _upload_commit(client, location_upload_setup["hr_admin"], [_row(location_upload_setup)])
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    # The actual business outcome -- the whole point of this fix -- is
+    # unaffected by the storage failure.
+    assert body["created_count"] == 1
+    assert body["rejected_count"] == 0
+    assert db_session.query(Location).count() == 1
+
+    # The storage failure is surfaced as a non-blocking warning, not an error.
+    assert body["storage_warning"] == (
+        "Workbook storage is temporarily unavailable. The file was successfully parsed, "
+        "but the original workbook could not be archived."
+    )
+
+    log_id = uuid.UUID(body["bulk_upload_log_id"])
+    log = db_session.get(BulkUploadLog, log_id)
+    assert log.rows_created == 1
+    assert log.stored_file_object_key is None  # never falsely claimed to be archived
+
+
+def test_commit_has_no_storage_warning_when_object_storage_is_available(client, location_upload_setup):
+    """The success path (storage up) is unaffected by this fix -- no
+    warning field noise when nothing actually went wrong."""
+    response = _upload_commit(client, location_upload_setup["hr_admin"], [_row(location_upload_setup)])
+    assert response.status_code == 200
+    assert response.json()["storage_warning"] is None
+
+
 def test_commit_re_stamps_canonical_text_on_a_pure_normalization_difference(
     client, location_upload_setup, location_factory, db_session
 ):

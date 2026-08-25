@@ -314,19 +314,31 @@ class _FakeMinioResponse:
 
 
 class FakeMinioClient:
-    """In-memory fake for app.services.storage.get_minio_client."""
+    """In-memory fake for app.services.storage.get_minio_client.
+
+    `fail_puts`, if set True, makes `bucket_exists`/`put_object` raise
+    (simulating MinIO being unreachable) -- used to test the bulk-upload
+    commit endpoints' storage-failure-degrades-to-warning path
+    (`storage.try_upload_bulk_upload_file`), never the resume-upload path
+    (which is deliberately still hard-fail-on-storage-error).
+    """
 
     def __init__(self):
         self._buckets: set[str] = set()
         self._objects: dict[tuple[str, str], bytes] = {}
+        self.fail_puts = False
 
     def bucket_exists(self, bucket: str) -> bool:
+        if self.fail_puts:
+            raise ConnectionError("simulated MinIO outage")
         return bucket in self._buckets
 
     def make_bucket(self, bucket: str) -> None:
         self._buckets.add(bucket)
 
     def put_object(self, bucket: str, object_name: str, data, length: int, content_type: str | None = None):
+        if self.fail_puts:
+            raise ConnectionError("simulated MinIO outage")
         self._objects[(bucket, object_name)] = data.read()
 
     def get_object(self, bucket: str, object_name: str) -> _FakeMinioResponse:

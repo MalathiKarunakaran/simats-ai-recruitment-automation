@@ -52,7 +52,11 @@ const VALIDATION_RESULT: LocationBulkUploadValidationResponse = {
   ],
 };
 
-const COMMIT_RESULT: LocationBulkUploadCommitResponse = { ...VALIDATION_RESULT, bulk_upload_log_id: "bu-1" };
+const COMMIT_RESULT: LocationBulkUploadCommitResponse = {
+  ...VALIDATION_RESULT,
+  bulk_upload_log_id: "bu-1",
+  storage_warning: null,
+};
 
 function renderDialog() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -107,12 +111,41 @@ describe("LocationBulkUploadDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Commit" }));
 
     await waitFor(() => expect(mockedCommit).toHaveBeenCalledWith(file));
-    expect(await screen.findByText("Upload committed.")).toBeInTheDocument();
+    expect(await screen.findByText(/Upload committed\./)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Download error report" }));
     // The shared, entity-agnostic error-report endpoint -- reused verbatim,
     // not a Location-specific duplicate.
     await waitFor(() => expect(mockedDownloadErrorReport).toHaveBeenCalledWith("bu-1"));
+  });
+
+  it("commits successfully and shows a non-blocking warning when the workbook could not be archived", async () => {
+    // The exact bug this fix closes: object storage being unreachable must
+    // never surface as a hard failure ("Could not reach object storage")
+    // when the rows themselves committed successfully.
+    mockedValidate.mockResolvedValue(VALIDATION_RESULT);
+    mockedCommit.mockResolvedValue({
+      ...COMMIT_RESULT,
+      storage_warning:
+        "Workbook storage is temporarily unavailable. The file was successfully parsed, " +
+        "but the original workbook could not be archived.",
+    });
+    renderDialog();
+
+    await openAndUpload();
+    await screen.findByText("Central Library");
+    await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+
+    // The real outcome (rows committed) still renders as success, not error.
+    expect(
+      await screen.findByText("Upload committed. 1 created, 0 updated, 0 unchanged, 1 rejected."),
+    ).toBeInTheDocument();
+    // The storage failure is a distinct, non-blocking warning alongside it.
+    expect(
+      screen.getByText(/Workbook storage is temporarily unavailable/),
+    ).toBeInTheDocument();
+    // Never rendered as the destructive-red `error` state.
+    expect(screen.queryByText("Commit failed")).not.toBeInTheDocument();
   });
 
   it("surfaces a validation failure inline instead of showing a preview", async () => {

@@ -213,6 +213,31 @@ def test_commit_creates_row_and_log(client, housekeeping_upload_setup, db_sessio
     assert log.rows_created == 1
 
 
+def test_commit_succeeds_with_a_storage_warning_when_object_storage_is_unavailable(
+    client, housekeeping_upload_setup, db_session, fake_minio_client
+):
+    """Same fix as Location's own bulk upload (see
+    test_location_bulk_upload.py's identically-named test for the full bug
+    writeup) -- object storage being unreachable must never block a
+    validated row from actually committing."""
+    fake_minio_client.fail_puts = True
+
+    response = _upload_commit(client, housekeeping_upload_setup["hr_admin"], [_row(housekeeping_upload_setup)])
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["created_count"] == 1
+    assert db_session.query(HousekeepingStaff).count() == 1
+    assert body["storage_warning"] == (
+        "Workbook storage is temporarily unavailable. The file was successfully parsed, "
+        "but the original workbook could not be archived."
+    )
+
+    log = db_session.get(BulkUploadLog, uuid.UUID(body["bulk_upload_log_id"]))
+    assert log.rows_created == 1
+    assert log.stored_file_object_key is None
+
+
 def test_commit_updates_existing_row(client, housekeeping_upload_setup, housekeeping_staff_factory, db_session):
     existing = housekeeping_staff_factory(
         campus=housekeeping_upload_setup["campus"],

@@ -323,9 +323,15 @@ def commit_location_bulk_upload(
     non-rejected row's UPSERT in one DB transaction -- same all-or-nothing
     contract as sanctioned_strength.py's own commit endpoint. Writes exactly
     one BulkUploadLog row (entity_type=LOCATION) plus one BulkUploadRowLog
-    row per non-rejected row (see app/services/location_import.py for why),
-    and stores the original file bytes in the `MINIO_BUCKET_BULK_UPLOADS`
-    bucket.
+    row per non-rejected row (see app/services/location_import.py for why).
+
+    The original workbook's archival copy in `MINIO_BUCKET_BULK_UPLOADS` is
+    attempted AFTER the real row commit, and is best-effort (retried with
+    backoff, never raises -- see `storage.try_upload_bulk_upload_file`'s own
+    docstring for the full "Could not reach object storage" bug this fixes
+    and why): a storage hiccup degrades to `storage_warning` in the
+    response, it never rolls back or blocks the rows that were actually
+    requested to be created/updated.
     """
     data = _read_upload_bytes(file)
     raw_rows = location_import.parse_rows(data, file.filename)
@@ -346,16 +352,7 @@ def commit_location_bulk_upload(
     db.add(log)
 
     try:
-        db.flush()  # assigns log.id, needed for the MinIO key and row-log FK
-
-        storage_key = storage.upload_bulk_upload_file(
-            minio_client,
-            bulk_upload_log_id=log.id,
-            filename=file.filename or "upload",
-            data=data,
-            content_type=file.content_type or "application/octet-stream",
-        )
-        log.stored_file_object_key = storage_key
+        db.flush()  # assigns log.id, needed for the row-log FK
 
         location_import.commit_rows(db, validation=validation, bulk_upload_log_id=log.id)
 
@@ -381,6 +378,41 @@ def commit_location_bulk_upload(
     db.commit()
     db.refresh(log)
 
+    # Archival is attempted only now that the real records are safely
+    # committed -- its outcome can never change whether this request
+    # reports success, only whether `storage_warning` is set.
+    storage_key, storage_error = storage.try_upload_bulk_upload_file(
+        minio_client,
+        bulk_upload_log_id=log.id,
+        filename=file.filename or "upload",
+        data=data,
+        content_type=file.content_type or "application/octet-stream",
+    )
+    storage_warning = None
+    if storage_key is not None:
+        log.stored_file_object_key = storage_key
+        db.commit()
+    else:
+        storage_warning = (
+            "Workbook storage is temporarily unavailable. The file was successfully parsed, "
+            "but the original workbook could not be archived."
+        )
+        # Recorded for ops visibility into *why* archival failed (this
+        # backend has no structured logging yet -- the audit log is the one
+        # durable place a failure reason like this can be traced later).
+        # Deliberately its own separate event, not folded into the
+        # already-committed LOCATION_BULK_UPLOAD_COMMITTED entry above.
+        log_event(
+            db,
+            actor=current_user,
+            action="LOCATION_BULK_UPLOAD_ARCHIVE_FAILED",
+            entity_type="BulkUploadLog",
+            entity_id=log.id,
+            after_state={"error": storage_error},
+            request=request,
+        )
+        db.commit()
+
     return LocationBulkUploadCommitResponse(
         total=validation.total,
         created_count=validation.created_count,
@@ -389,4 +421,5 @@ def commit_location_bulk_upload(
         rejected_count=validation.rejected_count,
         rows=[_row_to_preview(row) for row in validation.rows],
         bulk_upload_log_id=log.id,
+        storage_warning=storage_warning,
     )

@@ -1713,6 +1713,11 @@ export interface BulkUploadValidationResponse {
 // what the error-report download and Upload History tab key off.
 export interface BulkUploadCommitResponse extends BulkUploadValidationResponse {
   bulk_upload_log_id: string;
+  // Non-null ONLY when the row commit itself succeeded but the original
+  // workbook's archival copy failed after retries -- a non-blocking
+  // warning, never a reason to treat the commit as failed. See
+  // app/services/storage.py::try_upload_bulk_upload_file's own docstring.
+  storage_warning: string | null;
 }
 
 // Mirrors app/models/enums.py::BulkUploadStatusEnum.
@@ -1797,6 +1802,8 @@ export interface LocationBulkUploadValidationResponse {
 // Mirrors LocationBulkUploadCommitResponse.
 export interface LocationBulkUploadCommitResponse extends LocationBulkUploadValidationResponse {
   bulk_upload_log_id: string;
+  // See BulkUploadCommitResponse's own comment above -- same meaning.
+  storage_warning: string | null;
 }
 
 // Mirrors HousekeepingStaffBulkUploadRowPreview.
@@ -1828,6 +1835,8 @@ export interface HousekeepingStaffBulkUploadValidationResponse {
 // Mirrors HousekeepingStaffBulkUploadCommitResponse.
 export interface HousekeepingStaffBulkUploadCommitResponse extends HousekeepingStaffBulkUploadValidationResponse {
   bulk_upload_log_id: string;
+  // See BulkUploadCommitResponse's own comment above -- same meaning.
+  storage_warning: string | null;
 }
 
 // Module 14 "Hermes" assistant (frontend/src/components/assistant/) --

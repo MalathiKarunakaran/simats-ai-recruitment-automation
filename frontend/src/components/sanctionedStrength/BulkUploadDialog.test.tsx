@@ -46,7 +46,11 @@ const VALIDATION_RESULT: BulkUploadValidationResponse = {
   ],
 };
 
-const COMMIT_RESULT: BulkUploadCommitResponse = { ...VALIDATION_RESULT, bulk_upload_log_id: "bu-1" };
+const COMMIT_RESULT: BulkUploadCommitResponse = {
+  ...VALIDATION_RESULT,
+  bulk_upload_log_id: "bu-1",
+  storage_warning: null,
+};
 
 function renderDialog() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -114,7 +118,7 @@ describe("BulkUploadDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Commit" }));
 
     await waitFor(() => expect(mockedCommit).toHaveBeenCalledWith(file));
-    expect(await screen.findByText("Upload committed.")).toBeInTheDocument();
+    expect(await screen.findByText(/Upload committed\./)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Download error report" }));
     await waitFor(() => expect(mockedDownloadErrorReport).toHaveBeenCalledWith("bu-1"));
@@ -142,14 +146,14 @@ describe("BulkUploadDialog", () => {
       ],
     };
     mockedValidate.mockResolvedValue(cleanValidation);
-    mockedCommit.mockResolvedValue({ ...cleanValidation, bulk_upload_log_id: "bu-2" });
+    mockedCommit.mockResolvedValue({ ...cleanValidation, bulk_upload_log_id: "bu-2", storage_warning: null });
     renderDialog();
 
     await openAndUpload();
     await screen.findByText("Created");
     await userEvent.click(screen.getByRole("button", { name: "Commit" }));
 
-    await screen.findByText("Upload committed.");
+    await screen.findByText(/Upload committed\./);
     expect(screen.queryByRole("button", { name: "Download error report" })).not.toBeInTheDocument();
   });
 
@@ -170,11 +174,11 @@ describe("BulkUploadDialog", () => {
     await openAndUpload();
     await screen.findByText("Created");
     await userEvent.click(screen.getByRole("button", { name: "Commit" }));
-    await screen.findByText("Upload committed.");
+    await screen.findByText(/Upload committed\./);
 
     await userEvent.click(screen.getByRole("button", { name: "Upload another file" }));
 
-    expect(screen.queryByText("Upload committed.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Upload committed\./)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose file" })).toBeInTheDocument();
   });
 });

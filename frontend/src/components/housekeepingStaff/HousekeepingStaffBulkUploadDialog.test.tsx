@@ -61,7 +61,11 @@ const VALIDATION_RESULT: HousekeepingStaffBulkUploadValidationResponse = {
   ],
 };
 
-const COMMIT_RESULT: HousekeepingStaffBulkUploadCommitResponse = { ...VALIDATION_RESULT, bulk_upload_log_id: "bu-1" };
+const COMMIT_RESULT: HousekeepingStaffBulkUploadCommitResponse = {
+  ...VALIDATION_RESULT,
+  bulk_upload_log_id: "bu-1",
+  storage_warning: null,
+};
 
 function renderDialog() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -118,7 +122,7 @@ describe("HousekeepingStaffBulkUploadDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Commit" }));
 
     await waitFor(() => expect(mockedCommit).toHaveBeenCalledWith(file));
-    expect(await screen.findByText("Upload committed.")).toBeInTheDocument();
+    expect(await screen.findByText(/Upload committed\./)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Download error report" }));
     await waitFor(() => expect(mockedDownloadErrorReport).toHaveBeenCalledWith("bu-1"));

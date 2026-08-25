@@ -762,8 +762,15 @@ def commit_bulk_upload(
     the very end, so an unexpected failure partway through (defense in
     depth -- validate_rows should already have caught anything that would
     fail here) leaves nothing persisted. Writes exactly one BulkUploadLog
-    row summarizing the batch and stores the original file bytes in the
-    `MINIO_BUCKET_BULK_UPLOADS` bucket.
+    row summarizing the batch.
+
+    The original workbook's archival copy in `MINIO_BUCKET_BULK_UPLOADS` is
+    attempted AFTER the real row commit, and is best-effort (retried with
+    backoff, never raises -- see `storage.try_upload_bulk_upload_file`'s own
+    docstring for the full "Could not reach object storage" bug this fixes
+    and why): a storage hiccup degrades to `storage_warning` in the
+    response, it never rolls back or blocks the rows that were actually
+    requested to be created/updated.
     """
     data = _read_upload_bytes(file)
     raw_rows = sanctioned_strength_import.parse_rows(data, file.filename)
@@ -784,16 +791,7 @@ def commit_bulk_upload(
     db.add(log)
 
     try:
-        db.flush()  # assigns log.id, needed for the MinIO key and history FK
-
-        storage_key = storage.upload_bulk_upload_file(
-            minio_client,
-            bulk_upload_log_id=log.id,
-            filename=file.filename or "upload",
-            data=data,
-            content_type=file.content_type or "application/octet-stream",
-        )
-        log.stored_file_object_key = storage_key
+        db.flush()  # assigns log.id, needed for the history FK
 
         sanctioned_strength_import.commit_rows(
             db, validation=validation, actor=current_user, bulk_upload_log_id=log.id
@@ -821,6 +819,36 @@ def commit_bulk_upload(
     db.commit()
     db.refresh(log)
 
+    # Archival is attempted only now that the real records are safely
+    # committed -- its outcome can never change whether this request
+    # reports success, only whether `storage_warning` is set.
+    storage_key, storage_error = storage.try_upload_bulk_upload_file(
+        minio_client,
+        bulk_upload_log_id=log.id,
+        filename=file.filename or "upload",
+        data=data,
+        content_type=file.content_type or "application/octet-stream",
+    )
+    storage_warning = None
+    if storage_key is not None:
+        log.stored_file_object_key = storage_key
+        db.commit()
+    else:
+        storage_warning = (
+            "Workbook storage is temporarily unavailable. The file was successfully parsed, "
+            "but the original workbook could not be archived."
+        )
+        log_event(
+            db,
+            actor=current_user,
+            action="SANCTIONED_STRENGTH_BULK_UPLOAD_ARCHIVE_FAILED",
+            entity_type="BulkUploadLog",
+            entity_id=log.id,
+            after_state={"error": storage_error},
+            request=request,
+        )
+        db.commit()
+
     return BulkUploadCommitResponse(
         total=validation.total,
         created_count=validation.created_count,
@@ -829,6 +857,7 @@ def commit_bulk_upload(
         rejected_count=validation.rejected_count,
         rows=[_row_to_preview(row) for row in validation.rows],
         bulk_upload_log_id=log.id,
+        storage_warning=storage_warning,
     )
 
 

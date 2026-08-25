@@ -38,3 +38,8 @@ class HousekeepingStaffBulkUploadValidationResponse(BaseModel):
 
 class HousekeepingStaffBulkUploadCommitResponse(HousekeepingStaffBulkUploadValidationResponse):
     bulk_upload_log_id: uuid.UUID
+    # Non-null ONLY when the row commit itself succeeded but the original
+    # workbook's archival copy failed after retries -- a non-blocking
+    # warning, never a reason the whole commit failed. See
+    # app/services/storage.py::try_upload_bulk_upload_file's own docstring.
+    storage_warning: str | None = None
