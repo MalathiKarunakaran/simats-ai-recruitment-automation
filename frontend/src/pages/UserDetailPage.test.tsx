@@ -1054,6 +1054,29 @@ describe("UserDetailPage reset password", () => {
     expect(screen.queryByText("newpass123")).not.toBeInTheDocument();
   });
 
+  it("toggles the reset-password dialog's two password fields independently", async () => {
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reset password" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: "Reset password" }));
+
+    const dialog = await screen.findByRole("dialog");
+    const newPasswordInput = within(dialog).getByLabelText("New password");
+    const confirmPasswordInput = within(dialog).getByLabelText("Confirm password");
+    const [showNew, showConfirm] = within(dialog).getAllByRole("button", { name: "Show password" });
+
+    await userEvent.click(showNew);
+    expect(newPasswordInput).toHaveAttribute("type", "text");
+    expect(confirmPasswordInput).toHaveAttribute("type", "password");
+
+    await userEvent.click(showConfirm);
+    expect(confirmPasswordInput).toHaveAttribute("type", "text");
+  });
+
   it("blocks submission and never calls the API for a password shorter than 8 characters", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(COORDINATOR);

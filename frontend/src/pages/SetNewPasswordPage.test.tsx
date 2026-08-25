@@ -71,6 +71,32 @@ describe("SetNewPasswordPage", () => {
     expect(await screen.findByText("dashboard page")).toBeInTheDocument();
   });
 
+  it("toggles each password field's visibility independently", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: null,
+      isLoading: false,
+      login: vi.fn(),
+      requestOtp: vi.fn(),
+      loginWithOtp: vi.fn(),
+      logout: vi.fn(),
+      mustChangePassword: true,
+      completePasswordChange: vi.fn(),
+    });
+
+    renderPage();
+
+    const newPasswordInput = screen.getByLabelText("New password");
+    const confirmPasswordInput = screen.getByLabelText("Confirm new password");
+    const [showNew, showConfirm] = screen.getAllByRole("button", { name: "Show password" });
+
+    await userEvent.click(showNew);
+    expect(newPasswordInput).toHaveAttribute("type", "text");
+    expect(confirmPasswordInput).toHaveAttribute("type", "password");
+
+    await userEvent.click(showConfirm);
+    expect(confirmPasswordInput).toHaveAttribute("type", "text");
+  });
+
   it("blocks submission for a password shorter than 8 characters", async () => {
     mockedUseAuth.mockReturnValue({
       user: null,

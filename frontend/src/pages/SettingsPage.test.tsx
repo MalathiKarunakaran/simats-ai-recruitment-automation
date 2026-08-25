@@ -84,6 +84,20 @@ describe("SettingsPage", () => {
     expect(await screen.findByText("Saved.")).toBeInTheDocument();
   });
 
+  it("can toggle the new-password field's visibility", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedGetOwnProfile.mockResolvedValue(PROFILE);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByDisplayValue("Jane Doe")).toBeInTheDocument());
+
+    const passwordInput = screen.getByLabelText("New password (leave blank to keep current)");
+    expect(passwordInput).toHaveAttribute("type", "password");
+
+    await userEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(passwordInput).toHaveAttribute("type", "text");
+  });
+
   it("shows the current theme and toggles it", async () => {
     mockUser("RECRUITMENT_OFFICER", "c-sse");
     mockedGetOwnProfile.mockResolvedValue({ ...PROFILE, role: "RECRUITMENT_OFFICER" });

@@ -11,6 +11,7 @@ import { createUser } from "@/api/users";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { combine, email as emailValidator, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
@@ -113,9 +114,8 @@ export function UserCreatePage() {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="password">Password</Label>
-          <Input
+          <PasswordInput
             id="password"
-            type="password"
             required
             minLength={8}
             value={password.value}

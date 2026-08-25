@@ -7,8 +7,8 @@ import { updateOwnProfile } from "@/api/users";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { combine, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 // Forced-password-change screen -- reached via ProtectedRoute's own
@@ -67,9 +67,8 @@ export function SetNewPasswordPage() {
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="new_password">New password</Label>
-              <Input
+              <PasswordInput
                 id="new_password"
-                type="password"
                 autoComplete="new-password"
                 required
                 minLength={8}
@@ -82,9 +81,8 @@ export function SetNewPasswordPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="confirm_password">Confirm new password</Label>
-              <Input
+              <PasswordInput
                 id="confirm_password"
-                type="password"
                 autoComplete="new-password"
                 required
                 minLength={8}

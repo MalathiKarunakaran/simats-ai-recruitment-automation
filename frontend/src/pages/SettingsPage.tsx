@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
 import { useTheme } from "@/theme/ThemeContext";
 
@@ -96,9 +97,8 @@ export function SettingsPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="new_password">New password (leave blank to keep current)</Label>
-              <Input
+              <PasswordInput
                 id="new_password"
-                type="password"
                 minLength={8}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
