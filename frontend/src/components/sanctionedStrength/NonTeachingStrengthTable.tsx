@@ -426,7 +426,24 @@ export function NonTeachingStrengthTable({
       </div>
 
       <div className="rounded-lg border border-border">
-        <Table>
+        {/* Deliberately NOT the `Table` wrapper component here: it injects its
+            own `overflow-x-auto` div around the `<table>`, which forces that
+            div's computed overflow-y to `auto` too (CSS's overflow
+            visible/non-visible canonicalization rule) -- making IT the nearest
+            ancestor scroll container for `sticky` purposes, ahead of the real
+            one (AppShell's `<main className="overflow-y-auto">`), even though
+            it never actually scrolls itself. Confirmed live (Playwright, this
+            exact DOM shape against the app's real compiled CSS): with `Table`,
+            the sticky header scrolls away with the rows; with a plain `<table>`
+            here, it stays pinned to `<main>`'s top -- and `<main>`'s own
+            explicit overflow-y-auto already auto-canonicalizes its own
+            overflow-x to `auto` too, so wide tables still scroll horizontally
+            within `<main>` rather than overflowing the page (also verified
+            live). See a79f9b7/the "remaining hand-rolled tables" merge for the
+            first instance of this same root-cause finding. The OTHER `<Table>`
+            usage above (the "add row" inline table) has no sticky descendant,
+            so it's unaffected and left as-is. */}
+        <table className="w-full text-sm">
           <TableHeader className="sticky top-0 z-10 bg-muted">
             <TableRow>
               {/* Leading, unlabeled expand/chevron column. */}
@@ -516,7 +533,7 @@ export function NonTeachingStrengthTable({
               })
             )}
           </TableBody>
-        </Table>
+        </table>
       </div>
 
       <Pagination total={total} limit={limit} offset={offset} onOffsetChange={(next) => setPage(next / limit)} itemLabel="designations" />
