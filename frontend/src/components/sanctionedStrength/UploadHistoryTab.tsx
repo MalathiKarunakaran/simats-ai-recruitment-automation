@@ -10,6 +10,7 @@ import type { BulkUploadEntityType, BulkUploadLogRead } from "@/api/types";
 import { UndoBulkUploadDialog } from "@/components/sanctionedStrength/UndoBulkUploadDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 // "Upload history" tab/dialog (zany-snuggling-pie.md Phase F, item 5).
 // Generalized in Phase J (glowing-zooming-hamming.md) to serve Location and
@@ -77,55 +78,45 @@ export function UploadHistoryTab({ entityType }: UploadHistoryTabProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-sm">
-          <thead className="bg-muted">
-            <tr className="text-left text-muted-foreground">
-              <th className="px-3 py-2 text-table-header font-medium">Filename</th>
-              <th className="px-3 py-2 text-table-header font-medium">Uploaded by</th>
-              <th className="px-3 py-2 text-table-header font-medium">Uploaded at</th>
-              <th className="px-3 py-2 text-table-header font-medium">Rows</th>
-              <th className="px-3 py-2 text-table-header font-medium">Status</th>
-              <th className="px-3 py-2 text-table-header font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
+      <div className="rounded-lg border border-border">
+        <Table>
+          <TableHeader className="bg-muted">
+            <TableRow>
+              <TableHead>Filename</TableHead>
+              <TableHead>Uploaded by</TableHead>
+              <TableHead>Uploaded at</TableHead>
+              <TableHead>Rows</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {isLoading ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-4 text-sm text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
+              <TableEmpty colSpan={6} loading />
             ) : isError ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-4 text-sm text-destructive">
-                  {error instanceof ApiError ? error.message : "Failed to load upload history."}
-                </td>
-              </tr>
+              <TableEmpty colSpan={6} className="text-destructive">
+                {error instanceof ApiError ? error.message : "Failed to load upload history."}
+              </TableEmpty>
             ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-4 text-sm text-muted-foreground">
-                  No bulk uploads yet.
-                </td>
-              </tr>
+              <TableEmpty colSpan={6}>No bulk uploads yet.</TableEmpty>
             ) : (
               rows.map((log) => (
-                <tr key={log.id} className="align-top">
-                  <td className="px-3 py-2 font-medium">{log.filename}</td>
-                  <td className="px-3 py-2 text-muted-foreground" title={log.uploaded_by_id}>
+                <TableRow key={log.id} className="align-top">
+                  <TableCell className="font-medium">{log.filename}</TableCell>
+                  <TableCell className="text-muted-foreground" title={log.uploaded_by_id}>
                     {log.uploaded_by_id.slice(0, 8)}
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">{new Date(log.uploaded_at).toLocaleString()}</td>
-                  <td className="px-3 py-2 tabular-nums">
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{new Date(log.uploaded_at).toLocaleString()}</TableCell>
+                  <TableCell className="tabular-nums">
                     {log.rows_total} total ({log.rows_created} created, {log.rows_updated} updated,{" "}
                     {log.rows_rejected} rejected)
-                  </td>
-                  <td className="px-3 py-2">
+                  </TableCell>
+                  <TableCell>
                     <Badge variant={log.status === "UNDONE" ? "outline" : "success"}>
                       {log.status === "UNDONE" ? "Undone" : "Completed"}
                     </Badge>
-                  </td>
-                  <td className="px-3 py-2">
+                  </TableCell>
+                  <TableCell>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <DownloadOriginalFileButton log={log} />
                       {isWithinUndoWindow(log) ? (
@@ -137,12 +128,12 @@ export function UploadHistoryTab({ entityType }: UploadHistoryTabProps) {
                         />
                       ) : null}
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">

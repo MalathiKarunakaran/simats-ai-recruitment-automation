@@ -1,6 +1,7 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import type { CampusHiringRow } from "@/api/types";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface CampusHiringChartProps {
   data: CampusHiringRow[];
@@ -103,26 +104,28 @@ export function CampusHiringChart({ data }: CampusHiringChartProps) {
         </ul>
       </div>
       <div className="overflow-y-auto lg:col-span-2" style={{ height: CHART_HEIGHT }}>
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-1 font-medium">Campus</th>
-              <th className="py-1 font-medium">Hired</th>
-              <th className="py-1 font-medium">Open</th>
-              <th className="py-1 font-medium">In progress</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table className="text-xs">
+          <TableHeader className="bg-transparent">
+            <TableRow>
+              <TableHead className="px-0 py-1 font-medium">Campus</TableHead>
+              <TableHead className="px-0 py-1 font-medium">Hired</TableHead>
+              <TableHead className="px-0 py-1 font-medium">Open</TableHead>
+              <TableHead className="px-0 py-1 font-medium">In progress</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {data.map((row) => (
-              <tr key={row.campus_code} className="border-b border-border last:border-0">
-                <td className="py-1 font-mono">{row.campus_code}</td>
-                <td className="py-1 font-display font-semibold tabular-nums">{row.hired_count}</td>
-                <td className="py-1 tabular-nums">{row.open_count}</td>
-                <td className="py-1 tabular-nums">{row.in_progress_count}</td>
-              </tr>
+              <TableRow key={row.campus_code}>
+                <TableCell className="px-0 py-1 font-mono">{row.campus_code}</TableCell>
+                <TableCell className="px-0 py-1 font-display font-semibold tabular-nums">
+                  {row.hired_count}
+                </TableCell>
+                <TableCell className="px-0 py-1 tabular-nums">{row.open_count}</TableCell>
+                <TableCell className="px-0 py-1 tabular-nums">{row.in_progress_count}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   );

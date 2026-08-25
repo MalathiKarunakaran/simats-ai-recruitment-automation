@@ -21,6 +21,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 // Upload -> Validate preview -> Commit (zany-snuggling-pie.md Phase F, item
 // 3). Built as a Dialog (not a dedicated route/section) since it's a
@@ -91,35 +92,47 @@ function PreviewTable({
         ) : visibleRows.length === 0 ? (
           <p className="p-3 text-sm text-muted-foreground">No rows match this filter.</p>
         ) : (
+          // Deliberately NOT the `Table` wrapper component here: it injects its
+          // own `overflow-x-auto` div around the `<table>`, which forces that
+          // div's computed overflow-y to `auto` too (CSS's overflow
+          // visible/non-visible canonicalization rule) -- making IT, not this
+          // outer `max-h-96 overflow-y-auto` div, the nearest ancestor scroll
+          // container for `sticky` purposes, even though it never actually
+          // scrolls itself. Confirmed live (Playwright, scrolling this exact
+          // DOM shape with the app's real compiled CSS): with `Table`, the
+          // sticky header scrolls away with the rows; with a plain `<table>`
+          // here (this outer div already provides all needed scroll, no
+          // horizontal overflow risk in this fixed-width dialog), it stays
+          // pinned correctly, matching this table's pre-migration behavior.
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-muted">
-              <tr className="border-b border-border text-left text-muted-foreground">
-                <th className="px-3 py-2 font-medium">Row</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Campus</th>
-                <th className="px-3 py-2 font-medium">Department</th>
-                <th className="px-3 py-2 font-medium">Designation</th>
-                <th className="px-3 py-2 font-medium">Approved</th>
-                <th className="px-3 py-2 font-medium">Effective from</th>
-                <th className="px-3 py-2 font-medium">Details</th>
-              </tr>
-            </thead>
-            <tbody>
+            <TableHeader className="sticky top-0 bg-muted">
+              <TableRow>
+                <TableHead>Row</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Campus</TableHead>
+                <TableHead>Department</TableHead>
+                <TableHead>Designation</TableHead>
+                <TableHead>Approved</TableHead>
+                <TableHead>Effective from</TableHead>
+                <TableHead>Details</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {visibleRows.map((row) => (
-                <tr key={row.row_number} className="border-b border-border last:border-0">
-                  <td className="px-3 py-2">{row.row_number}</td>
-                  <td className="px-3 py-2">
+                <TableRow key={row.row_number}>
+                  <TableCell>{row.row_number}</TableCell>
+                  <TableCell>
                     <BulkUploadRowStatusBadge status={row.status} />
-                  </td>
-                  <td className="px-3 py-2">{row.campus_code ?? "—"}</td>
-                  <td className="px-3 py-2">{row.department_name ?? "—"}</td>
-                  <td className="px-3 py-2">{row.designation_name ?? "—"}</td>
-                  <td className="px-3 py-2 tabular-nums">{row.approved_strength ?? "—"}</td>
-                  <td className="px-3 py-2">{formatDate(row.effective_from)}</td>
-                  <td className="px-3 py-2 text-destructive">{row.error_reason ?? ""}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell>{row.campus_code ?? "—"}</TableCell>
+                  <TableCell>{row.department_name ?? "—"}</TableCell>
+                  <TableCell>{row.designation_name ?? "—"}</TableCell>
+                  <TableCell className="tabular-nums">{row.approved_strength ?? "—"}</TableCell>
+                  <TableCell>{formatDate(row.effective_from)}</TableCell>
+                  <TableCell className="text-destructive">{row.error_reason ?? ""}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
+            </TableBody>
           </table>
         )}
       </div>
