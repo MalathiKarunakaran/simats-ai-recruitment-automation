@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, type TabOption } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 // Unified View/Add/Edit drawer (glowing-zooming-hamming.md Phase H) --
 // replaces both SanctionedStrengthEditPopover.tsx and AddDesignationRow.tsx
@@ -515,28 +516,30 @@ export function SanctionedStrengthDrawer({
             ) : !vacancyRequestsQuery.data || vacancyRequestsQuery.data.length === 0 ? (
               <p className="text-sm text-muted-foreground">No vacancy requests raised for this designation yet.</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">Status</th>
-                    <th className="py-2 font-medium">Created</th>
-                    <th className="py-2 font-medium">Requested by</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table>
+                <TableHeader className="bg-transparent">
+                  <TableRow>
+                    <TableHead className="px-0 py-2 text-muted-foreground">Status</TableHead>
+                    <TableHead className="px-0 py-2 text-muted-foreground">Created</TableHead>
+                    <TableHead className="px-0 py-2 text-muted-foreground">Requested by</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {vacancyRequestsQuery.data.map((vr) => (
-                    <tr key={vr.id} className="border-b border-border last:border-0 align-top">
-                      <td className="py-2">
+                    <TableRow key={vr.id} className="align-top">
+                      <TableCell className="px-0 py-2">
                         <Badge variant="outline">{formatEnumLabel(vr.status)}</Badge>
-                      </td>
-                      <td className="py-2 whitespace-nowrap">{new Date(vr.created_at).toLocaleDateString()}</td>
-                      <td className="py-2 text-muted-foreground" title={vr.requested_by_id}>
+                      </TableCell>
+                      <TableCell className="px-0 py-2 whitespace-nowrap">
+                        {new Date(vr.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="px-0 py-2 text-muted-foreground" title={vr.requested_by_id}>
                         {vr.requested_by_id.slice(0, 8)}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             )
           ) : null}
 
@@ -552,30 +555,32 @@ export function SanctionedStrengthDrawer({
             ) : !historyQuery.data || historyQuery.data.items.length === 0 ? (
               <p className="text-sm text-muted-foreground">No changes recorded yet.</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">When</th>
-                    <th className="py-2 font-medium">Change</th>
-                    <th className="py-2 font-medium">Changed by</th>
-                    <th className="py-2 font-medium">Source</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table>
+                <TableHeader className="bg-transparent">
+                  <TableRow>
+                    <TableHead className="px-0 py-2 text-muted-foreground">When</TableHead>
+                    <TableHead className="px-0 py-2 text-muted-foreground">Change</TableHead>
+                    <TableHead className="px-0 py-2 text-muted-foreground">Changed by</TableHead>
+                    <TableHead className="px-0 py-2 text-muted-foreground">Source</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {historyQuery.data.items.map((entry) => (
-                    <tr key={entry.id} className="border-b border-border last:border-0 align-top">
-                      <td className="py-2 whitespace-nowrap">{new Date(entry.changed_at).toLocaleString()}</td>
-                      <td className="py-2 tabular-nums">
+                    <TableRow key={entry.id} className="align-top">
+                      <TableCell className="px-0 py-2 whitespace-nowrap">
+                        {new Date(entry.changed_at).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="px-0 py-2 tabular-nums">
                         {entry.old_value ?? "—"} → {entry.new_value}
-                      </td>
-                      <td className="py-2 text-muted-foreground" title={entry.changed_by_id}>
+                      </TableCell>
+                      <TableCell className="px-0 py-2 text-muted-foreground" title={entry.changed_by_id}>
                         {entry.changed_by_id.slice(0, 8)}
-                      </td>
-                      <td className="py-2 text-muted-foreground">{sourceLabel(entry.source)}</td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className="px-0 py-2 text-muted-foreground">{sourceLabel(entry.source)}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             )
           ) : null}
 
@@ -591,26 +596,28 @@ export function SanctionedStrengthDrawer({
             ) : !auditLogQuery.data || auditLogQuery.data.length === 0 ? (
               <p className="text-sm text-muted-foreground">No audit log entries recorded yet.</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted-foreground">
-                    <th className="py-2 font-medium">When</th>
-                    <th className="py-2 font-medium">Action</th>
-                    <th className="py-2 font-medium">Actor</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table>
+                <TableHeader className="bg-transparent">
+                  <TableRow>
+                    <TableHead className="px-0 py-2 text-muted-foreground">When</TableHead>
+                    <TableHead className="px-0 py-2 text-muted-foreground">Action</TableHead>
+                    <TableHead className="px-0 py-2 text-muted-foreground">Actor</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {auditLogQuery.data.map((entry: AuditLogRead) => (
-                    <tr key={entry.id} className="border-b border-border last:border-0 align-top">
-                      <td className="py-2 whitespace-nowrap">{new Date(entry.created_at).toLocaleString()}</td>
-                      <td className="py-2">{entry.action}</td>
-                      <td className="py-2 text-muted-foreground" title={entry.actor_user_id ?? undefined}>
+                    <TableRow key={entry.id} className="align-top">
+                      <TableCell className="px-0 py-2 whitespace-nowrap">
+                        {new Date(entry.created_at).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="px-0 py-2">{entry.action}</TableCell>
+                      <TableCell className="px-0 py-2 text-muted-foreground" title={entry.actor_user_id ?? undefined}>
                         {entry.actor_user_id ? entry.actor_user_id.slice(0, 8) : "System"}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             )
           ) : null}
         </div>
