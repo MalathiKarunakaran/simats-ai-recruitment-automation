@@ -25,7 +25,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 // Upload -> Validate preview -> Commit for HousekeepingStaff (Phase J,
 // glowing-zooming-hamming.md), a sibling of
@@ -102,7 +102,19 @@ function PreviewTable({
         ) : visibleRows.length === 0 ? (
           <p className="p-3 text-sm text-muted-foreground">No rows match this filter.</p>
         ) : (
-          <Table>
+          // Deliberately NOT the `Table` wrapper component here: it injects its
+          // own `overflow-x-auto` div around the `<table>`, which forces that
+          // div's computed overflow-y to `auto` too (CSS's overflow
+          // visible/non-visible canonicalization rule) -- making IT, not this
+          // outer `max-h-96 overflow-auto` div, the nearest ancestor scroll
+          // container for `sticky` purposes, even though it never actually
+          // scrolls itself. Confirmed live (Playwright, scrolling this exact
+          // DOM shape with the app's real compiled CSS): with `Table`, the
+          // sticky header scrolls away with the rows; with a plain `<table>`
+          // here (this outer div's own `overflow-auto` already covers both
+          // axes), it stays pinned correctly, matching this table's
+          // pre-migration behavior.
+          <table className="w-full text-sm">
             <TableHeader className="sticky top-0 bg-muted">
               <TableRow>
                 <TableHead>Row</TableHead>
@@ -139,7 +151,7 @@ function PreviewTable({
                 </TableRow>
               ))}
             </TableBody>
-          </Table>
+          </table>
         )}
       </div>
     </div>
