@@ -104,6 +104,34 @@ describe("LoginPage", () => {
     expect(await screen.findByText("dashboard page")).toBeInTheDocument();
   });
 
+  it("can toggle the password field's visibility", async () => {
+    mockAuth();
+    renderPage();
+
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with a password instead" }));
+    const passwordInput = screen.getByLabelText("Password");
+    expect(passwordInput).toHaveAttribute("type", "password");
+
+    await userEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(passwordInput).toHaveAttribute("type", "text");
+
+    await userEvent.click(screen.getByRole("button", { name: "Hide password" }));
+    expect(passwordInput).toHaveAttribute("type", "password");
+  });
+
+  it("resets the password field's visibility when switching away and back", async () => {
+    mockAuth();
+    renderPage();
+
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with a password instead" }));
+    await userEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "text");
+
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with a code instead" }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with a password instead" }));
+    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "password");
+  });
+
   it("can switch back from password mode to the code flow", async () => {
     mockAuth();
     renderPage();
