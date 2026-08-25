@@ -345,3 +345,143 @@ describe("InterviewsListPage", () => {
     expect(within(getKpiTile("Cancelled / Rescheduled")).getByText("0")).toBeInTheDocument();
   });
 });
+
+// Calendar view (month-grid) -- deferred since Step 6 of the earlier "UI
+// refinement epic", now built per explicit user request. Interviews are
+// anchored to "today" (the real system clock, not a fake one -- this repo
+// avoids vi.useFakeTimers() with userEvent, see toast.test.tsx's own
+// comment) so the calendar's default month always contains at least one
+// fixture interview with no Prev/Next navigation required first.
+describe("InterviewsListPage calendar view", () => {
+  const now = new Date();
+
+  // Constructed from *local* Date components (not a hardcoded ISO string) so
+  // the round-trip through `new Date(...).toISOString()` and back via the
+  // component's own `new Date(interview.scheduled_at)` always lands on the
+  // same local calendar day regardless of the machine's timezone.
+  function isoOnDay(day: number, hour: number): string {
+    return new Date(now.getFullYear(), now.getMonth(), day, hour, 0, 0).toISOString();
+  }
+
+  function monthLabelForOffset(offsetMonths: number): string {
+    return new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1).toLocaleDateString(undefined, {
+      month: "long",
+      year: "numeric",
+    });
+  }
+
+  const CALENDAR_INTERVIEW: InterviewScheduleRead = { ...INTERVIEW, scheduled_at: isoOnDay(15, 10) };
+
+  function mockAuthAndLookups() {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN", id: "u-1" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+  }
+
+  async function switchToCalendarView() {
+    await userEvent.click(screen.getByRole("tab", { name: "Calendar" }));
+  }
+
+  it("defaults to the list view and switches to a month grid on demand", async () => {
+    mockAuthAndLookups();
+    mockedListInterviews.mockResolvedValue([CALENDAR_INTERVIEW]);
+    mockedListApplications.mockResolvedValue([APPLICATION]);
+    mockedListCandidates.mockResolvedValue([CANDIDATE]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    // Still the plain filterable list -- unchanged default behavior.
+    expect(screen.getByRole("columnheader", { name: "Candidate" })).toBeInTheDocument();
+
+    await switchToCalendarView();
+
+    expect(screen.getByText(monthLabelForOffset(0))).toBeInTheDocument();
+    expect(screen.getByText("Sun")).toBeInTheDocument();
+    expect(screen.getByText("Sat")).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Candidate" })).not.toBeInTheDocument();
+  });
+
+  it("shows an interview as a chip on the correct day, linking to its detail route", async () => {
+    mockAuthAndLookups();
+    mockedListInterviews.mockResolvedValue([CALENDAR_INTERVIEW]);
+    mockedListApplications.mockResolvedValue([APPLICATION]);
+    mockedListCandidates.mockResolvedValue([CANDIDATE]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    await switchToCalendarView();
+
+    const chip = await screen.findByRole("link", { name: /Jane Doe/ });
+    expect(chip).toHaveAttribute("href", "/interviews/int-1");
+  });
+
+  it("moves the displayed month with Prev/Next/Today controls", async () => {
+    mockAuthAndLookups();
+    mockedListInterviews.mockResolvedValue([]);
+    mockedListApplications.mockResolvedValue([]);
+    mockedListCandidates.mockResolvedValue([]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/No interviews/)).toBeInTheDocument());
+    await switchToCalendarView();
+
+    expect(screen.getByText(monthLabelForOffset(0))).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Next month" }));
+    expect(screen.getByText(monthLabelForOffset(1))).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Previous month" }));
+    await userEvent.click(screen.getByRole("button", { name: "Previous month" }));
+    expect(screen.getByText(monthLabelForOffset(-1))).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Today" }));
+    expect(screen.getByText(monthLabelForOffset(0))).toBeInTheDocument();
+  });
+
+  it("narrows the calendar by the same status filter that narrows the list", async () => {
+    mockAuthAndLookups();
+    const completed: InterviewScheduleRead = {
+      ...CALENDAR_INTERVIEW,
+      id: "int-2",
+      application_id: "app-2",
+      status: "COMPLETED",
+    };
+    mockedListInterviews.mockImplementation(({ status } = {}) => {
+      const all = [CALENDAR_INTERVIEW, completed];
+      return Promise.resolve(status ? all.filter((i) => i.status === status) : all);
+    });
+    mockedListApplications.mockResolvedValue([
+      APPLICATION,
+      { ...APPLICATION, id: "app-2", candidate_id: "cand-2" },
+    ]);
+    mockedListCandidates.mockResolvedValue([
+      CANDIDATE,
+      { ...CANDIDATE, id: "cand-2", full_name: "Completed Candidate", email: "c@example.com" },
+    ]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    await switchToCalendarView();
+
+    expect(await screen.findByRole("link", { name: /Jane Doe/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Completed Candidate/ })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Status filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "COMPLETED" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: /Jane Doe/ })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("link", { name: /Completed Candidate/ })).toBeInTheDocument();
+  });
+});
