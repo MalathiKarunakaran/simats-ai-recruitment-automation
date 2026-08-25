@@ -10,16 +10,29 @@ and reuses it directly from `sanctioned_strength_import` rather than keeping
 UPSERT resolution, the two xlsx builders) is its own copy, matching the
 dispatch brief's explicit "your call, document which and why."
 
-**UPSERT key**: `(campus_id, name)`, matched case-insensitively. `Location`
-(app/models/location.py) has no DB-level unique constraint on this pair --
-unlike `Department`, which has a real `uq_department_campus_name` constraint
-and so can be resolved with `.one_or_none()` in `sanctioned_strength_import.py`.
-Here, matching uses `.order_by(Location.created_at).first()` for a
-deterministic pick when (rare, pre-existing-data) duplicates exist -- an
-accepted, documented limitation stemming from the underlying schema, not a
-bug introduced by this importer. A row is `updated` if any of
-block_building/floor_venue/category differs from the existing match;
-`unchanged` if identical; `created` if no existing match.
+**UPSERT key** (fixed 2026-08-25 -- see the bug report this change closes):
+the full composite `(campus_code, name, block_building, floor_venue,
+category)`, normalized before comparison (trimmed, repeated internal
+whitespace collapsed, case-insensitive). A building's separate floors/venues
+are distinct real-world locations, not one location with a mutable floor
+attribute -- matching on `(campus_id, name)` alone (the previous key) let a
+row for "RB Block / First Floor" silently match and overwrite an existing
+"RB Block / Ground Floor" row for the same building name, and rejected a
+second floor as an in-file duplicate of the first. `Location`
+(app/models/location.py) has no DB-level unique constraint on this
+composite -- unlike `Department`, which has a real `uq_department_campus_name`
+constraint and so can be resolved with `.one_or_none()` in
+`sanctioned_strength_import.py`. Here, matching iterates every existing
+Location for the row's campus (fetched once per campus, not once per row)
+ordered by `created_at`, picking the first whose own normalized composite
+key equals the row's -- a deterministic pick for the rare case where
+pre-existing data already has a genuine composite-key collision, same
+accepted-limitation shape as before this fix, just scoped to the wider key.
+A row is `updated` only when its composite key already matches an existing
+row (same real-world location) but the raw stored text differs from what
+was just uploaded (pure case/whitespace normalization drift, since every
+other business field is now part of the identity itself); `unchanged` if
+byte-identical; `created` if no existing row shares that composite key.
 
 **Undo scope**: unlike Sanctioned Strength (whose undo replays
 `SanctionedStrengthHistory.old_value`), Location has no permanent
@@ -32,6 +45,7 @@ rows this batch actually created, skipping (and counting) the rest.
 """
 
 import io
+import re
 import uuid
 from dataclasses import dataclass
 
@@ -116,6 +130,41 @@ def _parse_optional_category(text: str) -> tuple[StaffRoleCategoryEnum | None, s
     return StaffRoleCategoryEnum(upper), None
 
 
+def _normalize(text: str | None) -> str:
+    """Trim, collapse repeated internal whitespace, and casefold -- used
+    ONLY to decide whether two rows refer to the same real-world location
+    (the in-file duplicate check, and matching against existing DB rows).
+    Comparison-only: never mutates what actually gets stored, so "RB  Block"
+    and "rb block" are treated as identical for matching purposes but the
+    row's own trimmed-but-original-case text is still what's written on
+    create/update."""
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", text.strip()).casefold()
+
+
+def _composite_key(
+    campus_code: str,
+    location_name: str,
+    block_building: str | None,
+    floor_venue: str | None,
+    category: StaffRoleCategoryEnum | None,
+) -> tuple[str, str, str, str, str]:
+    """The full, normalized 5-part identity a Location is matched/deduped
+    by: Campus Code + Location Name + Block/Building + Floor/Venue +
+    Category. All five must match for two rows to be considered the same
+    location -- see this module's own docstring for why (a building's
+    separate floors/venues are distinct real-world locations, not one
+    location with a mutable floor attribute)."""
+    return (
+        _normalize(campus_code),
+        _normalize(location_name),
+        _normalize(block_building),
+        _normalize(floor_venue),
+        category.value if category else "",
+    )
+
+
 def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
     """Parses+validates every row against the current DB state **without
     writing anything** -- same read-only contract as
@@ -130,7 +179,13 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
         )
 
     results: list[ImportRowResult] = []
-    seen_keys: dict[tuple[str, str], int] = {}
+    seen_keys: dict[tuple[str, str, str, str, str], int] = {}
+    # Existing Location rows for a given campus, fetched at most once per
+    # campus (not once per row) and reused for every row on that campus --
+    # matching is now a full in-Python composite-key comparison (see
+    # `_composite_key`), not something a single ILIKE query can express once
+    # whitespace-collapsing is part of "normalized".
+    existing_by_campus: dict[uuid.UUID, list[Location]] = {}
     created = updated = unchanged = rejected = 0
 
     for row_number, raw_row in enumerate(raw_rows, start=2):
@@ -161,9 +216,12 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
                 errors.append(f"Campus '{campus_code}' is not seeded in this environment")
 
         if campus_code and location_name:
-            key = (campus_code, location_name.lower())
+            key = _composite_key(campus_code, location_name, block_building, floor_venue, category)
             if key in seen_keys:
-                errors.append(f"Duplicate key already used on row {seen_keys[key]}")
+                errors.append(
+                    "Duplicate location: same Campus, Location, Block, Floor/Venue and Category "
+                    f"(already used on row {seen_keys[key]})"
+                )
             else:
                 seen_keys[key] = row_number
 
@@ -185,20 +243,37 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
 
         result.campus_id = campus.id
 
-        existing = (
-            db.query(Location)
-            .filter(Location.campus_id == campus.id, Location.name.ilike(location_name))
-            .order_by(Location.created_at)
-            .first()
+        campus_locations = existing_by_campus.get(campus.id)
+        if campus_locations is None:
+            campus_locations = (
+                db.query(Location).filter(Location.campus_id == campus.id).order_by(Location.created_at).all()
+            )
+            existing_by_campus[campus.id] = campus_locations
+
+        row_key = _composite_key(campus_code, location_name, block_building, floor_venue, category)
+        existing = next(
+            (
+                loc
+                for loc in campus_locations
+                if _composite_key(campus_code, loc.name, loc.block_building, loc.floor_venue, loc.category)
+                == row_key
+            ),
+            None,
         )
+
         if existing is None:
             result.status = "created"
             created += 1
         elif (
-            existing.block_building != block_building
+            existing.name != location_name
+            or existing.block_building != block_building
             or existing.floor_venue != floor_venue
             or existing.category != category
         ):
+            # Same real-world location (normalized composite key matches)
+            # but the raw stored text differs only in case/whitespace/
+            # formatting from what was just uploaded -- re-stamp the
+            # canonical uploaded formatting.
             result.status = "updated"
             result.location_id = existing.id
             updated += 1
@@ -254,6 +329,12 @@ def commit_rows(
             )
         elif row.status == "updated":
             existing = db.get(Location, row.location_id)
+            # `name` too, not just block/floor/category -- "updated" can now
+            # ONLY happen when the composite key already matched (same
+            # real-world location) but some field's raw text differs purely
+            # in case/whitespace from what was just uploaded, and that can
+            # be `name` itself just as easily as block/floor/category.
+            existing.name = row.location_name
             existing.block_building = row.block_building
             existing.floor_venue = row.floor_venue
             existing.category = row.category

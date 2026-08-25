@@ -223,12 +223,20 @@ def test_undo_location_batch_deactivates_created_row(client, location_setup, db_
 def test_undo_location_batch_skips_updated_row_and_counts_it(
     client, location_setup, location_factory, db_session
 ):
-    existing = location_factory("SSE", name="Shared Block", category=StaffRoleCategoryEnum.TEACHING)
+    # "Updated" (2026-08-25 fix, see location_import.py's own docstring) now
+    # only fires when the composite match key (campus+name+block+floor+
+    # category, normalized) already equals an existing row -- i.e. the SAME
+    # real-world location -- and only the raw text differs, purely in case/
+    # whitespace. A genuinely different block/floor is a different location
+    # entirely (CREATED, not UPDATED) -- see
+    # test_undo_location_batch_deactivates_created_row for that case.
+    existing = location_factory(
+        "SSE", name="shared  block", category=StaffRoleCategoryEnum.TEACHING,
+        block_building="block a", floor_venue="ground",
+    )
     db_session.commit()
 
-    commit_response = _commit_location(
-        client, location_setup["hr_admin"], [_location_row(location_setup, block="New Block")]
-    )
+    commit_response = _commit_location(client, location_setup["hr_admin"], [_location_row(location_setup)])
     log_id = commit_response.json()["bulk_upload_log_id"]
 
     response = client.post(
@@ -240,9 +248,11 @@ def test_undo_location_batch_skips_updated_row_and_counts_it(
     assert body["not_reverted_count"] == 1
 
     db_session.refresh(existing)
-    # Not reverted -- the updated value stays (no prior-value history to
-    # restore, and the row still exists/still active).
-    assert existing.block_building == "New Block"
+    # Not reverted -- the re-stamped canonical text stays (no prior-value
+    # history to restore, and the row still exists/still active).
+    assert existing.name == "Shared Block"
+    assert existing.block_building == "Block A"
+    assert existing.floor_venue == "Ground"
     assert existing.is_active is True
 
 

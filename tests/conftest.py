@@ -695,12 +695,16 @@ def location_factory(db_session, campus_factory):
         campus_code: str,
         name: str | None = None,
         category: StaffRoleCategoryEnum | None = None,
+        block_building: str | None = None,
+        floor_venue: str | None = None,
     ) -> Location:
         campus = campus_factory(campus_code)
         location = Location(
             campus_id=campus.id,
             name=name or f"Location-{uuid.uuid4().hex[:8]}",
             category=category,
+            block_building=block_building,
+            floor_venue=floor_venue,
         )
         db_session.add(location)
         db_session.flush()

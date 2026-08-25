@@ -83,14 +83,86 @@ def test_validate_existing_row_identical_is_unchanged(client, location_upload_se
     assert body["rows"][0]["status"] == "unchanged"
 
 
-def test_validate_existing_row_changed_field_is_updated(client, location_upload_setup, location_factory):
+def test_validate_row_with_different_block_from_existing_is_created_not_updated(
+    client, location_upload_setup, location_factory
+):
+    """Block/Building (and Floor/Venue, and Category) are now PART of the
+    match key, not a mutable attribute of a single "campus + name" location
+    -- so a row whose block/floor differs from an existing same-named
+    location is a genuinely different real-world location and must be
+    CREATED, not silently overwrite the existing row's block/floor. This is
+    the exact bug this fix closes (previously: "updated", incorrectly)."""
     location_factory("SSE", name="New Block", category=StaffRoleCategoryEnum.TEACHING)
     response = _upload_validate(
         client, location_upload_setup["hr_admin"], [_row(location_upload_setup, block="Block B")]
     )
     body = response.json()
+    assert body["created_count"] == 1
+    assert body["updated_count"] == 0
+    assert body["rows"][0]["status"] == "created"
+
+
+def test_validate_matches_existing_row_only_via_normalized_text_difference_as_updated(
+    client, location_upload_setup, location_factory
+):
+    """"Updated" now only fires when the composite key already matches (same
+    real-world location) but the raw stored text differs purely in case/
+    whitespace from what was just uploaded -- a legitimate cosmetic
+    re-stamp, not a different location."""
+    location_factory(
+        "SSE", name="rb  block", category=StaffRoleCategoryEnum.TEACHING,
+        block_building="ground  floor", floor_venue="wing a",
+    )
+    row = _row(location_upload_setup, name="RB Block", block="Ground Floor", floor="Wing A")
+    response = _upload_validate(client, location_upload_setup["hr_admin"], [row])
+    body = response.json()
     assert body["updated_count"] == 1
     assert body["rows"][0]["status"] == "updated"
+
+
+def test_validate_different_floors_in_the_same_building_are_all_created(client, location_upload_setup):
+    """The exact bug report scenario: a building's separate floors are
+    valid, distinct locations and must NOT be rejected as duplicates of
+    each other just because Campus+Location Name match."""
+    rows = [
+        [location_upload_setup["campus"].code, "Rectangular Building", "RB Block", "Ground Floor", "TEACHING"],
+        [location_upload_setup["campus"].code, "Rectangular Building", "RB Block", "First Floor", "TEACHING"],
+        [location_upload_setup["campus"].code, "Rectangular Building", "RB Block", "Second Floor", "TEACHING"],
+    ]
+    response = _upload_validate(client, location_upload_setup["hr_admin"], rows)
+    body = response.json()
+    assert body["created_count"] == 3
+    assert body["rejected_count"] == 0
+    assert [r["status"] for r in body["rows"]] == ["created", "created", "created"]
+
+
+def test_validate_existing_location_on_a_different_floor_does_not_block_a_new_floor(
+    client, location_upload_setup, location_factory
+):
+    """A pre-existing DB row for one floor of a building must not be
+    matched against (and so must not block/overwrite) an uploaded row for a
+    DIFFERENT floor of the same building."""
+    location_factory(
+        "SSE", name="Rectangular Building", category=StaffRoleCategoryEnum.TEACHING,
+        block_building="RB Block", floor_venue="Ground Floor",
+    )
+    row = _row(location_upload_setup, name="Rectangular Building", block="RB Block", floor="First Floor")
+    response = _upload_validate(client, location_upload_setup["hr_admin"], [row])
+    body = response.json()
+    assert body["created_count"] == 1
+    assert body["rows"][0]["status"] == "created"
+
+
+def test_validate_duplicate_with_only_whitespace_and_case_differences_is_rejected(client, location_upload_setup):
+    """"Normalize repeated spaces"/"case-insensitive comparison" both apply
+    to the duplicate check itself, not just exact-text matches."""
+    row_a = [location_upload_setup["campus"].code, "Rectangular Building", "RB Block", "Ground Floor", "TEACHING"]
+    row_b = [location_upload_setup["campus"].code, "rectangular   building", "rb block", "ground floor", "teaching"]
+    response = _upload_validate(client, location_upload_setup["hr_admin"], [row_a, row_b])
+    body = response.json()
+    assert body["created_count"] == 1
+    assert body["rejected_count"] == 1
+    assert "Duplicate location: same Campus, Location, Block, Floor/Venue and Category" in body["rows"][1]["error_reason"]
 
 
 def test_validate_unknown_campus_is_rejected(client, location_upload_setup):
@@ -131,6 +203,7 @@ def test_validate_duplicate_key_in_file_is_rejected(client, location_upload_setu
     body = response.json()
     assert body["created_count"] == 1
     assert body["rejected_count"] == 1
+    assert "Duplicate location: same Campus, Location, Block, Floor/Venue and Category" in body["rows"][1]["error_reason"]
 
 
 def test_validate_allowed_for_recruitment_officer(client, location_upload_setup):
@@ -167,19 +240,81 @@ def test_commit_creates_row_and_log(client, location_upload_setup, db_session):
     assert log.stored_file_object_key is not None
 
 
-def test_commit_updates_existing_row(client, location_upload_setup, location_factory, db_session):
-    existing = location_factory("SSE", name="New Block", category=StaffRoleCategoryEnum.TEACHING)
+def test_commit_re_stamps_canonical_text_on_a_pure_normalization_difference(
+    client, location_upload_setup, location_factory, db_session
+):
+    """A genuine "updated": the composite key already matches (same
+    real-world location), only the raw casing/whitespace differs -- commit
+    re-stamps the existing row's text to the newly uploaded canonical
+    form."""
+    existing = location_factory(
+        "SSE", name="rb  block", category=StaffRoleCategoryEnum.TEACHING,
+        block_building="ground floor", floor_venue="wing a",
+    )
     db_session.commit()
 
-    response = _upload_commit(
-        client, location_upload_setup["hr_admin"], [_row(location_upload_setup, block="Block Z")]
-    )
+    row = _row(location_upload_setup, name="RB Block", block="Ground Floor", floor="Wing A")
+    response = _upload_commit(client, location_upload_setup["hr_admin"], [row])
     assert response.status_code == 200
     body = response.json()
     assert body["updated_count"] == 1
+    assert db_session.query(Location).count() == 1  # re-stamped in place, not a second row
 
     db_session.refresh(existing)
-    assert existing.block_building == "Block Z"
+    assert existing.name == "RB Block"
+    assert existing.block_building == "Ground Floor"
+    assert existing.floor_venue == "Wing A"
+
+
+def test_commit_creates_a_new_row_for_a_different_floor_rather_than_overwriting_the_existing_one(
+    client, location_upload_setup, location_factory, db_session
+):
+    """The core bug fix at the commit level: uploading a genuinely different
+    floor of an already-known building must create a NEW row and leave the
+    existing floor's row completely untouched -- not silently overwrite it."""
+    existing = location_factory(
+        "SSE", name="Rectangular Building", category=StaffRoleCategoryEnum.TEACHING,
+        block_building="RB Block", floor_venue="Ground Floor",
+    )
+    db_session.commit()
+
+    row = _row(location_upload_setup, name="Rectangular Building", block="RB Block", floor="First Floor")
+    response = _upload_commit(client, location_upload_setup["hr_admin"], [row])
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created_count"] == 1
+    assert body["updated_count"] == 0
+    assert db_session.query(Location).count() == 2
+
+    db_session.refresh(existing)
+    assert existing.floor_venue == "Ground Floor"  # untouched by the new row's commit
+
+    new_row = db_session.query(Location).filter(Location.id != existing.id).one()
+    assert new_row.floor_venue == "First Floor"
+
+
+def test_commit_creates_all_floors_of_the_same_building_as_separate_rows(
+    client, location_upload_setup, db_session
+):
+    """End-to-end confirmation of the exact bug-report scenario: 3 distinct
+    floors of one building, all valid, all created, none rejected as
+    duplicates of each other."""
+    campus_code = location_upload_setup["campus"].code
+    rows = [
+        [campus_code, "Rectangular Building", "RB Block", "Ground Floor", "TEACHING"],
+        [campus_code, "Rectangular Building", "RB Block", "First Floor", "TEACHING"],
+        [campus_code, "Rectangular Building", "RB Block", "Second Floor", "TEACHING"],
+    ]
+    response = _upload_commit(client, location_upload_setup["hr_admin"], rows)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created_count"] == 3
+    assert body["rejected_count"] == 0
+
+    saved = db_session.query(Location).order_by(Location.floor_venue).all()
+    assert len(saved) == 3
+    assert {loc.floor_venue for loc in saved} == {"Ground Floor", "First Floor", "Second Floor"}
+    assert all(loc.name == "Rectangular Building" and loc.block_building == "RB Block" for loc in saved)
 
 
 def test_commit_skips_rejected_rows(client, location_upload_setup, db_session):
