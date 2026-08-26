@@ -295,14 +295,20 @@ class BulkUploadEntityTypeEnum(str, enum.Enum):
     glowing-zooming-hamming.md) -- `BulkUploadLog.entity_type` discriminates
     the 4 shared endpoints (list/error-report/original-file/undo) so they can
     dispatch to the right service module (`sanctioned_strength_import.py`/
-    `location_import.py`/`housekeeping_staff_import.py`) without 3 near-
-    duplicate endpoint families. SANCTIONED_STRENGTH is the pre-existing
-    Phase F behavior, preserved as the migration's `server_default` so every
-    existing row backfills correctly with zero manual data migration."""
+    `location_import.py`/`housekeeping_staff_import.py`/
+    `department_import.py`) without near-duplicate endpoint families.
+    SANCTIONED_STRENGTH is the pre-existing Phase F behavior, preserved as
+    the migration's `server_default` so every existing row backfills
+    correctly with zero manual data migration. DEPARTMENT was added later
+    (Department Master hardening epic, 2026-08-25) via `ALTER TYPE ... ADD
+    VALUE` on this already-live native enum -- see
+    f7c1a2b3d4e5_bulk_upload_department_entity_type.py for why that means
+    the label can never be cleanly removed again."""
 
     SANCTIONED_STRENGTH = "SANCTIONED_STRENGTH"
     LOCATION = "LOCATION"
     HOUSEKEEPING_STAFF = "HOUSEKEEPING_STAFF"
+    DEPARTMENT = "DEPARTMENT"
 
 
 class HousekeepingShiftEnum(str, enum.Enum):

@@ -1,10 +1,12 @@
 """Entity-agnostic behavior of the 4 shared bulk-upload endpoints
-(glowing-zooming-hamming.md Phase J) -- list/error-report/original-file/undo
-in app/api/v1/routers/sanctioned_strength.py, now dispatched by
-`BulkUploadLog.entity_type` to cover LOCATION and HOUSEKEEPING_STAFF as well
-as the pre-existing SANCTIONED_STRENGTH. Per-entity validate/commit/template
-behavior is covered in tests/test_location_bulk_upload.py and
-tests/test_housekeeping_staff_bulk_upload.py -- not duplicated here.
+(glowing-zooming-hamming.md Phase J, extended 2026-08-25 to DEPARTMENT) --
+list/error-report/original-file/undo in
+app/api/v1/routers/sanctioned_strength.py, now dispatched by
+`BulkUploadLog.entity_type` to cover LOCATION, HOUSEKEEPING_STAFF, and
+DEPARTMENT as well as the pre-existing SANCTIONED_STRENGTH. Per-entity
+validate/commit/template behavior is covered in
+tests/test_location_bulk_upload.py, tests/test_housekeeping_staff_bulk_upload.py,
+and tests/test_department_bulk_upload.py -- not duplicated here.
 """
 
 import csv
@@ -16,6 +18,7 @@ import pytest
 
 from app.models.bulk_upload_log import BulkUploadLog
 from app.models.bulk_upload_row_log import BulkUploadRowLog
+from app.models.department import Department
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.location import Location
@@ -25,8 +28,18 @@ from tests.conftest import auth_headers
 SHARED_ENDPOINT = "/api/v1/sanctioned-strength"
 LOCATION_ENDPOINT = "/api/v1/locations"
 HOUSEKEEPING_ENDPOINT = "/api/v1/housekeeping-staff"
+DEPARTMENT_ENDPOINT = "/api/v1/departments"
 
 LOCATION_HEADERS = ["Campus Code", "Location Name", "Block/Building", "Floor/Venue", "Category"]
+DEPARTMENT_HEADERS = [
+    "Campus Code",
+    "Department Code",
+    "Department Name",
+    "Category",
+    "Parent Group",
+    "Description",
+    "Active",
+]
 HOUSEKEEPING_HEADERS = [
     "Campus Code",
     "Bio ID",
@@ -65,6 +78,14 @@ def _commit_housekeeping(client, actor, rows):
     )
 
 
+def _commit_department(client, actor, rows):
+    return client.post(
+        f"{DEPARTMENT_ENDPOINT}/bulk-upload/commit",
+        files={"file": ("upload.csv", _csv_bytes(DEPARTMENT_HEADERS, rows), "text/csv")},
+        headers=auth_headers(client, actor),
+    )
+
+
 @pytest.fixture()
 def location_setup(campus_factory, user_factory):
     campus = campus_factory("SSE")
@@ -75,6 +96,17 @@ def location_setup(campus_factory, user_factory):
 
 def _location_row(setup, name="Shared Block", block="Block A", floor="Ground", category="TEACHING"):
     return [setup["campus"].code, name, block, floor, category]
+
+
+@pytest.fixture()
+def department_setup(campus_factory, user_factory):
+    campus = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    return {"campus": campus, "hr_admin": hr_admin}
+
+
+def _department_row(setup, code="SHDEPT", name="Shared Department", category="TEACHING"):
+    return [setup["campus"].code, code, name, category, "Engineering", "", "TRUE"]
 
 
 @pytest.fixture()
@@ -374,3 +406,119 @@ def test_sanctioned_strength_undo_still_reports_zero_not_reverted(
     assert response.status_code == 200
     body = response.json()
     assert body["not_reverted_count"] == 0
+
+
+# --- DEPARTMENT (Department Master hardening epic, 2026-08-25) -------------
+
+
+def test_list_bulk_uploads_entity_type_filter_department(client, department_setup):
+    _commit_department(client, department_setup["hr_admin"], [_department_row(department_setup)])
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-uploads",
+        params={"entity_type": "DEPARTMENT"},
+        headers=auth_headers(client, department_setup["hr_admin"]),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] >= 1
+    assert all(item["entity_type"] == "DEPARTMENT" for item in body["items"])
+
+
+def test_error_report_for_department_batch(client, department_setup):
+    good = _department_row(department_setup)
+    bad = _department_row(department_setup, code="OTHER")
+    bad[0] = "ZZZ"
+    commit_response = _commit_department(client, department_setup["hr_admin"], [good, bad])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-upload/{log_id}/error-report",
+        headers=auth_headers(client, department_setup["hr_admin"]),
+    )
+    assert response.status_code == 200
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb.active
+    data_rows = list(ws.iter_rows(min_row=5, values_only=True))
+    non_empty = [r for r in data_rows if any(c is not None for c in r)]
+    assert len(non_empty) == 1
+    assert non_empty[0][0] == "ZZZ"
+
+
+def test_original_file_download_for_department_batch(client, department_setup):
+    rows = [_department_row(department_setup)]
+    commit_response = _commit_department(client, department_setup["hr_admin"], rows)
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/original-file",
+        headers=auth_headers(client, department_setup["hr_admin"]),
+    )
+    assert response.status_code == 200
+    assert response.content == _csv_bytes(DEPARTMENT_HEADERS, rows)
+
+
+def test_undo_department_batch_deactivates_created_row(client, department_setup, db_session):
+    commit_response = _commit_department(client, department_setup["hr_admin"], [_department_row(department_setup)])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+    row_id = db_session.query(Department).filter(Department.code == "SHDEPT").one().id
+
+    response = client.post(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, department_setup["hr_admin"])
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "UNDONE"
+    assert body["reverted_history_count"] == 1
+    assert body["not_reverted_count"] == 0
+
+    department = db_session.get(Department, row_id)
+    assert department.is_active is False
+
+
+def test_undo_department_batch_skips_updated_row_and_counts_it(
+    client, department_setup, department_factory, db_session
+):
+    existing = department_factory(
+        "SSE", name="Old Name", code="SHDEPT", category=StaffRoleCategoryEnum.TEACHING, parent_group="Old Group",
+    )
+    db_session.commit()
+
+    commit_response = _commit_department(client, department_setup["hr_admin"], [_department_row(department_setup)])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.post(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, department_setup["hr_admin"])
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reverted_history_count"] == 0
+    assert body["not_reverted_count"] == 1
+
+    db_session.refresh(existing)
+    # Not reverted -- the re-stamped values stay (no prior-value history to
+    # restore, and the row still exists/still active).
+    assert existing.name == "Shared Department"
+    assert existing.is_active is True
+
+
+def test_undo_writes_row_log_entries_for_department_batch(client, department_setup, db_session):
+    commit_response = _commit_department(client, department_setup["hr_admin"], [_department_row(department_setup)])
+    log_id = uuid.UUID(commit_response.json()["bulk_upload_log_id"])
+
+    row_logs = db_session.query(BulkUploadRowLog).filter(BulkUploadRowLog.bulk_upload_log_id == log_id).all()
+    assert len(row_logs) == 1
+    assert row_logs[0].was_created is True
+    assert row_logs[0].entity_type.value == "DEPARTMENT"
+
+
+def test_undo_forbidden_for_non_write_role_on_department_batch(client, department_setup, user_factory):
+    commit_response = _commit_department(client, department_setup["hr_admin"], [_department_row(department_setup)])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    response = client.post(f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, hod))
+    assert response.status_code == 403
