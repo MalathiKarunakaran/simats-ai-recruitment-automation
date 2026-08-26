@@ -111,6 +111,92 @@ def build_department_export_excel(rows: list[dict], generated_at: datetime, scop
     return buf.getvalue()
 
 
+_ELIGIBILITY_RULE_EXPORT_HEADERS = [
+    "Campus Code",
+    "Department Code",
+    "Staff Category",
+    "Position Title",
+    "Regulatory Authority",
+    "School/College",
+    "Programme/Discipline",
+    "Required Qualification Keyword",
+    "Minimum Qualification",
+    "Minimum Percentage",
+    "Required Experience",
+    "Required Credential",
+    "NET/SET/SLET Required",
+    "PhD Required",
+    "Professional Registration",
+    "Industry Experience",
+    "Priority",
+    "Effective From",
+    "Effective To",
+    "Source Regulation",
+    "Status",
+    "Verification Required",
+    "Active",
+    "Notes",
+]
+
+
+def build_eligibility_rule_export_excel(rows: list[dict], generated_at: datetime, scope_note: str) -> bytes:
+    """EligibilityRule's own dedicated export builder (starter regulatory-
+    eligibility-rules feature, backend Phase 1) -- same visual/header
+    convention as `build_department_export_excel` above (`Generated:`/
+    `Scope:` line, a blank row, then a real header row). Only exports the
+    fields most useful for an admin reviewing a regulatory mapping in bulk;
+    every column round-trips through the bulk-upload template as well (see
+    app/services/eligibility_rule_import.py), so nothing here is export-only.
+    """
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Eligibility Rules"
+
+    sheet.append([f"Generated: {generated_at.isoformat()}"])
+    sheet.append([f"Scope: {scope_note}"])
+    sheet.append([])
+    sheet.append(_ELIGIBILITY_RULE_EXPORT_HEADERS)
+    for row in rows:
+        sheet.append(
+            [
+                row.get("campus_code"),
+                row.get("department_code"),
+                row.get("staff_category"),
+                row.get("position_title"),
+                row.get("regulatory_authority"),
+                row.get("school_or_college"),
+                row.get("programme_discipline"),
+                row.get("required_qualification_keyword"),
+                row.get("minimum_qualification"),
+                row.get("minimum_percentage"),
+                row.get("required_experience"),
+                row.get("required_credential"),
+                _bool_or_blank(row.get("net_set_required")),
+                _bool_or_blank(row.get("phd_required")),
+                row.get("professional_registration"),
+                row.get("industry_experience"),
+                row.get("priority"),
+                row.get("effective_from").isoformat() if row.get("effective_from") else None,
+                row.get("effective_to").isoformat() if row.get("effective_to") else None,
+                row.get("source_regulation"),
+                row.get("status"),
+                "TRUE" if row.get("verification_required") else "FALSE",
+                "TRUE" if row.get("is_active") else "FALSE",
+                row.get("notes"),
+            ]
+        )
+
+    buf = io.BytesIO()
+    workbook.save(buf)
+    return buf.getvalue()
+
+
+def _bool_or_blank(value: bool | None) -> str | None:
+    if value is None:
+        return None
+    return "TRUE" if value else "FALSE"
+
+
 def build_ad_briefing_pptx(summary: dict) -> bytes:
     presentation = Presentation()
     presentation.slide_width = Inches(13.33)

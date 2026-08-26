@@ -309,6 +309,46 @@ class BulkUploadEntityTypeEnum(str, enum.Enum):
     LOCATION = "LOCATION"
     HOUSEKEEPING_STAFF = "HOUSEKEEPING_STAFF"
     DEPARTMENT = "DEPARTMENT"
+    # Added for the starter regulatory-eligibility-rules feature (backend
+    # Phase 1) via `ALTER TYPE ... ADD VALUE` on this already-live native
+    # enum -- see the migration adding EligibilityRule bulk upload for why
+    # that means this label can never be cleanly removed again.
+    ELIGIBILITY_RULE = "ELIGIBILITY_RULE"
+
+
+class RegulatoryAuthorityEnum(str, enum.Enum):
+    """Which regulatory body's minimum-qualification rules an EligibilityRule
+    row maps to (starter regulatory-eligibility-rules feature, backend Phase
+    1). Deliberately a fixed, small vocabulary -- these are the specific
+    authorities SIMATS's own programmes map to, not a general lookup table.
+    UGC_AICTE_INSTITUTION is the genuinely-ambiguous Design case ("determine
+    per programme, not automatically AICTE"). UNMAPPED_VERIFY is for
+    campuses/departments where no authority could safely be determined yet
+    (e.g. Hospitality/Aviation/Tourism programmes) -- a real, honest "not yet
+    mapped" value rather than guessing."""
+
+    AICTE_UGC = "AICTE_UGC"
+    COA = "COA"
+    UGC = "UGC"
+    UGC_AICTE_INSTITUTION = "UGC_AICTE_INSTITUTION"
+    NCTE_UGC = "NCTE_UGC"
+    INSTITUTION_NON_TEACHING = "INSTITUTION_NON_TEACHING"
+    INSTITUTION_HR_HOUSEKEEPING = "INSTITUTION_HR_HOUSEKEEPING"
+    UNMAPPED_VERIFY = "UNMAPPED_VERIFY"
+
+
+class EligibilityRuleStatusEnum(str, enum.Enum):
+    """Admin-facing display/workflow status for an EligibilityRule row
+    (starter regulatory-eligibility-rules feature, backend Phase 1) --
+    deliberately independent of the pre-existing `is_active` boolean, which
+    remains the ONLY field `app/services/eligibility.py`'s live
+    `check_qualification_mismatch` filters on. `status` exists purely so a
+    rule can visibly read "Draft"/"Archived" in the admin UI without needing
+    to infer that from `is_active` alone."""
+
+    DRAFT = "DRAFT"
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
 
 
 class HousekeepingShiftEnum(str, enum.Enum):

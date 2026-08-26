@@ -1,12 +1,14 @@
 """Entity-agnostic behavior of the 4 shared bulk-upload endpoints
-(glowing-zooming-hamming.md Phase J, extended 2026-08-25 to DEPARTMENT) --
-list/error-report/original-file/undo in
+(glowing-zooming-hamming.md Phase J, extended 2026-08-25 to DEPARTMENT and
+extended again for the starter regulatory-eligibility-rules feature, backend
+Phase 1, to ELIGIBILITY_RULE) -- list/error-report/original-file/undo in
 app/api/v1/routers/sanctioned_strength.py, now dispatched by
-`BulkUploadLog.entity_type` to cover LOCATION, HOUSEKEEPING_STAFF, and
-DEPARTMENT as well as the pre-existing SANCTIONED_STRENGTH. Per-entity
-validate/commit/template behavior is covered in
-tests/test_location_bulk_upload.py, tests/test_housekeeping_staff_bulk_upload.py,
-and tests/test_department_bulk_upload.py -- not duplicated here.
+`BulkUploadLog.entity_type` to cover LOCATION, HOUSEKEEPING_STAFF,
+DEPARTMENT, and ELIGIBILITY_RULE as well as the pre-existing
+SANCTIONED_STRENGTH. Per-entity validate/commit/template behavior is covered
+in tests/test_location_bulk_upload.py,
+tests/test_housekeeping_staff_bulk_upload.py, tests/test_department_bulk_upload.py,
+and tests/test_eligibility_rule_bulk_upload.py -- not duplicated here.
 """
 
 import csv
@@ -19,6 +21,7 @@ import pytest
 from app.models.bulk_upload_log import BulkUploadLog
 from app.models.bulk_upload_row_log import BulkUploadRowLog
 from app.models.department import Department
+from app.models.eligibility_rule import EligibilityRule
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.location import Location
@@ -29,6 +32,7 @@ SHARED_ENDPOINT = "/api/v1/sanctioned-strength"
 LOCATION_ENDPOINT = "/api/v1/locations"
 HOUSEKEEPING_ENDPOINT = "/api/v1/housekeeping-staff"
 DEPARTMENT_ENDPOINT = "/api/v1/departments"
+ELIGIBILITY_RULE_ENDPOINT = "/api/v1/eligibility-rules"
 
 LOCATION_HEADERS = ["Campus Code", "Location Name", "Block/Building", "Floor/Venue", "Category"]
 DEPARTMENT_HEADERS = [
@@ -50,6 +54,16 @@ HOUSEKEEPING_HEADERS = [
     "Floor/Venue",
     "Shift",
     "Supervisor",
+]
+ELIGIBILITY_RULE_HEADERS = [
+    "Campus Code", "Department Code", "Staff Category", "Position Title",
+    "Required Qualification Keyword", "NET/SET/SLET Required", "Subject", "Skills Keyword",
+    "ID Proof Required", "Shift Preference", "Regulatory Authority", "School/College",
+    "Programme/Discipline", "Minimum Qualification", "Minimum Percentage", "Required Experience",
+    "Required Credential", "Required Keywords (informational only)", "Preferred Keywords (informational only)",
+    "PhD Required", "Professional Registration", "Industry Experience", "Priority",
+    "Effective From (YYYY-MM-DD)", "Effective To (YYYY-MM-DD)", "Source Regulation", "Status",
+    "Verification Required", "Active", "Notes",
 ]
 
 
@@ -86,6 +100,14 @@ def _commit_department(client, actor, rows):
     )
 
 
+def _commit_eligibility_rule(client, actor, rows):
+    return client.post(
+        f"{ELIGIBILITY_RULE_ENDPOINT}/bulk-upload/commit",
+        files={"file": ("upload.csv", _csv_bytes(ELIGIBILITY_RULE_HEADERS, rows), "text/csv")},
+        headers=auth_headers(client, actor),
+    )
+
+
 @pytest.fixture()
 def location_setup(campus_factory, user_factory):
     campus = campus_factory("SSE")
@@ -107,6 +129,22 @@ def department_setup(campus_factory, user_factory):
 
 def _department_row(setup, code="SHDEPT", name="Shared Department", category="TEACHING"):
     return [setup["campus"].code, code, name, category, "Engineering", "", "TRUE"]
+
+
+@pytest.fixture()
+def eligibility_rule_setup(campus_factory, department_factory, user_factory):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name="Shared Eligibility Dept", code="SHELIG")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    return {"campus": campus, "department": department, "hr_admin": hr_admin}
+
+
+def _eligibility_rule_row(setup, position_title="Shared Position", regulatory_authority="AICTE_UGC"):
+    return [
+        setup["campus"].code, setup["department"].code, "TEACHING", position_title,
+        "PHD", "TRUE", "Physics", "", "", "", regulatory_authority, "", "", "", "", "", "", "", "",
+        "TRUE", "", "", "", "2026-01-01", "", "", "DRAFT", "TRUE", "TRUE", "",
+    ]
 
 
 @pytest.fixture()
@@ -517,6 +555,104 @@ def test_undo_writes_row_log_entries_for_department_batch(client, department_set
 
 def test_undo_forbidden_for_non_write_role_on_department_batch(client, department_setup, user_factory):
     commit_response = _commit_department(client, department_setup["hr_admin"], [_department_row(department_setup)])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    response = client.post(f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, hod))
+    assert response.status_code == 403
+
+
+# --- ELIGIBILITY_RULE (starter regulatory-eligibility-rules feature,
+# backend Phase 1) -----------------------------------------------------
+
+
+def test_list_bulk_uploads_entity_type_filter_eligibility_rule(client, eligibility_rule_setup):
+    _commit_eligibility_rule(client, eligibility_rule_setup["hr_admin"], [_eligibility_rule_row(eligibility_rule_setup)])
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-uploads",
+        params={"entity_type": "ELIGIBILITY_RULE"},
+        headers=auth_headers(client, eligibility_rule_setup["hr_admin"]),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] >= 1
+    assert all(item["entity_type"] == "ELIGIBILITY_RULE" for item in body["items"])
+
+
+def test_error_report_for_eligibility_rule_batch(client, eligibility_rule_setup):
+    good = _eligibility_rule_row(eligibility_rule_setup)
+    bad = _eligibility_rule_row(eligibility_rule_setup, position_title="Other")
+    bad[0] = "ZZZ"
+    commit_response = _commit_eligibility_rule(client, eligibility_rule_setup["hr_admin"], [good, bad])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-upload/{log_id}/error-report",
+        headers=auth_headers(client, eligibility_rule_setup["hr_admin"]),
+    )
+    assert response.status_code == 200
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb.active
+    data_rows = list(ws.iter_rows(min_row=5, values_only=True))
+    non_empty = [r for r in data_rows if any(c is not None for c in r)]
+    assert len(non_empty) == 1
+    assert non_empty[0][0] == "ZZZ"
+
+
+def test_original_file_download_for_eligibility_rule_batch(client, eligibility_rule_setup):
+    rows = [_eligibility_rule_row(eligibility_rule_setup)]
+    commit_response = _commit_eligibility_rule(client, eligibility_rule_setup["hr_admin"], rows)
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/original-file",
+        headers=auth_headers(client, eligibility_rule_setup["hr_admin"]),
+    )
+    assert response.status_code == 200
+    assert response.content == _csv_bytes(ELIGIBILITY_RULE_HEADERS, rows)
+
+
+def test_undo_eligibility_rule_batch_deactivates_created_row(client, eligibility_rule_setup, db_session):
+    commit_response = _commit_eligibility_rule(
+        client, eligibility_rule_setup["hr_admin"], [_eligibility_rule_row(eligibility_rule_setup)]
+    )
+    log_id = commit_response.json()["bulk_upload_log_id"]
+    row_id = db_session.query(EligibilityRule).filter(EligibilityRule.position_title == "Shared Position").one().id
+
+    response = client.post(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo",
+        headers=auth_headers(client, eligibility_rule_setup["hr_admin"]),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "UNDONE"
+    assert body["reverted_history_count"] == 1
+    assert body["not_reverted_count"] == 0
+
+    rule = db_session.get(EligibilityRule, row_id)
+    assert rule.is_active is False
+
+
+def test_undo_writes_row_log_entries_for_eligibility_rule_batch(client, eligibility_rule_setup, db_session):
+    commit_response = _commit_eligibility_rule(
+        client, eligibility_rule_setup["hr_admin"], [_eligibility_rule_row(eligibility_rule_setup)]
+    )
+    log_id = uuid.UUID(commit_response.json()["bulk_upload_log_id"])
+
+    row_logs = db_session.query(BulkUploadRowLog).filter(BulkUploadRowLog.bulk_upload_log_id == log_id).all()
+    assert len(row_logs) == 1
+    assert row_logs[0].was_created is True
+    assert row_logs[0].entity_type.value == "ELIGIBILITY_RULE"
+
+
+def test_undo_forbidden_for_non_write_role_on_eligibility_rule_batch(client, eligibility_rule_setup, user_factory):
+    commit_response = _commit_eligibility_rule(
+        client, eligibility_rule_setup["hr_admin"], [_eligibility_rule_row(eligibility_rule_setup)]
+    )
     log_id = commit_response.json()["bulk_upload_log_id"]
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
 

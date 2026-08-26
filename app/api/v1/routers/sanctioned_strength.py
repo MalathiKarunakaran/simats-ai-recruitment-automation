@@ -32,20 +32,23 @@ function's own docstring, judgment call #6).
 
 Phase J (glowing-zooming-hamming.md) extends the bulk-upload machinery to
 Location and HousekeepingStaff imports; the Department Master hardening epic
-(2026-08-25) extends it a 3rd time, to Department imports. The entity-specific
-write endpoints for these three (`/locations/bulk-upload/*`,
-`/housekeeping-staff/bulk-upload/*`, `/departments/bulk-upload/*`) live in
-their own routers (locations.py/housekeeping_staff.py/departments.py) -- only
-the 4 endpoints that were already entity-agnostic in shape stay here and gain
-an `if/elif` dispatch on `BulkUploadLog.entity_type`: `list_bulk_uploads`
-(optional `entity_type` filter), `download_bulk_upload_error_report`
-(re-validates via the right service module), `download_bulk_upload_original_file`
-(no dispatch needed -- raw byte proxy, already entity-agnostic), and
-`undo_bulk_upload` (SANCTIONED_STRENGTH keeps its pre-existing
-SanctionedStrengthHistory-based undo unchanged; LOCATION/HOUSEKEEPING_STAFF/
-DEPARTMENT all use the same `BulkUploadRowLog`-based undo, deliberately
-narrower in scope -- see that model's own docstring). This means a Location/
-Department bulk-upload's history/undo lives under a
+(2026-08-25) extends it a 3rd time, to Department imports; the starter
+regulatory-eligibility-rules feature (backend Phase 1) extends it a 4th time,
+to EligibilityRule imports. The entity-specific write endpoints for these
+four (`/locations/bulk-upload/*`, `/housekeeping-staff/bulk-upload/*`,
+`/departments/bulk-upload/*`, `/eligibility-rules/bulk-upload/*`) live in
+their own routers (locations.py/housekeeping_staff.py/departments.py/
+eligibility_rules.py) -- only the 4 endpoints that were already
+entity-agnostic in shape stay here and gain an `if/elif` dispatch on
+`BulkUploadLog.entity_type`: `list_bulk_uploads` (optional `entity_type`
+filter), `download_bulk_upload_error_report` (re-validates via the right
+service module), `download_bulk_upload_original_file` (no dispatch needed --
+raw byte proxy, already entity-agnostic), and `undo_bulk_upload`
+(SANCTIONED_STRENGTH keeps its pre-existing SanctionedStrengthHistory-based
+undo unchanged; LOCATION/HOUSEKEEPING_STAFF/DEPARTMENT/ELIGIBILITY_RULE all
+use the same `BulkUploadRowLog`-based undo, deliberately narrower in scope --
+see that model's own docstring). This means a Location/Department/
+EligibilityRule bulk-upload's history/undo lives under a
 `/sanctioned-strength/bulk-uploads/*` URL -- a deliberate, if slightly
 awkward-sounding, naming compromise in favor of genuine code reuse over more
 duplicated endpoint families.
@@ -76,6 +79,7 @@ from app.models.bulk_upload_row_log import BulkUploadRowLog
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.designation import Designation
+from app.models.eligibility_rule import EligibilityRule
 from app.models.enums import (
     SANCTIONED_STRENGTH_WRITE_ROLES,
     BulkUploadEntityTypeEnum,
@@ -109,7 +113,14 @@ from app.schemas.sanctioned_strength_views import (
     NonTeachingStrengthListResponse,
     TeachingStrengthListResponse,
 )
-from app.services import department_import, housekeeping_staff_import, location_import, sanctioned_strength_import, storage
+from app.services import (
+    department_import,
+    eligibility_rule_import,
+    housekeeping_staff_import,
+    location_import,
+    sanctioned_strength_import,
+    storage,
+)
 from app.services import sanctioned_strength_views
 from app.services.audit import log_create, log_delete, log_event, log_update
 from app.services.reporting import validate_campus_code
@@ -910,6 +921,8 @@ def _import_module_for(entity_type: BulkUploadEntityTypeEnum):
         return housekeeping_staff_import
     if entity_type == BulkUploadEntityTypeEnum.DEPARTMENT:
         return department_import
+    if entity_type == BulkUploadEntityTypeEnum.ELIGIBILITY_RULE:
+        return eligibility_rule_import
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unknown bulk upload entity type")
 
 
@@ -1052,19 +1065,19 @@ def _undo_sanctioned_strength(
 def _undo_row_log_based(
     db: Session, *, log: BulkUploadLog, current_user: User, request: Request
 ) -> BulkUploadUndoResponse:
-    """Undo for LOCATION/HOUSEKEEPING_STAFF/DEPARTMENT batches -- deliberately
-    narrower in scope than Sanctioned Strength's own undo above. None of
-    these 3 entities has a permanent old-value history table, so there is no
-    way to revert a row this batch *updated* back to what it looked like
-    before (`BulkUploadRowLog` only records whether a row was created or
-    updated, not the prior values) -- see app/models/bulk_upload_row_log.py's
-    own docstring for why re-deriving this after the fact from the stored
-    file doesn't work either. Only rows this batch *created*
-    (`was_created=True`) can be safely undone, by soft-deleting them
-    (`is_active=False`, each entity's own established soft-delete
-    convention). Rows this batch updated are skipped and counted in
-    `not_reverted_count` so the caller can surface "N of M rows could not be
-    reverted" rather than silently doing nothing for them.
+    """Undo for LOCATION/HOUSEKEEPING_STAFF/DEPARTMENT/ELIGIBILITY_RULE
+    batches -- deliberately narrower in scope than Sanctioned Strength's own
+    undo above. None of these 4 entities has a permanent old-value history
+    table, so there is no way to revert a row this batch *updated* back to
+    what it looked like before (`BulkUploadRowLog` only records whether a
+    row was created or updated, not the prior values) -- see
+    app/models/bulk_upload_row_log.py's own docstring for why re-deriving
+    this after the fact from the stored file doesn't work either. Only rows
+    this batch *created* (`was_created=True`) can be safely undone, by
+    soft-deleting them (`is_active=False`, each entity's own established
+    soft-delete convention). Rows this batch updated are skipped and counted
+    in `not_reverted_count` so the caller can surface "N of M rows could not
+    be reverted" rather than silently doing nothing for them.
     """
     row_logs = db.query(BulkUploadRowLog).filter(BulkUploadRowLog.bulk_upload_log_id == log.id).all()
 
@@ -1072,6 +1085,8 @@ def _undo_row_log_based(
         model = Location
     elif log.entity_type == BulkUploadEntityTypeEnum.DEPARTMENT:
         model = Department
+    elif log.entity_type == BulkUploadEntityTypeEnum.ELIGIBILITY_RULE:
+        model = EligibilityRule
     else:
         model = HousekeepingStaff
 
