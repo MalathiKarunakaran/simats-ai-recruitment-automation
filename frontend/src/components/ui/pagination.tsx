@@ -1,5 +1,14 @@
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+// Page-size selector (Departments production-hardening epic, frontend Phase
+// 2) -- no page in this codebase had one before; DepartmentsPage is the
+// first caller to opt in via the new optional `onLimitChange` prop below.
+// Deliberately extending this one shared primitive rather than a new
+// component: every existing caller that omits `onLimitChange` renders
+// exactly as before (no selector shown), so this is purely additive.
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 // Design-system-foundation step 2 -- replaces the "Showing X-Y of Z" +
 // Previous/Next Button block copy-pasted verbatim across SanctionedStrengthPage,
@@ -24,6 +33,16 @@ export interface PaginationProps {
   /** Plural noun for the "Showing X-Y of Z ___" caption, e.g. "designations". */
   itemLabel?: string;
   className?: string;
+  /** Presence of this prop is what turns on the page-size `Select` -- omit it
+   * (as every pre-existing caller does) to render exactly as before. When
+   * the page size changes, the caller is responsible for also resetting
+   * `offset` back to 0 (same as any other filter change) -- this component
+   * only reports the new limit, it doesn't recompute offset itself since it
+   * has no opinion on whether the caller tracks a raw offset or a page index. */
+  onLimitChange?: (limit: number) => void;
+  /** Options for the page-size `Select` -- defaults to 10/25/50/100. Only
+   * consulted when `onLimitChange` is provided. */
+  limitOptions?: number[];
 }
 
 export function Pagination({
@@ -33,6 +52,8 @@ export function Pagination({
   onOffsetChange,
   itemLabel = "results",
   className,
+  onLimitChange,
+  limitOptions = DEFAULT_PAGE_SIZE_OPTIONS,
 }: PaginationProps) {
   const showingFrom = total === 0 ? 0 : offset + 1;
   const showingTo = Math.min(offset + limit, total);
@@ -45,6 +66,29 @@ export function Pagination({
         Showing {showingFrom}–{showingTo} of {total} {itemLabel}
       </p>
       <div className="flex items-center gap-2">
+        {onLimitChange ? (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Rows per page</span>
+            <Select value={String(limit)} onValueChange={(v) => onLimitChange(Number(v))}>
+              <SelectTrigger aria-label="Rows per page" className="h-8 w-20">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Always include the current limit as an option, even if it
+                    isn't one of `limitOptions` -- otherwise a caller-supplied
+                    initial limit that doesn't match any option would render
+                    an empty trigger. */}
+                {(limitOptions.includes(limit) ? limitOptions : [...limitOptions, limit].sort((a, b) => a - b)).map(
+                  (option) => (
+                    <SelectItem key={option} value={String(option)}>
+                      {option}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
         <Button
           type="button"
           variant="outline"

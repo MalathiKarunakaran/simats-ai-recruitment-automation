@@ -34,16 +34,18 @@ const ENTITY_LABELS: Record<BulkUploadEntityType, string> = {
   SANCTIONED_STRENGTH: "sanctioned strength",
   LOCATION: "location",
   HOUSEKEEPING_STAFF: "housekeeping staff",
+  DEPARTMENT: "department",
 };
 
 // Which list page's query to refresh once this undo has touched live rows
 // for that entity -- mirrors each page's own useQuery queryKey
 // (SanctionedStrengthPage's register query, LocationsPage's/
-// HousekeepingStaffListPage's own full-list query).
+// HousekeepingStaffListPage's/DepartmentsPage's own full-list query).
 const REFRESH_QUERY_KEY: Record<BulkUploadEntityType, string> = {
   SANCTIONED_STRENGTH: "sanctioned-strength-register",
   LOCATION: "locations",
   HOUSEKEEPING_STAFF: "housekeeping-staff",
+  DEPARTMENT: "departments",
 };
 
 export interface UndoBulkUploadDialogProps {

@@ -249,6 +249,8 @@ export interface DashboardKpis {
 // Mirrors app/schemas/department.py::DepartmentRead. code/category/parent_group
 // are new, optional master-data fields (Phase 10 Designation Master rollout)
 // -- most of the 50+ pre-existing departments won't have them populated yet.
+// description (Departments production-hardening epic, backend Phase 1) is
+// free-text and optional, same nullable-until-backfilled story.
 export interface DepartmentRead {
   id: string;
   campus_id: string;
@@ -256,6 +258,7 @@ export interface DepartmentRead {
   code: string | null;
   category: StaffRoleCategory | null;
   parent_group: string | null;
+  description: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -268,6 +271,7 @@ export interface DepartmentCreatePayload {
   code?: string | null;
   category?: StaffRoleCategory | null;
   parent_group?: string | null;
+  description?: string | null;
   is_active?: boolean;
 }
 
@@ -277,6 +281,7 @@ export interface DepartmentUpdatePayload {
   code?: string | null;
   category?: StaffRoleCategory | null;
   parent_group?: string | null;
+  description?: string | null;
   is_active?: boolean;
 }
 
@@ -284,6 +289,17 @@ export interface DepartmentUpdatePayload {
 // department-write access with the Department/Designation Master rollout
 // (HR_ADMIN deliberately keeps it).
 export const DEPARTMENT_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
+
+// Mirrors app/schemas/department.py::DepartmentListResponse (Departments
+// production-hardening epic, backend Phase 1) -- additive on top of
+// PaginatedResponse: category_counts is a snapshot of {"TEACHING": n,
+// "NON_TEACHING": n, "HOUSEKEEPING": n, "ALL": n} across every active filter
+// (search/campus_id/is_active) except `category` itself, same shape as
+// SanctionedStrengthListResponse/DesignationListResponse -- feed it through
+// CategoryTabs' own mapServerCategoryCounts helper.
+export interface DepartmentListResponse extends PaginatedResponse<DepartmentRead> {
+  category_counts: Record<string, number>;
+}
 
 // Mirrors app/schemas/location.py::LocationRead (glowing-zooming-hamming.md
 // Phase B, Location Master -- green-field, nothing else references
@@ -1731,7 +1747,10 @@ export type BulkUploadStatus = "COMPLETED" | "UNDONE";
 // entity's own "Upload history" view only shows its own batches -- see
 // UploadHistoryTab's new `entityType` prop) and as the value the 4 shared
 // endpoints dispatch on server-side.
-export type BulkUploadEntityType = "SANCTIONED_STRENGTH" | "LOCATION" | "HOUSEKEEPING_STAFF";
+// DEPARTMENT added for the Departments production-hardening epic
+// (backend Phase 1) -- same dispatch-on-entity_type story as LOCATION/
+// HOUSEKEEPING_STAFF before it.
+export type BulkUploadEntityType = "SANCTIONED_STRENGTH" | "LOCATION" | "HOUSEKEEPING_STAFF" | "DEPARTMENT";
 
 // Mirrors BulkUploadLogRead -- one row per past bulk upload, for the "Upload
 // history" tab/dialog. `entity_type` (Phase J) is new -- the backend has
@@ -1801,6 +1820,43 @@ export interface LocationBulkUploadValidationResponse {
 
 // Mirrors LocationBulkUploadCommitResponse.
 export interface LocationBulkUploadCommitResponse extends LocationBulkUploadValidationResponse {
+  bulk_upload_log_id: string;
+  // See BulkUploadCommitResponse's own comment above -- same meaning.
+  storage_warning: string | null;
+}
+
+// --- Department bulk upload (Departments production-hardening epic,
+// backend Phase 1) ------------------------------------------------------
+// Mirrors app/schemas/department_import.py -- own row-preview/validation/
+// commit shapes (Department's own fields), same pattern as
+// LocationBulkUploadRowPreview/-ValidationResponse/-CommitResponse above.
+
+// Mirrors DepartmentBulkUploadRowPreview.
+export interface DepartmentBulkUploadRowPreview {
+  row_number: number;
+  status: BulkUploadRowStatus;
+  error_reason: string | null;
+  campus_code: string | null;
+  department_code: string | null;
+  department_name: string | null;
+  category: StaffRoleCategory | null;
+  parent_group: string | null;
+  description: string | null;
+  is_active: boolean | null;
+}
+
+// Mirrors DepartmentBulkUploadValidationResponse.
+export interface DepartmentBulkUploadValidationResponse {
+  total: number;
+  created_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  rejected_count: number;
+  rows: DepartmentBulkUploadRowPreview[];
+}
+
+// Mirrors DepartmentBulkUploadCommitResponse.
+export interface DepartmentBulkUploadCommitResponse extends DepartmentBulkUploadValidationResponse {
   bulk_upload_log_id: string;
   // See BulkUploadCommitResponse's own comment above -- same meaning.
   storage_warning: string | null;
