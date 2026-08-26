@@ -426,6 +426,15 @@ def _resolve_campus(db: Session, code: str) -> Campus:
     return campus
 
 
+class _DepartmentNotFound(Exception):
+    """Raised (and caught by the caller, not propagated) when a spec's named
+    department doesn't exist yet on this database -- e.g. production, which
+    may have zero departments seeded while local dev has a full master-data
+    set. This is expected and normal, not a stale-data error: the spec is
+    simply skipped for this run, and re-running this same idempotent script
+    later (once the department exists) will pick it up automatically."""
+
+
 def _resolve_department(db: Session, campus_id, name: str) -> Department:
     dept = (
         db.query(Department)
@@ -433,7 +442,7 @@ def _resolve_department(db: Session, campus_id, name: str) -> Department:
         .one_or_none()
     )
     if dept is None:
-        raise RuntimeError(f"Active department {name!r} not found on this campus -- cannot seed against stale data.")
+        raise _DepartmentNotFound(name)
     if _is_test_fixture(dept.name):
         raise RuntimeError(f"Refusing to seed against apparent test-fixture department {dept.name!r}.")
     return dept
@@ -466,17 +475,30 @@ def run(dry_run: bool) -> None:
     db = SessionLocal()
     created = 0
     skipped_existing = 0
+    skipped_missing_department: dict[str, list[str]] = {}
     by_authority: dict[str, int] = {}
     by_category: dict[str, int] = {}
 
     try:
         for spec in ALL_SPECS:
             campus = _resolve_campus(db, spec.campus_code)
-            department = (
-                _resolve_department(db, campus.id, spec.department_name)
-                if spec.department_name
-                else None
-            )
+            try:
+                department = (
+                    _resolve_department(db, campus.id, spec.department_name)
+                    if spec.department_name
+                    else None
+                )
+            except _DepartmentNotFound:
+                # Expected on a database with no/partial department master
+                # data yet (e.g. production at the time this feature first
+                # shipped) -- skip this one spec, not the whole run. Grouped
+                # by campus so the final report names exactly which
+                # campus/department combinations still need real department
+                # data before their Teaching starter rules can be created.
+                skipped_missing_department.setdefault(spec.campus_code, [])
+                if spec.department_name not in skipped_missing_department[spec.campus_code]:
+                    skipped_missing_department[spec.campus_code].append(spec.department_name)
+                continue
 
             conflict = _existing_conflict(
                 db,
@@ -528,9 +550,14 @@ def run(dry_run: bool) -> None:
         else:
             db.commit()
 
+        total_skipped_missing_dept = sum(len(v) for v in skipped_missing_department.values())
         print(f"{'[DRY RUN] ' if dry_run else ''}Eligibility rules seed complete.")
         print(f"  Created: {created}")
         print(f"  Skipped (already existed): {skipped_existing}")
+        print(f"  Skipped (department not found yet -- re-run once added): {total_skipped_missing_dept}")
+        if skipped_missing_department:
+            for campus_code, dept_names in sorted(skipped_missing_department.items()):
+                print(f"    {campus_code}: {', '.join(sorted(dept_names))}")
         print(f"  By staff_category: {by_category}")
         print(f"  By regulatory_authority: {by_authority}")
         unmapped = by_authority.get("UNMAPPED_VERIFY", 0)
