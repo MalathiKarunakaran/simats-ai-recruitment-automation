@@ -66,6 +66,51 @@ def build_report_excel(report_type: str, rows: list[dict], generated_at: datetim
     return buf.getvalue()
 
 
+_DEPARTMENT_EXPORT_HEADERS = [
+    "Campus Code",
+    "Department Code",
+    "Department Name",
+    "Category",
+    "Parent Group",
+    "Description",
+    "Active",
+]
+
+
+def build_department_export_excel(rows: list[dict], generated_at: datetime, scope_note: str) -> bytes:
+    """Department Master's own dedicated export builder (Department Master
+    hardening epic, 2026-08-25) -- not `build_report_excel` above (that one's
+    `_REPORT_FIELDS` is keyed to Module 12's own fixed `report_type` strings,
+    which Department Master export isn't one of), but the same visual/header
+    convention: a `Generated:`/`Scope:` line, a blank row, then a real header
+    row, matching every other export this app produces.
+    """
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Departments"
+
+    sheet.append([f"Generated: {generated_at.isoformat()}"])
+    sheet.append([f"Scope: {scope_note}"])
+    sheet.append([])
+    sheet.append(_DEPARTMENT_EXPORT_HEADERS)
+    for row in rows:
+        sheet.append(
+            [
+                row.get("campus_code"),
+                row.get("code"),
+                row.get("name"),
+                row.get("category"),
+                row.get("parent_group"),
+                row.get("description"),
+                "TRUE" if row.get("is_active") else "FALSE",
+            ]
+        )
+
+    buf = io.BytesIO()
+    workbook.save(buf)
+    return buf.getvalue()
+
+
 def build_ad_briefing_pptx(summary: dict) -> bytes:
     presentation = Presentation()
     presentation.slide_width = Inches(13.33)

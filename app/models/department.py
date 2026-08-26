@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +40,9 @@ class Department(Base):
     # Free text, deliberately not a lookup table (e.g. "Engineering", "Science",
     # "Administration", "Operations", "Academic Support").
     parent_group: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Department Master hardening (2026-08-25 epic): free-text notes shown on
+    # the master list/detail views. Optional, no length cap beyond Text's own.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

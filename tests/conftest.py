@@ -628,11 +628,19 @@ def department_factory(db_session, campus_factory):
         campus_code: str,
         name: str | None = None,
         category: StaffRoleCategoryEnum | None = None,
+        code: str | None = None,
+        parent_group: str | None = None,
+        description: str | None = None,
+        is_active: bool = True,
     ) -> Department:
         campus = campus_factory(campus_code)
         department = Department(
             campus_id=campus.id,
             name=name or f"Dept-{uuid.uuid4().hex[:8]}",
+            code=code,
+            parent_group=parent_group,
+            description=description,
+            is_active=is_active,
             **({"category": category} if category is not None else {}),
         )
         db_session.add(department)

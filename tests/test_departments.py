@@ -1,3 +1,5 @@
+import pytest
+
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 
 from tests.conftest import auth_headers
@@ -192,3 +194,241 @@ def test_delete_unknown_department_returns_404(client, user_factory):
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     response = client.delete(f"/api/v1/departments/{uuid.uuid4()}", headers=auth_headers(client, hr_admin))
     assert response.status_code == 404
+
+
+# --- Department Master hardening epic (2026-08-25): search/sort/filter -----
+
+
+def test_list_departments_search_matches_name(client, user_factory, department_factory):
+    department_factory("SSE", name="Computer Science", code="CSE")
+    department_factory("SSE", name="Mechanical Engineering", code="MECH")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.get(
+        "/api/v1/departments", params={"search": "computer"}, headers=auth_headers(client, hr_admin)
+    )
+    names = {d["name"] for d in response.json()["items"]}
+    assert names == {"Computer Science"}
+
+
+def test_list_departments_search_matches_code(client, user_factory, department_factory):
+    department_factory("SSE", name="Computer Science", code="CSE")
+    department_factory("SSE", name="Mechanical Engineering", code="MECH")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.get("/api/v1/departments", params={"search": "MECH"}, headers=auth_headers(client, hr_admin))
+    names = {d["name"] for d in response.json()["items"]}
+    assert names == {"Mechanical Engineering"}
+
+
+def test_list_departments_category_counts_respect_non_category_filters(
+    client, user_factory, department_factory
+):
+    department_factory("SSE", name="Teach A", category=StaffRoleCategoryEnum.TEACHING)
+    department_factory("SSE", name="Teach B", category=StaffRoleCategoryEnum.TEACHING, is_active=False)
+    department_factory("SSE", name="NonTeach A", category=StaffRoleCategoryEnum.NON_TEACHING)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.get(
+        "/api/v1/departments", params={"is_active": True}, headers=auth_headers(client, hr_admin)
+    )
+    body = response.json()
+    assert body["category_counts"]["TEACHING"] == 1  # Teach B excluded by is_active=True
+    assert body["category_counts"]["NON_TEACHING"] == 1
+
+
+def test_list_departments_category_counts_do_not_change_when_category_filter_applied(
+    client, user_factory, department_factory
+):
+    department_factory("SSE", name="Teach A", category=StaffRoleCategoryEnum.TEACHING)
+    department_factory("SSE", name="NonTeach A", category=StaffRoleCategoryEnum.NON_TEACHING)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    all_response = client.get("/api/v1/departments", headers=auth_headers(client, hr_admin))
+    filtered_response = client.get(
+        "/api/v1/departments", params={"category": "TEACHING"}, headers=auth_headers(client, hr_admin)
+    )
+    assert all_response.json()["category_counts"] == filtered_response.json()["category_counts"]
+    assert len(filtered_response.json()["items"]) == 1
+
+
+@pytest.mark.parametrize("sort_by", ["name", "code", "category", "campus", "parent_group", "is_active"])
+def test_list_departments_sort_by_each_field_does_not_error(client, user_factory, department_factory, sort_by):
+    department_factory("SSE", name="B Dept", code="B", category=StaffRoleCategoryEnum.TEACHING, parent_group="Z")
+    department_factory("SCAD", name="A Dept", code="A", category=StaffRoleCategoryEnum.NON_TEACHING, parent_group="A")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.get(
+        "/api/v1/departments", params={"sort_by": sort_by, "sort_dir": "desc"}, headers=auth_headers(client, hr_admin)
+    )
+    assert response.status_code == 200, response.text
+    assert len(response.json()["items"]) == 2
+
+
+def test_list_departments_campus_id_filter_applies_for_global_scope_role(
+    client, user_factory, department_factory
+):
+    department_factory("SSE", name="SSE Dept")
+    department_factory("SCAD", name="SCAD Dept")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)  # global scope role
+
+    sse_id = client.get(
+        "/api/v1/campuses", headers=auth_headers(client, hr_admin)
+    ).json()
+    sse_campus_id = next(c["id"] for c in sse_id["items"] if c["code"] == "SSE")
+
+    response = client.get(
+        "/api/v1/departments", params={"campus_id": sse_campus_id}, headers=auth_headers(client, hr_admin)
+    )
+    names = {d["name"] for d in response.json()["items"]}
+    assert names == {"SSE Dept"}
+
+
+def test_list_departments_campus_id_filter_ignored_for_non_global_scope_role(
+    client, user_factory, campus_factory, department_factory
+):
+    sse_dept = department_factory("SSE", name="SSE Dept")
+    scad = campus_factory("SCAD")
+    department_factory("SCAD", name="SCAD Dept")
+    hod_sse = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    # A CAMPUS_HOD passing another campus's id must still only see their own
+    # campus -- the query param is silently ignored for non-global roles.
+    response = client.get(
+        "/api/v1/departments", params={"campus_id": str(scad.id)}, headers=auth_headers(client, hod_sse)
+    )
+    names = {d["name"] for d in response.json()["items"]}
+    assert names == {"SSE Dept"}
+    assert sse_dept.name in names
+
+
+# --- Code+Campus uniqueness (application-level, see the migration's own
+# docstring for why there is no DB constraint yet) -------------------------
+
+
+def test_create_department_rejects_duplicate_code_same_campus(client, user_factory, campus_factory):
+    sse = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    first = client.post(
+        "/api/v1/departments",
+        headers=auth_headers(client, hr_admin),
+        json={"campus_id": str(sse.id), "name": "Computer Science", "code": "CSE"},
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        "/api/v1/departments",
+        headers=auth_headers(client, hr_admin),
+        json={"campus_id": str(sse.id), "name": "Computer Science Engineering", "code": "cse"},
+    )
+    assert second.status_code == 400
+    assert second.json()["detail"] == 'Department Code "cse" already exists for campus SSE.'
+
+
+def test_create_department_allows_same_code_on_a_different_campus(client, user_factory, campus_factory):
+    sse = campus_factory("SSE")
+    scad = campus_factory("SCAD")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    first = client.post(
+        "/api/v1/departments",
+        headers=auth_headers(client, hr_admin),
+        json={"campus_id": str(sse.id), "name": "Computer Science", "code": "CSE"},
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        "/api/v1/departments",
+        headers=auth_headers(client, hr_admin),
+        json={"campus_id": str(scad.id), "name": "Computer Science", "code": "CSE"},
+    )
+    assert second.status_code == 201
+
+
+def test_create_department_allows_multiple_null_codes_to_coexist(client, user_factory, campus_factory):
+    sse = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    first = client.post(
+        "/api/v1/departments",
+        headers=auth_headers(client, hr_admin),
+        json={"campus_id": str(sse.id), "name": "Dept One"},
+    )
+    assert first.status_code == 201
+
+    second = client.post(
+        "/api/v1/departments",
+        headers=auth_headers(client, hr_admin),
+        json={"campus_id": str(sse.id), "name": "Dept Two"},
+    )
+    assert second.status_code == 201
+
+
+def test_update_department_rejects_duplicate_code_same_campus(client, user_factory, department_factory):
+    department_factory("SSE", name="Computer Science", code="CSE")
+    other = department_factory("SSE", name="Mechanical Engineering", code="MECH")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.patch(
+        f"/api/v1/departments/{other.id}", headers=auth_headers(client, hr_admin), json={"code": "CSE"}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == 'Department Code "CSE" already exists for campus SSE.'
+
+
+def test_update_department_allows_re_saving_its_own_unchanged_code(client, user_factory, department_factory):
+    department = department_factory("SSE", name="Computer Science", code="CSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.patch(
+        f"/api/v1/departments/{department.id}",
+        headers=auth_headers(client, hr_admin),
+        json={"code": "CSE", "parent_group": "Engineering"},
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_update_department_description_field(client, user_factory, department_factory):
+    department = department_factory("SSE", name="Computer Science")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.patch(
+        f"/api/v1/departments/{department.id}",
+        headers=auth_headers(client, hr_admin),
+        json={"description": "Handles all CS programs."},
+    )
+    assert response.status_code == 200
+    assert response.json()["description"] == "Handles all CS programs."
+
+
+# --- Export ------------------------------------------------------------
+
+
+def test_export_departments_returns_xlsx_respecting_filters(client, user_factory, department_factory):
+    department_factory("SSE", name="Computer Science", code="CSE", category=StaffRoleCategoryEnum.TEACHING)
+    department_factory("SSE", name="Housekeeping Staff", code="HK", category=StaffRoleCategoryEnum.HOUSEKEEPING)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.get(
+        "/api/v1/departments/export",
+        params={"category": "TEACHING"},
+        headers=auth_headers(client, hr_admin),
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    from openpyxl import load_workbook
+    import io
+
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb.active
+    rows = list(ws.iter_rows(min_row=5, values_only=True))
+    non_empty = [r for r in rows if any(c is not None for c in r)]
+    assert len(non_empty) == 1
+    assert non_empty[0][1] == "CSE"
+
+
+def test_export_departments_forbidden_for_candidate(client, user_factory):
+    candidate = user_factory(UserRoleEnum.CANDIDATE)
+    response = client.get("/api/v1/departments/export", headers=auth_headers(client, candidate))
+    assert response.status_code == 403
