@@ -302,6 +302,47 @@ def test_list_departments_campus_id_filter_ignored_for_non_global_scope_role(
     assert sse_dept.name in names
 
 
+def test_list_departments_parent_group_filter_is_exact_match(client, user_factory, department_factory):
+    department_factory("SSE", name="Physics", parent_group="Science and Humanities")
+    department_factory("SSE", name="Chemistry", parent_group="Science and Humanities")
+    department_factory("SSE", name="CSE", parent_group="Engineering")
+    department_factory("SSE", name="No Group Dept")  # parent_group=None, must not match either filter
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.get(
+        "/api/v1/departments",
+        params={"parent_group": "Science and Humanities"},
+        headers=auth_headers(client, hr_admin),
+    )
+    names = {d["name"] for d in response.json()["items"]}
+    assert names == {"Physics", "Chemistry"}
+
+
+def test_list_department_parent_groups_returns_distinct_real_values_only(
+    client, user_factory, department_factory
+):
+    department_factory("SSE", name="Physics", parent_group="Science and Humanities")
+    department_factory("SSE", name="Chemistry", parent_group="Science and Humanities")  # duplicate value
+    department_factory("SSE", name="CSE", parent_group="Engineering")
+    department_factory("SSE", name="No Group Dept")  # parent_group=None, must never appear
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.get("/api/v1/departments/parent-groups", headers=auth_headers(client, hr_admin))
+    assert response.status_code == 200
+    assert response.json() == ["Engineering", "Science and Humanities"]  # distinct, sorted, no None/blank
+
+
+def test_list_department_parent_groups_is_campus_scoped_for_non_global_role(
+    client, user_factory, department_factory
+):
+    department_factory("SSE", name="SSE Physics", parent_group="Science and Humanities")
+    department_factory("SCAD", name="SCAD Studio", parent_group="Design")
+    hod_sse = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    response = client.get("/api/v1/departments/parent-groups", headers=auth_headers(client, hod_sse))
+    assert response.json() == ["Science and Humanities"]
+
+
 # --- Code+Campus uniqueness (application-level, see the migration's own
 # docstring for why there is no DB constraint yet) -------------------------
 

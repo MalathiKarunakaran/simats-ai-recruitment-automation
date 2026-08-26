@@ -89,12 +89,21 @@ def _base_query(
     campus_id: uuid.UUID | None,
     search: str | None,
     is_active: bool | None,
+    parent_group: str | None = None,
 ):
     """Every filter shared between `list_departments` and `export_departments`
     EXCEPT `category` itself -- `category` is applied by each caller
     separately, after `list_departments` computes `category_counts` off this
     same base query (mirrors `designations.py::list_designations`'s own
-    category-tab-counts pattern exactly)."""
+    category-tab-counts pattern exactly).
+
+    `parent_group` is an exact-match filter (not `ilike`) against whatever
+    real, already-entered values exist -- see `GET /departments/parent-groups`
+    below for how the frontend sources its dropdown options from real DB
+    values rather than a hardcoded or free-text-guessed list. `parent_group`
+    stays free text on the model itself (deliberately not a lookup table,
+    per Department's own existing design comment) -- this filter doesn't
+    change that, it just lets a caller narrow to one already-existing value."""
     query = db.query(Department)
     if scope.is_global:
         # Non-global roles are always forced onto their own campus_id below;
@@ -110,6 +119,8 @@ def _base_query(
         query = query.filter(or_(Department.name.ilike(like), Department.code.ilike(like)))
     if is_active is not None:
         query = query.filter(Department.is_active == is_active)
+    if parent_group is not None:
+        query = query.filter(Department.parent_group == parent_group)
     return query
 
 
@@ -174,13 +185,16 @@ def list_departments(
     category: StaffRoleCategoryEnum | None = Query(None),
     is_active: bool | None = Query(None),
     campus_id: uuid.UUID | None = Query(None),
+    parent_group: str | None = Query(None),
     sort_by: _SORT_FIELDS = Query("name"),
     sort_dir: Literal["asc", "desc"] = Query("asc"),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> DepartmentListResponse:
-    query = _base_query(db, scope, campus_id=campus_id, search=search, is_active=is_active)
+    query = _base_query(
+        db, scope, campus_id=campus_id, search=search, is_active=is_active, parent_group=parent_group
+    )
 
     # category_counts is computed off this same base query (search/campus_id/
     # is_active applied, category NOT applied) via a cheap GROUP BY, before
@@ -202,12 +216,32 @@ def list_departments(
     return DepartmentListResponse(items=rows, total=total, limit=limit, offset=offset, category_counts=category_counts)
 
 
+@router.get("/parent-groups", response_model=list[str])
+def list_department_parent_groups(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> list[str]:
+    """Distinct, real, already-entered `parent_group` values -- sources the
+    frontend's Parent Group filter dropdown from actual database records,
+    never a hardcoded or guessed list (`parent_group` itself stays free text
+    on the model, deliberately not a lookup table -- this is a read-only
+    derived list for filter convenience, not a new persisted entity).
+    Campus-scoped the same way `list_departments` is: a non-global role only
+    ever sees parent groups that exist within its own campus."""
+    query = db.query(Department.parent_group).filter(Department.parent_group.isnot(None)).distinct()
+    if not scope.is_global:
+        query = query.filter(Department.campus_id == scope.campus_id)
+    return sorted(value for (value,) in query.all() if value)
+
+
 @router.get("/export")
 def export_departments(
     search: str | None = Query(None),
     category: StaffRoleCategoryEnum | None = Query(None),
     is_active: bool | None = Query(None),
     campus_id: uuid.UUID | None = Query(None),
+    parent_group: str | None = Query(None),
     sort_by: _SORT_FIELDS = Query("name"),
     sort_dir: Literal["asc", "desc"] = Query("asc"),
     db: Session = Depends(get_db),
@@ -217,7 +251,9 @@ def export_departments(
     """Same filters as `list_departments` minus pagination -- exports every
     matching row, not just one page. xlsx only, same as every other export
     in this app (Module 12's `/reports/{report_type}/export`)."""
-    query = _base_query(db, scope, campus_id=campus_id, search=search, is_active=is_active)
+    query = _base_query(
+        db, scope, campus_id=campus_id, search=search, is_active=is_active, parent_group=parent_group
+    )
     if category is not None:
         query = query.filter(Department.category == category)
     query = _apply_sort(query, sort_by, sort_dir)
