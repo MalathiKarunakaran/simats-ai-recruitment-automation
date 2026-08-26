@@ -22,6 +22,9 @@ export interface ListDepartmentsParams {
   // any other role (see departments.py::_base_query), same convention as
   // SanctionedStrengthPage/other campus-scoped list pages.
   campus_id?: string | null;
+  // Exact match on Department.parent_group -- backend addition alongside
+  // GET /departments/parent-groups (see listDepartmentParentGroups below).
+  parent_group?: string | null;
   sort_by?: DepartmentSortBy;
   sort_dir?: DepartmentSortDirection;
 }
@@ -36,9 +39,18 @@ function buildListDepartmentsQuery(params: ListDepartmentsParams): URLSearchPara
     query.set("is_active", String(params.is_active));
   }
   if (params.campus_id) query.set("campus_id", params.campus_id);
+  if (params.parent_group) query.set("parent_group", params.parent_group);
   if (params.sort_by) query.set("sort_by", params.sort_by);
   if (params.sort_dir) query.set("sort_dir", params.sort_dir);
   return query;
+}
+
+// Mirrors the new GET /departments/parent-groups endpoint -- a sorted,
+// distinct, campus-scoped-for-non-global-roles list of the real non-null
+// parent_group values already in the database (never hardcoded), used to
+// populate DepartmentsPage's Parent Group filter Select.
+export async function listDepartmentParentGroups(): Promise<string[]> {
+  return apiFetch<string[]>("/departments/parent-groups");
 }
 
 // Genuinely zero-argument (not an optional-params function) -- same exact
@@ -94,6 +106,7 @@ export interface ExportDepartmentsParams {
   category?: string | null;
   is_active?: boolean | null;
   campus_id?: string | null;
+  parent_group?: string | null;
   sort_by?: DepartmentSortBy;
   sort_dir?: DepartmentSortDirection;
 }
@@ -117,6 +130,7 @@ export async function exportDepartments(params: ExportDepartmentsParams = {}): P
     query.set("is_active", String(params.is_active));
   }
   if (params.campus_id) query.set("campus_id", params.campus_id);
+  if (params.parent_group) query.set("parent_group", params.parent_group);
   if (params.sort_by) query.set("sort_by", params.sort_by);
   if (params.sort_dir) query.set("sort_dir", params.sort_dir);
 
