@@ -8,6 +8,7 @@ import {
   createDepartment,
   deleteDepartment,
   exportDepartments,
+  listDepartmentParentGroups,
   listDepartmentsWithCounts,
   updateDepartment,
   type DepartmentSortBy,
@@ -16,6 +17,7 @@ import {
 import { DEPARTMENT_MANAGEMENT_ROLES, type DepartmentRead, type StaffRoleCategory } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { CategoryBadge } from "@/components/departments/CategoryBadge";
 import { DepartmentBulkUploadDialog } from "@/components/departments/DepartmentBulkUploadDialog";
 import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +39,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/toast";
 import { CategoryTabs, mapServerCategoryCounts } from "@/components/domain/CategoryTabs";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
@@ -89,11 +92,11 @@ const COLUMNS: ColumnDef[] = [
 function DepartmentRowActions({
   department,
   onEdit,
-  onDeleted,
+  onChanged,
 }: {
   department: DepartmentRead;
   onEdit: () => void;
-  onDeleted: () => void;
+  onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // Kept as a sibling of <Popover>, NOT nested inside <PopoverContent> --
@@ -106,6 +109,22 @@ function DepartmentRowActions({
   // keeps the Dialog itself outside that unmounting subtree -- see that
   // component's own docstring on this exact pitfall.
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const toast = useToast();
+
+  // "Restore" reactivates a soft-deleted department -- reuses the existing
+  // PATCH endpoint (no new backend route needed), same as flipping the
+  // Active Select in the Edit dialog, just one click from the row menu.
+  // Mutually exclusive with Delete: an already-inactive row only offers
+  // Restore, an active row only offers Delete -- no point offering to
+  // delete something already soft-deleted.
+  const restoreMutation = useMutation({
+    mutationFn: () => updateDepartment(department.id, { is_active: true }),
+    onSuccess: () => {
+      toast.success(`${department.name} restored.`);
+      onChanged();
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Failed to restore department"),
+  });
 
   return (
     <>
@@ -129,18 +148,34 @@ function DepartmentRowActions({
             >
               Edit
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="justify-start text-destructive hover:text-destructive"
-              onClick={() => {
-                setOpen(false);
-                setDeleteOpen(true);
-              }}
-            >
-              Delete
-            </Button>
+            {department.is_active ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="justify-start text-destructive hover:text-destructive"
+                onClick={() => {
+                  setOpen(false);
+                  setDeleteOpen(true);
+                }}
+              >
+                Delete
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="justify-start"
+                disabled={restoreMutation.isPending}
+                onClick={() => {
+                  setOpen(false);
+                  restoreMutation.mutate();
+                }}
+              >
+                {restoreMutation.isPending ? "Restoring…" : "Restore"}
+              </Button>
+            )}
           </div>
         </PopoverContent>
       </Popover>
@@ -153,10 +188,15 @@ function DepartmentRowActions({
           <>
             Remove <span className="font-medium text-foreground">{department.name}</span>? This is a soft
             delete -- the department stays visible (as Inactive) and can be reactivated later.
+            <br />
+            <span className="mt-2 block">
+              Note: if this department still has active staff or designations assigned to it, the delete will
+              be blocked until those are reassigned or deactivated first.
+            </span>
           </>
         }
         onDelete={() => deleteDepartment(department.id)}
-        onDeleted={onDeleted}
+        onDeleted={onChanged}
       />
     </>
   );
@@ -179,6 +219,11 @@ export function DepartmentsPage() {
   const [sortDir, setSortDir] = useState<DepartmentSortDirection>("asc");
 
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
+  // Parent Group filter -- backend addition alongside GET
+  // /departments/parent-groups (see api/departments.ts). Options are
+  // populated from that endpoint's real, distinct, non-null values rather
+  // than a hardcoded list.
+  const [parentGroupFilter, setParentGroupFilter] = useState<string>("ALL");
   // URL-persisted via ?category=... (see hooks/useCategoryTabState.ts) so
   // the selection survives refresh/back-forward/shared links.
   const [categoryTab, setCategoryTab] = useCategoryTabState();
@@ -195,7 +240,18 @@ export function DepartmentsPage() {
   const [search, setSearch] = useState("");
 
   const { data, isLoading, isError, error: loadError } = useQuery({
-    queryKey: ["departments", limit, offset, sortBy, sortDir, campusFilter, categoryTab, activeFilter, search],
+    queryKey: [
+      "departments",
+      limit,
+      offset,
+      sortBy,
+      sortDir,
+      campusFilter,
+      categoryTab,
+      activeFilter,
+      search,
+      parentGroupFilter,
+    ],
     queryFn: () =>
       listDepartmentsWithCounts({
         limit,
@@ -206,9 +262,14 @@ export function DepartmentsPage() {
         category: categoryTab === "ALL" ? null : categoryTab,
         is_active: activeFilter === "ALL" ? null : activeFilter === "true",
         search: search.trim() || null,
+        parent_group: parentGroupFilter === "ALL" ? null : parentGroupFilter,
       }),
   });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
+  const { data: parentGroups } = useQuery({
+    queryKey: ["department-parent-groups"],
+    queryFn: listDepartmentParentGroups,
+  });
 
   // Bug fix: OR'd with hasPermission("MANAGE_DEPARTMENTS") -- backend's
   // departments.py gates create/update/delete/bulk-upload via require_permission,
@@ -224,7 +285,11 @@ export function DepartmentsPage() {
   const total = data?.total ?? 0;
 
   const filtersActive =
-    campusFilter !== "ALL" || categoryTab !== "ALL" || activeFilter !== "true" || search.trim() !== "";
+    campusFilter !== "ALL" ||
+    categoryTab !== "ALL" ||
+    activeFilter !== "true" ||
+    search.trim() !== "" ||
+    parentGroupFilter !== "ALL";
 
   function clearFilters() {
     setCampusFilter("ALL");
@@ -232,6 +297,7 @@ export function DepartmentsPage() {
     setActiveFilter("true");
     setSearchInput("");
     setSearch("");
+    setParentGroupFilter("ALL");
     setOffset(0);
   }
 
@@ -259,6 +325,7 @@ export function DepartmentsPage() {
         category: categoryTab === "ALL" ? null : categoryTab,
         is_active: activeFilter === "ALL" ? null : activeFilter === "true",
         search: search.trim() || null,
+        parent_group: parentGroupFilter === "ALL" ? null : parentGroupFilter,
       }),
   });
 
@@ -343,38 +410,14 @@ export function DepartmentsPage() {
         description="The department master -- campus, code, category, and parent group, per department."
         actions={
           <>
-            {/* Export is gated `_staff_only` server-side (broader than
-                DEPARTMENT_MANAGEMENT_ROLES/canManage) -- mirrored here as an
-                always-visible action for any staff role that can view this
-                page at all, not narrowed to canManage. */}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={exportMutation.isPending}
-              onClick={() => exportMutation.mutate()}
-            >
-              {exportMutation.isPending ? "Exporting…" : "Export"}
-            </Button>
+            {/* Reordered per the Departments follow-up spec: New Department
+                (primary/most prominent) first, then Bulk upload + its
+                Upload history trigger adjacent, then Export last. */}
             {canManage ? (
               <>
-                <DepartmentBulkUploadDialog />
-                <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button type="button" variant="outline" size="sm">
-                      Upload history
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-4xl">
-                    <DialogHeader>
-                      <DialogTitle>Department bulk upload history</DialogTitle>
-                    </DialogHeader>
-                    <UploadHistoryTab entityType="DEPARTMENT" />
-                  </DialogContent>
-                </Dialog>
                 <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button onClick={openCreateDialog}>New department</Button>
+                    <Button onClick={openCreateDialog}>+ New Department</Button>
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
@@ -495,8 +538,36 @@ export function DepartmentsPage() {
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+                <DepartmentBulkUploadDialog />
+                <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button type="button" variant="outline" size="sm">
+                      Upload history
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-4xl">
+                    <DialogHeader>
+                      <DialogTitle>Department bulk upload history</DialogTitle>
+                    </DialogHeader>
+                    <UploadHistoryTab entityType="DEPARTMENT" />
+                  </DialogContent>
+                </Dialog>
               </>
             ) : null}
+            {/* Export is gated `_staff_only` server-side (broader than
+                DEPARTMENT_MANAGEMENT_ROLES/canManage) -- mirrored here as an
+                always-visible action for any staff role that can view this
+                page at all, not narrowed to canManage. Deliberately last in
+                visual order -- least prominent of the header actions. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+            >
+              {exportMutation.isPending ? "Exporting…" : "Export"}
+            </Button>
           </>
         }
       />
@@ -537,6 +608,25 @@ export function DepartmentsPage() {
             {(campuses ?? []).map((campus) => (
               <SelectItem key={campus.id} value={campus.id}>
                 {campus.code}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={parentGroupFilter}
+          onValueChange={(v) => {
+            setParentGroupFilter(v);
+            setOffset(0);
+          }}
+        >
+          <SelectTrigger aria-label="Parent group filter" className="sm:w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All parent groups</SelectItem>
+            {(parentGroups ?? []).map((group) => (
+              <SelectItem key={group} value={group}>
+                {group}
               </SelectItem>
             ))}
           </SelectContent>
@@ -616,7 +706,7 @@ export function DepartmentsPage() {
                     ) : canManage ? (
                       <Button type="button" size="sm" onClick={openCreateDialog}>
                         <Plus className="h-4 w-4" aria-hidden="true" />
-                        New department
+                        + New Department
                       </Button>
                     ) : null}
                   </div>
@@ -629,7 +719,9 @@ export function DepartmentsPage() {
                     </TableCell>
                     <TableCell className="font-medium text-foreground">{department.name}</TableCell>
                     <TableCell>{department.code ?? "—"}</TableCell>
-                    <TableCell>{department.category ? department.category.replace(/_/g, " ") : "—"}</TableCell>
+                    <TableCell>
+                      {department.category ? <CategoryBadge category={department.category} /> : "—"}
+                    </TableCell>
                     <TableCell>{department.parent_group ?? "—"}</TableCell>
                     <TableCell>
                       <Badge variant={department.is_active ? "success" : "destructive"}>
@@ -641,7 +733,7 @@ export function DepartmentsPage() {
                         <DepartmentRowActions
                           department={department}
                           onEdit={() => openEditDialog(department)}
-                          onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["departments"] })}
+                          onChanged={() => void queryClient.invalidateQueries({ queryKey: ["departments"] })}
                         />
                       </TableCell>
                     ) : null}

@@ -158,6 +158,64 @@ describe("DepartmentBulkUploadDialog", () => {
     expect(await screen.findByText("Validation failed")).toBeInTheDocument();
   });
 
+  // Item 5 -- commit success message leads with a clear summary sentence,
+  // alongside (not instead of) the granular breakdown.
+  it("leads the commit success message with 'Successfully imported N department(s).'", async () => {
+    mockedValidate.mockResolvedValue(VALIDATION_RESULT);
+    mockedCommit.mockResolvedValue(COMMIT_RESULT);
+    renderDialog();
+
+    await openAndUpload();
+    await screen.findByText("Physics");
+    await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+
+    // created_count (1) + updated_count (0) = 1 department imported.
+    expect(await screen.findByText("Successfully imported 1 department.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Upload committed. 1 created, 0 updated, 0 unchanged, 1 rejected."),
+    ).toBeInTheDocument();
+  });
+
+  it("pluralizes 'departments' in the summary sentence when more than one row is imported", async () => {
+    mockedValidate.mockResolvedValue(VALIDATION_RESULT);
+    mockedCommit.mockResolvedValue({ ...COMMIT_RESULT, created_count: 2, updated_count: 1 });
+    renderDialog();
+
+    await openAndUpload();
+    await screen.findByText("Physics");
+    await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+
+    expect(await screen.findByText("Successfully imported 3 departments.")).toBeInTheDocument();
+  });
+
+  // Item 8 -- preview columns reordered so Department name comes before Code.
+  it("renders the preview table with the Name column before the Code column", async () => {
+    mockedValidate.mockResolvedValue(VALIDATION_RESULT);
+    renderDialog();
+
+    await openAndUpload();
+    await screen.findByText("Physics");
+
+    const headers = screen.getAllByRole("columnheader").map((cell) => cell.textContent);
+    expect(headers.indexOf("Name")).toBeLessThan(headers.indexOf("Code"));
+    expect(headers).toEqual(["Row", "Status", "Campus", "Name", "Code", "Category", "Parent group", "Details"]);
+  });
+
+  // Item 4 -- NON_TEACHING renders with a hyphen ("NON-TEACHING") in the
+  // preview, matching the exact wording in the user's own spec, without
+  // changing the real persisted enum value.
+  it("displays NON_TEACHING as 'NON-TEACHING' (hyphen) in the preview table", async () => {
+    mockedValidate.mockResolvedValue({
+      ...VALIDATION_RESULT,
+      rows: [{ ...VALIDATION_RESULT.rows[0], category: "NON_TEACHING" }],
+    });
+    renderDialog();
+
+    await openAndUpload();
+
+    expect(await screen.findByText("NON-TEACHING")).toBeInTheDocument();
+  });
+
   it("disables Commit until a file has been validated with at least one row", async () => {
     mockedValidate.mockResolvedValue({ ...VALIDATION_RESULT, total: 0, created_count: 0, rejected_count: 0, rows: [] });
     renderDialog();

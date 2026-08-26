@@ -49,6 +49,16 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 
 type RowStatusFilter = "ALL" | BulkUploadRowStatus;
 
+// Cosmetic display-only formatting for the preview table's Category column --
+// the real persisted enum value stays NON_TEACHING (underscore); this just
+// renders it with a hyphen ("NON-TEACHING") to match the exact wording the
+// user's own bulk-upload spec uses, without touching the backend template
+// generation or the accepted-values parsing logic.
+function formatCategoryDisplay(category: string | null): string {
+  if (!category) return "—";
+  return category === "NON_TEACHING" ? "NON-TEACHING" : category.replace(/_/g, " ");
+}
+
 const ROW_STATUS_FILTERS: { value: RowStatusFilter; label: string }[] = [
   { value: "ALL", label: "All rows" },
   { value: "created", label: "Created" },
@@ -108,8 +118,8 @@ function PreviewTable({
                 <TableHead>Row</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Campus</TableHead>
-                <TableHead>Code</TableHead>
                 <TableHead>Name</TableHead>
+                <TableHead>Code</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Parent group</TableHead>
                 <TableHead>Details</TableHead>
@@ -123,9 +133,9 @@ function PreviewTable({
                     <BulkUploadRowStatusBadge status={row.status} />
                   </TableCell>
                   <TableCell>{row.campus_code ?? "—"}</TableCell>
-                  <TableCell>{row.department_code ?? "—"}</TableCell>
                   <TableCell>{row.department_name ?? "—"}</TableCell>
-                  <TableCell>{row.category ? row.category.replace(/_/g, " ") : "—"}</TableCell>
+                  <TableCell>{row.department_code ?? "—"}</TableCell>
+                  <TableCell>{formatCategoryDisplay(row.category)}</TableCell>
                   <TableCell>{row.parent_group ?? "—"}</TableCell>
                   <TableCell className="text-destructive">{row.error_reason ?? ""}</TableCell>
                 </TableRow>
@@ -256,6 +266,10 @@ export function DepartmentBulkUploadDialog() {
           {commitResult ? (
             <>
               <p className="text-sm font-medium text-brand-success">
+                Successfully imported {commitResult.created_count + commitResult.updated_count} department
+                {commitResult.created_count + commitResult.updated_count === 1 ? "" : "s"}.
+              </p>
+              <p className="text-sm text-muted-foreground">
                 Upload committed. {commitResult.created_count} created, {commitResult.updated_count} updated,{" "}
                 {commitResult.unchanged_count} unchanged, {commitResult.rejected_count} rejected.
               </p>

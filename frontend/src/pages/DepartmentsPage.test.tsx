@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
 import { ApiError } from "@/api/client";
@@ -10,6 +10,7 @@ import * as departmentsApi from "@/api/departments";
 import * as sanctionedStrengthApi from "@/api/sanctionedStrength";
 import type { CampusRead, DepartmentListResponse, DepartmentRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
+import { ToastProvider } from "@/components/ui/toast";
 import { DepartmentsPage } from "@/pages/DepartmentsPage";
 
 // Departments production-hardening epic, frontend Phase 2 -- rewritten from
@@ -36,6 +37,7 @@ const mockedUpdateDepartment = vi.mocked(departmentsApi.updateDepartment);
 const mockedDeleteDepartment = vi.mocked(departmentsApi.deleteDepartment);
 const mockedExportDepartments = vi.mocked(departmentsApi.exportDepartments);
 const mockedListBulkUploads = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthBulkUploads);
+const mockedListDepartmentParentGroups = vi.mocked(departmentsApi.listDepartmentParentGroups);
 
 function mockUser(role: UserRead["role"], hasPermission: (permission: string) => boolean = () => false) {
   mockedUseAuth.mockReturnValue({
@@ -103,14 +105,22 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <DepartmentsPage />
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter>
+          <DepartmentsPage />
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
 
 describe("DepartmentsPage", () => {
+  // Parent Group filter's options query -- irrelevant to most tests below,
+  // defaulted here so each test doesn't need its own boilerplate mock.
+  beforeEach(() => {
+    mockedListDepartmentParentGroups.mockResolvedValue([]);
+  });
+
   it("lists departments with campus, code, and category from the server response", async () => {
     mockUser("HR_ADMIN");
     mockedListCampuses.mockResolvedValue([SSE, SCLAS]);
@@ -190,7 +200,7 @@ describe("DepartmentsPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "New department" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ New Department" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Bulk upload" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Upload history" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /More actions/ })).not.toBeInTheDocument();
@@ -217,7 +227,7 @@ describe("DepartmentsPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "New department" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ New Department" })).not.toBeInTheDocument();
   });
 
   it("shows New department, Bulk upload, and Upload history to a CAMPUS_HOD individually granted MANAGE_DEPARTMENTS", async () => {
@@ -227,7 +237,7 @@ describe("DepartmentsPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "New department" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Department" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Bulk upload" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload history" })).toBeInTheDocument();
   });
@@ -259,9 +269,9 @@ describe("DepartmentsPage", () => {
     mockedCreateDepartment.mockResolvedValue({ ...CSE, id: "d-2", name: "Physics" });
 
     renderPage();
-    await waitFor(() => expect(screen.getByRole("button", { name: "New department" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Department" })).toBeInTheDocument());
 
-    await userEvent.click(screen.getByRole("button", { name: "New department" }));
+    await userEvent.click(screen.getByRole("button", { name: "+ New Department" }));
     await userEvent.click(screen.getAllByRole("combobox")[0]);
     await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
     await userEvent.type(screen.getByLabelText("Name"), "Physics");
@@ -479,7 +489,7 @@ describe("DepartmentsPage", () => {
     renderPage();
 
     expect(await screen.findByText("No departments found.")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "New department" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "+ New Department" }).length).toBeGreaterThan(0);
   });
 
   it("deletes a department via the 3-dot row-actions menu and refreshes the list", async () => {
@@ -539,5 +549,114 @@ describe("DepartmentsPage", () => {
     await waitFor(() =>
       expect(mockedExportDepartments).toHaveBeenCalledWith(expect.objectContaining({ campus_id: "c-sse" })),
     );
+  });
+
+  // Departments follow-up spec, item 1 -- color-coded Category badges
+  // (Badge's existing variants: TEACHING -> info/blue, NON_TEACHING ->
+  // outline/brand-plum, HOUSEKEEPING -> warning/orange).
+  it("renders the Category column as color-coded CategoryBadges", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(
+      paginated([CSE, { ...CSE, id: "d-house", name: "Facilities", category: "HOUSEKEEPING" }, HR_OFFICE]),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("TEACHING")).toHaveClass("bg-brand-info/15");
+    expect(screen.getByText("HOUSEKEEPING")).toHaveClass("bg-brand-warning/15");
+    expect(screen.getByText("NON TEACHING")).toHaveClass("border-brand-plum/40");
+  });
+
+  // Departments follow-up spec, item 2 -- Parent Group filter, populated
+  // from the new GET /departments/parent-groups endpoint.
+  it("populates the Parent Group filter from listDepartmentParentGroups and re-fetches with it selected", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(paginated([CSE]));
+    mockedListDepartmentParentGroups.mockResolvedValue(["School of Engineering", "School of Sciences"]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Parent group filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "School of Sciences" }));
+
+    await waitFor(() =>
+      expect(mockedListDepartmentsWithCounts).toHaveBeenLastCalledWith(
+        expect.objectContaining({ parent_group: "School of Sciences", offset: 0 }),
+      ),
+    );
+  });
+
+  it("still renders a sensible Parent Group filter (just 'All parent groups') when no parent groups exist yet", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(paginated([CSE]));
+    mockedListDepartmentParentGroups.mockResolvedValue([]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Parent group filter" }));
+    expect(await screen.findByRole("option", { name: "All parent groups" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option").length).toBe(1);
+  });
+
+  // Departments follow-up spec, item 3 -- header actions reordered to New
+  // Department (primary) first, then Bulk upload/Upload history, Export last.
+  it("orders header actions as New Department, then Bulk upload/Upload history, then Export", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(paginated([CSE]));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Department" })).toBeInTheDocument());
+
+    const labels = screen.getAllByRole("button").map((button) => button.textContent);
+    const newDeptIndex = labels.indexOf("+ New Department");
+    const bulkUploadIndex = labels.indexOf("Bulk upload");
+    const uploadHistoryIndex = labels.indexOf("Upload history");
+    const exportIndex = labels.indexOf("Export");
+
+    expect(newDeptIndex).toBeGreaterThanOrEqual(0);
+    expect(newDeptIndex).toBeLessThan(bulkUploadIndex);
+    expect(bulkUploadIndex).toBeLessThan(uploadHistoryIndex);
+    expect(uploadHistoryIndex).toBeLessThan(exportIndex);
+  });
+
+  // Departments follow-up spec, item 7 -- Restore row action for inactive
+  // departments, mutually exclusive with Delete.
+  it("offers Delete (not Restore) for an active department and Restore (not Delete) for an inactive one", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(paginated([CSE, HR_OFFICE]));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions for Computer Science and Engineering" }));
+    expect(await screen.findByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions for HR OFFICE" }));
+    expect(await screen.findByRole("button", { name: "Restore" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("restores an inactive department via the row-actions menu, calling updateDepartment with is_active: true", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(paginated([HR_OFFICE]));
+    mockedUpdateDepartment.mockResolvedValue({ ...HR_OFFICE, is_active: true });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("HR OFFICE")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions for HR OFFICE" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Restore" }));
+
+    await waitFor(() => expect(mockedUpdateDepartment).toHaveBeenCalledWith("d-hr", { is_active: true }));
   });
 });
