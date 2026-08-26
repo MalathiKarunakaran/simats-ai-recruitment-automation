@@ -592,31 +592,113 @@ export interface UserPermissionsRead {
   permissions: Permission[];
 }
 
-// Mirrors app/schemas/eligibility_rule.py::EligibilityRuleRead.
+// Mirrors app/models/enums.py::RegulatoryAuthorityEnum (starter regulatory-
+// eligibility-rules feature, backend Phase 1). UGC_AICTE_INSTITUTION is the
+// genuinely-ambiguous Design case ("determine per programme"); UNMAPPED_VERIFY
+// is a real, honest "not yet mapped" value for campuses/departments where no
+// authority could safely be determined yet -- never guess between the two in
+// the UI, render both as plain, distinct labels.
+export type RegulatoryAuthority =
+  | "AICTE_UGC"
+  | "COA"
+  | "UGC"
+  | "UGC_AICTE_INSTITUTION"
+  | "NCTE_UGC"
+  | "INSTITUTION_NON_TEACHING"
+  | "INSTITUTION_HR_HOUSEKEEPING"
+  | "UNMAPPED_VERIFY";
+
+// Mirrors app/models/enums.py::EligibilityRuleStatusEnum -- deliberately
+// independent of `is_active` (see that enum's own docstring); a rule can be
+// status=DRAFT and is_active=false at the same time by design. Never conflate
+// the two in the UI -- show both distinctly.
+export type EligibilityRuleStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
+
+// Mirrors app/schemas/eligibility_rule.py::EligibilityRuleRead (extended,
+// backend Phase 1, for the starter regulatory-eligibility-rules feature).
+// required_keywords/preferred_keywords are informational only -- never
+// consulted by app/services/eligibility.py::check_qualification_mismatch --
+// render them, but never imply they drive an eligibility decision (see
+// EligibilityRuleDetailDrawer's own caveat copy).
 export interface EligibilityRule {
   id: string;
   campus_id: string;
+  department_id: string | null;
   staff_category: StaffRoleCategory;
   position_title: string | null;
   required_qualification_keyword: string;
+  net_set_required: boolean | null;
+  subject: string | null;
+  skills_keyword: string | null;
+  id_proof_required: boolean | null;
+  shift_preference: string | null;
+  regulatory_authority: RegulatoryAuthority | null;
+  school_or_college: string | null;
+  programme_discipline: string | null;
+  minimum_qualification: string | null;
+  minimum_percentage: string | null;
+  required_experience: string | null;
+  required_credential: string | null;
+  required_keywords: string | null;
+  preferred_keywords: string | null;
+  phd_required: boolean | null;
+  professional_registration: string | null;
+  industry_experience: string | null;
+  priority: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  source_regulation: string | null;
+  status: EligibilityRuleStatus;
+  verification_required: boolean;
   is_active: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
 }
 
-// Mirrors app/schemas/eligibility_rule.py::EligibilityRuleCreate.
+// Mirrors app/schemas/eligibility_rule.py::EligibilityRuleCreate (extended).
 export interface EligibilityRuleCreatePayload {
   campus_id: string;
+  department_id?: string | null;
   staff_category: StaffRoleCategory;
   position_title?: string | null;
   required_qualification_keyword: string;
+  net_set_required?: boolean | null;
+  subject?: string | null;
+  skills_keyword?: string | null;
+  id_proof_required?: boolean | null;
+  shift_preference?: string | null;
+  regulatory_authority?: RegulatoryAuthority | null;
+  school_or_college?: string | null;
+  programme_discipline?: string | null;
+  minimum_qualification?: string | null;
+  minimum_percentage?: string | null;
+  required_experience?: string | null;
+  required_credential?: string | null;
+  required_keywords?: string | null;
+  preferred_keywords?: string | null;
+  phd_required?: boolean | null;
+  professional_registration?: string | null;
+  industry_experience?: string | null;
+  priority?: string | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  source_regulation?: string | null;
+  status?: EligibilityRuleStatus;
+  verification_required?: boolean;
   is_active?: boolean;
   notes?: string | null;
 }
 
-// Mirrors app/schemas/eligibility_rule.py::EligibilityRuleUpdate.
+// Mirrors app/schemas/eligibility_rule.py::EligibilityRuleUpdate -- every
+// field independently optional (PATCH semantics), same as the backend.
 export type EligibilityRuleUpdatePayload = Partial<EligibilityRuleCreatePayload>;
+
+// Mirrors GET /eligibility-rules's plain PaginatedResponse shape -- this
+// entity deliberately has no category_counts (see the backend router's own
+// module docstring / this feature's commit message for why), unlike
+// DepartmentListResponse.
+export type EligibilityRuleListResponse = PaginatedResponse<EligibilityRule>;
 
 // Mirrors app/models/enums.py::VacancyRequestStatusEnum.
 export type VacancyRequestStatus =
@@ -1749,8 +1831,14 @@ export type BulkUploadStatus = "COMPLETED" | "UNDONE";
 // endpoints dispatch on server-side.
 // DEPARTMENT added for the Departments production-hardening epic
 // (backend Phase 1) -- same dispatch-on-entity_type story as LOCATION/
-// HOUSEKEEPING_STAFF before it.
-export type BulkUploadEntityType = "SANCTIONED_STRENGTH" | "LOCATION" | "HOUSEKEEPING_STAFF" | "DEPARTMENT";
+// HOUSEKEEPING_STAFF before it. ELIGIBILITY_RULE added for the starter
+// regulatory-eligibility-rules feature (frontend Phase 2), same story again.
+export type BulkUploadEntityType =
+  | "SANCTIONED_STRENGTH"
+  | "LOCATION"
+  | "HOUSEKEEPING_STAFF"
+  | "DEPARTMENT"
+  | "ELIGIBILITY_RULE";
 
 // Mirrors BulkUploadLogRead -- one row per past bulk upload, for the "Upload
 // history" tab/dialog. `entity_type` (Phase J) is new -- the backend has
@@ -1890,6 +1978,71 @@ export interface HousekeepingStaffBulkUploadValidationResponse {
 
 // Mirrors HousekeepingStaffBulkUploadCommitResponse.
 export interface HousekeepingStaffBulkUploadCommitResponse extends HousekeepingStaffBulkUploadValidationResponse {
+  bulk_upload_log_id: string;
+  // See BulkUploadCommitResponse's own comment above -- same meaning.
+  storage_warning: string | null;
+}
+
+// --- EligibilityRule bulk upload (starter regulatory-eligibility-rules
+// feature, backend Phase 1 / frontend Phase 2) -----------------------------
+// Mirrors app/schemas/eligibility_rule_import.py -- own row-preview shape
+// (many more fields than any other bulk-upload entity in this app, since
+// EligibilityRule itself carries the full 15-field extended set), same
+// pattern as DepartmentBulkUploadRowPreview/-ValidationResponse/
+// -CommitResponse above. `rule_status` (not `status`) is deliberately named
+// to match the backend schema's own field name -- `status` on this row shape
+// is the shared BulkUploadRowStatus (created/updated/unchanged/rejected),
+// same distinct-names collision every other entity here avoids too.
+
+// Mirrors EligibilityRuleBulkUploadRowPreview.
+export interface EligibilityRuleBulkUploadRowPreview {
+  row_number: number;
+  status: BulkUploadRowStatus;
+  error_reason: string | null;
+  campus_code: string | null;
+  department_code: string | null;
+  staff_category: StaffRoleCategory | null;
+  position_title: string | null;
+  required_qualification_keyword: string | null;
+  net_set_required: boolean | null;
+  subject: string | null;
+  skills_keyword: string | null;
+  id_proof_required: boolean | null;
+  shift_preference: string | null;
+  regulatory_authority: RegulatoryAuthority | null;
+  school_or_college: string | null;
+  programme_discipline: string | null;
+  minimum_qualification: string | null;
+  minimum_percentage: string | null;
+  required_experience: string | null;
+  required_credential: string | null;
+  required_keywords: string | null;
+  preferred_keywords: string | null;
+  phd_required: boolean | null;
+  professional_registration: string | null;
+  industry_experience: string | null;
+  priority: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  source_regulation: string | null;
+  rule_status: EligibilityRuleStatus | null;
+  verification_required: boolean | null;
+  is_active: boolean | null;
+  notes: string | null;
+}
+
+// Mirrors EligibilityRuleBulkUploadValidationResponse.
+export interface EligibilityRuleBulkUploadValidationResponse {
+  total: number;
+  created_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  rejected_count: number;
+  rows: EligibilityRuleBulkUploadRowPreview[];
+}
+
+// Mirrors EligibilityRuleBulkUploadCommitResponse.
+export interface EligibilityRuleBulkUploadCommitResponse extends EligibilityRuleBulkUploadValidationResponse {
   bulk_upload_log_id: string;
   // See BulkUploadCommitResponse's own comment above -- same meaning.
   storage_warning: string | null;

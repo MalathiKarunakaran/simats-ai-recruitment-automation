@@ -35,6 +35,7 @@ const ENTITY_LABELS: Record<BulkUploadEntityType, string> = {
   LOCATION: "location",
   HOUSEKEEPING_STAFF: "housekeeping staff",
   DEPARTMENT: "department",
+  ELIGIBILITY_RULE: "eligibility rule",
 };
 
 // Which list page's query to refresh once this undo has touched live rows
@@ -46,6 +47,7 @@ const REFRESH_QUERY_KEY: Record<BulkUploadEntityType, string> = {
   LOCATION: "locations",
   HOUSEKEEPING_STAFF: "housekeeping-staff",
   DEPARTMENT: "departments",
+  ELIGIBILITY_RULE: "eligibility-rules",
 };
 
 export interface UndoBulkUploadDialogProps {
