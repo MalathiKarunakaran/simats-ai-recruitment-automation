@@ -41,6 +41,7 @@ const DEPARTMENTS = [
     code: null,
     category: null,
     parent_group: null,
+    description: null,
     is_active: true,
     created_at: "",
     updated_at: "",
