@@ -9,17 +9,28 @@ endpoints.
 """
 
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum
-from app.schemas.sanctioned_strength_import import BulkUploadRowStatus
+
+# Designation's own status literal rather than the shared
+# `sanctioned_strength_import.BulkUploadRowStatus`: only Designation can
+# produce "merged" (several rows describing one designation, their department
+# codes unioned -- see app/services/designation_import.py's docstring).
+# Deliberately NOT added to the shared literal, which would widen every other
+# entity's response contract to advertise a status they can never return.
+DesignationBulkUploadRowStatus = Literal["created", "updated", "unchanged", "merged", "rejected"]
 
 
 class DesignationBulkUploadRowPreview(BaseModel):
     row_number: int
-    status: BulkUploadRowStatus
+    status: DesignationBulkUploadRowStatus
     error_reason: str | None = None
+    # Set only when status == "merged": the earlier row this row's department
+    # codes were folded into, which carries the group's real status.
+    merged_into_row: int | None = None
     name: str | None = None
     category: StaffRoleCategoryEnum | None = None
     department_codes: list[str] = []
@@ -36,6 +47,7 @@ class DesignationBulkUploadValidationResponse(BaseModel):
     updated_count: int
     unchanged_count: int
     rejected_count: int
+    merged_count: int = 0
     rows: list[DesignationBulkUploadRowPreview]
 
 

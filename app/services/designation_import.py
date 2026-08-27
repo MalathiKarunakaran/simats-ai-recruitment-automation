@@ -32,16 +32,38 @@ entirely (a designation with zero linked departments is valid today, per
 `DesignationCreate.department_ids`'s own `default_factory=list`) -- not a
 special case, just the natural consequence of "replace, don't merge".
 
-**"Allow the same designation to exist in different categories/departments.
-Reject only true duplicates."** -- with the (Name, Category) key, this falls
-out naturally: the same Name under a *different* Category is a distinct
-designation (not a duplicate, and never merged into "the same row" even if a
-human might read the two rows as "similar"), and a designation legitimately
-spanning many departments is not a duplicate of itself. A true in-file
-duplicate is two rows sharing the exact same normalized (Name, Category) --
-flagged as a rejected row (second/later occurrence), same pattern
-`department_import.py`/`location_import.py` already use for their own
-in-file duplicate detection.
+**Multiple in-file rows sharing one (Name, Category) are UNIONED, not
+rejected as duplicates** (changed 2026-08-27 after real user testing -- see
+below). Writing one row per department is the natural reading of the
+original "Name + Category + Department" spec wording, and it is what a real
+user actually did on first use: `Assistant Professor (SG)/TEACHING/AIDS` on
+one row and `Assistant Professor (SG)/TEACHING/CSE` on the next. The first
+implementation rejected the second row as a duplicate, which silently
+dropped the CSE link and reported "unchanged" -- wrong in the most damaging
+direction, since the upload looked like it had nothing to do.
+
+So rows sharing a key are treated as *contributions to the same
+designation*: their `Department Codes` are unioned, the FIRST such row
+carries the resulting created/updated/unchanged status (its preview shows
+the full combined code set), and each later row is marked `merged` with
+`merged_into_row` pointing at that first row. Nothing is silently dropped
+and nothing is hidden from the preview.
+
+This does NOT weaken "the uploaded file is the source of truth": the union
+is computed within the file, then still REPLACES whatever department set the
+designation had in the DB. Union-within-file, replace-against-DB.
+
+The one case still rejected is a genuine contradiction: two rows sharing a
+(Name, Category) but disagreeing on a field that describes the designation
+itself (Qualification / Min Experience / Employment Type / Required Skills /
+Active -- `_GROUPED_CONFLICT_FIELDS`). Those cannot both be true, so the
+later row is rejected naming exactly which columns disagree, rather than
+silently letting one row win.
+
+**"Allow the same designation to exist in different categories/departments."**
+The same Name under a *different* Category remains a genuinely distinct
+designation and is never unioned with it -- only an exact (Name, Category)
+match groups.
 
 **Department Code resolution is campus-agnostic and multi-match-tolerant.**
 Unlike `eligibility_rule_import.py`'s own single-campus-scoped Department
@@ -144,11 +166,31 @@ _CATEGORY_VALUES = tuple(c.value for c in StaffRoleCategoryEnum)
 _EMPLOYMENT_TYPE_VALUES = tuple(e.value for e in EmploymentTypeEnum)
 
 
+# Fields that describe the DESIGNATION ITSELF (as opposed to
+# `Department Codes`, which describes its links). Two rows sharing a
+# (Name, Category) key may contribute different department codes -- that is
+# the whole point of the union -- but they cannot disagree on these without
+# one of them being wrong, so a mismatch rejects the later row instead of
+# silently letting the first row win. `(attribute, template header)` pairs so
+# the rejection message names the real spreadsheet column.
+_GROUPED_CONFLICT_FIELDS = (
+    ("qualification", QUALIFICATION_HEADER),
+    ("min_experience", MIN_EXPERIENCE_HEADER),
+    ("employment_type", EMPLOYMENT_TYPE_HEADER),
+    ("required_skills", REQUIRED_SKILLS_HEADER),
+    ("is_active", ACTIVE_HEADER),
+)
+
+
 @dataclass
 class ImportRowResult:
     row_number: int
-    status: str  # created | updated | unchanged | rejected
+    status: str  # created | updated | unchanged | merged | rejected
     error_reason: str | None = None
+    # Set only on a `merged` row: the row_number of the earlier row for the
+    # same (Name, Category) that this row's Department Codes were folded
+    # into, and which carries the real created/updated/unchanged status.
+    merged_into_row: int | None = None
     name: str | None = None
     category: StaffRoleCategoryEnum | None = None
     department_codes: list[str] = field(default_factory=list)
@@ -171,6 +213,11 @@ class ValidationResult:
     updated_count: int
     unchanged_count: int
     rejected_count: int
+    # Rows folded into an earlier row for the same designation. Deliberately
+    # counted separately from created/updated/unchanged: a merged row writes
+    # nothing of its own, so counting it as an update would double-count the
+    # single designation its group actually touches.
+    merged_count: int = 0
 
 
 def _cell(row: dict, key: str) -> str:
@@ -288,8 +335,6 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
         )
 
     results: list[ImportRowResult] = []
-    seen_keys: dict[tuple[str, str], int] = {}
-    created = updated = unchanged = rejected = 0
 
     # Department code cache, built once -- global, NOT per-campus (see module
     # docstring: Designation<->Department mapping is campus-agnostic).
@@ -350,18 +395,10 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
         errors.extend(dept_errors)
         department_ids = [department.id for department in resolved_departments]
 
-        if name and category is not None:
-            key = (_normalize(name), category.value)
-            if key in seen_keys:
-                errors.append(
-                    f"Duplicate designation: same Designation Name and Category "
-                    f"(already used on row {seen_keys[key]})"
-                )
-            else:
-                seen_keys[key] = row_number
-
         result = ImportRowResult(
             row_number=row_number,
+            # Placeholder. Rows with errors keep "rejected"; every other row
+            # has its real status assigned by the grouping pass below.
             status="rejected",
             name=name or None,
             category=category,
@@ -375,45 +412,100 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
 
         if errors:
             result.error_reason = "; ".join(errors)
-            results.append(result)
-            rejected += 1
-            continue
-
-        result.department_ids = department_ids
-
-        lookup_key = (_normalize(name), category.value)
-        existing = existing_by_key.get(lookup_key)
-
-        if existing is None:
-            result.status = "created"
-            created += 1
         else:
-            result.designation_id = existing.id
-            existing_department_ids = {department.id for department in existing.departments}
-            if (
-                existing.name != name
-                or existing.qualification != qualification
-                or existing.min_experience != min_experience
-                or existing.employment_type != employment_type
-                or (existing.required_skills or None) != (required_skills or None)
-                or existing.is_active != is_active
-                or existing_department_ids != set(department_ids)
-            ):
-                result.status = "updated"
-                updated += 1
-            else:
-                result.status = "unchanged"
-                unchanged += 1
+            result.department_ids = department_ids
 
         results.append(result)
+
+    # --- Grouping pass: fold rows describing the same designation ---------
+    #
+    # Every row that survived its own field validation is grouped by
+    # (normalized Name, Category). A group of one behaves exactly as before.
+    # A group of several is the "one row per department" shape a real user
+    # naturally writes -- unioned rather than rejected (see module docstring).
+    groups: dict[tuple[str, str], list[ImportRowResult]] = {}
+    for result in results:
+        if result.error_reason is not None:
+            continue
+        groups.setdefault((_normalize(result.name), result.category.value), []).append(result)
+
+    for lookup_key, group in groups.items():
+        primary, followers = group[0], group[1:]
+
+        # A follower that contradicts the primary on a field describing the
+        # designation itself is rejected -- it cannot be folded in, because
+        # there is no honest way to decide which value wins.
+        contributors = [primary]
+        for follower in followers:
+            mismatched = [
+                header
+                for attribute, header in _GROUPED_CONFLICT_FIELDS
+                if getattr(follower, attribute) != getattr(primary, attribute)
+            ]
+            if mismatched:
+                follower.status = "rejected"
+                follower.error_reason = (
+                    f"Row {primary.row_number} describes this same designation (same "
+                    f"'{NAME_HEADER}' and '{CATEGORY_HEADER}') but disagrees on: "
+                    f"{', '.join(mismatched)}. Make these columns match on every row for "
+                    f"this designation, or put all its '{DEPARTMENT_CODES_HEADER}' on one row."
+                )
+            else:
+                contributors.append(follower)
+
+        # Union of every contributing row's departments, order-preserving.
+        union_ids: list[uuid.UUID] = []
+        union_codes: list[str] = []
+        seen_ids: set[uuid.UUID] = set()
+        seen_codes: set[str] = set()
+        for contributor in contributors:
+            for department_id in contributor.department_ids:
+                if department_id not in seen_ids:
+                    seen_ids.add(department_id)
+                    union_ids.append(department_id)
+            for code in contributor.department_codes:
+                if _normalize(code) not in seen_codes:
+                    seen_codes.add(_normalize(code))
+                    union_codes.append(code)
+
+        # Followers write nothing themselves; the primary applies the union.
+        # Their own `department_codes` are left untouched so the preview still
+        # shows what each row contributed.
+        for follower in contributors[1:]:
+            follower.status = "merged"
+            follower.merged_into_row = primary.row_number
+            follower.department_ids = []
+
+        primary.department_ids = union_ids
+        primary.department_codes = union_codes
+
+        existing = existing_by_key.get(lookup_key)
+        if existing is None:
+            primary.status = "created"
+        else:
+            primary.designation_id = existing.id
+            existing_department_ids = {department.id for department in existing.departments}
+            if (
+                existing.name != primary.name
+                or existing.qualification != primary.qualification
+                or existing.min_experience != primary.min_experience
+                or existing.employment_type != primary.employment_type
+                or (existing.required_skills or None) != (primary.required_skills or None)
+                or existing.is_active != primary.is_active
+                or existing_department_ids != set(union_ids)
+            ):
+                primary.status = "updated"
+            else:
+                primary.status = "unchanged"
 
     return ValidationResult(
         rows=results,
         total=len(raw_rows),
-        created_count=created,
-        updated_count=updated,
-        unchanged_count=unchanged,
-        rejected_count=rejected,
+        created_count=sum(1 for row in results if row.status == "created"),
+        updated_count=sum(1 for row in results if row.status == "updated"),
+        unchanged_count=sum(1 for row in results if row.status == "unchanged"),
+        rejected_count=sum(1 for row in results if row.status == "rejected"),
+        merged_count=sum(1 for row in results if row.status == "merged"),
     )
 
 
@@ -486,6 +578,11 @@ def commit_rows(db: Session, *, validation: ValidationResult, bulk_upload_log_id
                 )
             )
         # "rejected": no write, no row log entry.
+        # "merged": also no write and no row log entry -- this row's
+        # departments were already folded into its group's primary row above,
+        # which does the single write for the whole group. Giving a merged row
+        # its own row log would make undo try to revert the same designation
+        # more than once.
 
 
 def _write_header(ws, headers: tuple[str, ...]) -> None:

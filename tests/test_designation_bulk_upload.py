@@ -198,14 +198,19 @@ def test_same_name_different_category_is_not_a_duplicate(client, designation_upl
     assert body["rejected_count"] == 0
 
 
-def test_validate_duplicate_key_in_file_is_rejected(client, designation_upload_setup):
+def test_validate_identical_repeated_row_is_merged_not_rejected(client, designation_upload_setup):
+    """An exact repeat contributes no new departments, so it folds into the
+    first row rather than being rejected -- nothing is lost either way, but
+    "merged" is the honest description of what happened."""
     row = _row(designation_upload_setup)
     response = _upload_validate(client, designation_upload_setup["super_admin"], [row, list(row)])
     body = response.json()
     assert body["created_count"] == 1
-    assert body["rejected_count"] == 1
-    assert "Duplicate designation" in body["rows"][1]["error_reason"]
-    assert "row 2" in body["rows"][1]["error_reason"]
+    assert body["merged_count"] == 1
+    assert body["rejected_count"] == 0
+    assert body["rows"][1]["status"] == "merged"
+    assert body["rows"][1]["merged_into_row"] == 2
+    assert body["rows"][1]["error_reason"] is None
 
 
 def test_validate_duplicate_key_in_file_is_case_insensitive_on_name(client, designation_upload_setup):
@@ -214,7 +219,76 @@ def test_validate_duplicate_key_in_file_is_case_insensitive_on_name(client, desi
     response = _upload_validate(client, designation_upload_setup["super_admin"], [row_a, row_b])
     body = response.json()
     assert body["created_count"] == 1
+    assert body["merged_count"] == 1
+    assert body["rejected_count"] == 0
+
+
+def test_one_row_per_department_unions_instead_of_rejecting(
+    client, designation_upload_setup, department_factory, db_session
+):
+    """The real user-reported case (2026-08-27): writing one row per
+    department is the natural reading of the spec wording. Previously the
+    second row was rejected as a duplicate and its department link silently
+    lost. Now both departments are linked."""
+    department_factory("SSE", name="AI & DS", code="AIDS", category=StaffRoleCategoryEnum.TEACHING)
+    aids_row = _row(designation_upload_setup, name="Assistant Professor (SG)", department_codes="AIDS")
+    cse_row = _row(designation_upload_setup, name="Assistant Professor (SG)", department_codes="CSE")
+
+    body = _upload_validate(client, designation_upload_setup["super_admin"], [aids_row, cse_row]).json()
+    assert body["rejected_count"] == 0
+    assert body["created_count"] == 1
+    assert body["merged_count"] == 1
+    # The primary row's preview shows the full combined set, so the user can
+    # see what will actually be linked.
+    assert sorted(body["rows"][0]["department_codes"]) == ["AIDS", "CSE"]
+    assert body["rows"][1]["status"] == "merged"
+    assert body["rows"][1]["merged_into_row"] == 2
+
+    _upload_commit(client, designation_upload_setup["super_admin"], [aids_row, cse_row])
+    created = db_session.query(Designation).filter(Designation.name == "Assistant Professor (SG)").one()
+    assert sorted(department.code for department in created.departments) == ["AIDS", "CSE"]
+
+
+def test_grouped_rows_disagreeing_on_a_designation_field_are_rejected(
+    client, designation_upload_setup, department_factory
+):
+    """Department codes may differ across a group -- that is the point. A
+    field describing the designation itself may not, because there is no
+    honest way to pick a winner."""
+    department_factory("SSE", name="AI & DS", code="AIDS", category=StaffRoleCategoryEnum.TEACHING)
+    first = _row(designation_upload_setup, department_codes="CSE", qualification="PhD in relevant field")
+    conflicting = _row(designation_upload_setup, department_codes="AIDS", qualification="M.Tech")
+
+    body = _upload_validate(client, designation_upload_setup["super_admin"], [first, conflicting]).json()
+    assert body["created_count"] == 1
+    assert body["merged_count"] == 0
     assert body["rejected_count"] == 1
+    reason = body["rows"][1]["error_reason"]
+    assert "Minimum Qualification" in reason
+    assert "row 2" in reason.lower() or "Row 2" in reason
+    # The rejected row contributed nothing, so only its own department stays out.
+    assert body["rows"][0]["department_codes"] == ["CSE"]
+
+
+def test_merged_rows_do_not_double_count_undo(client, designation_upload_setup, department_factory, db_session):
+    """A merged row writes nothing of its own, so the group must produce
+    exactly one row log -- otherwise undo would try to revert the same
+    designation twice."""
+    department_factory("SSE", name="AI & DS", code="AIDS", category=StaffRoleCategoryEnum.TEACHING)
+    rows = [
+        _row(designation_upload_setup, name="Professor (OG)", department_codes="AIDS"),
+        _row(designation_upload_setup, name="Professor (OG)", department_codes="CSE"),
+    ]
+    body = _upload_commit(client, designation_upload_setup["super_admin"], rows).json()
+
+    from app.models.bulk_upload_row_log import BulkUploadRowLog
+
+    logs = (
+        db_session.query(BulkUploadRowLog)
+        .filter(BulkUploadRowLog.bulk_upload_log_id == uuid.UUID(body["bulk_upload_log_id"]))
+        .all()
+    )
+    assert len(logs) == 1
 
 
 def test_validate_missing_name_is_rejected(client, designation_upload_setup):

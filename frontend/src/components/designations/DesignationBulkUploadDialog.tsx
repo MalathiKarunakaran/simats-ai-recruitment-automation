@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 
 import { ApiError } from "@/api/client";
 import {
@@ -9,11 +9,12 @@ import {
 } from "@/api/designations";
 import { downloadSanctionedStrengthBulkUploadErrorReport } from "@/api/sanctionedStrength";
 import type {
-  BulkUploadRowStatus,
   DesignationBulkUploadCommitResponse,
+  DesignationBulkUploadRowStatus,
   DesignationBulkUploadValidationResponse,
 } from "@/api/types";
 import { BulkUploadRowStatusBadge } from "@/components/sanctionedStrength/BulkUploadRowStatusBadge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -47,7 +48,8 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 // errors.xlsx" locally, even though the backend's own header names it
 // "designation-bulk-upload-{id}-errors.xlsx").
 
-type RowStatusFilter = "ALL" | BulkUploadRowStatus;
+// Designation-only: includes "merged" (see DesignationBulkUploadRowStatus).
+type RowStatusFilter = "ALL" | DesignationBulkUploadRowStatus;
 
 // Cosmetic display-only formatting for the preview table's Category column --
 // same convention as DepartmentBulkUploadDialog's own formatCategoryDisplay
@@ -71,8 +73,18 @@ const ROW_STATUS_FILTERS: { value: RowStatusFilter; label: string }[] = [
   { value: "created", label: "Created" },
   { value: "updated", label: "Updated" },
   { value: "unchanged", label: "Unchanged" },
+  { value: "merged", label: "Merged" },
   { value: "rejected", label: "Rejected" },
 ];
+
+// "merged" is Designation-only, so the shared BulkUploadRowStatusBadge (typed
+// to the shared 4-status vocabulary) is left untouched and simply delegated to
+// for every other status -- same reasoning as the backend keeping its own
+// DesignationBulkUploadRowStatus literal rather than widening the shared one.
+function DesignationRowStatusBadge({ status }: { status: DesignationBulkUploadRowStatus }) {
+  if (status === "merged") return <Badge variant="outline">Merged</Badge>;
+  return <BulkUploadRowStatusBadge status={status} />;
+}
 
 function PreviewTable({
   result,
@@ -90,7 +102,9 @@ function PreviewTable({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {result.total} rows: {result.created_count} created, {result.updated_count} updated,{" "}
-          {result.unchanged_count} unchanged, {result.rejected_count} rejected.
+          {result.unchanged_count} unchanged,{" "}
+          {result.merged_count > 0 ? <>{result.merged_count} merged, </> : null}
+          {result.rejected_count} rejected.
         </p>
         {result.rows.length > 0 ? (
           <div className="w-48">
@@ -132,15 +146,21 @@ function PreviewTable({
                 <TableHead>Employment type</TableHead>
                 <TableHead>Required skills</TableHead>
                 <TableHead>Active</TableHead>
-                <TableHead>Details</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visibleRows.map((row) => (
-                <TableRow key={row.row_number}>
+                // Fragment, not a single <TableRow>: a rejected/merged row's
+                // explanation is rendered as its own full-width row directly
+                // underneath. It used to be an 11th "Details" column, which
+                // sat off the right edge behind a horizontal scrollbar -- the
+                // single most important cell when something goes wrong was the
+                // one the user could not see (reported 2026-08-27).
+                <Fragment key={row.row_number}>
+                <TableRow>
                   <TableCell>{row.row_number}</TableCell>
                   <TableCell>
-                    <BulkUploadRowStatusBadge status={row.status} />
+                    <DesignationRowStatusBadge status={row.status} />
                   </TableCell>
                   <TableCell>{row.name ?? "—"}</TableCell>
                   <TableCell>{formatCategoryDisplay(row.category)}</TableCell>
@@ -150,8 +170,22 @@ function PreviewTable({
                   <TableCell>{row.employment_type?.replace(/_/g, " ") ?? "—"}</TableCell>
                   <TableCell>{row.required_skills ?? "—"}</TableCell>
                   <TableCell>{formatActive(row.is_active)}</TableCell>
-                  <TableCell className="text-destructive">{row.error_reason ?? ""}</TableCell>
                 </TableRow>
+                {row.error_reason ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="pt-0 text-destructive">
+                      {row.error_reason}
+                    </TableCell>
+                  </TableRow>
+                ) : row.status === "merged" ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="pt-0 text-muted-foreground">
+                      Same designation as row {row.merged_into_row} -- this row's department codes were combined
+                      into it. Nothing was skipped.
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                </Fragment>
               ))}
             </TableBody>
           </table>
@@ -238,10 +272,11 @@ export function DesignationBulkUploadDialog() {
         <DialogHeader>
           <DialogTitle>Bulk upload designations</DialogTitle>
           <DialogDescription>
-            Upload a filled-in workbook to preview created/updated/unchanged/rejected rows before committing. Rows
-            are matched by Designation Name and Category together -- both are required on every row, and a row's
-            Department Codes column always replaces (never merges with) the designation's existing linked
-            departments. See the downloaded template for the exact column layout.
+            Upload a filled-in workbook to preview every row before committing. Rows are matched by Designation
+            Name and Category together -- both are required on every row. You can list a designation's departments
+            either as several codes in one row's Department Codes cell, or as one row per department: rows sharing
+            a Name and Category are combined, not rejected. The combined set then replaces that designation's
+            existing linked departments. See the downloaded template for the exact column layout.
           </DialogDescription>
         </DialogHeader>
 

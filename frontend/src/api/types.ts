@@ -1962,15 +1962,24 @@ export interface DepartmentBulkUploadCommitResponse extends DepartmentBulkUpload
 // Mirrors app/schemas/designation_import.py -- own row-preview shape, since
 // Designation rows carry `department_codes` as a display list (a Designation
 // can map to multiple departments simultaneously -- see that module's own
-// docstring for the (Name, Category) natural-key / "replace, never merge"
-// department-list update semantics), not a single `department_id` like
+// docstring for the (Name, Category) natural-key and its union-within-file /
+// replace-against-DB update semantics), not a single `department_id` like
 // DepartmentBulkUploadRowPreview.
+
+// Mirrors app/schemas/designation_import.py::DesignationBulkUploadRowStatus.
+// Designation alone can return "merged" (several rows describing one
+// designation, their department codes unioned), so this deliberately does not
+// widen the shared BulkUploadRowStatus every other entity uses.
+export type DesignationBulkUploadRowStatus = BulkUploadRowStatus | "merged";
 
 // Mirrors DesignationBulkUploadRowPreview.
 export interface DesignationBulkUploadRowPreview {
   row_number: number;
-  status: BulkUploadRowStatus;
+  status: DesignationBulkUploadRowStatus;
   error_reason: string | null;
+  // Set only when status is "merged": the earlier row this row's department
+  // codes were folded into, which carries the group's real status.
+  merged_into_row: number | null;
   name: string | null;
   category: StaffRoleCategory | null;
   department_codes: string[];
@@ -1988,6 +1997,7 @@ export interface DesignationBulkUploadValidationResponse {
   updated_count: number;
   unchanged_count: number;
   rejected_count: number;
+  merged_count: number;
   rows: DesignationBulkUploadRowPreview[];
 }
 

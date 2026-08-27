@@ -383,6 +383,7 @@ def _row_to_preview(row: designation_import.ImportRowResult) -> DesignationBulkU
         row_number=row.row_number,
         status=row.status,
         error_reason=row.error_reason,
+        merged_into_row=row.merged_into_row,
         name=row.name,
         category=row.category,
         department_codes=row.department_codes,
@@ -425,6 +426,7 @@ def validate_designation_bulk_upload(
         updated_count=validation.updated_count,
         unchanged_count=validation.unchanged_count,
         rejected_count=validation.rejected_count,
+        merged_count=validation.merged_count,
         rows=[_row_to_preview(row) for row in validation.rows],
     )
 
@@ -531,6 +533,7 @@ def commit_designation_bulk_upload(
         updated_count=validation.updated_count,
         unchanged_count=validation.unchanged_count,
         rejected_count=validation.rejected_count,
+        merged_count=validation.merged_count,
         rows=[_row_to_preview(row) for row in validation.rows],
         bulk_upload_log_id=log.id,
         storage_warning=storage_warning,

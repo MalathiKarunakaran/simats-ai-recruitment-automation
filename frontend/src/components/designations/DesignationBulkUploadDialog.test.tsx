@@ -28,10 +28,12 @@ const VALIDATION_RESULT: DesignationBulkUploadValidationResponse = {
   updated_count: 0,
   unchanged_count: 0,
   rejected_count: 1,
+  merged_count: 0,
   rows: [
     {
       row_number: 2,
       status: "created",
+      merged_into_row: null,
       error_reason: null,
       name: "Assistant Professor",
       category: "TEACHING",
@@ -45,6 +47,7 @@ const VALIDATION_RESULT: DesignationBulkUploadValidationResponse = {
     {
       row_number: 3,
       status: "rejected",
+      merged_into_row: null,
       error_reason: "Unknown Department Code(s): ZZZ",
       name: "Lab Assistant",
       category: "NON_TEACHING",
@@ -104,6 +107,74 @@ describe("DesignationBulkUploadDialog", () => {
     expect(screen.getByText("CSE, MECH")).toBeInTheDocument();
     expect(screen.getByText("MATLAB")).toBeInTheDocument();
     expect(screen.getByText("Unknown Department Code(s): ZZZ")).toBeInTheDocument();
+  });
+
+  it("shows a merged row's explanation and counts it separately from created/rejected", async () => {
+    // The real user-reported case (2026-08-27): one row per department. The
+    // second row must NOT read as rejected or as silently skipped.
+    mockedValidate.mockResolvedValue({
+      total: 2,
+      created_count: 1,
+      updated_count: 0,
+      unchanged_count: 0,
+      rejected_count: 0,
+      merged_count: 1,
+      rows: [
+        {
+          row_number: 2,
+          status: "created",
+          merged_into_row: null,
+          error_reason: null,
+          name: "Assistant Professor (SG)",
+          category: "TEACHING",
+          department_codes: ["AIDS", "CSE"],
+          qualification: "PhD",
+          min_experience: "3+ years",
+          employment_type: "FULL_TIME",
+          required_skills: null,
+          is_active: true,
+        },
+        {
+          row_number: 3,
+          status: "merged",
+          merged_into_row: 2,
+          error_reason: null,
+          name: "Assistant Professor (SG)",
+          category: "TEACHING",
+          department_codes: ["CSE"],
+          qualification: "PhD",
+          min_experience: "3+ years",
+          employment_type: "FULL_TIME",
+          required_skills: null,
+          is_active: true,
+        },
+      ],
+    });
+    renderDialog();
+    await openAndUpload();
+
+    expect(
+      await screen.findByText("2 rows: 1 created, 0 updated, 0 unchanged, 1 merged, 0 rejected."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Merged")).toBeInTheDocument();
+    // The primary row shows the full combined department set.
+    expect(screen.getByText("AIDS, CSE")).toBeInTheDocument();
+    expect(screen.getByText(/Same designation as row 2/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing was skipped/)).toBeInTheDocument();
+  });
+
+  it("renders a rejected row's reason without needing horizontal scrolling", async () => {
+    // Regression guard for the 2026-08-27 report: the reason used to be an
+    // 11th column off the right edge. It is now a full-width row spanning the
+    // table directly under the row it explains.
+    mockedValidate.mockResolvedValue(VALIDATION_RESULT);
+    renderDialog();
+    await openAndUpload();
+
+    const reason = await screen.findByText("Unknown Department Code(s): ZZZ");
+    expect(reason).toBeInTheDocument();
+    expect(reason).toHaveAttribute("colspan", "10");
+    expect(screen.queryByRole("columnheader", { name: "Details" })).not.toBeInTheDocument();
   });
 
   it("commits the same file re-sent to /commit and shows the committed result with an error-report download", async () => {
