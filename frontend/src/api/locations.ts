@@ -57,6 +57,34 @@ export async function downloadLocationBulkUploadTemplate(): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+export interface ExportLocationsParams {
+  campusId?: string | null;
+  category?: string | null;
+  search?: string | null;
+  includeInactive?: boolean;
+}
+
+/** Mirrors GET /locations/export -- same filters as the list, minus
+ * pagination. The exported workbook's headers deliberately match the
+ * bulk-upload template's, so an export can be edited and re-uploaded. */
+export async function exportLocations(params: ExportLocationsParams = {}): Promise<void> {
+  const query = new URLSearchParams();
+  if (params.campusId) query.set("campus_id", params.campusId);
+  if (params.category) query.set("category", params.category);
+  if (params.search) query.set("search", params.search);
+  if (params.includeInactive) query.set("include_inactive", "true");
+
+  const qs = query.toString();
+  const blob = await apiFetchBlob(`/locations/export${qs ? `?${qs}` : ""}`);
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `simats-locations-${date}.xlsx`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // Mirrors POST /locations/bulk-upload/validate -- read-only, no DB writes;
 // returns the per-row preview + summary counts.
 export async function validateLocationBulkUpload(file: File): Promise<LocationBulkUploadValidationResponse> {

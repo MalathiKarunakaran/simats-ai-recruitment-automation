@@ -49,9 +49,17 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.responses import StreamingResponse
 from minio import Minio
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_current_active_user, get_db, require_roles
+from app.core.deps import (
+    CampusScope,
+    campus_scope_note,
+    enforce_campus_match,
+    get_campus_scope,
+    get_current_active_user,
+    get_db,
+    require_roles,
+)
 from app.models.bulk_upload_log import BulkUploadLog
 from app.models.campus import Campus
 from app.models.designation import Designation
@@ -73,7 +81,7 @@ from app.schemas.housekeeping_staff_import import (
     HousekeepingStaffBulkUploadRowPreview,
     HousekeepingStaffBulkUploadValidationResponse,
 )
-from app.services import housekeeping_staff_import, storage
+from app.services import exports, housekeeping_staff_import, storage
 from app.services.audit import log_create, log_delete, log_event, log_update
 from app.services.storage import get_minio_client
 
@@ -172,6 +180,80 @@ def list_housekeeping_staff(
     total = query.count()
     rows = query.order_by(HousekeepingStaff.name).offset(offset).limit(limit).all()
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
+
+
+@router.get("/export")
+def export_housekeeping_staff(
+    campus_id: uuid.UUID | None = Query(None),
+    location_id: uuid.UUID | None = Query(None),
+    block: str | None = Query(None),
+    shift: HousekeepingShiftEnum | None = Query(None),
+    is_active: bool | None = Query(None),
+    search: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> StreamingResponse:
+    """Same filters and campus scoping as `list_housekeeping_staff`, minus
+    pagination -- exports every matching row, not just one page. xlsx only,
+    mirroring departments.py/designations.py/locations.py's own `/export`.
+
+    Deliberately re-applies the filter logic rather than calling the list
+    endpoint: that returns one page, and widening its `limit` cap to cover an
+    export would weaken a real guard on the paginated endpoint.
+    """
+    query = db.query(HousekeepingStaff)
+    if scope.is_global:
+        if campus_id is not None:
+            query = query.filter(HousekeepingStaff.campus_id == campus_id)
+    else:
+        query = query.filter(HousekeepingStaff.campus_id == scope.campus_id)
+    if location_id is not None:
+        query = query.filter(HousekeepingStaff.location_id == location_id)
+    if block:
+        query = query.filter(HousekeepingStaff.block.ilike(f"%{block}%"))
+    if shift is not None:
+        query = query.filter(HousekeepingStaff.shift == shift)
+    if is_active is not None:
+        query = query.filter(HousekeepingStaff.is_active == is_active)
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter((HousekeepingStaff.name.ilike(pattern)) | (HousekeepingStaff.bio_id.ilike(pattern)))
+
+    staff = (
+        query.options(
+            selectinload(HousekeepingStaff.campus),
+            selectinload(HousekeepingStaff.designation),
+            selectinload(HousekeepingStaff.location),
+        )
+        .order_by(HousekeepingStaff.name)
+        .all()
+    )
+    rows = [
+        {
+            "campus_code": member.campus.code if member.campus else None,
+            "bio_id": member.bio_id,
+            "name": member.name,
+            "designation_name": member.designation.name if member.designation else None,
+            "location_name": member.location.name if member.location else None,
+            "block": member.block,
+            "floor_venue": member.floor_venue,
+            "shift": member.shift.value if member.shift else None,
+            # `supervisor` is a free-text name on the model, not an FK.
+            "supervisor_name": member.supervisor,
+            "is_active": member.is_active,
+        }
+        for member in staff
+    ]
+    excel_bytes = exports.build_housekeeping_staff_export_excel(
+        rows, datetime.now(timezone.utc), campus_scope_note(db, scope, campus_id)
+    )
+    filename = f"simats-housekeeping-staff-{datetime.now(timezone.utc):%Y%m%d}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(excel_bytes),
+        media_type=_XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("", response_model=HousekeepingStaffRead, status_code=status.HTTP_201_CREATED)

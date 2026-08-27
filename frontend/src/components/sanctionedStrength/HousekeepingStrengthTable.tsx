@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Fragment, useState } from "react";
 
@@ -9,6 +9,7 @@ import { listLocations } from "@/api/locations";
 import {
   listHousekeepingStrengthRows,
   type HousekeepingStrengthSortBy,
+  exportStrengthView,
 } from "@/api/sanctionedStrengthViews";
 import type {
   CampusRead,
@@ -330,6 +331,27 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
       }),
   });
 
+
+  // Exports exactly what this table currently shows -- same filters, same
+  // sort, minus pagination. Lives here rather than on SanctionedStrengthPage
+  // because these filters are owned by this component, so a page-level button
+  // could not see them and would silently export the wrong rows.
+  const exportMutation = useMutation({
+    mutationFn: () =>
+      exportStrengthView("housekeeping", {
+        campusCode: campusFilter === "ALL" ? null : campusFilter,
+        locationId: locationFilter === "ALL" ? null : locationFilter,
+        block: blockCommitted.trim() || null,
+        floorVenue: floorVenueCommitted.trim() || null,
+        shift: shiftFilter === "ALL" ? null : shiftFilter,
+        status: statusFilter === "ALL" ? null : statusFilter,
+        vacancy: vacancyFilter,
+        search: search.trim() || null,
+        sortBy,
+        sortDir,
+      }),
+  });
+
   function handleSort(column: ColumnDef) {
     if (!column.sortBy) return;
     if (sortBy === column.sortBy) {
@@ -542,6 +564,15 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
           aria-label="Vacancy filter"
           className="w-28"
         />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={exportMutation.isPending}
+          onClick={() => exportMutation.mutate()}
+        >
+          {exportMutation.isPending ? "Exporting…" : "Export"}
+        </Button>
       </div>
 
       <div className="rounded-lg border border-border">

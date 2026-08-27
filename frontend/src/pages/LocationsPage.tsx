@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { ApiError } from "@/api/client";
 import { listCampuses } from "@/api/campuses";
-import { createLocation, deleteLocation, listLocations, updateLocation } from "@/api/locations";
+import { createLocation, deleteLocation, exportLocations, listLocations, updateLocation } from "@/api/locations";
 import { GLOBAL_SCOPE_ROLES, LOCATION_MANAGEMENT_ROLES, type LocationRead, type StaffRoleCategory } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -134,6 +134,20 @@ export function LocationsPage() {
       is_active: form.isActive,
     };
   }
+
+  // Export mirrors whatever the user currently has filtered on screen, so the
+  // downloaded workbook matches what they are looking at. Gated on staff
+  // access only (the backend's own `_staff_only`), NOT on canManage -- reading
+  // data out is not a write.
+  const exportMutation = useMutation({
+    mutationFn: () =>
+      exportLocations({
+        campusId: campusFilter === "ALL" ? null : campusFilter,
+        category: categoryTab === "ALL" ? null : categoryTab,
+        search: search.trim() || null,
+        includeInactive: activeFilter !== "true",
+      }),
+  });
 
   const createMutation = useMutation({
     mutationFn: () => createLocation({ campus_id: form.campusId, ...buildPayload() }),
@@ -334,8 +348,27 @@ export function LocationsPage() {
                 </DialogFooter>
               </DialogContent>
               </Dialog>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={exportMutation.isPending}
+                onClick={() => exportMutation.mutate()}
+              >
+                {exportMutation.isPending ? "Exporting…" : "Export"}
+              </Button>
             </>
-          ) : undefined
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+            >
+              {exportMutation.isPending ? "Exporting…" : "Export"}
+            </Button>
+          )
         }
       />
 

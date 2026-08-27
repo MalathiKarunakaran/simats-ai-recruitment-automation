@@ -59,6 +59,7 @@ over more duplicated endpoint families.
 import io
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -66,6 +67,7 @@ from minio import Minio
 from sqlalchemy.orm import Session
 
 from app.core.deps import (
+    campus_scope_note,
     CampusScope,
     DepartmentScope,
     enforce_campus_match,
@@ -117,6 +119,7 @@ from app.schemas.sanctioned_strength_views import (
 )
 from app.services import (
     department_import,
+    exports,
     designation_import,
     eligibility_rule_import,
     housekeeping_staff_import,
@@ -495,6 +498,114 @@ def list_housekeeping_strength_view(
         required_total=required_total,
         available_total=available_total,
         vacancy_total=vacancy_total,
+    )
+
+
+# Export cap. Deliberately far above any realistic register size rather than
+# paginated: an export that silently stopped at N rows would be worse than one
+# that is simply large. `list_strength_view_rows` is a single query either way.
+_EXPORT_MAX_ROWS = 50_000
+
+
+@router.get("/views/{view}/export")
+def export_strength_view(
+    view: Literal["teaching", "non-teaching", "housekeeping"],
+    sort_by: str | None = Query(None),
+    sort_dir: str = Query("asc"),
+    campus_code: str | None = Query(None),
+    department_id: uuid.UUID | None = Query(None),
+    designation_id: uuid.UUID | None = Query(None),
+    location_id: uuid.UUID | None = Query(None),
+    block: str | None = Query(None),
+    floor_venue: str | None = Query(None),
+    shift: HousekeepingShiftEnum | None = Query(None),
+    search: str | None = Query(None),
+    row_status: str | None = Query(None, alias="status"),
+    vacancy: int | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> StreamingResponse:
+    """xlsx export of one Sanctioned Strength view, minus pagination.
+
+    Unlike every other master-data export in this app, Sanctioned Strength has
+    no single flat list endpoint -- it is presented as three tabbed views with
+    two different row shapes. So the view is part of the path and the export
+    mirrors whichever tab the user is looking at, rather than inventing a
+    fourth "combined" shape that matches nothing on screen.
+
+    Teaching and Non-Teaching share `_StrengthViewRowBase`; Housekeeping is
+    Location-grained (required/available rather than approved/working). The
+    department/designation filters apply only to the first two, and the
+    block/floor_venue/shift filters only to Housekeeping -- passing an
+    irrelevant one is ignored rather than a 422, matching how each view's own
+    list endpoint already treats params it does not define.
+    """
+    validated_campus_code = validate_campus_code(campus_code)
+    housekeeping = view == "housekeeping"
+
+    if housekeeping:
+        rows, _total, _counts, _a, _w, _v = sanctioned_strength_views.list_housekeeping_strength_rows(
+            db,
+            scope,
+            scope_dept,
+            limit=_EXPORT_MAX_ROWS,
+            offset=0,
+            sort_by=sort_by or "location_name",
+            sort_dir=sort_dir,
+            campus_code=validated_campus_code,
+            location_id=location_id,
+            block=block,
+            floor_venue=floor_venue,
+            shift=shift.value if shift else None,
+            search=search,
+            status=row_status,
+            vacancy=vacancy,
+        )
+        sheet_title = "Housekeeping Strength"
+    else:
+        category = (
+            StaffRoleCategoryEnum.TEACHING if view == "teaching" else StaffRoleCategoryEnum.NON_TEACHING
+        )
+        rows, _total, _counts, _a, _w, _v = sanctioned_strength_views.list_strength_view_rows(
+            db,
+            scope,
+            scope_dept,
+            category=category,
+            limit=_EXPORT_MAX_ROWS,
+            offset=0,
+            sort_by=sort_by or "department_name",
+            sort_dir=sort_dir,
+            campus_code=validated_campus_code,
+            department_id=department_id,
+            designation_id=designation_id,
+            location_id=location_id,
+            search=search,
+            status=row_status,
+            vacancy=vacancy,
+        )
+        sheet_title = "Teaching Strength" if view == "teaching" else "Non-Teaching Strength"
+
+    # campus_code, not campus_id, is this family's narrowing param -- resolve
+    # it so the workbook's Scope line reads the same as every other export's.
+    scope_campus_id = None
+    if validated_campus_code:
+        campus_row = db.query(Campus).filter(Campus.code == validated_campus_code).one_or_none()
+        scope_campus_id = campus_row.id if campus_row else None
+
+    excel_bytes = exports.build_strength_view_export_excel(
+        rows,
+        datetime.now(timezone.utc),
+        campus_scope_note(db, scope, scope_campus_id),
+        housekeeping=housekeeping,
+        sheet_title=sheet_title,
+    )
+    filename = f"simats-sanctioned-strength-{view}-{datetime.now(timezone.utc):%Y%m%d}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(excel_bytes),
+        media_type=_XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Fragment, useState } from "react";
 
@@ -10,11 +10,13 @@ import { listLocations } from "@/api/locations";
 import {
   listNonTeachingStrengthRows,
   type NonTeachingStrengthSortBy,
+  exportStrengthView,
 } from "@/api/sanctionedStrengthViews";
 import type { CampusRead, EmployeeRead, NonTeachingStrengthRow, NonTeachingStrengthStatus } from "@/api/types";
 import { StrengthKpiSummary } from "@/components/sanctionedStrength/StrengthKpiSummary";
 import { StrengthRowActions } from "@/components/sanctionedStrength/TeachingStrengthTable";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -256,6 +258,26 @@ export function NonTeachingStrengthTable({
       }),
   });
 
+
+  // Exports exactly what this table currently shows -- same filters, same
+  // sort, minus pagination. Lives here rather than on SanctionedStrengthPage
+  // because these filters are owned by this component, so a page-level button
+  // could not see them and would silently export the wrong rows.
+  const exportMutation = useMutation({
+    mutationFn: () =>
+      exportStrengthView("non-teaching", {
+        campusCode: campusFilter === "ALL" ? null : campusFilter,
+        departmentId: departmentFilter === "ALL" ? null : departmentFilter,
+        designationId: designationFilter === "ALL" ? null : designationFilter,
+        locationId: locationFilter === "ALL" ? null : locationFilter,
+        status: statusFilter === "ALL" ? null : statusFilter,
+        vacancy: vacancyFilter,
+        search: search.trim() || null,
+        sortBy,
+        sortDir,
+      }),
+  });
+
   function handleSort(column: ColumnDef) {
     if (!column.sortBy) return;
     if (sortBy === column.sortBy) {
@@ -423,6 +445,15 @@ export function NonTeachingStrengthTable({
           aria-label="Vacancy filter"
           className="w-28"
         />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={exportMutation.isPending}
+          onClick={() => exportMutation.mutate()}
+        >
+          {exportMutation.isPending ? "Exporting…" : "Export"}
+        </Button>
       </div>
 
       <div className="rounded-lg border border-border">

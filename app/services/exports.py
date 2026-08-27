@@ -247,6 +247,216 @@ def build_designation_export_excel(rows: list[dict], generated_at: datetime, sco
     return buf.getvalue()
 
 
+# Header names match app/services/location_import.py::TEMPLATE_HEADERS
+# exactly, so an exported workbook can be edited and fed straight back into
+# /locations/bulk-upload without renaming a single column. "Active" is an
+# extra trailing column the importer simply ignores (it matches by header
+# name), so the round trip stays intact.
+_LOCATION_EXPORT_HEADERS = [
+    "Campus Code",
+    "Location Name",
+    "Block/Building",
+    "Floor/Venue",
+    "Category",
+    "Active",
+]
+
+# Likewise matches housekeeping_staff_import.py::TEMPLATE_HEADERS exactly.
+_HOUSEKEEPING_STAFF_EXPORT_HEADERS = [
+    "Campus Code",
+    "Bio ID",
+    "Name",
+    "Designation Name",
+    "Location Name",
+    "Block",
+    "Floor/Venue",
+    "Shift",
+    "Supervisor",
+    "Active",
+]
+
+# Teaching and Non-Teaching share one row shape (_StrengthViewRowBase);
+# Housekeeping is its own Location-grained shape. Two header sets, not three.
+_STRENGTH_VIEW_EXPORT_HEADERS = [
+    "Campus",
+    "Department",
+    "Designation",
+    "Location",
+    "Approved",
+    "Working",
+    "Vacancy",
+    "Filled %",
+    "Status",
+    "Last Join",
+    "Last Resignation",
+    "Last Updated",
+]
+
+_HOUSEKEEPING_STRENGTH_EXPORT_HEADERS = [
+    "Campus",
+    "Location",
+    "Block",
+    "Floor / Venue",
+    "Shifts",
+    "Required",
+    "Available",
+    "Vacancy",
+]
+
+
+def _excel_safe(value):
+    """openpyxl refuses to write a timezone-aware datetime ("Excel does not
+    support timezones in datetimes"), and several exported columns are
+    `DateTime(timezone=True)` (e.g. a strength view row's `last_updated`).
+
+    Dropping tzinfo rather than converting is correct here: these values are
+    already stored and returned as UTC throughout this app, and the workbook's
+    own `Generated:` line carries the full offset-aware timestamp, so the
+    timezone is never actually lost from the file -- only from the individual
+    cells, where Excel cannot represent it anyway.
+    """
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
+def _build_master_export_excel(
+    *,
+    sheet_title: str,
+    headers: list[str],
+    row_values: list[list],
+    generated_at: datetime,
+    scope_note: str,
+) -> bytes:
+    """Shared core for the master-data exports added 2026-08-27 (Locations,
+    Housekeeping Staff, Sanctioned Strength views).
+
+    Same visual contract every other export in this app already follows: a
+    `Generated:` line, a `Scope:` line, a blank row, then the real header row.
+    The three older per-entity builders above
+    (`build_department_export_excel`/`build_designation_export_excel`/
+    `build_eligibility_rule_export_excel`) predate this and still inline the
+    same five lines each; they can adopt this without any behavior change, but
+    are deliberately left alone here rather than refactored alongside a
+    feature addition. New exports should go through this.
+
+    Callers pass `row_values` already flattened to display values, so the
+    header order and the cell order live side by side in one place per entity
+    (the thin wrappers below) instead of drifting apart.
+    """
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = sheet_title
+
+    sheet.append([f"Generated: {generated_at.isoformat()}"])
+    sheet.append([f"Scope: {scope_note}"])
+    sheet.append([])
+    sheet.append(headers)
+    for values in row_values:
+        sheet.append([_excel_safe(value) for value in values])
+
+    buf = io.BytesIO()
+    workbook.save(buf)
+    return buf.getvalue()
+
+
+def build_location_export_excel(rows: list[dict], generated_at: datetime, scope_note: str) -> bytes:
+    return _build_master_export_excel(
+        sheet_title="Locations",
+        headers=_LOCATION_EXPORT_HEADERS,
+        row_values=[
+            [
+                row.get("campus_code"),
+                row.get("name"),
+                row.get("block"),
+                row.get("floor_venue"),
+                row.get("category"),
+                _bool_or_blank(row.get("is_active")),
+            ]
+            for row in rows
+        ],
+        generated_at=generated_at,
+        scope_note=scope_note,
+    )
+
+
+def build_housekeeping_staff_export_excel(rows: list[dict], generated_at: datetime, scope_note: str) -> bytes:
+    return _build_master_export_excel(
+        sheet_title="Housekeeping Staff",
+        headers=_HOUSEKEEPING_STAFF_EXPORT_HEADERS,
+        row_values=[
+            [
+                row.get("campus_code"),
+                row.get("bio_id"),
+                row.get("name"),
+                row.get("designation_name"),
+                row.get("location_name"),
+                row.get("block"),
+                row.get("floor_venue"),
+                row.get("shift"),
+                row.get("supervisor_name"),
+                _bool_or_blank(row.get("is_active")),
+            ]
+            for row in rows
+        ],
+        generated_at=generated_at,
+        scope_note=scope_note,
+    )
+
+
+def build_strength_view_export_excel(
+    rows: list[dict], generated_at: datetime, scope_note: str, *, housekeeping: bool, sheet_title: str
+) -> bytes:
+    """Sanctioned Strength has no flat list endpoint -- it is presented as
+    three tabbed views. Teaching and Non-Teaching share `_StrengthViewRowBase`
+    so they share a header set here; Housekeeping is Location-grained with its
+    own required/available shape. `housekeeping` picks between the two.
+    """
+    if housekeeping:
+        return _build_master_export_excel(
+            sheet_title=sheet_title,
+            headers=_HOUSEKEEPING_STRENGTH_EXPORT_HEADERS,
+            row_values=[
+                [
+                    row.get("campus_code"),
+                    row.get("location_name"),
+                    row.get("block"),
+                    row.get("floor_venue"),
+                    ", ".join(row.get("shifts") or []),
+                    row.get("required"),
+                    row.get("available"),
+                    row.get("vacancy"),
+                ]
+                for row in rows
+            ],
+            generated_at=generated_at,
+            scope_note=scope_note,
+        )
+    return _build_master_export_excel(
+        sheet_title=sheet_title,
+        headers=_STRENGTH_VIEW_EXPORT_HEADERS,
+        row_values=[
+            [
+                row.get("campus_code"),
+                row.get("department_name"),
+                row.get("designation_name"),
+                row.get("location_name"),
+                row.get("approved"),
+                row.get("working"),
+                row.get("vacancy"),
+                row.get("filled_pct"),
+                row.get("status"),
+                row.get("last_join"),
+                row.get("last_resignation"),
+                row.get("last_updated"),
+            ]
+            for row in rows
+        ],
+        generated_at=generated_at,
+        scope_note=scope_note,
+    )
+
+
 def build_ad_briefing_pptx(summary: dict) -> bytes:
     presentation = Presentation()
     presentation.slide_width = Inches(13.33)

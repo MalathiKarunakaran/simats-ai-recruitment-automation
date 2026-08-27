@@ -1,4 +1,4 @@
-import { apiFetch } from "@/api/client";
+import { apiFetch, apiFetchBlob } from "@/api/client";
 import type { SortDirection } from "@/api/sanctionedStrength";
 import type {
   HousekeepingStrengthListResponse,
@@ -213,4 +213,59 @@ export async function listHousekeepingStrengthRows(
 
   const qs = query.toString();
   return apiFetch<HousekeepingStrengthListResponse>(`/sanctioned-strength/views/housekeeping${qs ? `?${qs}` : ""}`);
+}
+
+
+export type StrengthViewName = "teaching" | "non-teaching" | "housekeeping";
+
+export interface ExportStrengthViewParams {
+  campusCode?: string | null;
+  departmentId?: string | null;
+  designationId?: string | null;
+  locationId?: string | null;
+  block?: string | null;
+  floorVenue?: string | null;
+  shift?: string | null;
+  search?: string | null;
+  status?: string | null;
+  vacancy?: number | null;
+  sortBy?: string | null;
+  sortDir?: string | null;
+}
+
+/** Mirrors GET /sanctioned-strength/views/{view}/export.
+ *
+ * Unlike the other master-data exports, Sanctioned Strength has no flat list
+ * endpoint -- it is three tabbed views with two different row shapes -- so the
+ * view is part of the path and the export mirrors whichever tab is on screen
+ * rather than inventing a combined shape matching nothing the user sees.
+ * Params that do not apply to a given view are ignored by the backend.
+ */
+export async function exportStrengthView(
+  view: StrengthViewName,
+  params: ExportStrengthViewParams = {},
+): Promise<void> {
+  const query = new URLSearchParams();
+  if (params.campusCode) query.set("campus_code", params.campusCode);
+  if (params.departmentId) query.set("department_id", params.departmentId);
+  if (params.designationId) query.set("designation_id", params.designationId);
+  if (params.locationId) query.set("location_id", params.locationId);
+  if (params.block) query.set("block", params.block);
+  if (params.floorVenue) query.set("floor_venue", params.floorVenue);
+  if (params.shift) query.set("shift", params.shift);
+  if (params.search) query.set("search", params.search);
+  if (params.status) query.set("status", params.status);
+  if (params.vacancy !== undefined && params.vacancy !== null) query.set("vacancy", String(params.vacancy));
+  if (params.sortBy) query.set("sort_by", params.sortBy);
+  if (params.sortDir) query.set("sort_dir", params.sortDir);
+
+  const qs = query.toString();
+  const blob = await apiFetchBlob(`/sanctioned-strength/views/${view}/export${qs ? `?${qs}` : ""}`);
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `simats-sanctioned-strength-${view}-${date}.xlsx`;
+  link.click();
+  URL.revokeObjectURL(url);
 }

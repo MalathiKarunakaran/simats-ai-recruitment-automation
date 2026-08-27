@@ -156,6 +156,31 @@ def get_campus_scope(current_user: User = Depends(get_current_active_user)) -> C
     return CampusScope(is_global=False, campus_id=current_user.campus_id)
 
 
+def campus_scope_note(db: Session, scope: CampusScope, campus_id: uuid.UUID | None) -> str:
+    """Human-readable "what does this file actually contain" line stamped into
+    every campus-scoped xlsx export, so a downloaded workbook is never
+    ambiguous about whether it holds one campus or all of them.
+
+    Lifted here (2026-08-27) when Locations / Housekeeping Staff / Sanctioned
+    Strength exports needed the same sentence departments.py had been carrying
+    privately as `_scope_note`. That original copy is intentionally left in
+    place for now -- identical wording, but rewiring a shipped export is not
+    worth bundling into a feature addition; it can adopt this later.
+    """
+    # Imported here rather than at module scope: app.models.campus imports
+    # back through the model package, and deps.py is imported extremely early.
+    from app.models.campus import Campus
+
+    if not scope.is_global:
+        campus = db.get(Campus, scope.campus_id)
+        label = campus.code if campus else "your campus"
+        return f"Limited to your home campus ({label}). Any campus_id argument was ignored."
+    if campus_id is None:
+        return "Global access: results span all campuses."
+    campus = db.get(Campus, campus_id)
+    return f"Limited to campus {campus.code}." if campus else "Global access: results span all campuses."
+
+
 def enforce_campus_match(scope: CampusScope, resource_campus_id: uuid.UUID | None) -> None:
     """Single-resource guard: 404 (not 403) on cross-campus access so an
     unauthorized caller can't tell the resource exists at all."""

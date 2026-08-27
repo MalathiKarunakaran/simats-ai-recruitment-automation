@@ -81,6 +81,40 @@ export async function downloadHousekeepingStaffBulkUploadTemplate(): Promise<voi
   URL.revokeObjectURL(url);
 }
 
+export interface ExportHousekeepingStaffParams {
+  campusId?: string | null;
+  locationId?: string | null;
+  block?: string | null;
+  shift?: string | null;
+  isActive?: boolean | null;
+  search?: string | null;
+}
+
+/** Mirrors GET /housekeeping-staff/export -- same filters as the list, minus
+ * pagination. Headers match the bulk-upload template's, so an export can be
+ * edited and re-uploaded. */
+export async function exportHousekeepingStaff(params: ExportHousekeepingStaffParams = {}): Promise<void> {
+  const query = new URLSearchParams();
+  if (params.campusId) query.set("campus_id", params.campusId);
+  if (params.locationId) query.set("location_id", params.locationId);
+  if (params.block) query.set("block", params.block);
+  if (params.shift) query.set("shift", params.shift);
+  if (params.isActive !== undefined && params.isActive !== null) {
+    query.set("is_active", String(params.isActive));
+  }
+  if (params.search) query.set("search", params.search);
+
+  const qs = query.toString();
+  const blob = await apiFetchBlob(`/housekeeping-staff/export${qs ? `?${qs}` : ""}`);
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `simats-housekeeping-staff-${date}.xlsx`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // Mirrors POST /housekeeping-staff/bulk-upload/validate -- read-only, no DB
 // writes; returns the per-row preview + summary counts.
 export async function validateHousekeepingStaffBulkUpload(

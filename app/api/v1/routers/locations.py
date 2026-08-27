@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import (
     CampusScope,
+    campus_scope_note,
     enforce_campus_match,
     get_campus_scope,
     get_current_active_user,
@@ -55,7 +56,7 @@ from app.schemas.location_import import (
     LocationBulkUploadRowPreview,
     LocationBulkUploadValidationResponse,
 )
-from app.services import location_import, storage
+from app.services import exports, location_import, storage
 from app.services.audit import log_create, log_delete, log_event, log_update
 from app.services.storage import get_minio_client
 
@@ -128,6 +129,68 @@ def list_locations(
     total = query.count()
     rows = query.order_by(Location.name).offset(offset).limit(limit).all()
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
+
+
+@router.get("/export")
+def export_locations(
+    campus_id: uuid.UUID | None = Query(None),
+    category: StaffRoleCategoryEnum | None = Query(None),
+    search: str | None = Query(None),
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> StreamingResponse:
+    """Same filters and the same campus scoping as `list_locations`, minus
+    pagination -- exports every matching row, not just one page. xlsx only,
+    mirroring departments.py/designations.py's own `/export`.
+
+    Deliberately re-applies the filter logic rather than calling
+    `list_locations`: that returns one page, and widening its `limit` cap to
+    cover an export would weaken a real guard on the paginated endpoint.
+    """
+    query = db.query(Location)
+    if scope.is_global:
+        if campus_id is not None:
+            query = query.filter(Location.campus_id == campus_id)
+    else:
+        query = query.filter(Location.campus_id == scope.campus_id)
+    if category is not None:
+        query = query.filter(Location.category == category)
+    if search:
+        query = query.filter(Location.name.ilike(f"%{search}%"))
+    if not include_inactive:
+        query = query.filter(Location.is_active.is_(True))
+
+    # `Location` deliberately carries no ORM relationship to Campus (only
+    # `campus_id`), so the campus code is joined in explicitly rather than
+    # lazily loaded per row.
+    locations = (
+        query.join(Campus, Campus.id == Location.campus_id)
+        .with_entities(Location, Campus.code.label("campus_code"))
+        .order_by(Location.name)
+        .all()
+    )
+    rows = [
+        {
+            "campus_code": campus_code,
+            "name": location.name,
+            "block": location.block_building,
+            "floor_venue": location.floor_venue,
+            "category": location.category.value if location.category else None,
+            "is_active": location.is_active,
+        }
+        for location, campus_code in locations
+    ]
+    excel_bytes = exports.build_location_export_excel(
+        rows, datetime.now(timezone.utc), campus_scope_note(db, scope, campus_id)
+    )
+    filename = f"simats-locations-{datetime.now(timezone.utc):%Y%m%d}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(excel_bytes),
+        media_type=_XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("", response_model=LocationRead, status_code=status.HTTP_201_CREATED)

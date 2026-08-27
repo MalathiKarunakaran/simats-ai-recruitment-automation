@@ -1,9 +1,9 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { listCampuses } from "@/api/campuses";
 import { listDesignations } from "@/api/designations";
-import { deleteHousekeepingStaff, listHousekeepingStaff } from "@/api/housekeepingStaff";
+import { deleteHousekeepingStaff, exportHousekeepingStaff, listHousekeepingStaff } from "@/api/housekeepingStaff";
 import { listLocations } from "@/api/locations";
 import { GLOBAL_SCOPE_ROLES, HOUSEKEEPING_STAFF_MANAGEMENT_ROLES, type HousekeepingStaffRead } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
@@ -101,9 +101,37 @@ export function HousekeepingStaffListPage() {
     void queryClient.invalidateQueries({ queryKey: ["housekeeping-staff"] });
   }
 
+  // Mirrors the on-screen filters, so the workbook matches what is displayed.
+  // Staff-visible (backend gate is `_staff_only`), not canManage-gated --
+  // reading data out is not a write.
+  const exportMutation = useMutation({
+    mutationFn: () =>
+      exportHousekeepingStaff({
+        campusId: campusFilter === "ALL" ? null : campusFilter,
+        search: search.trim() || null,
+        isActive: activeFilter === "ALL" ? null : activeFilter === "true",
+      }),
+  });
+
   if (!user || user.role === "CANDIDATE") {
     return <p className="text-sm text-muted-foreground">Only staff can view Housekeeping Staff.</p>;
   }
+
+  // Defined once as an element rather than a nested component: a component
+  // declared inside render is a fresh type every pass and would remount (and
+  // lose its pending state) on each keystroke in the filters above.
+  const exportButton = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={exportMutation.isPending}
+      onClick={() => exportMutation.mutate()}
+    >
+      {exportMutation.isPending ? "Exporting…" : "Export"}
+    </Button>
+  );
+
 
   return (
     <div className="flex flex-col gap-6">
@@ -132,8 +160,11 @@ export function HousekeepingStaffListPage() {
                 </DialogContent>
               </Dialog>
               <Button onClick={openCreateDrawer}>Add staff</Button>
+              {exportButton}
             </>
-          ) : undefined
+          ) : (
+            exportButton
+          )
         }
       />
 
