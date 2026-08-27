@@ -193,7 +193,18 @@ FastAPI-injectable dependencies overridden with in-memory fakes in
   scoring, interview questions, and now Hermes all work live there) but is
   not set in local `.env` — those endpoints return 503 in local dev until
   it's added there too.
-- No GitHub Actions CI — no `.github/workflows/` exists yet.
+- **Resolved 2026-08-27**: CI now exists — `.github/workflows/ci.yml`, three
+  independent jobs on every push/PR to `master`: `backend` (pytest against a
+  real Postgres 16 service), `frontend` (`tsc -b --force`, oxlint, Vitest),
+  and `migrations` (`alembic upgrade head` against an empty DB, a
+  single-head check, and `scripts/check_schema_drift.py`). That last job is
+  not redundant with `backend`: `tests/conftest.py` builds its schema with
+  `Base.metadata.create_all`, so the migration chain is otherwise never
+  exercised even though production applies it on every deploy. The drift
+  check filters one known alembic false positive (Postgres implements a
+  UNIQUE constraint as a unique index, so every `unique=True` column reports
+  a spurious remove_index/add_constraint pair) — see that script's docstring
+  before "fixing" it.
 - **Resolved 2026-08-23**: `DEPLOYMENT.md`'s runbook is now verified live —
   `backend`, `frontend`, `postgres`, `minio`, `chromadb` all run in
   production via `docker-compose.yml` on a Hostinger VPS

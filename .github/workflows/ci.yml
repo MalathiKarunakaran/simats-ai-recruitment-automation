@@ -1,0 +1,195 @@
+# CI for the SIMATS AI Recruitment Automation System.
+#
+# Until now every check ran manually on one Windows dev machine, which let two
+# real failures through in a single day: a dispatched agent reported "done"
+# with its work left uncommitted, and a flaky frontend run was nearly reported
+# as a regression. CI removes both by making "did this actually pass?" a fact
+# rather than a recollection.
+#
+# Three independent jobs, deliberately not chained -- a frontend type error
+# should not hide a backend failure, and vice versa:
+#
+#   backend     -- pytest against a real Postgres 16 service
+#   frontend    -- tsc -b --force, oxlint, vitest
+#   migrations  -- alembic upgrade head against an EMPTY database
+#
+# That third job is not redundant with `backend`. tests/conftest.py builds its
+# schema with `Base.metadata.create_all`, so the migration chain is never
+# exercised by the test suite at all -- yet production applies it
+# automatically on every deploy (scripts/docker-entrypoint.sh). Without this
+# job a broken or branched migration would first be discovered by the
+# production container failing to start.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# A newer push to the same branch makes an in-flight run obsolete. The backend
+# suite takes 12-20 minutes, so cancelling superseded runs matters here.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Both are required by app/core/config.py (no defaults). Everything else --
+  # MinIO, ChromaDB, OpenAI, Anthropic -- has a default and is never reached:
+  # tests/conftest.py overrides all four as FastAPI dependencies with
+  # in-memory fakes, so no external service is contacted.
+  JWT_SECRET_KEY: ci-only-not-a-real-secret
+  DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/simats_recruitment
+  PYTHON_VERSION: "3.14"
+  NODE_VERSION: "22"
+
+jobs:
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        # Matches production's image (docker-compose.yml) rather than
+        # whatever the runner ships, so a version-specific SQL or native-ENUM
+        # difference surfaces here instead of on the VPS.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: simats_recruitment
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements-dev.txt
+
+      - name: Create the test database
+        # conftest.py connects to a dedicated database and builds the schema
+        # itself, but does not CREATE DATABASE -- same one-time step the
+        # README documents for local dev.
+        run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -c "CREATE DATABASE simats_recruitment_test"
+        env:
+          PGPASSWORD: postgres
+
+      - name: Run pytest
+        run: pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/simats_recruitment_test
+
+  frontend:
+    name: Frontend (tsc, lint, vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        # `npm install`, NOT `npm ci` -- package-lock.json was generated on
+        # Windows, and npm ci's strict lockfile check miscomputes the native
+        # optional binaries (Rolldown/lightningcss) when installing on Linux
+        # (npm/cli#4828). frontend/Dockerfile makes the same choice for the
+        # same reason; see DEPLOYMENT.md's "Known limitations".
+        run: npm install
+
+      - name: Type-check
+        # `tsc -b --force`, NOT `tsc --noEmit`: tsconfig.json is a solution
+        # file with `"files": []`, so --noEmit type-checks ZERO files and exits
+        # 0 with real errors present. --force avoids a stale .tsbuildinfo
+        # hiding errors between runs. See CLAUDE.md's footgun note.
+        run: npx tsc -b --force
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run Vitest
+        run: npm run test
+
+  migrations:
+    name: Migrations (alembic upgrade head)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: simats_recruitment
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Fail if the migration chain has branched
+        # Two migrations sharing a down_revision gives alembic multiple heads,
+        # which `upgrade head` then refuses. Catching it as its own step makes
+        # the cause obvious instead of surfacing as an opaque alembic error.
+        run: |
+          heads=$(alembic heads | grep -c '(head)' || true)
+          echo "alembic heads found: $heads"
+          alembic heads
+          if [ "$heads" -ne 1 ]; then
+            echo "::error::Expected exactly 1 alembic head, found $heads -- two migrations likely share a down_revision."
+            exit 1
+          fi
+
+      - name: Apply every migration to an empty database
+        run: alembic upgrade head
+
+      - name: Verify the applied schema matches the models
+        # The real payload of this job: production builds its schema from
+        # migrations, while the test suite builds it from
+        # Base.metadata.create_all -- so a model column added without a
+        # migration passes every test and then fails at runtime in production.
+        # Run as a module so `app` is importable from the repo root. See the
+        # script's docstring for the one alembic false positive it filters
+        # (and why filtering it does not make the check vacuous).
+        run: python -m scripts.check_schema_drift
