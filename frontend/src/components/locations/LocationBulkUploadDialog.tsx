@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 
 import { ApiError } from "@/api/client";
 import { commitLocationBulkUpload, downloadLocationBulkUploadTemplate, validateLocationBulkUpload } from "@/api/locations";
@@ -125,12 +125,20 @@ function PreviewTable({
                 <TableHead>Block</TableHead>
                 <TableHead>Floor</TableHead>
                 <TableHead>Category</TableHead>
-                <TableHead>Details</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visibleRows.map((row) => (
-                <TableRow key={row.row_number}>
+                // Fragment, not a bare <TableRow>: a rejected row's reason is
+                // rendered as its own full-width row underneath. It used to be
+                // a trailing "Details" column sitting off the right edge behind
+                // a horizontal scrollbar -- the single most important cell when
+                // something goes wrong was the one the user could not see
+                // (reported on the Designations dialog 2026-08-27; every
+                // bulk-upload dialog was built from the same template and had
+                // the same flaw).
+                <Fragment key={row.row_number}>
+                <TableRow>
                   <TableCell>{row.row_number}</TableCell>
                   <TableCell>
                     <BulkUploadRowStatusBadge status={row.status} />
@@ -140,8 +148,15 @@ function PreviewTable({
                   <TableCell>{row.block_building ?? "—"}</TableCell>
                   <TableCell>{row.floor_venue ?? "—"}</TableCell>
                   <TableCell>{row.category ? row.category.replace(/_/g, " ") : "—"}</TableCell>
-                  <TableCell className="text-destructive">{row.error_reason ?? ""}</TableCell>
                 </TableRow>
+                {row.error_reason ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="pt-0 text-destructive">
+                      {row.error_reason}
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                </Fragment>
               ))}
             </TableBody>
           </table>

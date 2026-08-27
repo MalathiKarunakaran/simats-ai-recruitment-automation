@@ -69,6 +69,22 @@ async function openAndUpload(file = new File(["dummy"], "upload.xlsx")) {
 }
 
 describe("BulkUploadDialog", () => {
+  it("renders a rejected row's reason without needing horizontal scrolling", async () => {
+    // Regression guard (2026-08-27): the reason used to be a trailing
+    // "Details" column sitting off the right edge behind a horizontal
+    // scrollbar -- the most important cell when something goes wrong was the
+    // one the user could not see. It is now a full-width row directly under
+    // the row it explains.
+    mockedValidate.mockResolvedValue(VALIDATION_RESULT);
+    renderDialog();
+    await openAndUpload();
+
+    const reason = await screen.findByText("Unknown campus code");
+    expect(reason.tagName).toBe("TD");
+    expect(reason).toHaveAttribute("colspan", "7");
+    expect(screen.queryByRole("columnheader", { name: "Details" })).not.toBeInTheDocument();
+  });
+
   it("opens the dialog and downloads the template on request", async () => {
     renderDialog();
 
