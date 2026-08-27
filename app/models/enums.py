@@ -314,6 +314,11 @@ class BulkUploadEntityTypeEnum(str, enum.Enum):
     # enum -- see the migration adding EligibilityRule bulk upload for why
     # that means this label can never be cleanly removed again.
     ELIGIBILITY_RULE = "ELIGIBILITY_RULE"
+    # Added for the Designation Master bulk-upload epic (backend Phase 1) via
+    # `ALTER TYPE ... ADD VALUE` on this already-live native enum -- see
+    # d8e9f0a1b2c3_designation_required_skills_bulk_upload.py for why that
+    # means this label can never be cleanly removed again.
+    DESIGNATION = "DESIGNATION"
 
 
 class RegulatoryAuthorityEnum(str, enum.Enum):

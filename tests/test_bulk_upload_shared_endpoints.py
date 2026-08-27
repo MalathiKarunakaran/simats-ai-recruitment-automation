@@ -1,14 +1,16 @@
 """Entity-agnostic behavior of the 4 shared bulk-upload endpoints
-(glowing-zooming-hamming.md Phase J, extended 2026-08-25 to DEPARTMENT and
+(glowing-zooming-hamming.md Phase J, extended 2026-08-25 to DEPARTMENT,
 extended again for the starter regulatory-eligibility-rules feature, backend
-Phase 1, to ELIGIBILITY_RULE) -- list/error-report/original-file/undo in
-app/api/v1/routers/sanctioned_strength.py, now dispatched by
-`BulkUploadLog.entity_type` to cover LOCATION, HOUSEKEEPING_STAFF,
-DEPARTMENT, and ELIGIBILITY_RULE as well as the pre-existing
-SANCTIONED_STRENGTH. Per-entity validate/commit/template behavior is covered
-in tests/test_location_bulk_upload.py,
+Phase 1, to ELIGIBILITY_RULE, and extended a 5th time for the Designation
+Master bulk-upload epic, backend Phase 1, to DESIGNATION) -- list/
+error-report/original-file/undo in app/api/v1/routers/sanctioned_strength.py,
+now dispatched by `BulkUploadLog.entity_type` to cover LOCATION,
+HOUSEKEEPING_STAFF, DEPARTMENT, ELIGIBILITY_RULE, and DESIGNATION as well as
+the pre-existing SANCTIONED_STRENGTH. Per-entity validate/commit/template
+behavior is covered in tests/test_location_bulk_upload.py,
 tests/test_housekeeping_staff_bulk_upload.py, tests/test_department_bulk_upload.py,
-and tests/test_eligibility_rule_bulk_upload.py -- not duplicated here.
+tests/test_eligibility_rule_bulk_upload.py, and
+tests/test_designation_bulk_upload.py -- not duplicated here.
 """
 
 import csv
@@ -21,6 +23,7 @@ import pytest
 from app.models.bulk_upload_log import BulkUploadLog
 from app.models.bulk_upload_row_log import BulkUploadRowLog
 from app.models.department import Department
+from app.models.designation import Designation
 from app.models.eligibility_rule import EligibilityRule
 from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.housekeeping_staff import HousekeepingStaff
@@ -33,6 +36,7 @@ LOCATION_ENDPOINT = "/api/v1/locations"
 HOUSEKEEPING_ENDPOINT = "/api/v1/housekeeping-staff"
 DEPARTMENT_ENDPOINT = "/api/v1/departments"
 ELIGIBILITY_RULE_ENDPOINT = "/api/v1/eligibility-rules"
+DESIGNATION_ENDPOINT = "/api/v1/designations"
 
 LOCATION_HEADERS = ["Campus Code", "Location Name", "Block/Building", "Floor/Venue", "Category"]
 DEPARTMENT_HEADERS = [
@@ -54,6 +58,16 @@ HOUSEKEEPING_HEADERS = [
     "Floor/Venue",
     "Shift",
     "Supervisor",
+]
+DESIGNATION_HEADERS = [
+    "Designation Name",
+    "Category",
+    "Department Codes",
+    "Minimum Qualification",
+    "Minimum Experience",
+    "Employment Type",
+    "Required Skills",
+    "Active",
 ]
 ELIGIBILITY_RULE_HEADERS = [
     "Campus Code", "Department Code", "Staff Category", "Position Title",
@@ -108,6 +122,14 @@ def _commit_eligibility_rule(client, actor, rows):
     )
 
 
+def _commit_designation(client, actor, rows):
+    return client.post(
+        f"{DESIGNATION_ENDPOINT}/bulk-upload/commit",
+        files={"file": ("upload.csv", _csv_bytes(DESIGNATION_HEADERS, rows), "text/csv")},
+        headers=auth_headers(client, actor),
+    )
+
+
 @pytest.fixture()
 def location_setup(campus_factory, user_factory):
     campus = campus_factory("SSE")
@@ -129,6 +151,23 @@ def department_setup(campus_factory, user_factory):
 
 def _department_row(setup, code="SHDEPT", name="Shared Department", category="TEACHING"):
     return [setup["campus"].code, code, name, category, "Engineering", "", "TRUE"]
+
+
+@pytest.fixture()
+def designation_setup(campus_factory, department_factory, user_factory):
+    campus = campus_factory("SSE")
+    department = department_factory(
+        "SSE", name="Shared Designation Dept", code="SHDESIG", category=StaffRoleCategoryEnum.TEACHING
+    )
+    # DESIGNATION_WRITE_ROLES = {SUPER_ADMIN, RECRUITMENT_COORDINATOR} --
+    # SUPER_ADMIN is used as the write actor here (same as department_setup
+    # uses HR_ADMIN, its own write role).
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    return {"campus": campus, "department": department, "super_admin": super_admin}
+
+
+def _designation_row(setup, name="Shared Designation", category="TEACHING"):
+    return [name, category, setup["department"].code, "PhD in relevant field", "3+ years", "FULL_TIME", "", "TRUE"]
 
 
 @pytest.fixture()
@@ -653,6 +692,135 @@ def test_undo_forbidden_for_non_write_role_on_eligibility_rule_batch(client, eli
     commit_response = _commit_eligibility_rule(
         client, eligibility_rule_setup["hr_admin"], [_eligibility_rule_row(eligibility_rule_setup)]
     )
+    log_id = commit_response.json()["bulk_upload_log_id"]
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    response = client.post(f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, hod))
+    assert response.status_code == 403
+
+
+# --- DESIGNATION (Designation Master bulk-upload epic, backend Phase 1) ----
+
+
+def test_list_bulk_uploads_entity_type_filter_designation(client, designation_setup):
+    _commit_designation(client, designation_setup["super_admin"], [_designation_row(designation_setup)])
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-uploads",
+        params={"entity_type": "DESIGNATION"},
+        headers=auth_headers(client, designation_setup["super_admin"]),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] >= 1
+    assert all(item["entity_type"] == "DESIGNATION" for item in body["items"])
+
+
+def test_error_report_for_designation_batch(client, designation_setup):
+    good = _designation_row(designation_setup)
+    bad = _designation_row(designation_setup, name="Other Role")
+    bad[2] = "NOPE"
+    commit_response = _commit_designation(client, designation_setup["super_admin"], [good, bad])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-upload/{log_id}/error-report",
+        headers=auth_headers(client, designation_setup["super_admin"]),
+    )
+    assert response.status_code == 200
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb.active
+    data_rows = list(ws.iter_rows(min_row=5, values_only=True))
+    non_empty = [r for r in data_rows if any(c is not None for c in r)]
+    assert len(non_empty) == 1
+    assert non_empty[0][0] == "Other Role"
+
+
+def test_original_file_download_for_designation_batch(client, designation_setup):
+    rows = [_designation_row(designation_setup)]
+    commit_response = _commit_designation(client, designation_setup["super_admin"], rows)
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/original-file",
+        headers=auth_headers(client, designation_setup["super_admin"]),
+    )
+    assert response.status_code == 200
+    assert response.content == _csv_bytes(DESIGNATION_HEADERS, rows)
+
+
+def test_undo_designation_batch_deactivates_created_row(client, designation_setup, db_session):
+    commit_response = _commit_designation(client, designation_setup["super_admin"], [_designation_row(designation_setup)])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+    row_id = db_session.query(Designation).filter(Designation.name == "Shared Designation").one().id
+
+    response = client.post(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, designation_setup["super_admin"])
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "UNDONE"
+    assert body["reverted_history_count"] == 1
+    assert body["not_reverted_count"] == 0
+
+    designation = db_session.get(Designation, row_id)
+    assert designation.is_active is False
+
+
+def test_undo_designation_batch_skips_updated_row_and_counts_it(
+    client, designation_setup, designation_factory, db_session
+):
+    existing = designation_factory(
+        StaffRoleCategoryEnum.TEACHING, name="Shared Designation", department=designation_setup["department"]
+    )
+    db_session.commit()
+
+    commit_response = _commit_designation(client, designation_setup["super_admin"], [_designation_row(designation_setup)])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.post(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, designation_setup["super_admin"])
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reverted_history_count"] == 0
+    assert body["not_reverted_count"] == 1
+
+    db_session.refresh(existing)
+    assert existing.is_active is True
+
+
+def test_undo_writes_row_log_entries_for_designation_batch(client, designation_setup, db_session):
+    commit_response = _commit_designation(client, designation_setup["super_admin"], [_designation_row(designation_setup)])
+    log_id = uuid.UUID(commit_response.json()["bulk_upload_log_id"])
+
+    row_logs = db_session.query(BulkUploadRowLog).filter(BulkUploadRowLog.bulk_upload_log_id == log_id).all()
+    assert len(row_logs) == 1
+    assert row_logs[0].was_created is True
+    assert row_logs[0].entity_type.value == "DESIGNATION"
+
+
+def test_undo_allowed_for_recruitment_coordinator_on_designation_batch(client, designation_setup, user_factory):
+    """The exact case that would break if the shared endpoints stayed gated
+    on the pre-Designation-epic `_SHARED_BULK_UPLOAD_ROLES` tuple: a
+    RECRUITMENT_COORDINATOR who committed a Designation batch must be able
+    to undo it through this shared endpoint too (DESIGNATION_WRITE_ROLES
+    includes RECRUITMENT_COORDINATOR, not RECRUITMENT_OFFICER)."""
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    commit_response = _commit_designation(client, coordinator, [_designation_row(designation_setup)])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.post(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, coordinator)
+    )
+    assert response.status_code == 200
+
+
+def test_undo_forbidden_for_non_write_role_on_designation_batch(client, designation_setup, user_factory):
+    commit_response = _commit_designation(client, designation_setup["super_admin"], [_designation_row(designation_setup)])
     log_id = commit_response.json()["bulk_upload_log_id"]
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
 

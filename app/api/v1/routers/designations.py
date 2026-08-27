@@ -1,15 +1,22 @@
+import io
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
+from minio import Minio
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import get_current_active_user, get_db, require_roles
+from app.models.bulk_upload_log import BulkUploadLog
 from app.models.department import Department
 from app.models.designation import Designation
 from app.models.enums import (
     DESIGNATION_WRITE_ROLES,
     VACANCY_REQUEST_IN_FLIGHT_STATUSES,
+    BulkUploadEntityTypeEnum,
+    BulkUploadStatusEnum,
     StaffRoleCategoryEnum,
     UserRoleEnum,
 )
@@ -17,9 +24,19 @@ from app.models.sanctioned_strength import SanctionedStrength
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.schemas.designation import DesignationCreate, DesignationListResponse, DesignationRead, DesignationUpdate
-from app.services.audit import log_create, log_delete, log_update
+from app.schemas.designation_import import (
+    DesignationBulkUploadCommitResponse,
+    DesignationBulkUploadRowPreview,
+    DesignationBulkUploadValidationResponse,
+)
+from app.services import designation_import, exports, storage
+from app.services.audit import log_create, log_delete, log_event, log_update
+from app.services.storage import get_minio_client
 
 router = APIRouter(prefix="/designations", tags=["designations"])
+
+_XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_MAX_BULK_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB, same cap as every other bulk-upload endpoint in this app
 
 
 def _designation_snapshot(designation: Designation) -> dict:
@@ -29,6 +46,7 @@ def _designation_snapshot(designation: Designation) -> dict:
         "qualification": designation.qualification,
         "min_experience": designation.min_experience,
         "employment_type": designation.employment_type.value,
+        "required_skills": designation.required_skills,
         "is_active": designation.is_active,
         "department_ids": [str(department_id) for department_id in designation.department_ids],
     }
@@ -84,6 +102,34 @@ def _validate_department_categories(
     )
 
 
+def _base_query(
+    db: Session,
+    *,
+    department_id: uuid.UUID | None,
+    search: str | None,
+    is_active: bool | None,
+):
+    """Every filter shared between `list_designations` and
+    `export_designations` EXCEPT `category` itself -- same split
+    `departments.py::_base_query`/`designations.py::list_designations` (pre-
+    `search`) already used: `category` is applied by each caller separately,
+    after `list_designations` computes `category_counts` off this same base
+    query.
+
+    `search` (new -- previously done client-side in the frontend, see this
+    epic's own task note) is a simple `ilike` on `name`, matching the exact
+    client-side substring-match behavior it replaces.
+    """
+    query = db.query(Designation).options(selectinload(Designation.departments))
+    if department_id is not None:
+        query = query.filter(Designation.departments.any(Department.id == department_id))
+    if search:
+        query = query.filter(Designation.name.ilike(f"%{search}%"))
+    if is_active is not None:
+        query = query.filter(Designation.is_active == is_active)
+    return query
+
+
 @router.get("", response_model=DesignationListResponse)
 def list_designations(
     limit: int = Query(50, ge=1, le=200),
@@ -91,14 +137,11 @@ def list_designations(
     department_id: uuid.UUID | None = Query(None),
     category: StaffRoleCategoryEnum | None = Query(None),
     is_active: bool | None = Query(None),
+    search: str | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
 ) -> DesignationListResponse:
-    query = db.query(Designation).options(selectinload(Designation.departments))
-    if department_id is not None:
-        query = query.filter(Designation.departments.any(Department.id == department_id))
-    if is_active is not None:
-        query = query.filter(Designation.is_active == is_active)
+    query = _base_query(db, department_id=department_id, search=search, is_active=is_active)
 
     # category_counts is computed off this same base query (department_id/
     # is_active applied, category NOT applied) via a cheap GROUP BY, before
@@ -119,6 +162,47 @@ def list_designations(
     return DesignationListResponse(items=rows, total=total, limit=limit, offset=offset, category_counts=category_counts)
 
 
+@router.get("/export")
+def export_designations(
+    department_id: uuid.UUID | None = Query(None),
+    category: StaffRoleCategoryEnum | None = Query(None),
+    is_active: bool | None = Query(None),
+    search: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+) -> StreamingResponse:
+    """Same filters as `list_designations` minus pagination -- exports every
+    matching row, not just one page. xlsx only, mirrors
+    `departments.py::export_departments` exactly."""
+    query = _base_query(db, department_id=department_id, search=search, is_active=is_active)
+    if category is not None:
+        query = query.filter(Designation.category == category)
+    designations = query.order_by(Designation.name).all()
+
+    rows = [
+        {
+            "name": designation.name,
+            "category": designation.category.value,
+            "department_codes": ", ".join(
+                sorted(department.code for department in designation.departments if department.code)
+            ),
+            "qualification": designation.qualification,
+            "min_experience": designation.min_experience,
+            "employment_type": designation.employment_type.value,
+            "required_skills": designation.required_skills,
+            "is_active": designation.is_active,
+        }
+        for designation in designations
+    ]
+    excel_bytes = exports.build_designation_export_excel(rows, datetime.now(timezone.utc), "Designation Master")
+    filename = f"simats-designations-{datetime.now(timezone.utc):%Y%m%d}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(excel_bytes),
+        media_type=_XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("", response_model=DesignationRead, status_code=status.HTTP_201_CREATED)
 def create_designation(
     payload: DesignationCreate,
@@ -135,6 +219,7 @@ def create_designation(
         qualification=payload.qualification,
         min_experience=payload.min_experience,
         employment_type=payload.employment_type,
+        required_skills=payload.required_skills,
         is_active=payload.is_active,
     )
     designation.departments = departments
@@ -272,3 +357,181 @@ def delete_designation(
         request=request,
     )
     db.commit()
+
+
+# --- Bulk upload (validate -> preview -> commit) ----------------------------
+#
+# Same shape as departments.py's own /bulk-upload/* family -- see
+# app/services/designation_import.py for the validate/commit logic and the
+# (Name, Category) natural-key reasoning. The batch-level history/
+# error-report/original-file/undo endpoints deliberately stay in
+# sanctioned_strength.py (same reuse departments.py/locations.py/
+# housekeeping_staff.py already rely on).
+
+
+def _read_upload_bytes(file: UploadFile) -> bytes:
+    if not (file.filename or "").lower().endswith((".xlsx", ".csv")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only .xlsx or .csv files are accepted")
+    data = file.file.read()
+    if len(data) > _MAX_BULK_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File exceeds the 10 MB limit")
+    return data
+
+
+def _row_to_preview(row: designation_import.ImportRowResult) -> DesignationBulkUploadRowPreview:
+    return DesignationBulkUploadRowPreview(
+        row_number=row.row_number,
+        status=row.status,
+        error_reason=row.error_reason,
+        name=row.name,
+        category=row.category,
+        department_codes=row.department_codes,
+        qualification=row.qualification,
+        min_experience=row.min_experience,
+        employment_type=row.employment_type,
+        required_skills=row.required_skills,
+        is_active=row.is_active,
+    )
+
+
+@router.get("/bulk-upload/template")
+def download_designation_bulk_upload_template(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*DESIGNATION_WRITE_ROLES)),
+) -> StreamingResponse:
+    xlsx_bytes = designation_import.build_bulk_upload_template_xlsx(db)
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type=_XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="designation_bulk_upload_template.xlsx"'},
+    )
+
+
+@router.post("/bulk-upload/validate", response_model=DesignationBulkUploadValidationResponse)
+def validate_designation_bulk_upload(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*DESIGNATION_WRITE_ROLES)),
+) -> DesignationBulkUploadValidationResponse:
+    """Parses+validates every row **without writing anything to the DB** --
+    a pure preview, same no-server-side-cache contract as every other bulk
+    upload in this app."""
+    data = _read_upload_bytes(file)
+    raw_rows = designation_import.parse_rows(data, file.filename)
+    validation = designation_import.validate_rows(db, raw_rows)
+    return DesignationBulkUploadValidationResponse(
+        total=validation.total,
+        created_count=validation.created_count,
+        updated_count=validation.updated_count,
+        unchanged_count=validation.unchanged_count,
+        rejected_count=validation.rejected_count,
+        rows=[_row_to_preview(row) for row in validation.rows],
+    )
+
+
+@router.post("/bulk-upload/commit", response_model=DesignationBulkUploadCommitResponse)
+def commit_designation_bulk_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    minio_client: Minio = Depends(get_minio_client),
+    current_user: User = Depends(require_roles(*DESIGNATION_WRITE_ROLES)),
+) -> DesignationBulkUploadCommitResponse:
+    """Re-validates the re-uploaded file defensively, then applies every
+    non-rejected row's UPSERT in one DB transaction -- same all-or-nothing
+    contract as every other bulk-upload commit endpoint. Writes exactly one
+    BulkUploadLog row (entity_type=DESIGNATION) plus one BulkUploadRowLog row
+    per non-rejected row (see app/services/designation_import.py for why).
+
+    The original workbook's archival copy in `MINIO_BUCKET_BULK_UPLOADS` is
+    attempted AFTER the real row commit, and is best-effort (retried with
+    backoff, never raises -- see `storage.try_upload_bulk_upload_file`'s own
+    docstring): a storage hiccup degrades to `storage_warning` in the
+    response, it never rolls back or blocks the rows that were actually
+    requested to be created/updated.
+    """
+    data = _read_upload_bytes(file)
+    raw_rows = designation_import.parse_rows(data, file.filename)
+    validation = designation_import.validate_rows(db, raw_rows)
+
+    now = datetime.now(timezone.utc)
+    log = BulkUploadLog(
+        filename=file.filename or "upload",
+        entity_type=BulkUploadEntityTypeEnum.DESIGNATION,
+        uploaded_by_id=current_user.id,
+        rows_total=validation.total,
+        rows_created=validation.created_count,
+        rows_updated=validation.updated_count,
+        rows_rejected=validation.rejected_count,
+        status=BulkUploadStatusEnum.COMPLETED,
+        undo_deadline=now + timedelta(hours=24),
+    )
+    db.add(log)
+
+    try:
+        db.flush()  # assigns log.id, needed for the row-log FK
+
+        designation_import.commit_rows(db, validation=validation, bulk_upload_log_id=log.id)
+
+        log_event(
+            db,
+            actor=current_user,
+            action="DESIGNATION_BULK_UPLOAD_COMMITTED",
+            entity_type="BulkUploadLog",
+            entity_id=log.id,
+            after_state={
+                "filename": log.filename,
+                "rows_total": log.rows_total,
+                "rows_created": log.rows_created,
+                "rows_updated": log.rows_updated,
+                "rows_rejected": log.rows_rejected,
+            },
+            request=request,
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+    db.commit()
+    db.refresh(log)
+
+    # Archival is attempted only now that the real records are safely
+    # committed -- its outcome can never change whether this request
+    # reports success, only whether `storage_warning` is set.
+    storage_key, storage_error = storage.try_upload_bulk_upload_file(
+        minio_client,
+        bulk_upload_log_id=log.id,
+        filename=file.filename or "upload",
+        data=data,
+        content_type=file.content_type or "application/octet-stream",
+    )
+    storage_warning = None
+    if storage_key is not None:
+        log.stored_file_object_key = storage_key
+        db.commit()
+    else:
+        storage_warning = (
+            "Workbook storage is temporarily unavailable. The file was successfully parsed, "
+            "but the original workbook could not be archived."
+        )
+        log_event(
+            db,
+            actor=current_user,
+            action="DESIGNATION_BULK_UPLOAD_ARCHIVE_FAILED",
+            entity_type="BulkUploadLog",
+            entity_id=log.id,
+            after_state={"error": storage_error},
+            request=request,
+        )
+        db.commit()
+
+    return DesignationBulkUploadCommitResponse(
+        total=validation.total,
+        created_count=validation.created_count,
+        updated_count=validation.updated_count,
+        unchanged_count=validation.unchanged_count,
+        rejected_count=validation.rejected_count,
+        rows=[_row_to_preview(row) for row in validation.rows],
+        bulk_upload_log_id=log.id,
+        storage_warning=storage_warning,
+    )

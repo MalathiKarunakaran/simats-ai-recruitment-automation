@@ -13,6 +13,7 @@ class DesignationBase(BaseModel):
     qualification: str
     min_experience: str
     employment_type: EmploymentTypeEnum
+    required_skills: str | None = None
     is_active: bool = True
 
 
@@ -26,6 +27,7 @@ class DesignationUpdate(BaseModel):
     qualification: str | None = None
     min_experience: str | None = None
     employment_type: EmploymentTypeEnum | None = None
+    required_skills: str | None = None
     is_active: bool | None = None
     department_ids: list[uuid.UUID] | None = None
 

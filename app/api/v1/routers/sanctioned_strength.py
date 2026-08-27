@@ -34,24 +34,26 @@ Phase J (glowing-zooming-hamming.md) extends the bulk-upload machinery to
 Location and HousekeepingStaff imports; the Department Master hardening epic
 (2026-08-25) extends it a 3rd time, to Department imports; the starter
 regulatory-eligibility-rules feature (backend Phase 1) extends it a 4th time,
-to EligibilityRule imports. The entity-specific write endpoints for these
-four (`/locations/bulk-upload/*`, `/housekeeping-staff/bulk-upload/*`,
-`/departments/bulk-upload/*`, `/eligibility-rules/bulk-upload/*`) live in
+to EligibilityRule imports; the Designation Master bulk-upload epic (backend
+Phase 1) extends it a 5th time, to Designation imports. The entity-specific
+write endpoints for these five (`/locations/bulk-upload/*`,
+`/housekeeping-staff/bulk-upload/*`, `/departments/bulk-upload/*`,
+`/eligibility-rules/bulk-upload/*`, `/designations/bulk-upload/*`) live in
 their own routers (locations.py/housekeeping_staff.py/departments.py/
-eligibility_rules.py) -- only the 4 endpoints that were already
-entity-agnostic in shape stay here and gain an `if/elif` dispatch on
+eligibility_rules.py/designations.py) -- only the 4 endpoints that were
+already entity-agnostic in shape stay here and gain an `if/elif` dispatch on
 `BulkUploadLog.entity_type`: `list_bulk_uploads` (optional `entity_type`
 filter), `download_bulk_upload_error_report` (re-validates via the right
 service module), `download_bulk_upload_original_file` (no dispatch needed --
 raw byte proxy, already entity-agnostic), and `undo_bulk_upload`
 (SANCTIONED_STRENGTH keeps its pre-existing SanctionedStrengthHistory-based
-undo unchanged; LOCATION/HOUSEKEEPING_STAFF/DEPARTMENT/ELIGIBILITY_RULE all
-use the same `BulkUploadRowLog`-based undo, deliberately narrower in scope --
-see that model's own docstring). This means a Location/Department/
-EligibilityRule bulk-upload's history/undo lives under a
-`/sanctioned-strength/bulk-uploads/*` URL -- a deliberate, if slightly
-awkward-sounding, naming compromise in favor of genuine code reuse over more
-duplicated endpoint families.
+undo unchanged; LOCATION/HOUSEKEEPING_STAFF/DEPARTMENT/ELIGIBILITY_RULE/
+DESIGNATION all use the same `BulkUploadRowLog`-based undo, deliberately
+narrower in scope -- see that model's own docstring). This means a Location/
+Department/EligibilityRule/Designation bulk-upload's history/undo lives
+under a `/sanctioned-strength/bulk-uploads/*` URL -- a deliberate, if
+slightly awkward-sounding, naming compromise in favor of genuine code reuse
+over more duplicated endpoint families.
 """
 
 import io
@@ -115,6 +117,7 @@ from app.schemas.sanctioned_strength_views import (
 )
 from app.services import (
     department_import,
+    designation_import,
     eligibility_rule_import,
     housekeeping_staff_import,
     location_import,
@@ -144,12 +147,25 @@ _MAX_BULK_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB, same cap as migration.py's t
 # only SUPER_ADMIN/HR_ADMIN may write. (The union of Sanctioned Strength's,
 # Location's, and HousekeepingStaff's own write roles happens to equal this
 # same 3-role set, since Location's/HousekeepingStaff's write roles are
-# already supersets of SANCTIONED_STRENGTH_WRITE_ROLES. Department's own
-# write gate, `require_permission(MANAGE_DEPARTMENTS)`, defaults to
-# SUPER_ADMIN/HR_ADMIN only -- a subset of this 3-role set, not a superset --
-# so it never needs to widen this tuple further; a RECRUITMENT_OFFICER simply
-# never has a Department batch of their own to view/undo here.)
-_SHARED_BULK_UPLOAD_ROLES = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_OFFICER)
+# already supersets of SANCTIONED_STRENGTH_WRITE_ROLES. Department's/
+# EligibilityRule's own write gates default to SUPER_ADMIN/HR_ADMIN only --
+# a subset of this role set, not a superset -- so neither needs to widen
+# this tuple further.)
+#
+# Designation Master bulk-upload epic (backend Phase 1) -- DESIGNATION_WRITE_ROLES
+# (app/models/enums.py) is {SUPER_ADMIN, RECRUITMENT_COORDINATOR}, a
+# genuinely different pairing than every other entity's own write roles
+# above (it does NOT include HR_ADMIN/RECRUITMENT_OFFICER, and DOES include
+# RECRUITMENT_COORDINATOR, which no other entity's write gate does) -- so
+# RECRUITMENT_COORDINATOR must be added here too, or exactly the same "commit
+# succeeds, then a 403 trying to view/undo it" gap this comment already
+# describes for RECRUITMENT_OFFICER would reappear for Designation batches.
+_SHARED_BULK_UPLOAD_ROLES = (
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.RECRUITMENT_OFFICER,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+)
 
 
 def _write_only(current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES))) -> User:
@@ -923,6 +939,8 @@ def _import_module_for(entity_type: BulkUploadEntityTypeEnum):
         return department_import
     if entity_type == BulkUploadEntityTypeEnum.ELIGIBILITY_RULE:
         return eligibility_rule_import
+    if entity_type == BulkUploadEntityTypeEnum.DESIGNATION:
+        return designation_import
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unknown bulk upload entity type")
 
 
@@ -1087,6 +1105,8 @@ def _undo_row_log_based(
         model = Department
     elif log.entity_type == BulkUploadEntityTypeEnum.ELIGIBILITY_RULE:
         model = EligibilityRule
+    elif log.entity_type == BulkUploadEntityTypeEnum.DESIGNATION:
+        model = Designation
     else:
         model = HousekeepingStaff
 

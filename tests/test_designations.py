@@ -1,3 +1,4 @@
+import io
 import uuid
 
 from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, UserRoleEnum, VacancyRequestStatusEnum
@@ -534,3 +535,149 @@ def test_delete_unknown_designation_returns_404(client, user_factory):
         f"/api/v1/designations/{uuid.uuid4()}", headers=auth_headers(client, super_admin)
     )
     assert response.status_code == 404
+
+
+# --- required_skills (Designation Master bulk-upload epic, backend Phase 1) -
+
+
+def test_create_and_read_designation_with_required_skills(client, user_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(required_skills="Curriculum design, Research methodology"),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["required_skills"] == "Curriculum design, Research methodology"
+
+
+def test_required_skills_defaults_to_null_when_omitted(client, user_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    response = client.post(
+        "/api/v1/designations", headers=auth_headers(client, super_admin), json=_payload()
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["required_skills"] is None
+
+
+def test_patch_designation_required_skills(client, user_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    create_response = client.post(
+        "/api/v1/designations", headers=auth_headers(client, super_admin), json=_payload()
+    )
+    designation_id = create_response.json()["id"]
+
+    patch_response = client.patch(
+        f"/api/v1/designations/{designation_id}",
+        headers=auth_headers(client, super_admin),
+        json={"required_skills": "Updated skill set"},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    assert patch_response.json()["required_skills"] == "Updated skill set"
+
+
+# --- search (previously client-side only) -----------------------------------
+
+
+def test_list_designations_search_filters_by_name(client, user_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(name="Search Target Professor"),
+    )
+    client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(name="Unrelated Designation"),
+    )
+
+    response = client.get(
+        "/api/v1/designations?search=Search Target", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 200
+    names = {item["name"] for item in response.json()["items"]}
+    assert "Search Target Professor" in names
+    assert "Unrelated Designation" not in names
+
+
+def test_list_designations_search_is_case_insensitive(client, user_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(name="Case Insensitive Search Target"),
+    )
+
+    response = client.get(
+        "/api/v1/designations?search=case insensitive", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 200
+    names = {item["name"] for item in response.json()["items"]}
+    assert "Case Insensitive Search Target" in names
+
+
+# --- export -------------------------------------------------------------
+
+
+def test_export_designations_returns_xlsx(client, user_factory, department_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    department = department_factory("SSE", "Computer Science", category="TEACHING")
+
+    create_response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(name="Export Target Professor", department_ids=[str(department.id)]),
+    )
+    assert create_response.status_code == 201, create_response.text
+
+    response = client.get("/api/v1/designations/export", headers=auth_headers(client, super_admin))
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb.active
+    rows = list(ws.iter_rows(min_row=5, values_only=True))
+    names = {row[0] for row in rows if row and row[0]}
+    assert "Export Target Professor" in names
+
+
+def test_export_designations_respects_category_filter(client, user_factory):
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(name="Export Filter Teaching", category="TEACHING"),
+    )
+    client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json=_payload(name="Export Filter NonTeaching", category="NON_TEACHING"),
+    )
+
+    response = client.get(
+        "/api/v1/designations/export?category=NON_TEACHING", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 200
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(response.content))
+    ws = wb.active
+    rows = list(ws.iter_rows(min_row=5, values_only=True))
+    names = {row[0] for row in rows if row and row[0]}
+    assert "Export Filter NonTeaching" in names
+    assert "Export Filter Teaching" not in names
+
+
+def test_export_designations_forbidden_for_candidate(client, user_factory):
+    candidate = user_factory(UserRoleEnum.CANDIDATE)
+    response = client.get("/api/v1/designations/export", headers=auth_headers(client, candidate))
+    assert response.status_code == 403
