@@ -197,6 +197,56 @@ def _bool_or_blank(value: bool | None) -> str | None:
     return "TRUE" if value else "FALSE"
 
 
+_DESIGNATION_EXPORT_HEADERS = [
+    "Designation Name",
+    "Category",
+    "Department Codes",
+    "Minimum Qualification",
+    "Minimum Experience",
+    "Employment Type",
+    "Required Skills",
+    "Active",
+]
+
+
+def build_designation_export_excel(rows: list[dict], generated_at: datetime, scope_note: str) -> bytes:
+    """Designation Master's own dedicated export builder (Designation Master
+    bulk-upload epic, backend Phase 1) -- same visual/header convention as
+    `build_department_export_excel`/`build_eligibility_rule_export_excel`
+    above (`Generated:`/`Scope:` line, a blank row, then a real header row).
+    `department_codes` is expected pre-joined into a single comma-separated
+    display string by the caller (a Designation can map to multiple
+    departments simultaneously) -- same "display list, not a repeated row
+    per department" choice `designations.py`'s own `DesignationRead.
+    department_ids` list already makes for the API response shape.
+    """
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Designations"
+
+    sheet.append([f"Generated: {generated_at.isoformat()}"])
+    sheet.append([f"Scope: {scope_note}"])
+    sheet.append([])
+    sheet.append(_DESIGNATION_EXPORT_HEADERS)
+    for row in rows:
+        sheet.append(
+            [
+                row.get("name"),
+                row.get("category"),
+                row.get("department_codes"),
+                row.get("qualification"),
+                row.get("min_experience"),
+                row.get("employment_type"),
+                row.get("required_skills"),
+                "TRUE" if row.get("is_active") else "FALSE",
+            ]
+        )
+
+    buf = io.BytesIO()
+    workbook.save(buf)
+    return buf.getvalue()
+
+
 def build_ad_briefing_pptx(summary: dict) -> bytes:
     presentation = Presentation()
     presentation.slide_width = Inches(13.33)

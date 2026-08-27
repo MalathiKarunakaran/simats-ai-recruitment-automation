@@ -51,6 +51,12 @@ class Designation(Base):
     employment_type: Mapped[EmploymentTypeEnum] = mapped_column(
         Enum(EmploymentTypeEnum, name="employment_type_enum"), nullable=False
     )
+    # Free text, added for the Designation Master bulk-upload epic (backend
+    # Phase 1) -- the bulk-upload template spec calls for a "Required
+    # Skills" column with no prior home on this model. Optional: manual
+    # create/update never required it before, and the bulk-upload import
+    # treats it as optional too.
+    required_skills: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
