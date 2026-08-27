@@ -8,12 +8,15 @@ import { ApiError } from "@/api/client";
 import * as departmentsApi from "@/api/departments";
 import * as designationsApi from "@/api/designations";
 import type { DesignationListResponse } from "@/api/designations";
+import * as sanctionedStrengthApi from "@/api/sanctionedStrength";
 import type { DepartmentRead, DesignationRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
+import { ToastProvider } from "@/components/ui/toast";
 import { DesignationsPage } from "@/pages/DesignationsPage";
 
 vi.mock("@/api/designations");
 vi.mock("@/api/departments");
+vi.mock("@/api/sanctionedStrength");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -23,7 +26,10 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListDesignationsWithCounts = vi.mocked(designationsApi.listDesignationsWithCounts);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedCreateDesignation = vi.mocked(designationsApi.createDesignation);
+const mockedUpdateDesignation = vi.mocked(designationsApi.updateDesignation);
 const mockedDeleteDesignation = vi.mocked(designationsApi.deleteDesignation);
+const mockedExportDesignations = vi.mocked(designationsApi.exportDesignations);
+const mockedListBulkUploads = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthBulkUploads);
 
 function mockUser(role: UserRead["role"] | null) {
   mockedUseAuth.mockReturnValue({
@@ -82,6 +88,7 @@ const DESIGNATION: DesignationRead = {
   qualification: "PhD",
   min_experience: "2+ years",
   employment_type: "FULL_TIME",
+  required_skills: null,
   is_active: true,
   department_ids: ["d-1"],
   created_at: "2026-01-01T00:00:00Z",
@@ -95,6 +102,7 @@ const OTHER_DESIGNATION: DesignationRead = {
   qualification: "BSc",
   min_experience: "1+ years",
   employment_type: "FULL_TIME",
+  required_skills: null,
   is_active: false,
   department_ids: ["d-1"],
   created_at: "2026-01-01T00:00:00Z",
@@ -124,9 +132,11 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <DesignationsPage />
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter>
+          <DesignationsPage />
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -154,11 +164,11 @@ describe("DesignationsPage", () => {
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
     expect(screen.getByText("1 Department")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View Departments" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "New designation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ New Designation" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  it("renders designations with the resolved category label for a write-role (RECRUITMENT_COORDINATOR)", async () => {
+  it("renders designations with a color-coded CategoryBadge for a write-role (RECRUITMENT_COORDINATOR)", async () => {
     mockUser("RECRUITMENT_COORDINATOR");
     mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -166,9 +176,13 @@ describe("DesignationsPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
-    expect(screen.getByText("Teaching")).toBeInTheDocument();
+    // Category column now renders CategoryBadge (moved from
+    // components/departments/ to components/domain/, Designation Master
+    // production-hardening epic) instead of plain CATEGORY_LABELS text --
+    // same TEACHING -> info/blue variant DepartmentsPage.test.tsx asserts.
+    expect(screen.getByText("TEACHING")).toHaveClass("bg-brand-info/15");
     expect(screen.getByText("PhD")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ New Designation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 
@@ -299,7 +313,7 @@ describe("DesignationsPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "New designation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "+ New Designation" })).not.toBeInTheDocument();
   });
 
   it("shows the empty-state message when no designations exist", async () => {
@@ -320,9 +334,9 @@ describe("DesignationsPage", () => {
       mockedCreateDesignation.mockResolvedValue(DESIGNATION);
 
       renderPage();
-      await waitFor(() => expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole("button", { name: "+ New Designation" })).toBeInTheDocument());
 
-      await userEvent.click(screen.getByRole("button", { name: "New designation" }));
+      await userEvent.click(screen.getByRole("button", { name: "+ New Designation" }));
 
       await userEvent.type(screen.getByLabelText("Designation name"), "Assistant Professor");
       await userEvent.type(screen.getByLabelText("Qualification"), "PhD");
@@ -340,6 +354,7 @@ describe("DesignationsPage", () => {
           qualification: "PhD",
           min_experience: "2+ years",
           employment_type: "FULL_TIME",
+          required_skills: null,
           is_active: true,
           department_ids: ["d-1"],
         }),
@@ -396,8 +411,8 @@ describe("DesignationsPage", () => {
       mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
 
       renderPage();
-      await waitFor(() => expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument());
-      await userEvent.click(screen.getByRole("button", { name: "New designation" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "+ New Designation" })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "+ New Designation" }));
 
       await userEvent.click(screen.getByRole("button", { name: "Select departments" }));
       await userEvent.type(screen.getByLabelText("Search departments"), "mechanical");
@@ -412,8 +427,8 @@ describe("DesignationsPage", () => {
       mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
 
       renderPage();
-      await waitFor(() => expect(screen.getByRole("button", { name: "New designation" })).toBeInTheDocument());
-      await userEvent.click(screen.getByRole("button", { name: "New designation" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "+ New Designation" })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "+ New Designation" }));
 
       await userEvent.click(screen.getByRole("button", { name: "Select departments" }));
       // Search narrows the visible list to one match...
@@ -440,20 +455,28 @@ describe("DesignationsPage", () => {
     });
   });
 
-  it("narrows by name search client-side without an extra fetch", async () => {
+  // Designation Master production-hardening epic (backend Phase 1) -- search
+  // moved server-side (was 100% client-side substring filtering before).
+  // Commit-on-blur/Enter, same convention as DepartmentsPage's own search box.
+  it("commits the search box on blur, re-fetching server-side with the typed text", async () => {
     mockUser("SUPER_ADMIN");
     mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION, OTHER_DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Lab Assistant")).toBeInTheDocument());
-    const callsBefore = mockedListDesignationsWithCounts.mock.calls.length;
 
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
     await userEvent.type(screen.getByLabelText("Search designations"), "assistant prof");
+    await userEvent.tab();
 
-    expect(screen.getByText("Assistant Professor")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockedListDesignationsWithCounts).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: "assistant prof" }),
+      ),
+    );
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
     expect(screen.queryByText("Lab Assistant")).not.toBeInTheDocument();
-    expect(mockedListDesignationsWithCounts.mock.calls.length).toBe(callsBefore);
   });
 
   it("re-fetches server-side when the category tab changes, combining with the active filter", async () => {
@@ -501,15 +524,17 @@ describe("DesignationsPage", () => {
 
   it("shows a distinct message when filters narrow a non-empty list to zero", async () => {
     mockUser("SUPER_ADMIN");
-    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDesignationsWithCounts.mockResolvedValueOnce(withCounts([DESIGNATION]));
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
 
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
     await userEvent.type(screen.getByLabelText("Search designations"), "no such designation");
+    await userEvent.tab();
 
-    expect(screen.getByText("No designations match the current filters.")).toBeInTheDocument();
+    expect(await screen.findByText("No designations match the current filters.")).toBeInTheDocument();
     expect(screen.queryByText("No designations found.")).not.toBeInTheDocument();
   });
 
@@ -559,5 +584,204 @@ describe("DesignationsPage", () => {
         within(dialog).getByText("1 in-flight vacancy request(s) reference this designation, cannot delete."),
       ).toBeInTheDocument(),
     );
+  });
+
+  // Designation Master production-hardening epic (backend Phase 1) --
+  // Department filter Select, populated from the same full department list
+  // already fetched for the create/edit picker.
+  it("narrows the list with the Department filter, calling the API with department_id", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT, DEPARTMENT_2]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Department filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Computer Science" }));
+
+    await waitFor(() =>
+      expect(mockedListDesignationsWithCounts).toHaveBeenLastCalledWith(
+        expect.objectContaining({ departmentId: "d-1" }),
+      ),
+    );
+  });
+
+  // Header actions reordered per the Departments follow-up spec this epic
+  // mirrors: + New Designation (primary) first, then Bulk upload/Upload
+  // history, then Export last.
+  it("orders header actions as + New Designation, then Bulk upload/Upload history, then Export", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Designation" })).toBeInTheDocument());
+
+    const labels = screen.getAllByRole("button").map((button) => button.textContent);
+    const newDesignationIndex = labels.indexOf("+ New Designation");
+    const bulkUploadIndex = labels.indexOf("Bulk upload");
+    const uploadHistoryIndex = labels.indexOf("Upload history");
+    const exportIndex = labels.indexOf("Export");
+
+    expect(newDesignationIndex).toBeGreaterThanOrEqual(0);
+    expect(newDesignationIndex).toBeLessThan(bulkUploadIndex);
+    expect(bulkUploadIndex).toBeLessThan(uploadHistoryIndex);
+    expect(uploadHistoryIndex).toBeLessThan(exportIndex);
+  });
+
+  it("hides + New Designation, Bulk upload, and Upload history for a role without DESIGNATION_WRITE_ROLES, but still shows Export", async () => {
+    mockUser("HR_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "+ New Designation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bulk upload" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload history" })).not.toBeInTheDocument();
+    // Export is gated `_staff_only` server-side (broader than
+    // DESIGNATION_WRITE_ROLES) -- mirrored as an always-visible action.
+    expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
+  });
+
+  it("opens the Upload history dialog scoped to DESIGNATION's own bulk-upload batches", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListBulkUploads.mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Upload history" }));
+
+    expect(await screen.findByText("Designation bulk upload history")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockedListBulkUploads).toHaveBeenCalledWith(expect.objectContaining({ entity_type: "DESIGNATION" })),
+    );
+  });
+
+  it("exports designations with the current filters applied", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedExportDesignations.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("tab", { name: /^Teaching/ }));
+    await waitFor(() =>
+      expect(mockedListDesignationsWithCounts).toHaveBeenLastCalledWith(
+        expect.objectContaining({ category: "TEACHING" }),
+      ),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() =>
+      expect(mockedExportDesignations).toHaveBeenCalledWith(expect.objectContaining({ category: "TEACHING" })),
+    );
+  });
+
+  // Designation Master production-hardening epic (backend Phase 1) --
+  // Restore row action for inactive designations, mutually exclusive with
+  // Delete, mirroring DepartmentsPage.tsx's own DepartmentRowActions.
+  it("offers Delete (not Restore) for an active designation and Restore (not Delete) for an inactive one", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION, OTHER_DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+    expect(screen.getByRole("button", { name: "Delete designation Assistant Professor" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restore designation Assistant Professor" })).not.toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: "Restore designation Lab Assistant" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete designation Lab Assistant" })).not.toBeInTheDocument();
+  });
+
+  it("restores an inactive designation via the row action, calling updateDesignation with is_active: true", async () => {
+    mockUser("SUPER_ADMIN");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([OTHER_DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedUpdateDesignation.mockResolvedValue({ ...OTHER_DESIGNATION, is_active: true });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Lab Assistant")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Restore designation Lab Assistant" }));
+
+    await waitFor(() => expect(mockedUpdateDesignation).toHaveBeenCalledWith("des-2", { is_active: true }));
+  });
+
+  // Designation gained `required_skills` (nullable free text) this epic --
+  // surfaced in the create/edit form and the "View Departments" detail
+  // dialog.
+  describe("required_skills", () => {
+    it("submits a new designation with the entered Required skills text", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+      mockedCreateDesignation.mockResolvedValue(DESIGNATION);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByRole("button", { name: "+ New Designation" })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "+ New Designation" }));
+
+      await userEvent.type(screen.getByLabelText("Designation name"), "Assistant Professor");
+      await userEvent.type(screen.getByLabelText("Qualification"), "PhD");
+      await userEvent.type(screen.getByLabelText("Minimum experience"), "2+ years");
+      await userEvent.type(screen.getByLabelText("Required skills (optional)"), "MATLAB, Python");
+
+      await userEvent.click(screen.getByRole("button", { name: "Create designation" }));
+
+      await waitFor(() =>
+        expect(mockedCreateDesignation).toHaveBeenCalledWith(
+          expect.objectContaining({ required_skills: "MATLAB, Python" }),
+        ),
+      );
+    }, 15000);
+
+    it("submits null when Required skills is left blank", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+      mockedCreateDesignation.mockResolvedValue(DESIGNATION);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByRole("button", { name: "+ New Designation" })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "+ New Designation" }));
+
+      await userEvent.type(screen.getByLabelText("Designation name"), "Assistant Professor");
+      await userEvent.type(screen.getByLabelText("Qualification"), "PhD");
+      await userEvent.type(screen.getByLabelText("Minimum experience"), "2+ years");
+
+      await userEvent.click(screen.getByRole("button", { name: "Create designation" }));
+
+      await waitFor(() =>
+        expect(mockedCreateDesignation).toHaveBeenCalledWith(expect.objectContaining({ required_skills: null })),
+      );
+    }, 15000);
+
+    it("pre-fills Required skills in the Edit dialog and shows it in the View Departments dialog", async () => {
+      mockUser("SUPER_ADMIN");
+      const withSkills: DesignationRead = { ...DESIGNATION, required_skills: "Advanced statistics" };
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([withSkills]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: "View Departments" }));
+      expect(await screen.findByText(/Advanced statistics/)).toBeInTheDocument();
+      await userEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+
+      await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+      expect(await screen.findByLabelText("Required skills (optional)")).toHaveValue("Advanced statistics");
+    });
   });
 });

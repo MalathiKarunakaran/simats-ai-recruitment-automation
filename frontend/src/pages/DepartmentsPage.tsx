@@ -17,7 +17,7 @@ import {
 import { DEPARTMENT_MANAGEMENT_ROLES, type DepartmentRead, type StaffRoleCategory } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { CategoryBadge } from "@/components/departments/CategoryBadge";
+import { CategoryBadge } from "@/components/domain/CategoryBadge";
 import { DepartmentBulkUploadDialog } from "@/components/departments/DepartmentBulkUploadDialog";
 import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import { Badge } from "@/components/ui/badge";

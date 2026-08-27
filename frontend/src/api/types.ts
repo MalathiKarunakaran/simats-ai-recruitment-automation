@@ -442,6 +442,9 @@ export interface DesignationRead {
   qualification: string;
   min_experience: string;
   employment_type: EmploymentType;
+  // Designation Master production-hardening epic (backend Phase 1) --
+  // nullable free-text field, no structured skills taxonomy behind it.
+  required_skills: string | null;
   is_active: boolean;
   department_ids: string[];
   created_at: string;
@@ -455,6 +458,7 @@ export interface DesignationCreatePayload {
   qualification: string;
   min_experience: string;
   employment_type: EmploymentType;
+  required_skills?: string | null;
   is_active?: boolean;
   department_ids?: string[];
 }
@@ -1833,12 +1837,15 @@ export type BulkUploadStatus = "COMPLETED" | "UNDONE";
 // (backend Phase 1) -- same dispatch-on-entity_type story as LOCATION/
 // HOUSEKEEPING_STAFF before it. ELIGIBILITY_RULE added for the starter
 // regulatory-eligibility-rules feature (frontend Phase 2), same story again.
+// DESIGNATION added for the Designation Master production-hardening epic
+// (backend Phase 1 / this frontend Phase 2), same story again.
 export type BulkUploadEntityType =
   | "SANCTIONED_STRENGTH"
   | "LOCATION"
   | "HOUSEKEEPING_STAFF"
   | "DEPARTMENT"
-  | "ELIGIBILITY_RULE";
+  | "ELIGIBILITY_RULE"
+  | "DESIGNATION";
 
 // Mirrors BulkUploadLogRead -- one row per past bulk upload, for the "Upload
 // history" tab/dialog. `entity_type` (Phase J) is new -- the backend has
@@ -1945,6 +1952,47 @@ export interface DepartmentBulkUploadValidationResponse {
 
 // Mirrors DepartmentBulkUploadCommitResponse.
 export interface DepartmentBulkUploadCommitResponse extends DepartmentBulkUploadValidationResponse {
+  bulk_upload_log_id: string;
+  // See BulkUploadCommitResponse's own comment above -- same meaning.
+  storage_warning: string | null;
+}
+
+// --- Designation bulk upload (Designation Master production-hardening
+// epic, backend Phase 1 / this frontend Phase 2) ---------------------------
+// Mirrors app/schemas/designation_import.py -- own row-preview shape, since
+// Designation rows carry `department_codes` as a display list (a Designation
+// can map to multiple departments simultaneously -- see that module's own
+// docstring for the (Name, Category) natural-key / "replace, never merge"
+// department-list update semantics), not a single `department_id` like
+// DepartmentBulkUploadRowPreview.
+
+// Mirrors DesignationBulkUploadRowPreview.
+export interface DesignationBulkUploadRowPreview {
+  row_number: number;
+  status: BulkUploadRowStatus;
+  error_reason: string | null;
+  name: string | null;
+  category: StaffRoleCategory | null;
+  department_codes: string[];
+  qualification: string | null;
+  min_experience: string | null;
+  employment_type: EmploymentType | null;
+  required_skills: string | null;
+  is_active: boolean | null;
+}
+
+// Mirrors DesignationBulkUploadValidationResponse.
+export interface DesignationBulkUploadValidationResponse {
+  total: number;
+  created_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  rejected_count: number;
+  rows: DesignationBulkUploadRowPreview[];
+}
+
+// Mirrors DesignationBulkUploadCommitResponse.
+export interface DesignationBulkUploadCommitResponse extends DesignationBulkUploadValidationResponse {
   bulk_upload_log_id: string;
   // See BulkUploadCommitResponse's own comment above -- same meaning.
   storage_warning: string | null;
