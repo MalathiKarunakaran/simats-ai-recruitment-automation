@@ -56,6 +56,7 @@ const DESIGNATIONS = [
     qualification: "PhD",
     min_experience: "2+ years",
     employment_type: "FULL_TIME" as const,
+    required_skills: null,
     is_active: true,
     department_ids: ["d-1"],
     created_at: "",

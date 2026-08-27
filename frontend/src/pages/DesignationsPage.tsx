@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { createDesignation, deleteDesignation, listDesignationsWithCounts, updateDesignation } from "@/api/designations";
+import {
+  createDesignation,
+  deleteDesignation,
+  exportDesignations,
+  listDesignationsWithCounts,
+  updateDesignation,
+} from "@/api/designations";
 import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
 import {
@@ -16,7 +22,10 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { CategoryBadge } from "@/components/domain/CategoryBadge";
 import { DeleteConfirmDialog } from "@/components/domain/DeleteConfirmDialog";
+import { DesignationBulkUploadDialog } from "@/components/designations/DesignationBulkUploadDialog";
+import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +39,8 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/toast";
 import { CategoryTabs, mapServerCategoryCounts } from "@/components/domain/CategoryTabs";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
@@ -53,6 +64,11 @@ const CATEGORY_LABELS: Record<StaffRoleCategory, string> = {
 interface FormState {
   category: StaffRoleCategory;
   employmentType: EmploymentType;
+  // Designation Master production-hardening epic (backend Phase 1) --
+  // nullable free-text field on the backend; kept as a plain string here
+  // (empty string = unset) and trimmed to `null` on submit, same convention
+  // as DepartmentsPage's own `description` field.
+  requiredSkills: string;
   isActive: boolean;
   departmentIds: string[];
 }
@@ -110,6 +126,16 @@ function DesignationDepartmentsCell({
           <DialogHeader>
             <DialogTitle>{designation.name}</DialogTitle>
             <p className="text-sm text-muted-foreground">{CATEGORY_LABELS[designation.category]}</p>
+            {/* Designation Master production-hardening epic (backend Phase
+                1) -- required_skills surfaced here too, since this dialog is
+                this page's closest analog to a per-designation detail view
+                (it already shows name + category; there's no separate
+                DesignationDetailPage). Nullable, so only rendered when set. */}
+            {designation.required_skills ? (
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Required skills:</span> {designation.required_skills}
+              </p>
+            ) : null}
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <p className="text-sm font-medium text-foreground">Departments ({count})</p>
@@ -236,9 +262,73 @@ function DepartmentMultiSelect({
   );
 }
 
+// Row-actions cell (Edit + mutually-exclusive Delete/Restore) -- same
+// underlying behavior as DepartmentsPage.tsx's own `DepartmentRowActions`
+// (Restore reuses the existing PATCH endpoint via `updateDesignation(id,
+// { is_active: true })`, no new backend route needed; an already-inactive
+// row only offers Restore, an active row only offers Delete), kept as
+// simple inline buttons rather than a 3-dot Popover menu -- this page's
+// pre-existing Actions cell was already a flat Edit/Delete button pair, not
+// a Popover, so this stays consistent with that rather than introducing a
+// new UI shape unprompted.
+function DesignationRowActions({
+  designation,
+  onEdit,
+  onChanged,
+}: {
+  designation: DesignationRead;
+  onEdit: () => void;
+  onChanged: () => void;
+}) {
+  const toast = useToast();
+
+  const restoreMutation = useMutation({
+    mutationFn: () => updateDesignation(designation.id, { is_active: true }),
+    onSuccess: () => {
+      toast.success(`${designation.name} restored.`);
+      onChanged();
+    },
+    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Failed to restore designation"),
+  });
+
+  return (
+    <div className="flex items-center justify-end gap-1.5">
+      <Button variant="outline" size="sm" onClick={onEdit}>
+        Edit
+      </Button>
+      {designation.is_active ? (
+        <DeleteConfirmDialog
+          triggerAriaLabel={`Delete designation ${designation.name}`}
+          title="Delete designation"
+          description={
+            <>
+              Remove <span className="font-medium text-foreground">{designation.name}</span>? This is a soft
+              delete -- the designation stays visible (as Inactive) and can be reactivated later.
+            </>
+          }
+          onDelete={() => deleteDesignation(designation.id)}
+          onDeleted={onChanged}
+        />
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label={`Restore designation ${designation.name}`}
+          disabled={restoreMutation.isPending}
+          onClick={() => restoreMutation.mutate()}
+        >
+          {restoreMutation.isPending ? "Restoring…" : "Restore"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 const EMPTY_FORM: FormState = {
   category: "TEACHING",
   employmentType: "FULL_TIME",
+  requiredSkills: "",
   isActive: true,
   departmentIds: [],
 };
@@ -250,6 +340,7 @@ export function DesignationsPage() {
   const queryClient = useQueryClient();
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const name = useFieldValidation("", required("Designation name is required"));
@@ -261,27 +352,50 @@ export function DesignationsPage() {
   // the selection survives refresh/back-forward/shared links.
   const [categoryFilter, setCategoryFilter] = useCategoryTabState();
   const [activeFilter, setActiveFilter] = useState<"ALL" | "true" | "false">("ALL");
+  // Department filter -- backend addition alongside the new `search` param
+  // (GET /designations already accepted `department_id`; this just exposes
+  // it as a page-level filter rather than only the create/edit picker).
+  const [departmentFilter, setDepartmentFilter] = useState<string>("ALL");
+  // searchInput tracks every keystroke; search (the value actually sent to
+  // the server) only updates on blur/Enter -- search moved server-side this
+  // epic (was 100% client-side substring filtering before), same
+  // commit-on-blur convention as DepartmentsPage's own search box.
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
 
   const { data, isLoading } = useQuery({
-    queryKey: ["designations", categoryFilter, activeFilter],
+    queryKey: ["designations", categoryFilter, activeFilter, search, departmentFilter],
     queryFn: () =>
       listDesignationsWithCounts({
         category: categoryFilter === "ALL" ? undefined : categoryFilter,
         isActive: activeFilter === "ALL" ? undefined : activeFilter === "true",
+        search: search.trim() || undefined,
+        departmentId: departmentFilter === "ALL" ? undefined : departmentFilter,
       }),
   });
-  const designations = data?.items;
+  const designations = data?.items ?? [];
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
 
   const canManage = Boolean(user && DESIGNATION_WRITE_ROLES.includes(user.role));
 
   const departmentNameById = new Map((departments ?? []).map((d) => [d.id, d.name]));
 
-  const filtersActive = categoryFilter !== "ALL" || activeFilter !== "ALL" || search.trim() !== "";
-  const visibleDesignations = (designations ?? []).filter((d) =>
-    d.name.toLowerCase().includes(search.trim().toLowerCase()),
-  );
+  const filtersActive =
+    categoryFilter !== "ALL" || activeFilter !== "ALL" || search.trim() !== "" || departmentFilter !== "ALL";
+
+  function commitSearch() {
+    setSearch(searchInput);
+  }
+
+  const exportMutation = useMutation({
+    mutationFn: () =>
+      exportDesignations({
+        category: categoryFilter === "ALL" ? undefined : categoryFilter,
+        isActive: activeFilter === "ALL" ? undefined : activeFilter === "true",
+        search: search.trim() || undefined,
+        departmentId: departmentFilter === "ALL" ? undefined : departmentFilter,
+      }),
+  });
 
   function afterSave() {
     setError(null);
@@ -298,6 +412,7 @@ export function DesignationsPage() {
         qualification: qualification.value,
         min_experience: minExperience.value,
         employment_type: form.employmentType,
+        required_skills: form.requiredSkills.trim() || null,
         is_active: form.isActive,
         department_ids: form.departmentIds,
       }),
@@ -313,6 +428,7 @@ export function DesignationsPage() {
         qualification: qualification.value,
         min_experience: minExperience.value,
         employment_type: form.employmentType,
+        required_skills: form.requiredSkills.trim() || null,
         is_active: form.isActive,
         department_ids: form.departmentIds,
       }),
@@ -335,6 +451,7 @@ export function DesignationsPage() {
     setForm({
       category: designation.category,
       employmentType: designation.employment_type,
+      requiredSkills: designation.required_skills ?? "",
       isActive: designation.is_active,
       departmentIds: designation.department_ids,
     });
@@ -395,15 +512,21 @@ export function DesignationsPage() {
         title="Designation Master"
         description="The catalog of hireable designations -- qualification, experience, and employment type per designation, linked to the departments it applies to."
         actions={
-          canManage ? (
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={openCreateDialog}>New designation</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>{editingId ? "Edit designation" : "New designation"}</DialogTitle>
-                </DialogHeader>
+          <>
+            {/* Header actions ordered per the Departments follow-up spec
+                this epic mirrors: + New Designation (primary/most
+                prominent) first, then Bulk upload + its Upload history
+                trigger adjacent, then Export last. */}
+            {canManage ? (
+              <>
+                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button onClick={openCreateDialog}>+ New Designation</Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{editingId ? "Edit designation" : "New designation"}</DialogTitle>
+                    </DialogHeader>
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="designation_name">Designation name</Label>
@@ -510,6 +633,16 @@ export function DesignationsPage() {
                   </div>
 
                   <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="required_skills">Required skills (optional)</Label>
+                    <Textarea
+                      id="required_skills"
+                      placeholder="Free-text notes on the skills this designation requires"
+                      value={form.requiredSkills}
+                      onChange={(e) => setForm((f) => ({ ...f, requiredSkills: e.target.value }))}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
                     <Label>Active</Label>
                     <Select
                       value={form.isActive ? "true" : "false"}
@@ -533,7 +666,37 @@ export function DesignationsPage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-          ) : undefined
+            <DesignationBulkUploadDialog />
+            <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+              <DialogTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  Upload history
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-4xl">
+                <DialogHeader>
+                  <DialogTitle>Designation bulk upload history</DialogTitle>
+                </DialogHeader>
+                <UploadHistoryTab entityType="DESIGNATION" />
+              </DialogContent>
+            </Dialog>
+              </>
+            ) : null}
+            {/* Export is gated `_staff_only` server-side (broader than
+                DESIGNATION_WRITE_ROLES/canManage) -- mirrored here as an
+                always-visible action for any staff role that can view this
+                page at all, not narrowed to canManage. Deliberately last in
+                visual order -- least prominent of the header actions. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+            >
+              {exportMutation.isPending ? "Exporting…" : "Export"}
+            </Button>
+          </>
         }
       />
 
@@ -543,14 +706,34 @@ export function DesignationsPage() {
         counts={mapServerCategoryCounts(data?.category_counts)}
       />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="flex flex-wrap items-center gap-3">
         <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onBlur={commitSearch}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitSearch();
+          }}
           placeholder="Search by name"
           aria-label="Search designations"
           className="sm:max-w-xs"
         />
+        <Select
+          value={departmentFilter}
+          onValueChange={(v) => setDepartmentFilter(v)}
+        >
+          <SelectTrigger aria-label="Department filter" className="sm:w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All departments</SelectItem>
+            {(departments ?? []).map((department) => (
+              <SelectItem key={department.id} value={department.id}>
+                {department.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={activeFilter} onValueChange={(v) => setActiveFilter(v as "ALL" | "true" | "false")}>
           <SelectTrigger aria-label="Active filter" className="sm:w-40">
             <SelectValue />
@@ -600,17 +783,19 @@ export function DesignationsPage() {
             <TableBody>
               {isLoading ? (
                 <TableEmpty colSpan={BASE_COLUMN_COUNT + (canManage ? 1 : 0)} loading />
-              ) : visibleDesignations.length === 0 ? (
+              ) : designations.length === 0 ? (
                 <TableEmpty colSpan={BASE_COLUMN_COUNT + (canManage ? 1 : 0)}>
                   {filtersActive ? "No designations match the current filters." : "No designations found."}
                 </TableEmpty>
               ) : (
-                visibleDesignations.map((designation) => (
+                designations.map((designation) => (
                   <TableRow key={designation.id}>
                     <TableCell className="truncate font-medium text-foreground" title={designation.name}>
                       {designation.name}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">{CATEGORY_LABELS[designation.category]}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <CategoryBadge category={designation.category} />
+                    </TableCell>
                     <TableCell>
                       <DesignationDepartmentsCell designation={designation} departmentNameById={departmentNameById} />
                     </TableCell>
@@ -630,24 +815,11 @@ export function DesignationsPage() {
                     </TableCell>
                     {canManage ? (
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Button variant="outline" size="sm" onClick={() => openEditDialog(designation)}>
-                            Edit
-                          </Button>
-                          <DeleteConfirmDialog
-                            triggerAriaLabel={`Delete designation ${designation.name}`}
-                            title="Delete designation"
-                            description={
-                              <>
-                                Remove <span className="font-medium text-foreground">{designation.name}</span>? This
-                                is a soft delete -- the designation stays visible (as Inactive) and can be
-                                reactivated later.
-                              </>
-                            }
-                            onDelete={() => deleteDesignation(designation.id)}
-                            onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["designations"] })}
-                          />
-                        </div>
+                        <DesignationRowActions
+                          designation={designation}
+                          onEdit={() => openEditDialog(designation)}
+                          onChanged={() => void queryClient.invalidateQueries({ queryKey: ["designations"] })}
+                        />
                       </TableCell>
                     ) : null}
                   </TableRow>

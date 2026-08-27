@@ -36,18 +36,25 @@ const ENTITY_LABELS: Record<BulkUploadEntityType, string> = {
   HOUSEKEEPING_STAFF: "housekeeping staff",
   DEPARTMENT: "department",
   ELIGIBILITY_RULE: "eligibility rule",
+  // Designation Master production-hardening epic (backend Phase 1) -- same
+  // "no permanent old-value history table, created-only revert" story as
+  // DEPARTMENT/LOCATION/HOUSEKEEPING_STAFF (see designation_import.py's own
+  // "Undo scope" docstring section), not SANCTIONED_STRENGTH's richer undo.
+  DESIGNATION: "designation",
 };
 
 // Which list page's query to refresh once this undo has touched live rows
 // for that entity -- mirrors each page's own useQuery queryKey
 // (SanctionedStrengthPage's register query, LocationsPage's/
-// HousekeepingStaffListPage's/DepartmentsPage's own full-list query).
+// HousekeepingStaffListPage's/DepartmentsPage's/DesignationsPage's own
+// full-list query).
 const REFRESH_QUERY_KEY: Record<BulkUploadEntityType, string> = {
   SANCTIONED_STRENGTH: "sanctioned-strength-register",
   LOCATION: "locations",
   HOUSEKEEPING_STAFF: "housekeeping-staff",
   DEPARTMENT: "departments",
   ELIGIBILITY_RULE: "eligibility-rules",
+  DESIGNATION: "designations",
 };
 
 export interface UndoBulkUploadDialogProps {

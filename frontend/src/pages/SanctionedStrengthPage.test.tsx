@@ -228,8 +228,8 @@ function mockTeachingFilterData() {
     { id: "d-mech", campus_id: "c-sse", name: "Mechanical Engineering", code: "MECH", category: "TEACHING", parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
   ] satisfies DepartmentRead[]);
   mockedListDesignations.mockResolvedValue([
-    { id: "des-1", name: "Assistant Professor", category: "TEACHING", qualification: "PhD", min_experience: "0+ years", employment_type: "FULL_TIME", is_active: true, department_ids: ["d-cse"], created_at: now, updated_at: now },
-    { id: "des-2", name: "Professor", category: "TEACHING", qualification: "PhD", min_experience: "10+ years", employment_type: "FULL_TIME", is_active: true, department_ids: ["d-mech"], created_at: now, updated_at: now },
+    { id: "des-1", name: "Assistant Professor", category: "TEACHING", qualification: "PhD", min_experience: "0+ years", employment_type: "FULL_TIME", required_skills: null, is_active: true, department_ids: ["d-cse"], created_at: now, updated_at: now },
+    { id: "des-2", name: "Professor", category: "TEACHING", qualification: "PhD", min_experience: "10+ years", employment_type: "FULL_TIME", required_skills: null, is_active: true, department_ids: ["d-mech"], created_at: now, updated_at: now },
   ] satisfies DesignationRead[]);
   mockedListLocations.mockResolvedValue([
     { id: "loc-1", campus_id: "c-sse", name: "Block A", block_building: "A", floor_venue: "1st Floor", category: "TEACHING", is_active: true, created_at: now, updated_at: now },
@@ -317,8 +317,8 @@ function mockNonTeachingFilterData() {
     { id: "d-lib", campus_id: "c-sse", name: "Library", code: "LIB", category: "NON_TEACHING", parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
   ] satisfies DepartmentRead[]);
   mockedListDesignations.mockResolvedValue([
-    { id: "des-10", name: "Office Assistant", category: "NON_TEACHING", qualification: "Any Degree", min_experience: "0+ years", employment_type: "FULL_TIME", is_active: true, department_ids: ["d-admin"], created_at: now, updated_at: now },
-    { id: "des-11", name: "Librarian", category: "NON_TEACHING", qualification: "MLIS", min_experience: "2+ years", employment_type: "FULL_TIME", is_active: true, department_ids: ["d-lib"], created_at: now, updated_at: now },
+    { id: "des-10", name: "Office Assistant", category: "NON_TEACHING", qualification: "Any Degree", min_experience: "0+ years", employment_type: "FULL_TIME", required_skills: null, is_active: true, department_ids: ["d-admin"], created_at: now, updated_at: now },
+    { id: "des-11", name: "Librarian", category: "NON_TEACHING", qualification: "MLIS", min_experience: "2+ years", employment_type: "FULL_TIME", required_skills: null, is_active: true, department_ids: ["d-lib"], created_at: now, updated_at: now },
   ] satisfies DesignationRead[]);
   mockedListLocations.mockResolvedValue([
     { id: "loc-2", campus_id: "c-sse", name: "Block B", block_building: "B", floor_venue: "Ground Floor", category: "NON_TEACHING", is_active: true, created_at: now, updated_at: now },
@@ -418,6 +418,7 @@ const HK_DESIGNATION: DesignationRead = {
   qualification: "10th pass",
   min_experience: "0+ years",
   employment_type: "FULL_TIME",
+  required_skills: null,
   is_active: true,
   department_ids: [],
   created_at: "2026-01-01T00:00:00Z",
@@ -1268,6 +1269,7 @@ describe("SanctionedStrengthPage", () => {
           qualification: "PhD",
           min_experience: "5+ years",
           employment_type: "FULL_TIME",
+          required_skills: null,
           is_active: true,
           department_ids: ["d-cse"],
           created_at: "2026-01-01T00:00:00Z",
@@ -1280,6 +1282,7 @@ describe("SanctionedStrengthPage", () => {
           qualification: "BSc",
           min_experience: "1+ years",
           employment_type: "FULL_TIME",
+          required_skills: null,
           is_active: true,
           department_ids: ["d-cse"],
           created_at: "2026-01-01T00:00:00Z",
