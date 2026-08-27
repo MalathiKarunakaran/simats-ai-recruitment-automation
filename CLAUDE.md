@@ -141,9 +141,20 @@ build` does via `tsc -b && vite build`); `--force` avoids stale
 venv/Scripts/python.exe -m pip install -r requirements-dev.txt
 cp .env.example .env   # then edit JWT_SECRET_KEY etc.
 
-# Postgres (5434) + MinIO (9000/9001) + ChromaDB (8012) — ports offset from
-# defaults, see docker-compose.yml comments for why
-docker compose up -d
+# Postgres: runs as a NATIVE Windows service (postgresql-x64-18) on the
+# default port 5432 — Docker Desktop was uninstalled from this machine
+# 2026-08-05, so `docker compose up -d` does NOT work for local dev and
+# `docker` is not on PATH at all. (Postgres was on 5434 back when it ran in
+# Docker; .env's DATABASE_URL already points at 5432.) docker-compose.yml is
+# still real and still used — but for PRODUCTION on the Hostinger VPS only,
+# see DEPLOYMENT.md.
+#
+# MinIO (9000/9001) and ChromaDB (8012) are NOT running locally. Everything
+# that touches them degrades gracefully rather than erroring: bulk-upload
+# archival falls back to a `storage_warning` in the response (see commit
+# c81ceb4), so the whole master-data/bulk-upload surface is fully testable
+# locally without them. Start them separately only if working on resume
+# storage or semantic matching specifically.
 
 venv/Scripts/python.exe -m alembic upgrade head
 venv/Scripts/python.exe -m app.db.seed        # idempotent
