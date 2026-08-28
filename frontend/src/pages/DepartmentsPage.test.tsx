@@ -743,4 +743,41 @@ describe("DepartmentsPage", () => {
     expect(within(row).getByText("TEACHING")).toBeInTheDocument();
     expect(within(row).getByText("NON TEACHING")).toBeInTheDocument();
   });
+
+  // Reported from production 2026-08-28: ticking a second category on an
+  // EXISTING department appeared to save (200 OK) but changed nothing. The
+  // create path was covered; the edit path was not.
+  it("adds a second staff category to an existing department from the edit dialog", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(paginated([CSE]));
+    mockedUpdateDepartment.mockResolvedValue({
+      ...CSE,
+      supported_categories: ["TEACHING", "NON_TEACHING"],
+    });
+
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument(),
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "More actions for Computer Science and Engineering" }),
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+
+    // Prefilled from the department: TEACHING ticked, the others not.
+    expect(screen.getByLabelText("TEACHING")).toBeChecked();
+    expect(screen.getByLabelText("NON TEACHING")).not.toBeChecked();
+
+    await userEvent.click(screen.getByLabelText("NON TEACHING"));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(mockedUpdateDepartment).toHaveBeenCalledWith(
+        "d-cse",
+        expect.objectContaining({ supported_categories: ["TEACHING", "NON_TEACHING"] }),
+      ),
+    );
+  }, 15000);
 });
