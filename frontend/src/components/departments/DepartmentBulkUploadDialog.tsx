@@ -49,14 +49,18 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 
 type RowStatusFilter = "ALL" | BulkUploadRowStatus;
 
-// Cosmetic display-only formatting for the preview table's Category column --
-// the real persisted enum value stays NON_TEACHING (underscore); this just
-// renders it with a hyphen ("NON-TEACHING") to match the exact wording the
-// user's own bulk-upload spec uses, without touching the backend template
-// generation or the accepted-values parsing logic.
-function formatCategoryDisplay(category: string | null): string {
-  if (!category) return "—";
-  return category === "NON_TEACHING" ? "NON-TEACHING" : category.replace(/_/g, " ");
+// Cosmetic display-only formatting for the preview table's Supported Staff
+// Categories column -- the real persisted enum values stay NON_TEACHING
+// (underscore); this just renders them with a hyphen ("NON-TEACHING") to
+// match the exact wording the user's own bulk-upload spec uses, without
+// touching the backend template generation or the accepted-values parsing
+// logic. Multi-valued since 2026-08-28, joined the same way the spreadsheet
+// cell itself is written.
+function formatCategoryDisplay(categories: string[] | null): string {
+  if (!categories || categories.length === 0) return "—";
+  return categories
+    .map((category) => (category === "NON_TEACHING" ? "NON-TEACHING" : category.replace(/_/g, " ")))
+    .join(", ");
 }
 
 const ROW_STATUS_FILTERS: { value: RowStatusFilter; label: string }[] = [
@@ -120,7 +124,7 @@ function PreviewTable({
                 <TableHead>Campus</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Code</TableHead>
-                <TableHead>Category</TableHead>
+                <TableHead>Staff Categories</TableHead>
                 <TableHead>Parent group</TableHead>
               </TableRow>
             </TableHeader>
@@ -143,7 +147,7 @@ function PreviewTable({
                   <TableCell>{row.campus_code ?? "—"}</TableCell>
                   <TableCell>{row.department_name ?? "—"}</TableCell>
                   <TableCell>{row.department_code ?? "—"}</TableCell>
-                  <TableCell>{formatCategoryDisplay(row.category)}</TableCell>
+                  <TableCell>{formatCategoryDisplay(row.supported_categories)}</TableCell>
                   <TableCell>{row.parent_group ?? "—"}</TableCell>
                 </TableRow>
                 {row.error_reason ? (

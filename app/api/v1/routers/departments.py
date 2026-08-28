@@ -58,7 +58,7 @@ _SORT_FIELDS = Literal["name", "code", "category", "campus", "parent_group", "is
 _SORT_COLUMNS = {
     "name": Department.name,
     "code": Department.code,
-    "category": Department.category,
+    "category": Department.supported_categories,
     "parent_group": Department.parent_group,
     "is_active": Department.is_active,
 }
@@ -69,7 +69,7 @@ def _department_snapshot(department: Department) -> dict:
         "campus_id": department.campus_id,
         "name": department.name,
         "code": department.code,
-        "category": department.category.value if department.category else None,
+        "supported_categories": [category.value for category in department.supported_categories or []],
         "parent_group": department.parent_group,
         "description": department.description,
         "is_active": department.is_active,
@@ -201,14 +201,20 @@ def list_departments(
     # `category` itself narrows `query` below -- so switching category tabs
     # never changes another tab's displayed count. Same pattern as
     # designations.py::list_designations.
-    counts_query = query.with_entities(Department.category, func.count(Department.id)).group_by(Department.category)
-    category_counts: dict[str, int] = {member.value: 0 for member in StaffRoleCategoryEnum}
-    for row_category, row_count in counts_query.all():
-        category_counts[row_category.value] = row_count
-    category_counts["ALL"] = sum(category_counts[member.value] for member in StaffRoleCategoryEnum)
+    # One containment count per category rather than a GROUP BY: a
+    # department now belongs to several categories at once, so the counts
+    # deliberately OVERLAP and `ALL` is a distinct department count, not
+    # their sum. (Postgres also forbids a set-returning `unnest` alongside an
+    # aggregate in the same select list, so a single GROUP BY isn't available
+    # here anyway.) Each count is served by the GIN index on the column.
+    category_counts: dict[str, int] = {
+        member.value: query.filter(Department.supported_categories.contains([member])).count()
+        for member in StaffRoleCategoryEnum
+    }
+    category_counts["ALL"] = query.count()
 
     if category is not None:
-        query = query.filter(Department.category == category)
+        query = query.filter(Department.supported_categories.contains([category]))
 
     total = query.count()
     query = _apply_sort(query, sort_by, sort_dir)
@@ -255,7 +261,7 @@ def export_departments(
         db, scope, campus_id=campus_id, search=search, is_active=is_active, parent_group=parent_group
     )
     if category is not None:
-        query = query.filter(Department.category == category)
+        query = query.filter(Department.supported_categories.contains([category]))
     query = _apply_sort(query, sort_by, sort_dir)
     departments = query.options(selectinload(Department.campus)).all()
 
@@ -264,7 +270,7 @@ def export_departments(
             "campus_code": department.campus.code,
             "code": department.code,
             "name": department.name,
-            "category": department.category.value if department.category else None,
+            "supported_categories": department.supported_categories,
             "parent_group": department.parent_group,
             "description": department.description,
             "is_active": department.is_active,
@@ -298,13 +304,15 @@ def create_department(
         campus_id=payload.campus_id,
         name=payload.name,
         code=payload.code,
-        # category stays optional at the API level (existing RBAC test relies
-        # on a category-less payload still reaching the role check rather
-        # than 422ing first) -- but the column is NOT NULL, so an omitted
-        # category falls back to the same "ambiguous -> NON_TEACHING" default
-        # the Phase 1 backfill migration used, rather than passing an
-        # explicit None that would bypass the model's own Python-side default.
-        category=payload.category or StaffRoleCategoryEnum.NON_TEACHING,
+        # supported_categories stays optional at the API level (an existing
+        # RBAC test relies on a category-less payload still reaching the role
+        # check rather than 422ing first) -- but the column is NOT NULL, so
+        # an omitted value falls back to the same "ambiguous ->
+        # NON_TEACHING" default the original backfill used, rather than
+        # passing an explicit None that would bypass the model's own
+        # Python-side default. An explicitly EMPTY list is a different thing
+        # and is rejected by the schema.
+        supported_categories=payload.supported_categories or [StaffRoleCategoryEnum.NON_TEACHING],
         parent_group=payload.parent_group,
         description=payload.description,
         is_active=payload.is_active,
@@ -346,8 +354,8 @@ def update_department(
         department.name = payload.name
     if payload.code is not None:
         department.code = payload.code
-    if payload.category is not None:
-        department.category = payload.category
+    if payload.supported_categories is not None:
+        department.supported_categories = payload.supported_categories
     if payload.parent_group is not None:
         department.parent_group = payload.parent_group
     if payload.description is not None:
@@ -455,7 +463,7 @@ def _row_to_preview(row: department_import.ImportRowResult) -> DepartmentBulkUpl
         campus_code=row.campus_code,
         department_code=row.department_code,
         department_name=row.department_name,
-        category=row.category,
+        supported_categories=row.supported_categories,
         parent_group=row.parent_group,
         description=row.description,
         is_active=row.is_active,

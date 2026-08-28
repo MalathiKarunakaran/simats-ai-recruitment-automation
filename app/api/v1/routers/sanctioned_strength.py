@@ -659,14 +659,16 @@ def create_sanctioned_strength(
     if designation is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown designation_id")
 
-    # Item 6: block designations whose category does not match the
-    # department's category.
-    if designation.category != department.category:
+    # Item 6: block designations the department is not permitted to contain.
+    # A membership test since 2026-08-28 -- a department supports several
+    # staff categories at once, so equality against a single department
+    # category was wrong (see `Department.supported_categories`).
+    if not department.supports(designation.category):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Designation category ({designation.category.value}) does not match "
-                f"department category ({department.category.value})."
+                f"Department {department.code or department.name} does not support "
+                f"{designation.category.value} staff."
             ),
         )
 

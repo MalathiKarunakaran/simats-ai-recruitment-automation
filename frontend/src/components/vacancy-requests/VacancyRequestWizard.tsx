@@ -102,7 +102,10 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
   useEffect(() => {
     if (roleCategory !== null || !departmentParam || !departments) return;
     const department = departments.find((d) => d.id === departmentParam);
-    if (department?.category) setRoleCategory(department.category);
+    // Only pre-fill when the department leaves no choice. A department
+    // supporting several categories genuinely is ambiguous, so the user
+    // picks -- guessing would silently steer the whole request.
+    if (department?.supported_categories.length === 1) setRoleCategory(department.supported_categories[0]);
   }, [departments, departmentParam, roleCategory]);
 
   const { data: designations, isLoading: designationsLoading } = useQuery({
@@ -127,7 +130,10 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
   // wizard is create-only (no edit mode), so there's no "already-assigned
   // inactive department" case to preserve, unlike VacancyRequestForm.tsx.
   const departmentOptions = (departments ?? []).filter(
-    (d) => d.campus_id === campusId && d.is_active && (!d.category || d.category === roleCategory),
+    (d) =>
+      d.campus_id === campusId &&
+      d.is_active &&
+      (roleCategory === null || d.supported_categories.includes(roleCategory)),
   );
   const selectedDesignation = designations?.find((d) => d.id === designationId) ?? null;
   const hasDesignationOptions = (designations ?? []).length > 0;

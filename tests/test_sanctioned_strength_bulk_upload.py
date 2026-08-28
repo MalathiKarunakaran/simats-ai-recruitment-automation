@@ -60,7 +60,7 @@ def _upload_commit(client, actor, rows, filename: str = "upload.csv"):
 def bulk_upload_setup(campus_factory, department_factory, designation_factory, db_session, user_factory):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Bulk Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     designation = designation_factory(
         StaffRoleCategoryEnum.TEACHING, name=f"Bulk Designation {uuid.uuid4().hex[:6]}", department=department
     )
@@ -161,7 +161,7 @@ def test_validate_category_mismatch_is_rejected(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"NonTeach Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.NON_TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.NON_TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
@@ -170,7 +170,7 @@ def test_validate_category_mismatch_is_rejected(
     response = _upload_validate(client, hr_admin, [row])
     body = response.json()
     assert body["rejected_count"] == 1
-    assert "category" in body["rows"][0]["error_reason"].lower()
+    assert "does not support" in body["rows"][0]["error_reason"].lower()
 
 
 def test_validate_negative_strength_is_rejected(client, bulk_upload_setup):
@@ -348,7 +348,7 @@ def test_commit_rows_is_all_or_nothing_defense_in_depth(
     actor = bulk_upload_setup["hr_admin"]
 
     other_department = department_factory("SSE", name=f"Defense Dept {uuid.uuid4().hex[:6]}")
-    other_department.category = StaffRoleCategoryEnum.TEACHING
+    other_department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     other_designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=other_department)
     db_session.flush()
 

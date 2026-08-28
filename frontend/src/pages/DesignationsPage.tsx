@@ -472,7 +472,11 @@ export function DesignationsPage() {
   }
 
   function departmentIdsForCategory(category: StaffRoleCategory): Set<string> {
-    return new Set((departments ?? []).filter((d) => d.category === category).map((d) => d.id));
+    // Membership, not equality: CSE supports TEACHING and NON_TEACHING,
+    // so it is a valid target for designations of either.
+    return new Set(
+      (departments ?? []).filter((d) => d.supported_categories.includes(category)).map((d) => d.id),
+    );
   }
 
   function submit() {
@@ -598,7 +602,9 @@ export function DesignationsPage() {
                   <div className="flex flex-col gap-1.5">
                     <Label>Applicable departments</Label>
                     <DepartmentMultiSelect
-                      categoryDepartments={(departments ?? []).filter((d) => d.category === form.category)}
+                      categoryDepartments={(departments ?? []).filter((d) =>
+                        d.supported_categories.includes(form.category),
+                      )}
                       selectedIds={form.departmentIds}
                       onToggle={toggleDepartment}
                       onReplaceSelection={(ids) => setForm((f) => ({ ...f, departmentIds: ids }))}

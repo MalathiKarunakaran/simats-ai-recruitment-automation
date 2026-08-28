@@ -32,7 +32,7 @@ const DEPARTMENT: DepartmentRead = {
   campus_id: "c-sse",
   name: "Computer Science",
   code: null,
-  category: null,
+  supported_categories: [],
   parent_group: null,
   description: null,
   is_active: true,

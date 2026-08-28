@@ -249,7 +249,11 @@ export function TeachingStrengthTable({
   });
   const { data: locations } = useQuery({ queryKey: ["locations"], queryFn: listLocations });
 
-  const teachingDepartments = (departments ?? []).filter((department) => department.category === "TEACHING");
+  // Membership, not equality -- see NonTeachingStrengthTable for the
+  // same reasoning.
+  const teachingDepartments = (departments ?? []).filter((department) =>
+    department.supported_categories.includes("TEACHING"),
+  );
   // Location.category is nullable (a building can serve multiple
   // categories, per this epic's plan) -- offered here whenever it's either
   // unset or explicitly TEACHING, never for a Location scoped to a

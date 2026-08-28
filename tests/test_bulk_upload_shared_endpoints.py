@@ -43,7 +43,7 @@ DEPARTMENT_HEADERS = [
     "Campus Code",
     "Department Code",
     "Department Name",
-    "Category",
+    "Supported Staff Categories",
     "Parent Group",
     "Description",
     "Active",
@@ -459,7 +459,7 @@ def test_sanctioned_strength_undo_still_reports_zero_not_reverted(
     row has a real SanctionedStrengthHistory.old_value to replay)."""
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Compat Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 

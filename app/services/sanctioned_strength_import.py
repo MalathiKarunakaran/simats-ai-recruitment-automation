@@ -253,10 +253,10 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
             if designation is None:
                 errors.append(f"Unknown designation '{designation_name}'")
 
-        if department is not None and designation is not None and designation.category != department.category:
+        if department is not None and designation is not None and not department.supports(designation.category):
             errors.append(
-                f"Designation category ({designation.category.value}) does not match "
-                f"department category ({department.category.value})"
+                f"Department {department.code or department.name} does not support "
+                f"{designation.category.value} staff"
             )
 
         if campus_code and department_name and designation_name:

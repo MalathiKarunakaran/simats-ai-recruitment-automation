@@ -126,7 +126,7 @@ def test_sanctioned_strength_feeds_approved_count_regardless_of_request_publish_
     this department has been published yet."""
     campus = campus_factory("SPIER")
     department = department_factory("SPIER", name=f"Sanctioned-Unpublished {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SPIER")
     dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
@@ -321,9 +321,9 @@ def test_sort_by_vacancy_count_desc_reorders(
 def test_category_filter(client, campus_factory, department_factory, user_factory, db_session):
     campus_factory("SPIER")
     teaching_dept = department_factory("SPIER", name="Teaching Dept")
-    teaching_dept.category = StaffRoleCategoryEnum.TEACHING
+    teaching_dept.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     non_teaching_dept = department_factory("SPIER", name="NonTeaching Dept")
-    non_teaching_dept.category = StaffRoleCategoryEnum.NON_TEACHING
+    non_teaching_dept.supported_categories = [StaffRoleCategoryEnum.NON_TEACHING]
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 
@@ -337,13 +337,13 @@ def test_category_counts_reflect_full_set_regardless_of_selected_category(
 ):
     campus_factory("SPIER")
     teaching_dept = department_factory("SPIER", name="Counts Teaching Dept")
-    teaching_dept.category = StaffRoleCategoryEnum.TEACHING
+    teaching_dept.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     non_teaching_dept_1 = department_factory("SPIER", name="Counts NonTeaching Dept 1")
-    non_teaching_dept_1.category = StaffRoleCategoryEnum.NON_TEACHING
+    non_teaching_dept_1.supported_categories = [StaffRoleCategoryEnum.NON_TEACHING]
     non_teaching_dept_2 = department_factory("SPIER", name="Counts NonTeaching Dept 2")
-    non_teaching_dept_2.category = StaffRoleCategoryEnum.NON_TEACHING
+    non_teaching_dept_2.supported_categories = [StaffRoleCategoryEnum.NON_TEACHING]
     housekeeping_dept = department_factory("SPIER", name="Counts Housekeeping Dept")
-    housekeeping_dept.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    housekeeping_dept.supported_categories = [StaffRoleCategoryEnum.HOUSEKEEPING]
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 
@@ -769,7 +769,7 @@ def test_breakdown_includes_location_fields(
 
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Location Breakdown Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    department.supported_categories = [StaffRoleCategoryEnum.HOUSEKEEPING]
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 
     location = Location(campus_id=campus.id, name="Central Block")

@@ -19,7 +19,15 @@ from tests.conftest import auth_headers
 
 ENDPOINT = "/api/v1/departments"
 
-HEADERS = ["Campus Code", "Department Code", "Department Name", "Category", "Parent Group", "Description", "Active"]
+HEADERS = [
+    "Campus Code",
+    "Department Code",
+    "Department Name",
+    "Supported Staff Categories",
+    "Parent Group",
+    "Description",
+    "Active",
+]
 
 
 def _csv_bytes(rows: list[list]) -> bytes:
@@ -168,7 +176,7 @@ def test_validate_missing_category_is_rejected(client, department_upload_setup):
     response = _upload_validate(client, department_upload_setup["hr_admin"], [row])
     body = response.json()
     assert body["rejected_count"] == 1
-    assert "Category" in body["rows"][0]["error_reason"]
+    assert "Supported Staff Categories" in body["rows"][0]["error_reason"]
 
 
 def test_validate_invalid_category_is_rejected(client, department_upload_setup):
@@ -176,7 +184,7 @@ def test_validate_invalid_category_is_rejected(client, department_upload_setup):
     response = _upload_validate(client, department_upload_setup["hr_admin"], [row])
     body = response.json()
     assert body["rejected_count"] == 1
-    assert "Category" in body["rows"][0]["error_reason"]
+    assert "Supported Staff Categories" in body["rows"][0]["error_reason"]
 
 
 def test_validate_parent_group_and_description_are_free_text_no_validation(client, department_upload_setup):
@@ -295,7 +303,7 @@ def test_commit_re_stamps_all_changed_fields_on_update(client, department_upload
     db_session.refresh(existing)
     assert existing.name == "Computer Science"
     assert existing.parent_group == "Engineering"
-    assert existing.category == StaffRoleCategoryEnum.NON_TEACHING
+    assert existing.supported_categories == [StaffRoleCategoryEnum.NON_TEACHING]
 
 
 def test_commit_skips_rejected_rows(client, department_upload_setup, db_session):
@@ -333,3 +341,63 @@ def test_template_forbidden_for_non_write_role(client, department_upload_setup):
         f"{ENDPOINT}/bulk-upload/template", headers=auth_headers(client, department_upload_setup["hod"])
     )
     assert response.status_code == 403
+
+
+# --- multi-valued Supported Staff Categories (2026-08-28) -------------------
+
+
+def test_validate_parses_several_comma_separated_categories(client, department_upload_setup, db_session):
+    row = _row(department_upload_setup, category="TEACHING,NON_TEACHING")
+    response = _upload_validate(client, department_upload_setup["hr_admin"], [row])
+    body = response.json()
+    assert body["rejected_count"] == 0, body["rows"][0]["error_reason"]
+    assert body["rows"][0]["supported_categories"] == ["TEACHING", "NON_TEACHING"]
+
+
+def test_validate_tolerates_hyphens_spaces_and_duplicates_in_the_category_cell(
+    client, department_upload_setup
+):
+    row = _row(department_upload_setup, category=" Teaching , Non-Teaching , TEACHING ")
+    response = _upload_validate(client, department_upload_setup["hr_admin"], [row])
+    body = response.json()
+    assert body["rejected_count"] == 0, body["rows"][0]["error_reason"]
+    # Duplicates collapse, order of first appearance is kept.
+    assert body["rows"][0]["supported_categories"] == ["TEACHING", "NON_TEACHING"]
+
+
+def test_validate_rejects_a_partially_unknown_category_list(client, department_upload_setup):
+    row = _row(department_upload_setup, category="TEACHING,BOGUS")
+    response = _upload_validate(client, department_upload_setup["hr_admin"], [row])
+    body = response.json()
+    assert body["rejected_count"] == 1
+    assert "BOGUS" in body["rows"][0]["error_reason"]
+
+
+def test_commit_persists_every_supported_category(client, department_upload_setup, db_session):
+    row = _row(department_upload_setup, code="CSEMULTI", category="TEACHING,NON_TEACHING")
+    response = _upload_commit(client, department_upload_setup["hr_admin"], [row])
+    assert response.status_code == 200, response.text
+    saved = db_session.query(Department).filter(Department.code == "CSEMULTI").one()
+    assert saved.supported_categories == [
+        StaffRoleCategoryEnum.TEACHING,
+        StaffRoleCategoryEnum.NON_TEACHING,
+    ]
+
+
+def test_reordering_the_category_cell_alone_is_unchanged_not_updated(
+    client, department_upload_setup, department_factory
+):
+    """Category order carries no meaning, so a row that only permutes it must
+    not report a spurious `updated` -- the diff compares as a set."""
+    department_factory(
+        "SSE",
+        name="Computer Science",
+        code="CSEORDER",
+        parent_group="Engineering",
+        description=None,
+        supported_categories=[StaffRoleCategoryEnum.TEACHING, StaffRoleCategoryEnum.NON_TEACHING],
+    )
+    row = _row(department_upload_setup, code="CSEORDER", category="NON_TEACHING,TEACHING")
+    response = _upload_validate(client, department_upload_setup["hr_admin"], [row])
+    body = response.json()
+    assert body["rows"][0]["status"] == "unchanged", body["rows"][0]

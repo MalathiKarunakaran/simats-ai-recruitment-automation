@@ -66,7 +66,7 @@ const PHYSICS: DepartmentRead = {
   campus_id: "c-sse",
   name: "Physics",
   code: "PHY",
-  category: "TEACHING",
+  supported_categories: ["TEACHING"],
   parent_group: null,
   description: null,
   is_active: true,

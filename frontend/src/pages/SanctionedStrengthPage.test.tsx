@@ -73,7 +73,7 @@ const CSE_ROW: VacancyRegisterRow = {
   department_id: "d-cse",
   department_name: "Computer Science",
   department_code: "CSE",
-  category: "TEACHING",
+  supported_categories: ["TEACHING"],
   is_active: true,
   campus_id: "c-sse",
   campus_code: "SSE",
@@ -100,7 +100,7 @@ const MECH_ROW: VacancyRegisterRow = {
   department_id: "d-mech",
   department_name: "Mechanical Engineering",
   department_code: "MECH",
-  category: "TEACHING",
+  supported_categories: ["TEACHING"],
   is_active: true,
   campus_id: "c-scad",
   campus_code: "SCAD",
@@ -134,9 +134,9 @@ function paginated(
     limit: 50,
     offset: 0,
     category_counts: categoryCounts ?? {
-      TEACHING: items.filter((r) => r.category === "TEACHING").length,
-      NON_TEACHING: items.filter((r) => r.category === "NON_TEACHING").length,
-      HOUSEKEEPING: items.filter((r) => r.category === "HOUSEKEEPING").length,
+      TEACHING: items.filter((r) => r.supported_categories.includes("TEACHING")).length,
+      NON_TEACHING: items.filter((r) => r.supported_categories.includes("NON_TEACHING")).length,
+      HOUSEKEEPING: items.filter((r) => r.supported_categories.includes("HOUSEKEEPING")).length,
       ALL: items.length,
     },
   };
@@ -224,8 +224,8 @@ function paginatedTeaching(
 function mockTeachingFilterData() {
   const now = "2026-01-01T00:00:00Z";
   mockedListDepartments.mockResolvedValue([
-    { id: "d-cse", campus_id: "c-sse", name: "Computer Science", code: "CSE", category: "TEACHING", parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
-    { id: "d-mech", campus_id: "c-sse", name: "Mechanical Engineering", code: "MECH", category: "TEACHING", parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
+    { id: "d-cse", campus_id: "c-sse", name: "Computer Science", code: "CSE", supported_categories: ["TEACHING"], parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
+    { id: "d-mech", campus_id: "c-sse", name: "Mechanical Engineering", code: "MECH", supported_categories: ["TEACHING"], parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
   ] satisfies DepartmentRead[]);
   mockedListDesignations.mockResolvedValue([
     { id: "des-1", name: "Assistant Professor", category: "TEACHING", qualification: "PhD", min_experience: "0+ years", employment_type: "FULL_TIME", required_skills: null, is_active: true, department_ids: ["d-cse"], created_at: now, updated_at: now },
@@ -313,8 +313,8 @@ function paginatedNonTeaching(
 function mockNonTeachingFilterData() {
   const now = "2026-01-01T00:00:00Z";
   mockedListDepartments.mockResolvedValue([
-    { id: "d-admin", campus_id: "c-sse", name: "Administration", code: "ADMIN", category: "NON_TEACHING", parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
-    { id: "d-lib", campus_id: "c-sse", name: "Library", code: "LIB", category: "NON_TEACHING", parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
+    { id: "d-admin", campus_id: "c-sse", name: "Administration", code: "ADMIN", supported_categories: ["NON_TEACHING"], parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
+    { id: "d-lib", campus_id: "c-sse", name: "Library", code: "LIB", supported_categories: ["NON_TEACHING"], parent_group: null, description: null, is_active: true, created_at: now, updated_at: now },
   ] satisfies DepartmentRead[]);
   mockedListDesignations.mockResolvedValue([
     { id: "des-10", name: "Office Assistant", category: "NON_TEACHING", qualification: "Any Degree", min_experience: "0+ years", employment_type: "FULL_TIME", required_skills: null, is_active: true, department_ids: ["d-admin"], created_at: now, updated_at: now },

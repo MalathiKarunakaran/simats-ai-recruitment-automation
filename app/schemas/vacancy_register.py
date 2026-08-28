@@ -22,7 +22,7 @@ class VacancyRegisterRow(BaseModel):
     department_id: uuid.UUID
     department_name: str
     department_code: str | None
-    category: StaffRoleCategoryEnum | None
+    supported_categories: list[StaffRoleCategoryEnum]
     is_active: bool
     campus_id: uuid.UUID
     campus_code: str

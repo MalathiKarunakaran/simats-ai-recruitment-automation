@@ -388,7 +388,9 @@ def test_validate_department_code_category_mismatch_is_rejected(
     assert body["rejected_count"] == 1
     assert "FAC" in body["rows"][0]["error_reason"]
     assert "Facilities" in body["rows"][0]["error_reason"]
-    assert "HOUSEKEEPING" in body["rows"][0]["error_reason"]
+    # The message now names the category the department does NOT support
+    # (the designation's own), rather than the department's single category.
+    assert "does not support TEACHING staff" in body["rows"][0]["error_reason"]
 
 
 def test_validate_multiple_department_codes_split_by_comma_and_semicolon(
@@ -568,3 +570,76 @@ def test_template_forbidden_for_non_write_role(client, designation_upload_setup)
         f"{ENDPOINT}/bulk-upload/template", headers=auth_headers(client, designation_upload_setup["hr_admin"])
     )
     assert response.status_code == 403
+
+
+# --- multi-category departments (2026-08-28) --------------------------------
+# A department is a place, not a staff category: CSE employs Assistant
+# Professors (TEACHING) and Lab Assistants (NON_TEACHING) at the same time.
+# Before `Department.supported_categories` these uploads were rejected
+# outright, which is the bug the whole change exists to fix.
+
+
+@pytest.fixture()
+def mixed_department(department_factory):
+    """CSE, supporting TEACHING and NON_TEACHING but NOT HOUSEKEEPING."""
+    return department_factory(
+        "SSE",
+        # A distinct name from designation_upload_setup's own "Computer
+        # Science" -- (campus_id, name) is uniquely constrained.
+        name="Computer Science (Mixed)",
+        code="CSEMIX",
+        supported_categories=[StaffRoleCategoryEnum.TEACHING, StaffRoleCategoryEnum.NON_TEACHING],
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "category"),
+    [
+        ("Assistant Professor", "TEACHING"),
+        ("Lab Assistant", "NON_TEACHING"),
+        ("Technical Assistant", "NON_TEACHING"),
+    ],
+)
+def test_validate_accepts_any_category_the_department_supports(
+    client, designation_upload_setup, mixed_department, name, category
+):
+    row = _row(designation_upload_setup, name=name, category=category, department_codes="CSEMIX")
+    response = _upload_validate(client, designation_upload_setup["super_admin"], [row])
+    body = response.json()
+    assert body["rejected_count"] == 0, body["rows"][0]["error_reason"]
+    assert body["created_count"] == 1
+
+
+def test_validate_rejects_a_category_the_department_does_not_support(
+    client, designation_upload_setup, mixed_department
+):
+    # CSEMIX supports TEACHING and NON_TEACHING, but never HOUSEKEEPING.
+    row = _row(
+        designation_upload_setup,
+        name="Housekeeping Attendant",
+        category="HOUSEKEEPING",
+        department_codes="CSEMIX",
+    )
+    response = _upload_validate(client, designation_upload_setup["super_admin"], [row])
+    body = response.json()
+    assert body["rejected_count"] == 1
+    reason = body["rows"][0]["error_reason"]
+    assert "CSEMIX" in reason
+    assert "does not support HOUSEKEEPING staff" in reason
+
+
+def test_commit_persists_a_non_teaching_designation_on_a_teaching_department(
+    client, designation_upload_setup, mixed_department, db_session
+):
+    """The end-to-end shape of the reported failure: a NON_TEACHING Lab
+    Assistant committed against a department that also holds TEACHING staff."""
+    row = _row(
+        designation_upload_setup, name="Lab Assistant", category="NON_TEACHING", department_codes="CSEMIX"
+    )
+    response = _upload_commit(client, designation_upload_setup["super_admin"], [row])
+    assert response.status_code == 200, response.text
+    assert response.json()["rejected_count"] == 0
+
+    saved = db_session.query(Designation).filter(Designation.name == "Lab Assistant").one()
+    assert saved.category == StaffRoleCategoryEnum.NON_TEACHING
+    assert [department.code for department in saved.departments] == ["CSEMIX"]

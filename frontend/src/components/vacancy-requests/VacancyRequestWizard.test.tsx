@@ -39,7 +39,10 @@ const DEPARTMENTS = [
     campus_id: "c-sse",
     name: "Computer Science",
     code: null,
-    category: null,
+    // A real department is never empty here, and CSE genuinely holds both --
+    // which also exercises the wizard's "don't guess when it's ambiguous"
+    // pre-fill rule. The single-category case is covered separately below.
+    supported_categories: ["TEACHING" as const, "NON_TEACHING" as const],
     parent_group: null,
     description: null,
     is_active: true,
@@ -238,7 +241,9 @@ describe("VacancyRequestWizard", () => {
       logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
-    mockedListDepartments.mockResolvedValue([{ ...DEPARTMENTS[0], category: "TEACHING" as const }]);
+    mockedListDepartments.mockResolvedValue([
+      { ...DEPARTMENTS[0], supported_categories: ["TEACHING" as const] },
+    ]);
     mockedListDesignations.mockResolvedValue(DESIGNATIONS);
     mockedGetAvailability.mockResolvedValue({
       approved: 5,

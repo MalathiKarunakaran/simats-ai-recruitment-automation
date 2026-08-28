@@ -80,7 +80,7 @@ MAX_ROWS = 5000
 CAMPUS_HEADER = "Campus Code"
 CODE_HEADER = "Department Code"
 NAME_HEADER = "Department Name"
-CATEGORY_HEADER = "Category"
+CATEGORY_HEADER = "Supported Staff Categories"
 PARENT_GROUP_HEADER = "Parent Group"
 DESCRIPTION_HEADER = "Description"
 ACTIVE_HEADER = "Active"
@@ -99,7 +99,15 @@ TEMPLATE_HEADERS = (
 # "XXX" is never a real campus code, so a forgotten example row always comes
 # back rejected rather than silently importing as real data.
 _EXAMPLE_ROWS = (
-    ("XXX", "CSE", "EXAMPLE - DELETE THIS ROW - Computer Science Engineering", "TEACHING", "Engineering", "", "TRUE"),
+    (
+        "XXX",
+        "CSE",
+        "EXAMPLE - DELETE THIS ROW - Computer Science Engineering",
+        "TEACHING,NON_TEACHING",
+        "Engineering",
+        "",
+        "TRUE",
+    ),
     ("XXX", "IT", "EXAMPLE - DELETE THIS ROW - Information Technology", "TEACHING", "Engineering", "", "TRUE"),
 )
 
@@ -118,7 +126,7 @@ class ImportRowResult:
     campus_code: str | None = None
     department_code: str | None = None
     department_name: str | None = None
-    category: StaffRoleCategoryEnum | None = None
+    supported_categories: list[StaffRoleCategoryEnum] | None = None
     parent_group: str | None = None
     description: str | None = None
     is_active: bool | None = None
@@ -163,13 +171,43 @@ def _composite_key(campus_code: str, department_code: str) -> tuple[str, str]:
     return (_normalize(campus_code), _normalize(department_code))
 
 
-def _parse_category(text: str) -> tuple[StaffRoleCategoryEnum | None, str | None]:
+def _parse_category(text: str) -> tuple[list[StaffRoleCategoryEnum] | None, str | None]:
+    """Parse the comma-separated `Supported Staff Categories` cell.
+
+    Multi-valued since 2026-08-28 -- a department contains several staff
+    categories at once ("TEACHING,NON_TEACHING"). A single bare value stays
+    valid and yields a one-element list, so every workbook written against
+    the old single-`Category` template still imports unchanged.
+
+    Separator is a comma; hyphens and spaces inside a value are folded to
+    underscores ("Non-Teaching" -> "NON_TEACHING") with the same tolerance
+    `designation_import._parse_category` already applies. Duplicates within
+    the cell are collapsed rather than rejected -- "TEACHING,TEACHING" is
+    clumsy, not wrong.
+    """
     if not text:
         return None, f"Missing required column '{CATEGORY_HEADER}'"
-    upper = text.upper()
-    if upper not in _CATEGORY_VALUES:
-        return None, f"Unknown '{CATEGORY_HEADER}' value '{text}'. Valid values: {', '.join(_CATEGORY_VALUES)}"
-    return StaffRoleCategoryEnum(upper), None
+    parsed: list[StaffRoleCategoryEnum] = []
+    unknown: list[str] = []
+    for part in text.split(","):
+        raw = part.strip()
+        if not raw:
+            continue
+        token = re.sub(r"[\s-]+", "_", raw).upper()
+        if token not in _CATEGORY_VALUES:
+            unknown.append(raw)
+            continue
+        member = StaffRoleCategoryEnum(token)
+        if member not in parsed:
+            parsed.append(member)
+    if unknown:
+        return None, (
+            f"Unknown '{CATEGORY_HEADER}' value(s) {', '.join(repr(value) for value in unknown)}. "
+            f"Valid values: {', '.join(_CATEGORY_VALUES)}"
+        )
+    if not parsed:
+        return None, f"Missing required column '{CATEGORY_HEADER}'"
+    return parsed, None
 
 
 def _parse_active(text: str) -> tuple[bool | None, str | None]:
@@ -259,7 +297,7 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
             campus_code=campus_code or None,
             department_code=department_code or None,
             department_name=department_name or None,
-            category=category,
+            supported_categories=category,
             parent_group=parent_group,
             description=description,
             is_active=is_active,
@@ -296,7 +334,7 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
         elif (
             existing.code != department_code
             or existing.name != department_name
-            or existing.category != category
+            or set(existing.supported_categories or []) != set(category or [])
             or existing.parent_group != parent_group
             or existing.description != description
             or existing.is_active != is_active
@@ -339,7 +377,7 @@ def commit_rows(db: Session, *, validation: ValidationResult, bulk_upload_log_id
                 campus_id=row.campus_id,
                 code=row.department_code,
                 name=row.department_name,
-                category=row.category,
+                supported_categories=row.supported_categories,
                 parent_group=row.parent_group,
                 description=row.description,
                 is_active=row.is_active,
@@ -358,7 +396,7 @@ def commit_rows(db: Session, *, validation: ValidationResult, bulk_upload_log_id
             existing = db.get(Department, row.department_id)
             existing.code = row.department_code
             existing.name = row.department_name
-            existing.category = row.category
+            existing.supported_categories = row.supported_categories
             existing.parent_group = row.parent_group
             existing.description = row.description
             existing.is_active = row.is_active
@@ -416,10 +454,12 @@ def build_bulk_upload_template_xlsx(db: Session) -> bytes:
     ws.add_data_validation(campus_dv)
     campus_dv.add("A2:A500")
 
-    category_formula = '"' + ",".join(_CATEGORY_VALUES) + '"'
-    category_dv = DataValidation(type="list", formula1=category_formula, allow_blank=True, showDropDown=False)
-    ws.add_data_validation(category_dv)
-    category_dv.add("D2:D500")
+    # Deliberately NO data-validation dropdown on the Supported Staff
+    # Categories column: the cell holds a comma-separated LIST
+    # ("TEACHING,NON_TEACHING"), and an Excel list validation only accepts
+    # one of its literal members, so it would reject every multi-category
+    # value the column exists to carry. The Master Data sheet still lists the
+    # valid tokens for reference.
 
     active_formula = '"TRUE,FALSE"'
     active_dv = DataValidation(type="list", formula1=active_formula, allow_blank=True, showDropDown=False)
@@ -427,7 +467,7 @@ def build_bulk_upload_template_xlsx(db: Session) -> bytes:
     active_dv.add("G2:G500")
 
     master_ws = wb.create_sheet("Master Lists")
-    master_ws.append(["Campus Code", "Category"])
+    master_ws.append(["Campus Code", "Staff Category (combine with commas)"])
     for cell in master_ws[1]:
         cell.fill = _HEADER_FILL
         cell.font = _HEADER_FONT
@@ -462,7 +502,9 @@ def build_error_report_xlsx(log: BulkUploadLog, rejected_rows: list[ImportRowRes
                 row.campus_code,
                 row.department_code,
                 row.department_name,
-                row.category.value if row.category else None,
+                ",".join(category.value for category in row.supported_categories)
+                if row.supported_categories
+                else None,
                 row.parent_group,
                 row.description,
                 "TRUE" if row.is_active else ("FALSE" if row.is_active is not None else None),

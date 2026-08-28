@@ -628,12 +628,22 @@ def department_factory(db_session, campus_factory):
         campus_code: str,
         name: str | None = None,
         category: StaffRoleCategoryEnum | None = None,
+        supported_categories: list[StaffRoleCategoryEnum] | None = None,
         code: str | None = None,
         parent_group: str | None = None,
         description: str | None = None,
         is_active: bool = True,
     ) -> Department:
         campus = campus_factory(campus_code)
+        # `category=` is kept as the single-category shorthand it always was.
+        # Most callers pass it only to mean "a department that holds TEACHING
+        # staff", which is still exactly what a one-element
+        # supported_categories says -- so they needed no edit when the column
+        # went multi-valued (2026-08-28). Pass `supported_categories=` to
+        # build a department that holds more than one.
+        categories = supported_categories
+        if categories is None and category is not None:
+            categories = [category]
         department = Department(
             campus_id=campus.id,
             name=name or f"Dept-{uuid.uuid4().hex[:8]}",
@@ -641,7 +651,7 @@ def department_factory(db_session, campus_factory):
             parent_group=parent_group,
             description=description,
             is_active=is_active,
-            **({"category": category} if category is not None else {}),
+            **({"supported_categories": categories} if categories is not None else {}),
         )
         db_session.add(department)
         db_session.flush()

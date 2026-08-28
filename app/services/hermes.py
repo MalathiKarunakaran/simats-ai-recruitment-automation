@@ -195,7 +195,9 @@ def _serialize_vacancy_register_row(row: dict) -> dict:
         "department_id": str(row["department_id"]),
         "department_name": row["department_name"],
         "campus_code": row["campus_code"],
-        "category": row["category"].value if row["category"] is not None else None,
+        # A department supports several staff categories at once; the
+        # register still returns one row per department, so this is a list.
+        "supported_categories": [category.value for category in row["supported_categories"]],
         "working_count": row["working_count"],
         "approved_count": row["approved_count"],
         "vacancy_count": row["vacancy_count"],

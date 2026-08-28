@@ -71,33 +71,36 @@ def _resolve_departments(db: Session, department_ids: list[uuid.UUID]) -> list[D
     return departments
 
 
-def _mismatched_departments(
+def _unsupported_departments(
     departments: list[Department], expected_category: StaffRoleCategoryEnum
 ) -> list[Department]:
-    return [department for department in departments if department.category != expected_category]
+    return [department for department in departments if not department.supports(expected_category)]
 
 
 def _validate_department_categories(
     departments: list[Department], expected_category: StaffRoleCategoryEnum
 ) -> None:
-    """Every department linked to a designation must share the designation's
-    own category -- a Teaching designation can never be mapped to a
-    Non-Teaching/Housekeeping department, and vice versa. Enforced here (not
-    just filtered in the frontend picker) so a direct API call can't create
-    an invalid mapping either."""
-    mismatched = _mismatched_departments(departments, expected_category)
-    if not mismatched:
+    """Every department linked to a designation must *permit* the
+    designation's category -- a membership test, not an equality test.
+
+    A department is a place, not a staff category: CSE supports TEACHING and
+    NON_TEACHING at once, so an Assistant Professor and a Lab Assistant both
+    map to it legitimately. Only a department that does not list the category
+    at all is rejected. Enforced here (not just filtered in the frontend
+    picker) so a direct API call cannot create an invalid mapping either."""
+    unsupported = _unsupported_departments(departments, expected_category)
+    if not unsupported:
         return
     max_shown = 5
-    names = [f"'{department.name}' is {department.category.value}" for department in mismatched[:max_shown]]
+    names = [f"'{department.name}'" for department in unsupported[:max_shown]]
     label = ", ".join(names)
-    if len(mismatched) > max_shown:
-        label += f" (+{len(mismatched) - max_shown} more)"
+    if len(unsupported) > max_shown:
+        label += f" (+{len(unsupported) - max_shown} more)"
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=(
-            f"Department(s) {label} but designation category is {expected_category.value}. "
-            "All departments must match the designation's category."
+            f"Department(s) {label} do not support {expected_category.value} staff. "
+            "Add the category to the department's Supported Staff Categories first."
         ),
     )
 
@@ -268,14 +271,14 @@ def update_designation(
         # Category changed but department_ids left untouched -- check the
         # currently linked departments still hold up against the new
         # category rather than silently leaving a stale mismatch in place.
-        mismatched = _mismatched_departments(designation.departments, designation.category)
-        if mismatched:
+        unsupported = _unsupported_departments(designation.departments, designation.category)
+        if unsupported:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"Category changed to {designation.category.value} but {len(mismatched)} linked "
-                    f"department(s) are not {designation.category.value}; provide department_ids to "
-                    "update the mapping."
+                    f"Category changed to {designation.category.value} but {len(unsupported)} linked "
+                    f"department(s) do not support {designation.category.value} staff; provide "
+                    "department_ids to update the mapping."
                 ),
             )
 

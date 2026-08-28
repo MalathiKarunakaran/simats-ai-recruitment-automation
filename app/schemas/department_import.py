@@ -21,7 +21,7 @@ class DepartmentBulkUploadRowPreview(BaseModel):
     campus_code: str | None = None
     department_code: str | None = None
     department_name: str | None = None
-    category: StaffRoleCategoryEnum | None = None
+    supported_categories: list[StaffRoleCategoryEnum] | None = None
     parent_group: str | None = None
     description: str | None = None
     is_active: bool | None = None

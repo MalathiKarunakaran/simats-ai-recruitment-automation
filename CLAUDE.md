@@ -98,6 +98,22 @@ even confirm the resource exists. `GLOBAL_SCOPE_ROLES` (SUPER_ADMIN, HR_ADMIN,
 ASSOCIATE_DEAN_RECRUITMENT, MANAGEMENT) see all campuses; everyone else is
 scoped to `current_user.campus_id`.
 
+**Department categories are a SET, and every check is membership**: a
+department is a place, not a staff category -- CSE employs Assistant
+Professors (TEACHING) and Lab Assistants (NON_TEACHING) at the same time. So
+`Department.supported_categories` is a Postgres array (NOT NULL, non-empty by
+CHECK constraint), while `Designation.category` stays single-valued and is
+the authoritative category for recruitment. **Never write
+`designation.category == department.category`** -- that equality was the
+original bug (2026-08-28, migration `e1f2a3b4c5d6`): it rejected every
+NON_TEACHING designation on a department the old backfill had labelled
+TEACHING. Use `Department.supports(category)`, the one helper all four
+validation sites share (`designations.py`, `designation_import.py`,
+`sanctioned_strength.py`, `sanctioned_strength_import.py`). Consequence for
+list endpoints: per-category tab counts now OVERLAP and no longer sum to
+`ALL`, which is a distinct department count -- a multi-category department
+must appear once, never duplicated per category.
+
 **State-machine choke points**: `app/services/vacancy_workflow.py` is the only
 code allowed to move a `VacancyRequest` through
 DRAFT → SUBMITTED → DEAN_APPROVED → APPROVED → PUBLISHED → CLOSED (or

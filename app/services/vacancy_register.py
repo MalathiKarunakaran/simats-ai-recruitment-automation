@@ -175,6 +175,26 @@ def _sort_key(value, reverse: bool):
     return (value is None, value)
 
 
+# The public `sort_by` values are part of the API and the frontend already
+# sends them, so `category` survives the column going multi-valued -- it just
+# resolves to the new row key here rather than being renamed.
+_SORT_VALUE_KEYS = {"category": "supported_categories"}
+
+
+def _row_sort_value(row: dict, sort_by: str):
+    """The comparable scalar behind a `sort_by` field.
+
+    `supported_categories` is a list, which would sort by identity of its
+    members rather than anything a user would recognise, so it collapses to
+    its joined value ("NON_TEACHING,TEACHING") -- deterministic, and it keeps
+    departments with the same category set adjacent.
+    """
+    value = row[_SORT_VALUE_KEYS.get(sort_by, sort_by)]
+    if isinstance(value, list):
+        return ",".join(member.value for member in value)
+    return value
+
+
 def list_vacancy_register_rows(
     db: Session,
     scope: CampusScope,
@@ -349,7 +369,7 @@ def list_vacancy_register_rows(
             Department.id.label("department_id"),
             Department.name.label("department_name"),
             Department.code.label("department_code"),
-            Department.category.label("category"),
+            Department.supported_categories.label("supported_categories"),
             Department.is_active.label("is_active"),
             Department.campus_id.label("campus_id"),
             Campus.code.label("campus_code"),
@@ -452,7 +472,7 @@ def list_vacancy_register_rows(
                 "department_id": row.department_id,
                 "department_name": row.department_name,
                 "department_code": row.department_code,
-                "category": row.category,
+                "supported_categories": list(row.supported_categories or []),
                 "is_active": row.is_active,
                 "campus_id": row.campus_id,
                 "campus_code": row.campus_code,
@@ -484,17 +504,21 @@ def list_vacancy_register_rows(
     # Snapshot per-category counts here -- every filter except `category`
     # itself has now been applied, so these counts are what each CategoryTabs
     # tab should show regardless of which tab is currently selected.
-    category_counts: dict[str, int] = {member.value: 0 for member in StaffRoleCategoryEnum}
-    for r in results:
-        if r["category"] is not None:
-            category_counts[r["category"].value] += 1
+    # Counts OVERLAP now that a department supports several categories at
+    # once -- a department listing TEACHING and NON_TEACHING is counted under
+    # both tabs. `ALL` stays a distinct department count (not the sum), which
+    # is exactly what the All tab lists, so no department is shown twice.
+    category_counts: dict[str, int] = {
+        member.value: sum(1 for r in results if member in r["supported_categories"])
+        for member in StaffRoleCategoryEnum
+    }
     category_counts["ALL"] = len(results)
 
     if category is not None:
-        results = [r for r in results if r["category"] == category]
+        results = [r for r in results if category in r["supported_categories"]]
 
     reverse = sort_dir == "desc"
-    results.sort(key=lambda r: _sort_key(r[sort_by], reverse), reverse=reverse)
+    results.sort(key=lambda r: _sort_key(_row_sort_value(r, sort_by), reverse), reverse=reverse)
 
     total = len(results)
     page = results[offset : offset + limit]

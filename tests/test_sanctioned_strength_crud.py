@@ -37,7 +37,7 @@ def test_create_success_writes_history_and_audit_log(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Create Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
@@ -75,7 +75,7 @@ def test_create_category_mismatch_is_400(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Mismatch Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.NON_TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.NON_TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
@@ -84,7 +84,7 @@ def test_create_category_mismatch_is_400(
         client, hr_admin, campus_id=campus.id, department_id=department.id, designation_id=designation.id
     )
     assert response.status_code == 400
-    assert "category" in response.json()["detail"].lower()
+    assert "does not support" in response.json()["detail"].lower()
 
 
 def test_create_unknown_department_is_400(client, campus_factory, designation_factory, user_factory):
@@ -103,7 +103,7 @@ def test_create_negative_approved_strength_is_422(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Negative Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
@@ -124,7 +124,7 @@ def test_create_forbidden_for_non_write_role(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Forbidden Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
     db_session.flush()
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
@@ -419,7 +419,7 @@ def test_create_housekeeping_without_location_id_is_400(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Housekeeping Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    department.supported_categories = [StaffRoleCategoryEnum.HOUSEKEEPING]
     designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
@@ -436,7 +436,7 @@ def test_create_housekeeping_with_location_id_succeeds(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Housekeeping Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    department.supported_categories = [StaffRoleCategoryEnum.HOUSEKEEPING]
     designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
     location = Location(campus_id=campus.id, name="Block A")
     db_session.add(location)
@@ -461,7 +461,7 @@ def test_create_unknown_location_id_is_400(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Unknown Location Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
@@ -483,7 +483,7 @@ def test_create_teaching_without_location_id_still_succeeds(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Teaching NoLoc Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
@@ -500,7 +500,7 @@ def test_create_non_teaching_without_location_id_still_succeeds(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"NonTeaching NoLoc Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.NON_TEACHING
+    department.supported_categories = [StaffRoleCategoryEnum.NON_TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.NON_TEACHING, department=department)
     db_session.flush()
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)

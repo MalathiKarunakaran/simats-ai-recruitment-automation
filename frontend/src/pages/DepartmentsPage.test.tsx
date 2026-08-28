@@ -65,7 +65,7 @@ const CSE: DepartmentRead = {
   campus_id: "c-sse",
   name: "Computer Science and Engineering",
   code: "CSE",
-  category: "TEACHING",
+  supported_categories: ["TEACHING"],
   parent_group: null,
   description: null,
   is_active: true,
@@ -78,7 +78,7 @@ const HR_OFFICE: DepartmentRead = {
   id: "d-hr",
   name: "HR OFFICE",
   code: "HROFFICE",
-  category: "NON_TEACHING",
+  supported_categories: ["NON_TEACHING"],
   is_active: false,
 };
 
@@ -92,10 +92,12 @@ function paginated(
     total,
     limit: 50,
     offset: 0,
+    // Counts overlap deliberately -- a department supporting two
+    // categories is counted under both, while ALL stays a distinct count.
     category_counts: categoryCounts ?? {
-      TEACHING: items.filter((d) => d.category === "TEACHING").length,
-      NON_TEACHING: items.filter((d) => d.category === "NON_TEACHING").length,
-      HOUSEKEEPING: items.filter((d) => d.category === "HOUSEKEEPING").length,
+      TEACHING: items.filter((d) => d.supported_categories.includes("TEACHING")).length,
+      NON_TEACHING: items.filter((d) => d.supported_categories.includes("NON_TEACHING")).length,
+      HOUSEKEEPING: items.filter((d) => d.supported_categories.includes("HOUSEKEEPING")).length,
       ALL: items.length,
     },
   };
@@ -283,7 +285,10 @@ describe("DepartmentsPage", () => {
         campus_id: "c-sse",
         name: "Physics",
         code: null,
-        category: null,
+        // The form starts on the same NON_TEACHING the backend falls back to
+        // for an omitted value, so an untouched checkbox group still submits
+        // a valid, non-empty set.
+        supported_categories: ["NON_TEACHING"],
         parent_group: null,
         description: "Deals with physical sciences",
         is_active: true,
@@ -311,7 +316,7 @@ describe("DepartmentsPage", () => {
       expect(mockedUpdateDepartment).toHaveBeenCalledWith("d-cse", {
         name: "Computer Science and Engineering",
         code: "CSE2",
-        category: "TEACHING",
+        supported_categories: ["TEACHING"],
         parent_group: null,
         description: null,
         is_active: true,
@@ -558,7 +563,11 @@ describe("DepartmentsPage", () => {
     mockUser("HR_ADMIN");
     mockedListCampuses.mockResolvedValue([SSE]);
     mockedListDepartmentsWithCounts.mockResolvedValue(
-      paginated([CSE, { ...CSE, id: "d-house", name: "Facilities", category: "HOUSEKEEPING" }, HR_OFFICE]),
+      paginated([
+        CSE,
+        { ...CSE, id: "d-house", name: "Facilities", supported_categories: ["HOUSEKEEPING"] },
+        HR_OFFICE,
+      ]),
     );
 
     renderPage();
@@ -658,5 +667,80 @@ describe("DepartmentsPage", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Restore" }));
 
     await waitFor(() => expect(mockedUpdateDepartment).toHaveBeenCalledWith("d-hr", { is_active: true }));
+  });
+
+  // --- multi-valued Supported Staff Categories (2026-08-28) ------------------
+  // A department is a place, not a staff category: CSE holds Assistant
+  // Professors (TEACHING) and Lab Assistants (NON_TEACHING) at once.
+
+  it("submits every ticked staff category when creating a department", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(paginated([]));
+    mockedCreateDepartment.mockResolvedValue(CSE);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Department" })).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "+ New Department" }));
+    await userEvent.click(screen.getAllByRole("combobox")[0]);
+    await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
+    await userEvent.type(screen.getByLabelText("Name"), "Computer Science");
+    // Starts on NON_TEACHING; add TEACHING so both are submitted.
+    await userEvent.click(screen.getByLabelText("TEACHING"));
+    await userEvent.click(screen.getByRole("button", { name: "Create department" }));
+
+    await waitFor(() =>
+      expect(mockedCreateDepartment).toHaveBeenCalledWith(
+        expect.objectContaining({ supported_categories: ["TEACHING", "NON_TEACHING"] }),
+      ),
+    );
+  }, 15000);
+
+  it("stores categories in canonical order however the boxes are ticked", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(paginated([]));
+    mockedCreateDepartment.mockResolvedValue(CSE);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "+ New Department" })).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "+ New Department" }));
+    await userEvent.click(screen.getAllByRole("combobox")[0]);
+    await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
+    await userEvent.type(screen.getByLabelText("Name"), "Facilities");
+    // Untick the default, then tick out of order -- the payload should still
+    // read TEACHING, HOUSEKEEPING (CATEGORIES order), not tick order.
+    await userEvent.click(screen.getByLabelText("NON TEACHING"));
+    await userEvent.click(screen.getByLabelText("HOUSEKEEPING"));
+    await userEvent.click(screen.getByLabelText("TEACHING"));
+    await userEvent.click(screen.getByRole("button", { name: "Create department" }));
+
+    await waitFor(() =>
+      expect(mockedCreateDepartment).toHaveBeenCalledWith(
+        expect.objectContaining({ supported_categories: ["TEACHING", "HOUSEKEEPING"] }),
+      ),
+    );
+  }, 15000);
+
+  it("renders one badge per supported category, on a single row", async () => {
+    mockUser("HR_ADMIN");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListDepartmentsWithCounts.mockResolvedValue(
+      paginated([{ ...CSE, supported_categories: ["TEACHING", "NON_TEACHING"] }]),
+    );
+
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText("Computer Science and Engineering")).toBeInTheDocument(),
+    );
+
+    // One row, not one per category -- the department is not duplicated.
+    expect(screen.getAllByText("Computer Science and Engineering")).toHaveLength(1);
+    const row = screen.getByText("Computer Science and Engineering").closest("tr")!;
+    // Exact text, not a regex: "TEACHING" is a substring of "NON TEACHING".
+    expect(within(row).getByText("TEACHING")).toBeInTheDocument();
+    expect(within(row).getByText("NON TEACHING")).toBeInTheDocument();
   });
 });

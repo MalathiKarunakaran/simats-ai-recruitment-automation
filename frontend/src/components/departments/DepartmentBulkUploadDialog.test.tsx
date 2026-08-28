@@ -36,7 +36,7 @@ const VALIDATION_RESULT: DepartmentBulkUploadValidationResponse = {
       campus_code: "SSE",
       department_code: "PHY",
       department_name: "Physics",
-      category: "TEACHING",
+      supported_categories: ["TEACHING"],
       parent_group: "School of Sciences",
       description: null,
       is_active: true,
@@ -48,7 +48,7 @@ const VALIDATION_RESULT: DepartmentBulkUploadValidationResponse = {
       campus_code: "ZZZ",
       department_code: "CHEM",
       department_name: "Chemistry",
-      category: null,
+      supported_categories: [],
       parent_group: null,
       description: null,
       is_active: null,
@@ -217,7 +217,15 @@ describe("DepartmentBulkUploadDialog", () => {
     // "Details" is deliberately no longer a column -- a rejected row's reason
     // is now a full-width row under the row it explains, so it is readable
     // without horizontal scrolling (2026-08-27).
-    expect(headers).toEqual(["Row", "Status", "Campus", "Name", "Code", "Category", "Parent group"]);
+    expect(headers).toEqual([
+      "Row",
+      "Status",
+      "Campus",
+      "Name",
+      "Code",
+      "Staff Categories",
+      "Parent group",
+    ]);
   });
 
   // Item 4 -- NON_TEACHING renders with a hyphen ("NON-TEACHING") in the
@@ -226,7 +234,7 @@ describe("DepartmentBulkUploadDialog", () => {
   it("displays NON_TEACHING as 'NON-TEACHING' (hyphen) in the preview table", async () => {
     mockedValidate.mockResolvedValue({
       ...VALIDATION_RESULT,
-      rows: [{ ...VALIDATION_RESULT.rows[0], category: "NON_TEACHING" }],
+      rows: [{ ...VALIDATION_RESULT.rows[0], supported_categories: ["NON_TEACHING"] }],
     });
     renderDialog();
 

@@ -246,17 +246,22 @@ export interface DashboardKpis {
   recent_resignations: RecentEmployeeEventRow[];
 }
 
-// Mirrors app/schemas/department.py::DepartmentRead. code/category/parent_group
-// are new, optional master-data fields (Phase 10 Designation Master rollout)
-// -- most of the 50+ pre-existing departments won't have them populated yet.
+// Mirrors app/schemas/department.py::DepartmentRead. code/parent_group are
+// optional master-data fields (Phase 10 Designation Master rollout) -- most
+// of the 50+ pre-existing departments won't have them populated yet.
 // description (Departments production-hardening epic, backend Phase 1) is
 // free-text and optional, same nullable-until-backfilled story.
+//
+// supported_categories replaced a single `category` on 2026-08-28: a
+// department is a place, not a staff category, and CSE holds Assistant
+// Professors (TEACHING) and Lab Assistants (NON_TEACHING) at once. Never
+// empty -- the backend enforces at least one member.
 export interface DepartmentRead {
   id: string;
   campus_id: string;
   name: string;
   code: string | null;
-  category: StaffRoleCategory | null;
+  supported_categories: StaffRoleCategory[];
   parent_group: string | null;
   description: string | null;
   is_active: boolean;
@@ -269,7 +274,7 @@ export interface DepartmentCreatePayload {
   campus_id: string;
   name: string;
   code?: string | null;
-  category?: StaffRoleCategory | null;
+  supported_categories?: StaffRoleCategory[] | null;
   parent_group?: string | null;
   description?: string | null;
   is_active?: boolean;
@@ -279,7 +284,7 @@ export interface DepartmentCreatePayload {
 export interface DepartmentUpdatePayload {
   name?: string;
   code?: string | null;
-  category?: StaffRoleCategory | null;
+  supported_categories?: StaffRoleCategory[] | null;
   parent_group?: string | null;
   description?: string | null;
   is_active?: boolean;
@@ -297,6 +302,10 @@ export const DEPARTMENT_MANAGEMENT_ROLES: readonly UserRole[] = ["SUPER_ADMIN", 
 // (search/campus_id/is_active) except `category` itself, same shape as
 // SanctionedStrengthListResponse/DesignationListResponse -- feed it through
 // CategoryTabs' own mapServerCategoryCounts helper.
+//
+// Since a department can support several categories, these counts OVERLAP
+// and no longer sum to ALL; ALL is a distinct department count, matching
+// what the All tab actually lists.
 export interface DepartmentListResponse extends PaginatedResponse<DepartmentRead> {
   category_counts: Record<string, number>;
 }
@@ -1465,7 +1474,10 @@ export interface VacancyRegisterRow {
   department_id: string;
   department_name: string;
   department_code: string | null;
-  category: StaffRoleCategory | null;
+  // Multi-valued since 2026-08-28, mirroring Department itself. The register
+  // still lists one row per department -- a department supporting several
+  // categories is NOT duplicated across them.
+  supported_categories: StaffRoleCategory[];
   is_active: boolean;
   campus_id: string;
   campus_code: string;
@@ -1934,7 +1946,7 @@ export interface DepartmentBulkUploadRowPreview {
   campus_code: string | null;
   department_code: string | null;
   department_name: string | null;
-  category: StaffRoleCategory | null;
+  supported_categories: StaffRoleCategory[] | null;
   parent_group: string | null;
   description: string | null;
   is_active: boolean | null;

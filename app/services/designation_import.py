@@ -285,13 +285,19 @@ def _resolve_department_codes(
     """Resolves every code in `codes` against the campus-agnostic
     `departments_by_code` cache (see module docstring for why this is never
     scoped to a single campus). Every department a code resolves to must
-    share `expected_category` (skipped entirely if `expected_category` is
+    *support* `expected_category` (skipped entirely if `expected_category` is
     None -- i.e. the row's own Category was itself invalid/missing, already
-    a separate error) -- a single mismatched department anywhere in a code's
+    a separate error) -- a single unsupported department anywhere in a code's
     matches rejects that code (and therefore the whole row), naming exactly
     which department(s) and why, same as
     `designations.py::_validate_department_categories`'s own manual-create
     enforcement of this rule.
+
+    This is a MEMBERSHIP test, not equality. Until 2026-08-28 a department
+    carried one exclusive category, so uploading a NON_TEACHING Lab Assistant
+    against CSE -- a department the backfill had labelled TEACHING -- was
+    rejected even though CSE genuinely employs both. That was the bug that
+    motivated `Department.supported_categories`.
     """
     errors: list[str] = []
     resolved: list[Department] = []
@@ -302,16 +308,15 @@ def _resolve_department_codes(
             errors.append(f"Unknown department code '{code}'")
             continue
         if expected_category is not None:
-            mismatched = [department for department in matches if department.category != expected_category]
-            if mismatched:
+            unsupported = [department for department in matches if not department.supports(expected_category)]
+            if unsupported:
                 names = ", ".join(
-                    f"'{department.name}' ({department.campus.code if department.campus else '?'}) is "
-                    f"{department.category.value}"
-                    for department in mismatched
+                    f"'{department.name}' ({department.campus.code if department.campus else '?'})"
+                    for department in unsupported
                 )
                 errors.append(
-                    f"Department code '{code}' matches {names} but designation category is "
-                    f"{expected_category.value}"
+                    f"Department {code} does not support {expected_category.value} staff "
+                    f"(matched {names})"
                 )
                 continue
         for department in matches:

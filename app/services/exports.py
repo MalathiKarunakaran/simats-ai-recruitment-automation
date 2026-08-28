@@ -70,7 +70,10 @@ _DEPARTMENT_EXPORT_HEADERS = [
     "Campus Code",
     "Department Code",
     "Department Name",
-    "Category",
+    # Must stay character-identical to
+    # `department_import.CATEGORY_HEADER` -- the export is meant to be
+    # editable and re-uploadable as-is.
+    "Supported Staff Categories",
     "Parent Group",
     "Description",
     "Active",
@@ -99,7 +102,12 @@ def build_department_export_excel(rows: list[dict], generated_at: datetime, scop
                 row.get("campus_code"),
                 row.get("code"),
                 row.get("name"),
-                row.get("category"),
+                # Comma-separated, exactly the form the importer parses back.
+                ",".join(
+                    category.value if hasattr(category, "value") else str(category)
+                    for category in (row.get("supported_categories") or [])
+                )
+                or None,
                 row.get("parent_group"),
                 row.get("description"),
                 "TRUE" if row.get("is_active") else "FALSE",

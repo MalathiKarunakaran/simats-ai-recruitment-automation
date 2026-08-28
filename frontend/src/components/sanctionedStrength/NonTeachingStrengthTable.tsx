@@ -219,7 +219,11 @@ export function NonTeachingStrengthTable({
   });
   const { data: locations } = useQuery({ queryKey: ["locations"], queryFn: listLocations });
 
-  const nonTeachingDepartments = (departments ?? []).filter((department) => department.category === "NON_TEACHING");
+  // Membership, not equality: a department that holds both Teaching and
+  // Non-Teaching staff belongs in this picker too.
+  const nonTeachingDepartments = (departments ?? []).filter((department) =>
+    department.supported_categories.includes("NON_TEACHING"),
+  );
   // Location.category is nullable (a building can serve multiple
   // categories) -- offered whenever it's either unset or explicitly
   // NON_TEACHING, same convention as TeachingStrengthTable's own filtering.

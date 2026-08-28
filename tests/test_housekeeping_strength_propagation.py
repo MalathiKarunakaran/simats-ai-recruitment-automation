@@ -47,7 +47,7 @@ def _housekeeping_setup(
 ):
     campus = campus_factory("SSE")
     department = department_factory("SSE", name=f"Housekeeping Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    department.supported_categories = [StaffRoleCategoryEnum.HOUSEKEEPING]
     designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
     location = location_factory("SSE", name=f"HK Block {uuid.uuid4().hex[:6]}")
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)

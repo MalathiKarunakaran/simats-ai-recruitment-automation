@@ -715,7 +715,11 @@ export function SanctionedStrengthPage() {
                               {!row.is_active ? <Badge variant="destructive">Inactive</Badge> : null}
                             </button>
                           </TableCell>
-                          <TableCell>{row.category ? row.category.replace(/_/g, " ") : "—"}</TableCell>
+                          <TableCell>
+                            {row.supported_categories.length > 0
+                              ? row.supported_categories.map((c) => c.replace(/_/g, " ")).join(", ")
+                              : "—"}
+                          </TableCell>
                           <TableCell className="tabular-nums">{row.approved_count}</TableCell>
                           <TableCell className="tabular-nums">{row.working_count}</TableCell>
                           <TableCell className="tabular-nums">{row.vacancy_count}</TableCell>
@@ -763,7 +767,18 @@ export function SanctionedStrengthPage() {
                             campusId={row.campus_id}
                             campusLabel={row.campus_code}
                             departmentLabel={row.department_name}
-                            category={row.category}
+                            // The breakdown's Add form filters designations by a
+                            // single category, so prefer the tab the user is already
+                            // on; fall back to the department's own category only when
+                            // it leaves no choice, and to null (no pre-filter) when the
+                            // department genuinely supports several.
+                            category={
+                              categoryFilter !== "ALL"
+                                ? categoryFilter
+                                : row.supported_categories.length === 1
+                                  ? row.supported_categories[0]
+                                  : null
+                            }
                             canManage={canManage}
                             canViewAuditLog={canViewAuditLog}
                           />

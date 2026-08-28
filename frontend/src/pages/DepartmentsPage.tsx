@@ -51,7 +51,7 @@ const DEFAULT_LIMIT = 50;
 interface FormState {
   campusId: string;
   code: string;
-  category: StaffRoleCategory | "";
+  supportedCategories: StaffRoleCategory[];
   parentGroup: string;
   description: string;
   isActive: boolean;
@@ -60,7 +60,9 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   campusId: "",
   code: "",
-  category: "",
+  // Matches the backend's own fallback for an omitted value, so the form's
+  // initial state and a category-less API create agree.
+  supportedCategories: ["NON_TEACHING"],
   parentGroup: "",
   description: "",
   isActive: true,
@@ -80,7 +82,7 @@ const COLUMNS: ColumnDef[] = [
   { key: "campus", label: "Campus", sortBy: "campus" },
   { key: "name", label: "Name", sortBy: "name" },
   { key: "code", label: "Code", sortBy: "code" },
-  { key: "category", label: "Category", sortBy: "category" },
+  { key: "category", label: "Staff Categories", sortBy: "category" },
   { key: "parent_group", label: "Parent group", sortBy: "parent_group" },
   { key: "is_active", label: "Status", sortBy: "is_active" },
 ];
@@ -340,7 +342,7 @@ export function DepartmentsPage() {
     return {
       name: name.value,
       code: form.code.trim() || null,
-      category: form.category || null,
+      supported_categories: form.supportedCategories,
       parent_group: form.parentGroup.trim() || null,
       description: form.description.trim() || null,
       is_active: form.isActive,
@@ -372,7 +374,7 @@ export function DepartmentsPage() {
     setForm({
       campusId: department.campus_id,
       code: department.code ?? "",
-      category: department.category ?? "",
+      supportedCategories: department.supported_categories ?? [],
       parentGroup: department.parent_group ?? "",
       description: department.description ?? "",
       isActive: department.is_active,
@@ -471,27 +473,46 @@ export function DepartmentsPage() {
                             onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
                           />
                         </div>
-                        <div className="flex flex-col gap-1.5">
-                          <Label>Teaching / Non-Teaching (optional)</Label>
-                          <Select
-                            value={form.category || "NONE"}
-                            onValueChange={(v) =>
-                              setForm((f) => ({ ...f, category: v === "NONE" ? "" : (v as StaffRoleCategory) }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Not set" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="NONE">Not set</SelectItem>
-                              {CATEGORIES.map((category) => (
-                                <SelectItem key={category} value={category}>
+                        <fieldset className="flex flex-col gap-1.5">
+                          <legend className="mb-1.5 text-sm font-medium text-foreground">
+                            Supported staff categories
+                          </legend>
+                          <div className="flex flex-col gap-1.5">
+                            {CATEGORIES.map((category) => {
+                              const checked = form.supportedCategories.includes(category);
+                              return (
+                                <label
+                                  key={category}
+                                  className="flex items-center gap-2 text-sm text-foreground"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="size-4 rounded border-input accent-primary"
+                                    checked={checked}
+                                    onChange={() =>
+                                      setForm((f) => ({
+                                        ...f,
+                                        // Rebuilt from CATEGORIES rather than
+                                        // pushed/spliced, so the stored order is
+                                        // always the canonical one no matter which
+                                        // box the user ticks first.
+                                        supportedCategories: CATEGORIES.filter((c) =>
+                                          c === category ? !checked : f.supportedCategories.includes(c),
+                                        ),
+                                      }))
+                                    }
+                                  />
                                   {category.replace(/_/g, " ")}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          {form.supportedCategories.length === 0 ? (
+                            <p className="text-xs text-destructive">
+                              Pick at least one -- a department with none can hold no staff.
+                            </p>
+                          ) : null}
+                        </fieldset>
                       </div>
 
                       <div className="flex flex-col gap-1.5">
@@ -720,7 +741,15 @@ export function DepartmentsPage() {
                     <TableCell className="font-medium text-foreground">{department.name}</TableCell>
                     <TableCell>{department.code ?? "—"}</TableCell>
                     <TableCell>
-                      {department.category ? <CategoryBadge category={department.category} /> : "—"}
+                      {department.supported_categories.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {department.supported_categories.map((category) => (
+                            <CategoryBadge key={category} category={category} />
+                          ))}
+                        </div>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell>{department.parent_group ?? "—"}</TableCell>
                     <TableCell>

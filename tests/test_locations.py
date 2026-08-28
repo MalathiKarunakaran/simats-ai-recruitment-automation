@@ -337,7 +337,7 @@ def test_delete_location_blocked_when_active_sanctioned_strength_references_it(
 ):
     sse = campus_factory("SSE")
     department = department_factory("SSE", name=f"Guarded Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    department.supported_categories = [StaffRoleCategoryEnum.HOUSEKEEPING]
     designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     location = Location(campus_id=sse.id, name="Referenced Block")
@@ -370,7 +370,7 @@ def test_delete_location_allowed_when_no_active_sanctioned_strength_references_i
 ):
     sse = campus_factory("SSE")
     department = department_factory("SSE", name=f"Unguarded Dept {uuid.uuid4().hex[:6]}")
-    department.category = StaffRoleCategoryEnum.HOUSEKEEPING
+    department.supported_categories = [StaffRoleCategoryEnum.HOUSEKEEPING]
     designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
     location = Location(campus_id=sse.id, name="Unreferenced Block")

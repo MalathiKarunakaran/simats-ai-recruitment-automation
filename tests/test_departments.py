@@ -31,7 +31,7 @@ def test_hr_admin_can_create_department_with_master_fields(client, user_factory,
             "campus_id": str(sse.id),
             "name": "Computer Science",
             "code": "CSE",
-            "category": "TEACHING",
+            "supported_categories": ["TEACHING", "NON_TEACHING"],
             "parent_group": "Engineering",
         },
     )
@@ -39,7 +39,8 @@ def test_hr_admin_can_create_department_with_master_fields(client, user_factory,
     body = response.json()
     assert body["campus_id"] == str(sse.id)
     assert body["code"] == "CSE"
-    assert body["category"] == "TEACHING"
+    # A real department holds both: Assistant Professors and Lab Assistants.
+    assert body["supported_categories"] == ["TEACHING", "NON_TEACHING"]
     assert body["parent_group"] == "Engineering"
 
 
@@ -58,12 +59,12 @@ def test_super_admin_can_patch_department_master_fields(client, user_factory, ca
     patch_response = client.patch(
         f"/api/v1/departments/{department_id}",
         headers=auth_headers(client, super_admin),
-        json={"code": "MECH", "category": "NON_TEACHING", "parent_group": "Engineering"},
+        json={"code": "MECH", "supported_categories": ["NON_TEACHING"], "parent_group": "Engineering"},
     )
     assert patch_response.status_code == 200, patch_response.text
     body = patch_response.json()
     assert body["code"] == "MECH"
-    assert body["category"] == "NON_TEACHING"
+    assert body["supported_categories"] == ["NON_TEACHING"]
     assert body["parent_group"] == "Engineering"
 
 
@@ -106,12 +107,11 @@ def test_candidate_cannot_list_departments(client, user_factory):
 
 
 def test_create_department_without_category_defaults_to_non_teaching(client, user_factory, campus_factory):
-    # Department.category became NOT NULL in the Phase 1 staff-category
-    # migrations (see alembic/versions/a1b2c3d4e5f7_..._backfill_department_category.py)
-    # -- the API still accepts an omitted category (mirroring that
-    # migration's own "ambiguous -> NON_TEACHING" default) rather than 422ing,
-    # since the RBAC test above relies on a category-less payload still
-    # reaching the role check.
+    # `supported_categories` is NOT NULL, but the API still accepts an
+    # omitted value (falling back to the same "ambiguous -> NON_TEACHING"
+    # default the original backfill used) rather than 422ing, since the RBAC
+    # test above relies on a category-less payload still reaching the role
+    # check.
     sse = campus_factory("SSE")
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 
@@ -121,15 +121,15 @@ def test_create_department_without_category_defaults_to_non_teaching(client, use
         json={"campus_id": str(sse.id), "name": "New Dept Without Category"},
     )
     assert response.status_code == 201, response.text
-    assert response.json()["category"] == StaffRoleCategoryEnum.NON_TEACHING.value
+    assert response.json()["supported_categories"] == [StaffRoleCategoryEnum.NON_TEACHING.value]
 
 
 def test_department_factory_departments_have_a_category(department_factory):
-    # Model-level Python default (StaffRoleCategoryEnum.NON_TEACHING) keeps
-    # every existing Department(...) construction site working now that the
-    # column is NOT NULL, without needing to touch every call site.
+    # Model-level Python default keeps every existing Department(...)
+    # construction site working now that the column is NOT NULL, without
+    # needing to touch every call site.
     department = department_factory("SSE")
-    assert department.category == StaffRoleCategoryEnum.NON_TEACHING
+    assert department.supported_categories == [StaffRoleCategoryEnum.NON_TEACHING]
 
 
 def test_hod_cannot_delete_department(client, user_factory, department_factory):
@@ -473,3 +473,59 @@ def test_export_departments_forbidden_for_candidate(client, user_factory):
     candidate = user_factory(UserRoleEnum.CANDIDATE)
     response = client.get("/api/v1/departments/export", headers=auth_headers(client, candidate))
     assert response.status_code == 403
+
+
+def test_list_departments_category_counts_overlap_for_multi_category_departments(
+    client, user_factory, department_factory
+):
+    """A department supporting two categories is counted under BOTH tabs, so
+    the per-category counts deliberately no longer sum to ALL -- and ALL stays
+    a distinct department count so nothing is listed twice."""
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    department_factory(
+        "SSE",
+        name="Computer Science",
+        supported_categories=[StaffRoleCategoryEnum.TEACHING, StaffRoleCategoryEnum.NON_TEACHING],
+    )
+    department_factory("SSE", name="Housekeeping", category=StaffRoleCategoryEnum.HOUSEKEEPING)
+
+    body = client.get("/api/v1/departments", headers=auth_headers(client, hr_admin)).json()
+    counts = body["category_counts"]
+    assert counts["TEACHING"] == 1
+    assert counts["NON_TEACHING"] == 1
+    assert counts["HOUSEKEEPING"] == 1
+    assert counts["ALL"] == 2  # NOT 3 -- the mixed department is one row
+    assert body["total"] == 2
+
+
+@pytest.mark.parametrize("tab", ["TEACHING", "NON_TEACHING"])
+def test_category_tab_filter_matches_on_membership_without_duplicating_rows(
+    client, user_factory, department_factory, tab
+):
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    department_factory(
+        "SSE",
+        name="Computer Science",
+        supported_categories=[StaffRoleCategoryEnum.TEACHING, StaffRoleCategoryEnum.NON_TEACHING],
+    )
+    body = client.get(
+        "/api/v1/departments", params={"category": tab}, headers=auth_headers(client, hr_admin)
+    ).json()
+    assert body["total"] == 1
+    assert [item["name"] for item in body["items"]] == ["Computer Science"]
+
+
+def test_create_department_rejects_an_empty_supported_categories_list(
+    client, user_factory, campus_factory
+):
+    """A department supporting nothing could hold no staff at all, so an
+    explicitly empty list is a client error -- distinct from omitting the
+    field, which still falls back to the NON_TEACHING default."""
+    sse = campus_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    response = client.post(
+        "/api/v1/departments",
+        headers=auth_headers(client, hr_admin),
+        json={"campus_id": str(sse.id), "name": "Empty Dept", "supported_categories": []},
+    )
+    assert response.status_code == 422, response.text
