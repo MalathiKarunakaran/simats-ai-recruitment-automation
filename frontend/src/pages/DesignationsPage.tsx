@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import type { ReactNode } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import {
   createDesignation,
@@ -9,11 +11,15 @@ import {
   updateDesignation,
 } from "@/api/designations";
 import { ApiError } from "@/api/client";
+import { listCampuses } from "@/api/campuses";
 import { listDepartments } from "@/api/departments";
+import { listEligibilityRules } from "@/api/eligibilityRules";
 import {
   DESIGNATION_WRITE_ROLES,
+  type CampusRead,
   type DepartmentRead,
   type DesignationRead,
+  type EligibilityRule,
   type EmploymentType,
   type StaffRoleCategory,
 } from "@/api/types";
@@ -73,12 +79,19 @@ interface FormState {
   departmentIds: string[];
 }
 
-// The Departments table cell is now purely view-only: a static "N
-// Department(s)" count line plus a separate "View Departments" link-button
-// that opens a read-only Dialog listing every mapped department name (with
-// client-side search). All editing now happens exclusively through the
-// Edit designation dialog's own "Applicable departments" picker below --
-// this cell never calls updateDesignation, for anyone, canManage or not.
+// How many department names render inline before the rest collapse into a
+// "+N" suffix. Four is what the brief asked for ("CSE, ECE, EEE, MECH +10")
+// and is about what fits the column at a typical desktop width.
+const INLINE_DEPARTMENT_LIMIT = 4;
+
+// The Departments table cell is view-only: it shows the department NAMES
+// inline, plus a "View all" dialog once there are more than
+// INLINE_DEPARTMENT_LIMIT of them. It replaced a bare "14 Departments"
+// count line (2026-08-29) -- that count hid the single thing a reader opens
+// this page to check, and forced a dialog round-trip to answer "which
+// departments?". All editing still happens exclusively through the Edit
+// designation dialog's own "Applicable departments" picker below -- this
+// cell never calls updateDesignation, for anyone, canManage or not.
 function DesignationDepartmentsCell({
   designation,
   departmentNameById,
@@ -105,11 +118,19 @@ function DesignationDepartmentsCell({
     ? departmentNames.filter((d) => d.name.toLowerCase().includes(trimmedSearch.toLowerCase()))
     : departmentNames;
 
+  const inlineNames = departmentNames.slice(0, INLINE_DEPARTMENT_LIMIT);
+  const overflowCount = count - inlineNames.length;
+  const allNames = departmentNames.map((d) => d.name).join(", ");
+
   return (
-    <div className="flex flex-col gap-0.5">
-      <span>
-        {count} Department{count === 1 ? "" : "s"}
+    <div className="flex flex-col items-start gap-0.5">
+      {/* `title` carries the full list so the complete set is still
+          reachable on hover even when it overflows into "+N". */}
+      <span className="text-foreground" title={allNames}>
+        {inlineNames.map((d) => d.name).join(", ")}
+        {overflowCount > 0 ? <span className="text-muted-foreground"> +{overflowCount}</span> : null}
       </span>
+      {overflowCount === 0 ? null : (
       <Dialog
         open={open}
         onOpenChange={(next) => {
@@ -119,7 +140,7 @@ function DesignationDepartmentsCell({
       >
         <DialogTrigger asChild>
           <button type="button" className="w-fit text-left text-xs text-primary underline-offset-2 hover:underline">
-            View Departments
+            View all
           </button>
         </DialogTrigger>
         <DialogContent>
@@ -166,6 +187,162 @@ function DesignationDepartmentsCell({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      )}
+    </div>
+  );
+}
+
+// Campuses a designation touches, derived from its linked departments --
+// Designation itself has NO campus column (see api/types.ts::DesignationRead),
+// and a designation linked to departments across campuses genuinely belongs
+// to several. Returns the campus rows, sorted by code, deduplicated.
+function campusesForDesignation(
+  designation: DesignationRead,
+  departmentById: Map<string, DepartmentRead>,
+  campusById: Map<string, CampusRead>,
+): CampusRead[] {
+  const seen = new Set<string>();
+  const result: CampusRead[] = [];
+  for (const departmentId of designation.department_ids) {
+    const campusId = departmentById.get(departmentId)?.campus_id;
+    if (!campusId || seen.has(campusId)) continue;
+    const campus = campusById.get(campusId);
+    if (!campus) continue;
+    seen.add(campusId);
+    result.push(campus);
+  }
+  return result.sort((a, b) => a.code.localeCompare(b.code));
+}
+
+// Eligibility rules that apply to a designation. Mirrors the backend's own
+// selection in app/services/eligibility.py::_has_matching_active_rule --
+// active rules at the campus, in the same staff_category, matching on an
+// EXACT position_title, else falling back to the wildcard
+// (position_title = null) rule. Deliberately mirrored rather than invented:
+// showing a different set here than the backend actually consults would be
+// worse than showing nothing. Note EligibilityRule has no designation_id --
+// there is no stored relationship, so this is a derived view, which is why
+// the panel labels it "may apply".
+function eligibilityRulesForDesignation(
+  designation: DesignationRead,
+  rules: EligibilityRule[],
+  campuses: CampusRead[],
+): EligibilityRule[] {
+  const campusIds = new Set(campuses.map((c) => c.id));
+  const inScope = rules.filter(
+    (rule) => rule.is_active && rule.staff_category === designation.category && campusIds.has(rule.campus_id),
+  );
+  const exact = inScope.filter(
+    (rule) => (rule.position_title ?? "").toLowerCase() === designation.name.toLowerCase(),
+  );
+  return exact.length > 0 ? exact : inScope.filter((rule) => rule.position_title === null);
+}
+
+/** One label/value pair in the expanded detail panel. */
+function DetailField({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{label}</p>
+      <div className="text-sm text-foreground">{value || "—"}</div>
+    </div>
+  );
+}
+
+// The expanded row. Everything here is already on screen SOMEWHERE (the row
+// itself, or the View-all dialog) except required skills and eligibility --
+// the point is to put the full picture in one place without a dialog, per
+// the brief's "do not hide important values behind excessive clicks".
+function DesignationDetailPanel({
+  designation,
+  departmentNames,
+  campuses,
+  eligibilityRules,
+  eligibilityLoading,
+}: {
+  designation: DesignationRead;
+  departmentNames: string[];
+  campuses: CampusRead[];
+  eligibilityRules: EligibilityRule[];
+  eligibilityLoading: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-5 bg-muted/40 px-4 py-4">
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <DetailField label="Category" value={CATEGORY_LABELS[designation.category]} />
+        <DetailField label="Employment type" value={designation.employment_type.replace(/_/g, " ")} />
+        <DetailField label="Minimum experience" value={designation.min_experience} />
+        <DetailField
+          label="Status"
+          value={
+            <Badge variant={designation.is_active ? "success" : "destructive"}>
+              {designation.is_active ? "Active" : "Inactive"}
+            </Badge>
+          }
+        />
+        <DetailField label="Qualification" value={designation.qualification} />
+        <DetailField
+          label="Campus"
+          value={campuses.length === 0 ? "—" : campuses.map((c) => `${c.code} — ${c.name}`).join(", ")}
+        />
+        <div className="sm:col-span-2">
+          <DetailField label="Required skills" value={designation.required_skills} />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+          Departments ({departmentNames.length})
+        </p>
+        {departmentNames.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Not linked to any department.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {departmentNames.map((name) => (
+              <span
+                key={name}
+                className="rounded-md border border-border bg-card px-2 py-0.5 text-xs font-medium text-foreground"
+              >
+                {name}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Eligibility</p>
+        {eligibilityLoading ? (
+          <p className="text-sm text-muted-foreground">Loading eligibility rules…</p>
+        ) : eligibilityRules.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No active eligibility rule matches this designation&rsquo;s category and campuses.
+          </p>
+        ) : (
+          <>
+            {/* "may apply" is deliberate: there is no designation_id on
+                EligibilityRule, so this is a derived match on category +
+                campus + position_title, not a stored relationship. */}
+            <p className="text-xs text-muted-foreground">
+              {eligibilityRules.length} active rule{eligibilityRules.length === 1 ? "" : "s"} may apply, matched on
+              category, campus and position title.
+            </p>
+            <ul className="flex flex-col gap-2">
+              {eligibilityRules.map((rule) => (
+                <li key={rule.id} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
+                  <p className="font-medium text-foreground">
+                    {rule.position_title ?? "All positions in this category"}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Qualification keyword: {rule.required_qualification_keyword}
+                    {rule.minimum_qualification ? ` · Minimum: ${rule.minimum_qualification}` : ""}
+                    {rule.required_experience ? ` · Experience: ${rule.required_experience}` : ""}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -333,7 +510,10 @@ const EMPTY_FORM: FormState = {
   departmentIds: [],
 };
 
-const BASE_COLUMN_COUNT = 7;
+// Expand toggle + Designation + Category + Campus + Departments +
+// Qualification + Min. experience + Employment type + Status. Actions is
+// added on top of this only when canManage.
+const BASE_COLUMN_COUNT = 9;
 
 export function DesignationsPage() {
   const { user } = useAuth();
@@ -356,6 +536,16 @@ export function DesignationsPage() {
   // (GET /designations already accepted `department_id`; this just exposes
   // it as a page-level filter rather than only the create/edit picker).
   const [departmentFilter, setDepartmentFilter] = useState<string>("ALL");
+  // Campus filter is applied CLIENT-SIDE, unlike every other filter here.
+  // GET /designations has no campus parameter and a Designation has no
+  // campus column at all -- its campuses are derived from its linked
+  // departments -- so this filters the fetched page rather than the query.
+  // Fine at this data size (the list request already caps at limit=200 and
+  // production holds ~31 designations); if that ever stops being true the
+  // honest fix is a backend campus_id filter, not a bigger client fetch.
+  const [campusFilter, setCampusFilter] = useState<string>("ALL");
+  // Which rows are expanded into the master-detail panel.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   // searchInput tracks every keystroke; search (the value actually sent to
   // the server) only updates on blur/Enter -- search moved server-side this
   // epic (was 100% client-side substring filtering before), same
@@ -373,15 +563,50 @@ export function DesignationsPage() {
         departmentId: departmentFilter === "ALL" ? undefined : departmentFilter,
       }),
   });
-  const designations = data?.items ?? [];
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
+  const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
 
   const canManage = Boolean(user && DESIGNATION_WRITE_ROLES.includes(user.role));
 
   const departmentNameById = new Map((departments ?? []).map((d) => [d.id, d.name]));
+  const departmentById = new Map((departments ?? []).map((d) => [d.id, d]));
+  const campusById = new Map((campuses ?? []).map((c) => [c.id, c]));
+
+  // Eligibility rules are only needed by an expanded detail panel, so this
+  // stays unfetched until the first row is opened -- the page's initial load
+  // is unchanged for the common case where nobody expands anything.
+  const anyExpanded = expandedIds.size > 0;
+  const { data: eligibilityData, isLoading: eligibilityLoading } = useQuery({
+    queryKey: ["eligibility-rules", "designation-panel"],
+    queryFn: () => listEligibilityRules({ limit: 200, is_active: true }),
+    enabled: anyExpanded,
+  });
+  const eligibilityRules = eligibilityData?.items ?? [];
+
+  // Server-filtered rows, then the one client-side filter (see campusFilter).
+  const serverDesignations = data?.items ?? [];
+  const designations =
+    campusFilter === "ALL"
+      ? serverDesignations
+      : serverDesignations.filter((designation) =>
+          campusesForDesignation(designation, departmentById, campusById).some((c) => c.id === campusFilter),
+        );
 
   const filtersActive =
-    categoryFilter !== "ALL" || activeFilter !== "ALL" || search.trim() !== "" || departmentFilter !== "ALL";
+    categoryFilter !== "ALL" ||
+    activeFilter !== "ALL" ||
+    search.trim() !== "" ||
+    departmentFilter !== "ALL" ||
+    campusFilter !== "ALL";
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function commitSearch() {
     setSearch(searchInput);
@@ -724,6 +949,19 @@ export function DesignationsPage() {
           aria-label="Search designations"
           className="sm:max-w-xs"
         />
+        <Select value={campusFilter} onValueChange={(v) => setCampusFilter(v)}>
+          <SelectTrigger aria-label="Campus filter" className="sm:w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All campuses</SelectItem>
+            {(campuses ?? []).map((campus) => (
+              <SelectItem key={campus.id} value={campus.id}>
+                {campus.code}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select
           value={departmentFilter}
           onValueChange={(v) => setDepartmentFilter(v)}
@@ -756,33 +994,28 @@ export function DesignationsPage() {
           empty/table states, not just the loaded table. */}
       <Card>
         <CardContent className="p-0">
-          <Table className="table-fixed">
-            <colgroup>
-              {/* Name/Departments/Employment type/Category/Active/Min. experience/Actions all get a
-                  fixed rem-based width sized for their real content (see DesignationsPage.test.tsx and
-                  the live dev DB check that motivated this) -- deliberately not percentages, so these
-                  columns never shrink into overflow-collision territory on a narrower viewport.
-                  Qualification is the one column left unsized, so it alone absorbs all remaining
-                  table width (per the table-layout: fixed spec) and truncates instead of colliding
-                  into "Min. experience" when the text is long. */}
-              <col className="w-44" />
-              <col className="w-32" />
-              <col className="w-32" />
-              <col />
-              <col className="w-40" />
-              <col className="w-32" />
-              <col className="w-24" />
-              {canManage ? <col className="w-28" /> : null}
-            </colgroup>
+          {/* `table-fixed` plus a rem-sized colgroup used to force every long
+              value to truncate ("Assistant Professor..."), which is exactly
+              what the 2026-08-29 brief asked us to stop doing. Auto layout
+              sizes columns to their real content instead, and the wrapper
+              below scrolls horizontally ONLY when the content genuinely
+              exceeds the viewport -- `min-w` is what triggers that, so the
+              columns never collapse into each other on a narrow screen. */}
+          <div className="w-full overflow-x-auto">
+          <Table className="min-w-[68rem]">
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
+                {/* Expand toggle -- header cell is empty by design; the
+                    per-row buttons carry their own aria-labels. */}
+                <TableHead className="w-10" />
+                <TableHead>Designation</TableHead>
                 <TableHead>Category</TableHead>
+                <TableHead>Campus</TableHead>
                 <TableHead>Departments</TableHead>
                 <TableHead>Qualification</TableHead>
                 <TableHead>Min. experience</TableHead>
                 <TableHead>Employment type</TableHead>
-                <TableHead>Active</TableHead>
+                <TableHead>Status</TableHead>
                 {canManage ? <TableHead className="text-right">Actions</TableHead> : null}
               </TableRow>
             </TableHeader>
@@ -794,33 +1027,56 @@ export function DesignationsPage() {
                   {filtersActive ? "No designations match the current filters." : "No designations found."}
                 </TableEmpty>
               ) : (
-                designations.map((designation) => (
-                  <TableRow key={designation.id}>
-                    <TableCell className="truncate font-medium text-foreground" title={designation.name}>
-                      {designation.name}
+                designations.map((designation) => {
+                  const isExpanded = expandedIds.has(designation.id);
+                  const rowCampuses = campusesForDesignation(designation, departmentById, campusById);
+                  return (
+                  <Fragment key={designation.id}>
+                  <TableRow className="hover:bg-muted/50">
+                    <TableCell className="align-top">
+                      <button
+                        type="button"
+                        aria-expanded={isExpanded}
+                        aria-label={`${isExpanded ? "Collapse" : "Expand"} details for ${designation.name}`}
+                        onClick={() => toggleExpanded(designation.id)}
+                        className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                        )}
+                      </button>
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">
+                    {/* No truncate/title here any more -- the full designation
+                        name renders, wrapping if it must. */}
+                    <TableCell className="align-top font-medium text-foreground">{designation.name}</TableCell>
+                    <TableCell className="align-top whitespace-nowrap">
                       <CategoryBadge category={designation.category} />
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="align-top text-foreground">
+                      {rowCampuses.length === 0
+                        ? "—"
+                        : rowCampuses
+                            .slice(0, 2)
+                            .map((c) => c.code)
+                            .join(", ") + (rowCampuses.length > 2 ? ` +${rowCampuses.length - 2}` : "")}
+                    </TableCell>
+                    <TableCell className="align-top">
                       <DesignationDepartmentsCell designation={designation} departmentNameById={departmentNameById} />
                     </TableCell>
-                    <TableCell className="truncate" title={designation.qualification}>
-                      {designation.qualification}
-                    </TableCell>
-                    <TableCell className="truncate" title={designation.min_experience}>
-                      {designation.min_experience}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
+                    <TableCell className="align-top text-foreground">{designation.qualification}</TableCell>
+                    <TableCell className="align-top text-foreground">{designation.min_experience}</TableCell>
+                    <TableCell className="align-top whitespace-nowrap text-foreground">
                       {designation.employment_type.replace(/_/g, " ")}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">
+                    <TableCell className="align-top whitespace-nowrap">
                       <Badge variant={designation.is_active ? "success" : "destructive"}>
                         {designation.is_active ? "Active" : "Inactive"}
                       </Badge>
                     </TableCell>
                     {canManage ? (
-                      <TableCell className="text-right">
+                      <TableCell className="align-top text-right">
                         <DesignationRowActions
                           designation={designation}
                           onEdit={() => openEditDialog(designation)}
@@ -829,10 +1085,28 @@ export function DesignationsPage() {
                       </TableCell>
                     ) : null}
                   </TableRow>
-                ))
+                  {isExpanded ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={BASE_COLUMN_COUNT + (canManage ? 1 : 0)} className="p-0">
+                        <DesignationDetailPanel
+                          designation={designation}
+                          departmentNames={designation.department_ids
+                            .map((id) => departmentNameById.get(id) ?? "Unknown")
+                            .sort((a, b) => a.localeCompare(b))}
+                          campuses={rowCampuses}
+                          eligibilityRules={eligibilityRulesForDesignation(designation, eligibilityRules, rowCampuses)}
+                          eligibilityLoading={eligibilityLoading}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                  </Fragment>
+                  );
+                })
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>
