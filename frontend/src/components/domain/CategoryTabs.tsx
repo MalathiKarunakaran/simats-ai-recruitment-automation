@@ -29,6 +29,14 @@ interface CategoryTabsProps {
    * every existing consumer's current look; "segmented" is DashboardPage's
    * own opt-in for a visually stronger active state (see ui/tabs.tsx). */
   variant?: "pill" | "segmented";
+  /** Opt-in per-category accent dots (Teaching=blue, Non-Teaching=purple,
+   * Housekeeping=orange -- "All" stays neutral, it isn't a category).
+   * Deliberately opt-in rather than the default: this component is shared by
+   * Vacancy Requests, Departments, Vacancy Register, Designation Master, Job
+   * Postings, Applications and Candidates, and only Sanctioned Strength asked
+   * for the colour treatment. Every other consumer omits it and is visually
+   * unchanged. */
+  accented?: boolean;
 }
 
 // Maps a backend `category_counts` snapshot (VacancyRegisterListResponse/
@@ -50,12 +58,31 @@ export function mapServerCategoryCounts(counts: Record<string, number> | undefin
 // carrying a live count (e.g. "Teaching (18)"). Presentational/controlled
 // only; pairs with hooks/useCategoryTabState.ts for URL persistence, but
 // doesn't require it -- a page can also just useState() the value.
-export function CategoryTabs({ value, onValueChange, counts, className, variant }: CategoryTabsProps) {
+export function CategoryTabs({
+  value,
+  onValueChange,
+  counts,
+  className,
+  variant,
+  accented = false,
+}: CategoryTabsProps) {
   const tabs = [
     ...(counts.all !== undefined ? [{ value: "ALL" as const, label: `All (${counts.all})` }] : []),
-    { value: "TEACHING" as const, label: `Teaching (${counts.teaching})` },
-    { value: "NON_TEACHING" as const, label: `Non-Teaching (${counts.nonTeaching})` },
-    { value: "HOUSEKEEPING" as const, label: `Housekeeping (${counts.housekeeping})` },
+    {
+      value: "TEACHING" as const,
+      label: `Teaching (${counts.teaching})`,
+      ...(accented ? { accent: "blue" as const } : {}),
+    },
+    {
+      value: "NON_TEACHING" as const,
+      label: `Non-Teaching (${counts.nonTeaching})`,
+      ...(accented ? { accent: "purple" as const } : {}),
+    },
+    {
+      value: "HOUSEKEEPING" as const,
+      label: `Housekeeping (${counts.housekeeping})`,
+      ...(accented ? { accent: "orange" as const } : {}),
+    },
   ];
   return <Tabs value={value} onValueChange={onValueChange} tabs={tabs} className={className} variant={variant} />;
 }

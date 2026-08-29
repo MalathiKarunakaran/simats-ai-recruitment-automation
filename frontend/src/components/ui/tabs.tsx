@@ -1,8 +1,31 @@
 import { cn } from "@/lib/utils";
 
+// Per-tab semantic tone (Sanctioned Strength colour pass, 2026-08-29).
+// Entirely optional: a tab that omits `accent` renders exactly as it always
+// has, which is what every other Tabs/CategoryTabs consumer in the app does.
+export type TabAccent = "blue" | "purple" | "orange";
+
+const TAB_ACCENT_DOT: Record<TabAccent, string> = {
+  blue: "bg-brand-primary",
+  purple: "bg-brand-purple",
+  orange: "bg-brand-warning",
+};
+
+// Applied to the ACTIVE tab only -- an inactive accented tab keeps the
+// standard muted-foreground treatment so the strip doesn't turn into a row
+// of competing colours (brief: "too many colors" is an explicit anti-goal).
+const TAB_ACCENT_ACTIVE: Record<TabAccent, string> = {
+  blue: "text-brand-primary",
+  purple: "text-brand-purple",
+  orange: "text-brand-warning",
+};
+
 export interface TabOption<T extends string> {
   value: T;
   label: string;
+  /** Optional semantic tone -- renders a small colour dot before the label
+   * and tints the label when this tab is active. Omit for the default look. */
+  accent?: TabAccent;
 }
 
 interface TabsProps<T extends string> {
@@ -51,8 +74,22 @@ export function Tabs<T extends string>({ value, onValueChange, tabs, className, 
                 ? "bg-card text-foreground shadow-sm"
                 : "bg-primary text-primary-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground",
+            // The segmented variant fills the active tab with --primary, so
+            // an accent tint on top of it would be unreadable -- accents are
+            // applied to the pill variant only.
+            tab.accent && variant === "pill" && value === tab.value && TAB_ACCENT_ACTIVE[tab.accent],
           )}
         >
+          {tab.accent ? (
+            <span
+              aria-hidden="true"
+              className={cn(
+                "mr-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full align-middle transition-opacity",
+                TAB_ACCENT_DOT[tab.accent],
+                value === tab.value ? "opacity-100" : "opacity-50",
+              )}
+            />
+          ) : null}
           {tab.label}
         </button>
       ))}

@@ -452,7 +452,14 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
         isLoading={isLoading}
       />
 
-      <div className="flex flex-wrap items-center gap-3">
+      {/* Filter bar -- one clean responsive row (2026-08-29 colour pass).
+          Wrapped in its own card surface so the controls read as a single
+          toolbar against the page's light-blue background rather than
+          floating loose, and Export is pushed to the trailing edge with
+          `ml-auto` so it stays "near the filters" without sitting in the
+          middle of them. Purely layout: every control, its aria-label and
+          its handler are unchanged. */}
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3 shadow-[var(--shadow-card)]">
         <Input
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
@@ -568,6 +575,7 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
           type="button"
           variant="outline"
           size="sm"
+          className="ml-auto"
           disabled={exportMutation.isPending}
           onClick={() => exportMutation.mutate()}
         >

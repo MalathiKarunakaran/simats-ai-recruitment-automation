@@ -489,14 +489,33 @@ export function SanctionedStrengthPage() {
         <UploadHistoryTab entityType="SANCTIONED_STRENGTH" />
       ) : (
         <>
-          <CategoryTabs
-            value={categoryFilter}
-            onValueChange={(v) => {
-              setCategoryFilter(v);
-              setPage(0);
-            }}
-            counts={mapServerCategoryCounts(data?.category_counts)}
-          />
+          <div className="flex flex-col gap-1.5">
+            <CategoryTabs
+              value={categoryFilter}
+              onValueChange={(v) => {
+                setCategoryFilter(v);
+                setPage(0);
+              }}
+              counts={mapServerCategoryCounts(data?.category_counts)}
+              // Teaching=blue / Non-Teaching=purple / Housekeeping=orange
+              // (2026-08-29 colour pass). Opt-in per call site -- see
+              // CategoryTabs' own `accented` docstring for why the other
+              // seven consumers deliberately don't get this.
+              accented
+            />
+            {/* These counts legitimately OVERLAP and do not sum to All: a
+                department supports a SET of categories (Department.supported_
+                categories), so one listing both Teaching and Non-Teaching is
+                counted under both tabs, while All is a distinct department
+                count. Stated in the UI because a reader who tries the
+                arithmetic will otherwise assume a bug -- see
+                app/services/vacancy_register.py's own comment at the
+                category_counts snapshot. */}
+            <p className="text-xs text-muted-foreground">
+              A department can support several categories, so tab counts overlap and don&rsquo;t add up to
+              All &mdash; All is the number of distinct departments.
+            </p>
+          </div>
 
           {categoryFilter === "TEACHING" ? (
             // Teaching's own operational view (Phase E) -- designation-level

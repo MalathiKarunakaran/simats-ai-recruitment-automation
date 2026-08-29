@@ -1,4 +1,6 @@
-import { StatTile, type StatAccent } from "@/components/dashboard/StatTile";
+import { AlertTriangle, CheckCircle2, ClipboardCheck, LayoutList, UserPlus, Users } from "lucide-react";
+
+import { StatTile, type StatAccent, type StatIconColor } from "@/components/dashboard/StatTile";
 
 // KPI summary row for the 3 Sanctioned Strength "operational view" tables
 // (TeachingStrengthTable/NonTeachingStrengthTable/HousekeepingStrengthTable)
@@ -30,6 +32,21 @@ import { StatTile, type StatAccent } from "@/components/dashboard/StatTile";
 // *_total fields are snapshotted at, so all 6 tiles agree with each other
 // even while a Status filter is applied.
 
+// Enterprise-HRMS colour pass (2026-08-29): each tile gains an icon chip in
+// its own semantic tone, and "Vacancies" is promoted to the strip's single
+// `hero` tile. Purely presentational -- every value, tooltip, zeroCaption and
+// the signed-vacancy accent logic below are untouched, so nothing about what
+// these tiles *count* changes. Tones follow this app's fixed colour spec
+// (index.css): blue = neutral figure, purple = analytics/sanctioned,
+// green = healthy, orange = needs attention, red = urgent.
+//
+// "Vacancies" is the one tile a user opens this page to read, so it carries
+// `hero` (the signature gradient ring) -- StatTile's own contract reserves
+// that for exactly ONE tile per strip, which is why no other tile here sets
+// it. `hero` deliberately suppresses the left accent stripe (see StatTile),
+// so the sign-based `vacancyAccent` below now drives only the ICON tone,
+// keeping "negative = overstaffed reads differently from positive = short-
+// staffed" legible without a competing border treatment.
 export type StrengthKpiSummaryVariant = "APPROVED_WORKING" | "REQUIRED_AVAILABLE";
 
 export interface StrengthKpiSummaryProps {
@@ -70,6 +87,18 @@ function vacancyAccent(value: number | undefined): StatAccent {
   return "gold";
 }
 
+/** Icon-chip tone counterpart to `vacancyAccent` -- same sign semantics
+ * (negative = net overstaffed, zero = balanced, positive = short-staffed),
+ * expressed in StatIconColor's vocabulary rather than StatAccent's. Kept
+ * separate because the two palettes genuinely differ: StatAccent has no
+ * "purple", StatIconColor has no "gold". */
+function vacancyIconColor(value: number | undefined): StatIconColor {
+  if (typeof value !== "number") return "orange";
+  if (value < 0) return "purple";
+  if (value === 0) return "green";
+  return "red";
+}
+
 export function StrengthKpiSummary({
   variant,
   totalRecords,
@@ -97,18 +126,27 @@ export function StrengthKpiSummary({
         label="Total Records"
         value={totalRecords}
         isLoading={isLoading}
+        accent="blue"
+        icon={LayoutList}
+        iconColor="blue"
         tooltip="Every row currently in this view (status_counts.ALL) -- respects every active filter except Status, before pagination."
       />
       <StatTile
         label={approvedOrRequiredLabel}
         value={approvedOrRequired}
         isLoading={isLoading}
+        accent="gold"
+        icon={ClipboardCheck}
+        iconColor="purple"
         tooltip={approvedOrRequiredTooltip}
       />
       <StatTile
         label={workingOrAvailableLabel}
         value={workingOrAvailable}
         isLoading={isLoading}
+        accent="green"
+        icon={Users}
+        iconColor="green"
         tooltip={workingOrAvailableTooltip}
         zeroCaption="No staff currently working against sanctioned strength in this view"
       />
@@ -117,6 +155,9 @@ export function StrengthKpiSummary({
         value={vacancyTotal}
         isLoading={isLoading}
         accent={vacancyAccent(vacancyTotal)}
+        hero
+        icon={AlertTriangle}
+        iconColor={vacancyIconColor(vacancyTotal)}
         tooltip="Signed net vacancy across every row in this view -- NOT the sum of each row's vacancy floored at 0. Negative means net overstaffed in this view, not 'no vacancy'."
         zeroCaption="Fully staffed -- no net vacancy or overstaffing in this view"
       />
@@ -124,12 +165,18 @@ export function StrengthKpiSummary({
         label="Fully Staffed"
         value={fullyStaffed}
         isLoading={isLoading}
+        accent="green"
+        icon={CheckCircle2}
+        iconColor="green"
         tooltip="Rows with a Fully Staffed status in this view (status_counts.FULLY_STAFFED)."
       />
       <StatTile
         label="Recruitment Required"
         value={recruitmentRequired}
         isLoading={isLoading}
+        accent="orange"
+        icon={UserPlus}
+        iconColor="orange"
         tooltip="Rows with a Vacancy/Recruitment Required status in this view (status_counts.VACANCY_RECRUITMENT_REQUIRED)."
       />
     </div>
