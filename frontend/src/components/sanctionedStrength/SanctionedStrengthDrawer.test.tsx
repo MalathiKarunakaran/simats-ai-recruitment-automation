@@ -163,7 +163,7 @@ describe("SanctionedStrengthDrawer", () => {
   describe("default tab by role (mode/canManage)", () => {
     it("defaults to Basic Info for a write-role (canManage) user", async () => {
       renderDrawer({ mode: "edit", canManage: true });
-      expect(await screen.findByRole("tab", { name: "Basic Info" })).toHaveAttribute("aria-selected", "true");
+      expect(await screen.findByRole("tab", { name: "Details" })).toHaveAttribute("aria-selected", "true");
     });
 
     it("defaults to History for a read-only viewer (canManage=false)", async () => {
@@ -173,7 +173,7 @@ describe("SanctionedStrengthDrawer", () => {
 
     it("hides the Audit Log tab when canViewAuditLog is false", async () => {
       renderDrawer({ canViewAuditLog: false });
-      await screen.findByRole("tab", { name: "Basic Info" });
+      await screen.findByRole("tab", { name: "Details" });
       expect(screen.queryByRole("tab", { name: "Audit Log" })).not.toBeInTheDocument();
     });
 
@@ -186,18 +186,22 @@ describe("SanctionedStrengthDrawer", () => {
   describe("Basic Info tab", () => {
     it("shows Campus/Department/Designation/Category read-only in view mode", async () => {
       renderDrawer({ mode: "view", canManage: false });
-      await userEvent.click(await screen.findByRole("tab", { name: "Basic Info" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
       expect(screen.getByText("SSE")).toBeInTheDocument();
       expect(screen.getByText("Computer Science")).toBeInTheDocument();
-      expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
-      expect(screen.getByText("TEACHING")).toBeInTheDocument();
+      // Rendered twice by design: the modal header shows the record identity,
+      // and the Position section repeats it as a read-only field.
+      expect((await screen.findAllByText("Assistant Professor")).length).toBeGreaterThan(0);
+      expect(screen.queryByRole("combobox", { name: "Designation" })).not.toBeInTheDocument();
+      // Twice by design: the header CategoryBadge and the Position section.
+      expect(screen.getAllByText("TEACHING").length).toBeGreaterThan(0);
       expect(screen.queryByRole("combobox", { name: "Designation" })).not.toBeInTheDocument();
     });
 
     it("shows a category-filtered Designation picker in Add mode, excluding designations already in the breakdown", async () => {
       renderDrawer({ mode: "add", designationId: null, designationName: null });
-      await screen.findByRole("tab", { name: "Basic Info" });
+      await screen.findByRole("tab", { name: "Details" });
 
       await userEvent.click(await screen.findByRole("combobox", { name: "Designation" }));
       // Category-filtered: NON_TEACHING's Lab Assistant is never offered
@@ -215,9 +219,9 @@ describe("SanctionedStrengthDrawer", () => {
       mockedUpdate.mockResolvedValue(SANCTIONED_STRENGTH_ROW);
       const { onSaved, onOpenChange } = renderDrawer();
 
-      await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
-      const approvedInput = await screen.findByLabelText("Approved");
+      const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
       expect(approvedInput).toHaveValue(10);
       expect(screen.getByText("7")).toBeInTheDocument(); // Working
       expect(screen.getByLabelText("Effective from")).toHaveValue("2026-08-10");
@@ -225,7 +229,7 @@ describe("SanctionedStrengthDrawer", () => {
 
       await userEvent.clear(approvedInput);
       await userEvent.type(approvedInput, "12");
-      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
       await waitFor(() =>
         expect(mockedUpdate).toHaveBeenCalledWith("ss-1", {
@@ -243,14 +247,14 @@ describe("SanctionedStrengthDrawer", () => {
       mockedCreate.mockResolvedValue({ ...SANCTIONED_STRENGTH_ROW, id: "ss-2", designation_id: "des-2" });
       renderDrawer({ designationId: "des-2", designationName: "Professor" });
 
-      await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
-      const approvedInput = await screen.findByLabelText("Approved");
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+      const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
       expect(approvedInput).toHaveValue(4);
       expect(screen.getByLabelText("Remarks")).toHaveValue("");
 
       await userEvent.clear(approvedInput);
       await userEvent.type(approvedInput, "6");
-      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
       await waitFor(() =>
         expect(mockedCreate).toHaveBeenCalledWith(
@@ -271,8 +275,8 @@ describe("SanctionedStrengthDrawer", () => {
       await userEvent.click(await screen.findByRole("combobox", { name: "Designation" }));
       await userEvent.click(await screen.findByRole("option", { name: "Associate Professor" }));
 
-      await userEvent.click(screen.getByRole("tab", { name: "Strength" }));
-      const approvedInput = await screen.findByLabelText("Approved");
+      await userEvent.click(screen.getByRole("tab", { name: "Details" }));
+      const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
       await userEvent.clear(approvedInput);
       await userEvent.type(approvedInput, "5");
 
@@ -288,37 +292,72 @@ describe("SanctionedStrengthDrawer", () => {
 
     it("rejects a non-numeric/negative Approved value, disabling Save", async () => {
       renderDrawer();
-      await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
-      const approvedInput = await screen.findByLabelText("Approved");
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+      const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
       await userEvent.clear(approvedInput);
       await userEvent.type(approvedInput, "-5");
 
       expect(screen.getByText("Enter a whole number, 0 or more.")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
       expect(mockedUpdate).not.toHaveBeenCalled();
     });
 
-    it("Cancel closes the drawer without calling the API", async () => {
+    // Cancelling an EDITED form now asks first (2026-08-29 redesign) -- the
+    // brief asked for a confirmation before closing with unsaved changes, so
+    // the close is deliberately not immediate here.
+    it("Cancel on an edited form asks before discarding, then closes without calling the API", async () => {
       const { onOpenChange } = renderDrawer();
-      await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
-      const approvedInput = await screen.findByLabelText("Approved");
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+      const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
       await userEvent.clear(approvedInput);
       await userEvent.type(approvedInput, "99");
 
       await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      // Still open -- the guard intercepted the close.
+      expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
+      expect(onOpenChange).not.toHaveBeenCalledWith(false);
+
+      await userEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 
       expect(onOpenChange).toHaveBeenCalledWith(false);
       expect(mockedUpdate).not.toHaveBeenCalled();
       expect(mockedCreate).not.toHaveBeenCalled();
     });
 
+    it("Cancel closes immediately when nothing has been edited", async () => {
+      const { onOpenChange } = renderDrawer();
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+      await screen.findByLabelText("Approved / Sanctioned");
+
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+      expect(screen.queryByText("Discard unsaved changes?")).not.toBeInTheDocument();
+      expect(mockedUpdate).not.toHaveBeenCalled();
+    });
+
+    it("Keep editing dismisses the discard prompt and leaves the edit in place", async () => {
+      const { onOpenChange } = renderDrawer();
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+      const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
+      await userEvent.clear(approvedInput);
+      await userEvent.type(approvedInput, "99");
+
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Keep editing" }));
+
+      expect(onOpenChange).not.toHaveBeenCalledWith(false);
+      expect(await screen.findByLabelText("Approved / Sanctioned")).toHaveValue(99);
+    });
+
     it("shows Approved/Working/Vacancy/Effective from/Remarks as plain read-only text in view mode (no inputs, no footer)", async () => {
       renderDrawer({ mode: "view", canManage: false });
-      await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
-      expect(screen.queryByLabelText("Approved")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Approved / Sanctioned")).not.toBeInTheDocument();
       expect(screen.getByText("10")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Save Changes" })).not.toBeInTheDocument();
     });
   });
 
@@ -327,10 +366,10 @@ describe("SanctionedStrengthDrawer", () => {
       mockedUpdate.mockResolvedValue(SANCTIONED_STRENGTH_ROW);
       renderDrawer();
 
-      await userEvent.click(await screen.findByRole("tab", { name: "Location" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
       expect(await screen.findByRole("combobox", { name: "Location" })).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
       await waitFor(() =>
         expect(mockedUpdate).toHaveBeenCalledWith(
           "ss-1",
@@ -341,15 +380,15 @@ describe("SanctionedStrengthDrawer", () => {
 
     it("requires a location when category is HOUSEKEEPING, blocking Save until one is picked", async () => {
       renderDrawer({ category: "HOUSEKEEPING", designationId: "des-2", designationName: "Professor" });
-      await userEvent.click(await screen.findByRole("tab", { name: "Location" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
       expect(await screen.findByText("Location is required for Housekeeping.")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
     });
 
     it("shows the resolved location name as read-only text in view mode", async () => {
       renderDrawer({ mode: "view", canManage: false });
-      await userEvent.click(await screen.findByRole("tab", { name: "Location" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
       expect(await screen.findByText("Block A")).toBeInTheDocument();
       expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
@@ -369,7 +408,7 @@ describe("SanctionedStrengthDrawer", () => {
       mockedGetAvailability.mockResolvedValue(AVAILABILITY);
       renderDrawer();
 
-      await userEvent.click(await screen.findByRole("tab", { name: "Recruitment Status" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
       await waitFor(() =>
         expect(mockedGetAvailability).toHaveBeenCalledWith({
@@ -390,7 +429,7 @@ describe("SanctionedStrengthDrawer", () => {
       mockedGetAvailability.mockResolvedValue({ ...AVAILABILITY, vacant: 0 });
       renderDrawer();
 
-      await userEvent.click(await screen.findByRole("tab", { name: "Recruitment Status" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
       await waitFor(() => expect(mockedGetAvailability).toHaveBeenCalled());
       expect(screen.queryByRole("link", { name: "Raise vacancy request" })).not.toBeInTheDocument();
@@ -439,7 +478,7 @@ describe("SanctionedStrengthDrawer", () => {
       mockedListVacancyRequests.mockResolvedValue(vacancyRequests);
       renderDrawer();
 
-      await userEvent.click(await screen.findByRole("tab", { name: "Approval Status" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
       await waitFor(() =>
         expect(mockedListVacancyRequests).toHaveBeenCalledWith(null, {
@@ -455,7 +494,7 @@ describe("SanctionedStrengthDrawer", () => {
       mockedListVacancyRequests.mockResolvedValue([]);
       renderDrawer();
 
-      await userEvent.click(await screen.findByRole("tab", { name: "Approval Status" }));
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
       expect(
         await screen.findByText("No vacancy requests raised for this designation yet."),

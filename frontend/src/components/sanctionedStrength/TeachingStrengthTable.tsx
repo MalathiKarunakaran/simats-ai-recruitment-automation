@@ -80,7 +80,7 @@ const STATUS_VALUES: TeachingStrengthStatus[] = [
 // pending-approval state (matches its own APPROVAL_PENDING -> "caution"),
 // destructive for INACTIVE (matches this page's own plain "Inactive" badge
 // already used for a deactivated department).
-const STATUS_DISPLAY: Record<TeachingStrengthStatus, { label: string; variant: BadgeProps["variant"] }> = {
+export const STATUS_DISPLAY: Record<TeachingStrengthStatus, { label: string; variant: BadgeProps["variant"] }> = {
   VACANCY_RECRUITMENT_REQUIRED: { label: "Vacancy/Recruitment Required", variant: "warning" },
   FULLY_STAFFED: { label: "Fully Staffed", variant: "success" },
   OVERSTAFFED: { label: "Overstaffed", variant: "outline" },
@@ -143,6 +143,19 @@ export type StrengthActionRow = Pick<
   | "approved"
   | "working"
   | "vacancy"
+  // Widened 2026-08-29 for the redesigned edit modal's Strength and Record
+  // Info sections. These five come free with the view row both tables
+  // already hold -- the modal's own breakdown query does NOT return them
+  // (see DepartmentDesignationBreakdownRow), so passing them down is what
+  // avoids either an extra request or a backend change. The
+  // SanctionedStrengthPage call site has no view row and omits them, which
+  // is why the modal treats every one as optional.
+  | "filled_pct"
+  | "status"
+  | "last_join"
+  | "last_resignation"
+  | "last_updated"
+  | "location_name"
 >;
 
 export function StrengthRowActions({
@@ -204,6 +217,7 @@ export function StrengthRowActions({
         category={category}
         designationId={row.designation_id}
         designationName={designationName}
+        viewRow={row}
         onSaved={onSaved}
       />
     </div>

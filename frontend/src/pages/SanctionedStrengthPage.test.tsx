@@ -1102,13 +1102,13 @@ describe("SanctionedStrengthPage", () => {
           screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
         );
         // Defaults to the Basic Info tab for a write-role user.
-        expect(await screen.findByRole("tab", { name: "Basic Info" })).toHaveAttribute("aria-selected", "true");
+        expect(await screen.findByRole("tab", { name: "Details" })).toHaveAttribute("aria-selected", "true");
 
-        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
 
         // Pre-filled from the breakdown row (approved=10, effective_from=
         // 2026-08-10, remarks="Existing sanction").
-        const approvedInput = screen.getByLabelText("Approved");
+        const approvedInput = screen.getByLabelText("Approved / Sanctioned");
         expect(approvedInput).toHaveValue(10);
         const effectiveFromInput = screen.getByLabelText("Effective from");
         expect(effectiveFromInput).toHaveValue("2026-08-10");
@@ -1120,7 +1120,7 @@ describe("SanctionedStrengthPage", () => {
         await userEvent.clear(remarksInput);
         await userEvent.type(remarksInput, "Revised headcount");
 
-        await userEvent.click(screen.getByRole("button", { name: "Save" }));
+        await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
         await waitFor(() =>
           expect(mockedUpdateSanctionedStrength).toHaveBeenCalledWith("ss-1", {
@@ -1145,13 +1145,13 @@ describe("SanctionedStrengthPage", () => {
         await userEvent.click(
           screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
         );
-        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
-        const approvedInput = await screen.findByLabelText("Approved");
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+        const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
         await userEvent.clear(approvedInput);
         await userEvent.type(approvedInput, "-5");
 
         expect(screen.getByText("Enter a whole number, 0 or more.")).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+        expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
 
         expect(mockedUpdateSanctionedStrength).not.toHaveBeenCalled();
         expect(mockedCreateSanctionedStrength).not.toHaveBeenCalled();
@@ -1168,14 +1168,17 @@ describe("SanctionedStrengthPage", () => {
         await userEvent.click(
           screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
         );
-        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
-        const approvedInput = await screen.findByLabelText("Approved");
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+        const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
         await userEvent.clear(approvedInput);
         await userEvent.type(approvedInput, "99");
 
         await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+        // The 2026-08-29 modal redesign guards an edited form: Cancel asks
+        // before discarding rather than closing outright.
+        await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }));
 
-        expect(screen.queryByLabelText("Approved")).not.toBeInTheDocument();
+        expect(screen.queryByLabelText("Approved / Sanctioned")).not.toBeInTheDocument();
         expect(mockedUpdateSanctionedStrength).not.toHaveBeenCalled();
         expect(mockedCreateSanctionedStrength).not.toHaveBeenCalled();
 
@@ -1185,8 +1188,8 @@ describe("SanctionedStrengthPage", () => {
         await userEvent.click(
           screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
         );
-        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
-        expect(await screen.findByLabelText("Approved")).toHaveValue(10);
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+        expect(await screen.findByLabelText("Approved / Sanctioned")).toHaveValue(10);
       });
 
       it("POSTs a brand-new row when editing a designation with no sanctioned_strength_id yet", async () => {
@@ -1203,12 +1206,12 @@ describe("SanctionedStrengthPage", () => {
         // designation has never been sanctioned yet -- same as the legacy
         // popover's own behavior for a null sanctioned_strength_id row.
         await userEvent.click(screen.getByRole("button", { name: "Edit sanctioned strength for Professor" }));
-        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
         // Never sanctioned yet (sanctioned_strength_id === null) -- still
         // pre-fills from whatever the breakdown row's own approved/remarks
         // are (4 / null here), effective_from just falls back to today
         // since the row's own effective_from is null.
-        const approvedInput = await screen.findByLabelText("Approved");
+        const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
         expect(approvedInput).toHaveValue(4);
         const remarksInput = screen.getByLabelText("Remarks");
         expect(remarksInput).toHaveValue("");
@@ -1217,7 +1220,7 @@ describe("SanctionedStrengthPage", () => {
         await userEvent.type(approvedInput, "6");
         await userEvent.type(remarksInput, "New line");
 
-        await userEvent.click(screen.getByRole("button", { name: "Save" }));
+        await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
         await waitFor(() =>
           expect(mockedCreateSanctionedStrength).toHaveBeenCalledWith(
@@ -1305,8 +1308,8 @@ describe("SanctionedStrengthPage", () => {
         expect(screen.queryByRole("option", { name: "Assistant Professor" })).not.toBeInTheDocument();
         await userEvent.click(await screen.findByRole("option", { name: "Associate Professor" }));
 
-        await userEvent.click(await screen.findByRole("tab", { name: "Strength" }));
-        const approvedInput = await screen.findByLabelText("Approved");
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+        const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
         await userEvent.clear(approvedInput);
         await userEvent.type(approvedInput, "5");
 
@@ -1859,9 +1862,9 @@ describe("SanctionedStrengthPage", () => {
       await userEvent.click(
         screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }),
       );
-      expect(await screen.findByRole("tab", { name: "Basic Info" })).toHaveAttribute("aria-selected", "true");
+      expect(await screen.findByRole("tab", { name: "Details" })).toHaveAttribute("aria-selected", "true");
 
-      await userEvent.click(screen.getByRole("tab", { name: "Strength" }));
+      await userEvent.click(screen.getByRole("tab", { name: "Details" }));
 
       await waitFor(() => expect(mockedGetBreakdown).toHaveBeenCalledWith("d-cse"));
 
@@ -1874,10 +1877,10 @@ describe("SanctionedStrengthPage", () => {
       expect(effectiveFromInput).toHaveValue("2026-05-01");
       expect(screen.getByLabelText("Remarks")).toHaveValue("Original remark");
 
-      const approvedInput = screen.getByLabelText("Approved");
+      const approvedInput = screen.getByLabelText("Approved / Sanctioned");
       await userEvent.clear(approvedInput);
       await userEvent.type(approvedInput, "12");
-      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
       await waitFor(() =>
         expect(mockedUpdateSanctionedStrength).toHaveBeenCalledWith("ts-1", {
@@ -2282,9 +2285,9 @@ describe("SanctionedStrengthPage", () => {
       await userEvent.click(
         screen.getByRole("button", { name: "Edit sanctioned strength for Office Assistant" }),
       );
-      expect(await screen.findByRole("tab", { name: "Basic Info" })).toHaveAttribute("aria-selected", "true");
+      expect(await screen.findByRole("tab", { name: "Details" })).toHaveAttribute("aria-selected", "true");
 
-      await userEvent.click(screen.getByRole("tab", { name: "Strength" }));
+      await userEvent.click(screen.getByRole("tab", { name: "Details" }));
 
       await waitFor(() => expect(mockedGetBreakdown).toHaveBeenCalledWith("d-admin"));
 
@@ -2292,10 +2295,10 @@ describe("SanctionedStrengthPage", () => {
       expect(effectiveFromInput).toHaveValue("2026-04-01");
       expect(screen.getByLabelText("Remarks")).toHaveValue("Original remark");
 
-      const approvedInput = screen.getByLabelText("Approved");
+      const approvedInput = screen.getByLabelText("Approved / Sanctioned");
       await userEvent.clear(approvedInput);
       await userEvent.type(approvedInput, "8");
-      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
       await waitFor(() =>
         expect(mockedUpdateSanctionedStrength).toHaveBeenCalledWith("nts-1", {
