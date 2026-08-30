@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, FileSpreadsheet, FileUp, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronRight, FileSpreadsheet, FileUp, Plus, QrCode, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
@@ -21,6 +21,7 @@ import { listUsers } from "@/api/users";
 import { listVacancyRequests, submitVacancyRequest } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { VacancyRequestQrPanel } from "@/components/vacancyRequests/VacancyRequestQrPanel";
 import { AccordionItem } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -460,6 +461,18 @@ export function VacancyRequestsListPage() {
                           Import previous template (CSV)
                         </Link>
                       </li>
+                      <li>
+                        {/* Third intake method. Not a link to a form -- the
+                            form is PUBLIC and reached by scanning; this jumps
+                            to the panel that prints the code. */}
+                        <a
+                          href="#qr-request"
+                          className="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                        >
+                          <QrCode className="h-4 w-4 shrink-0" />
+                          Scan / QR Request
+                        </a>
+                      </li>
                     </>
                   ) : null}
                 </ul>
@@ -468,6 +481,13 @@ export function VacancyRequestsListPage() {
           )
         }
       />
+
+      {canImport ? (
+        <section id="qr-request" className="flex flex-col gap-2">
+          <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">QR Request</h2>
+          <VacancyRequestQrPanel />
+        </section>
+      ) : null}
 
       <WorkflowIndicator />
 

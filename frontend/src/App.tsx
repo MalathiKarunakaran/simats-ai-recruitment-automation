@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { ProtectedRoute } from "@/auth/ProtectedRoute";
+import { PublicVacancyRequestPage } from "@/pages/PublicVacancyRequestPage";
 import { AppShell } from "@/components/layout/AppShell";
 import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { ApplicationCreatePage } from "@/pages/ApplicationCreatePage";
@@ -47,6 +48,11 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* Public QR intake -- deliberately OUTSIDE ProtectedRoute and
+          outside AppShell. It renders no navigation and no link back
+          into the authenticated app: a visitor who scans the poster
+          should not learn the rest of the application exists. */}
+      <Route path="/vacancy-request/public" element={<PublicVacancyRequestPage />} />
       <Route element={<ProtectedRoute />}>
         {/* Deliberately outside AppShell -- reachable while mustChangePassword
             is true, when the AppShell's nav/routes are all blocked by

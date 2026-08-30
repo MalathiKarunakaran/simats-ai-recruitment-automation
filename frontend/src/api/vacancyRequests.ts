@@ -1,4 +1,4 @@
-import { apiFetch } from "@/api/client";
+import { apiFetch, apiFetchBlob } from "@/api/client";
 import type {
   ApprovedVacancyRead,
   JobPostingRead,
@@ -114,4 +114,23 @@ export async function updateSlotCount(id: string, requestedCount: number): Promi
     method: "PATCH",
     body: JSON.stringify({ requested_count: requestedCount }),
   });
+}
+
+// --- QR intake management (2026-08-30) -------------------------------------
+// Staff-facing. The PUBLIC form these point at is in api/publicVacancyRequests.ts
+// and goes through publicFetch instead.
+
+export interface VacancyRequestQrInfo {
+  url: string;
+}
+
+export async function getVacancyRequestQrInfo(): Promise<VacancyRequestQrInfo> {
+  return apiFetch<VacancyRequestQrInfo>("/vacancy-requests/qr/info");
+}
+
+/** The PNG is fetched as a blob rather than pointed at with a plain <img src>:
+ * the endpoint is authenticated, and a bare img tag sends no Authorization
+ * header, so it would render a broken image. */
+export async function getVacancyRequestQrPng(): Promise<Blob> {
+  return apiFetchBlob("/vacancy-requests/qr/code.png");
 }
