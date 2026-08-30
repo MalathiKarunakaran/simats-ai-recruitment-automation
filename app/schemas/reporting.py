@@ -71,6 +71,26 @@ class DashboardKPIResponse(BaseModel):
     sanctioned_approved_total: int
     sanctioned_working_total: int
     sanctioned_vacancy_total: int
+    # Dashboard-redesign additions (2026-08-30). `recruitment_required_count`
+    # counts current-effective sanctioned rows whose vacancy is > 0 -- a COUNT
+    # OF ROWS needing recruitment, deliberately not the same thing as
+    # `sanctioned_vacancy_total`, which is a signed SUM OF HEADCOUNT and can
+    # even be negative when a scope is net overstaffed.
+    #
+    # pending_requests_count / pending_approvals_count split the two-stage
+    # Dean -> HR workflow into NON-OVERLAPPING counts (SUBMITTED awaits a
+    # Dean; DEAN_APPROVED awaits HR), so the two KPI cards never
+    # double-count one request.
+    #
+    # The three vacancy_by_* lists share one row shape:
+    # {key, label, approved, working, vacancy}, vacancy signed like
+    # sanctioned_vacancy_total. See reporting.py::_vacancy_by_dimension.
+    recruitment_required_count: int
+    pending_requests_count: int
+    pending_approvals_count: int
+    vacancy_by_department: list[dict[str, Any]]
+    vacancy_by_campus: list[dict[str, Any]]
+    vacancy_by_category: list[dict[str, Any]]
     # Additive fields (Step 3, dashboard-kpi-additions-backend) -- see
     # app/services/reporting.py::get_dashboard_kpis for each field's own
     # scoping/derivation notes.

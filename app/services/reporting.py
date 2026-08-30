@@ -119,6 +119,7 @@ internal arithmetic:
   week regardless of when the interview happened.
 """
 
+import uuid
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 
@@ -152,7 +153,7 @@ from app.models.job_posting import JobPosting
 from app.models.joining import JoiningRecord
 from app.models.offer import Offer
 from app.models.vacancy_request import VacancyRequest
-from app.services.sanctioned_strength import current_effective_rows, working_count_for
+from app.services.sanctioned_strength import current_effective_rows, resolved_working_for, working_count_for
 from app.services.sanctioned_strength_views import (
     list_housekeeping_strength_rows,
     list_strength_view_rows,
@@ -315,7 +316,10 @@ def _sanctioned_strength_totals(
     db: Session,
     campus_id_filter,
     role_category: StaffRoleCategoryEnum | None,
-) -> tuple[int, int, int]:
+    department_id: uuid.UUID | None = None,
+    designation_id: uuid.UUID | None = None,
+    location_id: uuid.UUID | None = None,
+) -> tuple[int, int, int, int]:
     """Phase I (glowing-zooming-hamming.md) dashboard tile. Reuses
     `current_effective_rows`/`working_count_for` (this module's own
     sanctioned-strength resolvers -- the exact per-row call shape
@@ -341,20 +345,131 @@ def _sanctioned_strength_totals(
     current_rows = current_effective_rows(db, campus_id=campus_id_filter)
     if role_category is not None:
         current_rows = [row for row in current_rows if row.category == role_category]
+    # Drill-down filters (2026-08-30). Applied in Python against the rows this
+    # resolver already returned, matching this module's established
+    # batch-then-filter style rather than pushing predicates into
+    # current_effective_rows, whose signature every other caller shares.
+    if department_id is not None:
+        current_rows = [row for row in current_rows if row.department_id == department_id]
+    if designation_id is not None:
+        current_rows = [row for row in current_rows if row.designation_id == designation_id]
+    if location_id is not None:
+        current_rows = [row for row in current_rows if row.location_id == location_id]
 
     approved_total = sum(row.approved_strength for row in current_rows)
-    working_total = sum(
+    working_total = sum(_resolved_working(db, row) for row in current_rows)
+    vacancy_total = approved_total - working_total
+    recruitment_required_count = sum(
+        1 for row in current_rows if row.approved_strength - _resolved_working(db, row) > 0
+    )
+    return approved_total, working_total, vacancy_total, recruitment_required_count
+
+
+def _resolved_working(db: Session, row) -> int:
+    """One current-effective row's Working figure, honouring `working_override`.
+
+    Routed through `resolved_working_for` (2026-08-30) so this dashboard tile
+    reports the SAME number the Sanctioned Strength screen does. It previously
+    called `working_count_for` directly, which meant a manually-entered
+    headcount showed on the Sanctioned Strength page but not here -- and since
+    this deployment has no HR feed, that gap read as Working 0 / Vacancy =
+    Approved on a dashboard sitting next to a page showing real figures.
+
+    Note this is deliberately NOT the same decision as
+    `sanctioned_strength_reconciliation_report`, which still counts live
+    Employee rows on purpose: that report exists precisely to compare the
+    sanction against the actual roster, so an override must not launder
+    itself into it. This tile is a summary of the operational view, so it
+    must agree with the operational view.
+    """
+    return resolved_working_for(
+        row,
         working_count_for(
             db,
             department_id=row.department_id,
             designation_id=row.designation_id,
             category=row.category,
             location_id=row.location_id,
-        )
-        for row in current_rows
+        ),
     )
-    vacancy_total = approved_total - working_total
-    return approved_total, working_total, vacancy_total
+
+
+def _vacancy_by_dimension(
+    db: Session,
+    campus_id_filter,
+    role_category: StaffRoleCategoryEnum | None,
+    *,
+    department_id: uuid.UUID | None = None,
+    designation_id: uuid.UUID | None = None,
+    location_id: uuid.UUID | None = None,
+    dimension: str,
+) -> list[dict]:
+    """Vacancy grouped by department / campus / category, for the dashboard's
+    three vacancy charts (2026-08-30).
+
+    Built from the SAME `current_effective_rows` + `_resolved_working` pair
+    the top-line tiles use, so a chart can never disagree with the number in
+    the KPI card above it -- the failure mode of computing each chart from its
+    own query. Every filter the tiles honour is honoured here too, which is
+    what makes "Campus = SSE, Category = Teaching, Department = CSE" narrow
+    the charts as well as the cards.
+
+    `vacancy` is signed, not floored: an overstaffed department contributes
+    its negative figure so the bars net honestly against each other, matching
+    `_sanctioned_strength_totals`' own documented choice. Callers wanting a
+    "recruitment required" view should filter on `vacancy > 0` rather than
+    relying on a floor applied here.
+
+    Rows with zero approved AND zero working are dropped -- they carry no
+    information and would pad a bar chart with empty categories. A group that
+    is genuinely all-zero because everything is filled still appears, with
+    vacancy 0, because that IS meaningful.
+    """
+    current_rows = current_effective_rows(db, campus_id=campus_id_filter)
+    if role_category is not None:
+        current_rows = [row for row in current_rows if row.category == role_category]
+    if department_id is not None:
+        current_rows = [row for row in current_rows if row.department_id == department_id]
+    if designation_id is not None:
+        current_rows = [row for row in current_rows if row.designation_id == designation_id]
+    if location_id is not None:
+        current_rows = [row for row in current_rows if row.location_id == location_id]
+
+    if dimension == "department":
+        names = dict(db.query(Department.id, Department.name).all())
+        key_of = lambda row: row.department_id  # noqa: E731
+        label_of = lambda key: names.get(key, "Unknown")  # noqa: E731
+    elif dimension == "campus":
+        names = dict(db.query(Campus.id, Campus.code).all())
+        key_of = lambda row: row.campus_id  # noqa: E731
+        label_of = lambda key: names.get(key, "Unknown")  # noqa: E731
+    elif dimension == "category":
+        key_of = lambda row: row.category  # noqa: E731
+        label_of = lambda key: key.value  # noqa: E731
+    else:  # pragma: no cover - guarded by the three call sites above
+        raise ValueError(f"Unknown dimension {dimension!r}")
+
+    buckets: dict = {}
+    for row in current_rows:
+        key = key_of(row)
+        approved, working = buckets.get(key, (0, 0))
+        buckets[key] = (approved + row.approved_strength, working + _resolved_working(db, row))
+
+    results = [
+        {
+            "key": str(key.value if hasattr(key, "value") else key),
+            "label": label_of(key),
+            "approved": approved,
+            "working": working,
+            "vacancy": approved - working,
+        }
+        for key, (approved, working) in buckets.items()
+        if approved or working
+    ]
+    # Highest vacancy first -- the dashboard's charts and table both lead with
+    # where recruitment is most needed.
+    results.sort(key=lambda r: (-r["vacancy"], r["label"]))
+    return results
 
 
 def _critical_vacancy_rows(db: Session, scope: CampusScope, campus_code: str | None) -> list[dict]:
@@ -492,6 +607,9 @@ def get_dashboard_kpis(
     role_category: StaffRoleCategoryEnum | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
+    department_id: uuid.UUID | None = None,
+    designation_id: uuid.UUID | None = None,
+    location_id: uuid.UUID | None = None,
 ) -> dict:
     campus_id_filter, scope_note = resolve_campus_filter(db, scope, campus_code)
     now = datetime.now(timezone.utc)
@@ -751,8 +869,68 @@ def get_dashboard_kpis(
     # above, these three respect this call's own role_category filter, same
     # as every other top-line KPI field (open_positions, interviews_today,
     # ...); they're top-strip tiles, not the always-all-3-categories card.
-    sanctioned_approved_total, sanctioned_working_total, sanctioned_vacancy_total = _sanctioned_strength_totals(
-        db, campus_id_filter, role_category
+    (
+        sanctioned_approved_total,
+        sanctioned_working_total,
+        sanctioned_vacancy_total,
+        recruitment_required_count,
+    ) = _sanctioned_strength_totals(
+        db,
+        campus_id_filter,
+        role_category,
+        department_id=department_id,
+        designation_id=designation_id,
+        location_id=location_id,
+    )
+
+    # Pending Requests / Pending Approvals (2026-08-30) -- the two-stage
+    # Dean -> HR workflow split into two NON-OVERLAPPING counts, so the two
+    # KPI cards never double-count the same request: SUBMITTED is waiting on
+    # a Dean, DEAN_APPROVED is waiting on HR's final approval. Current-state
+    # counts, no date-range filter, same convention as urgent_vacancy_count
+    # below.
+    pending_base = db.query(VacancyRequest)
+    if campus_id_filter is not None:
+        pending_base = pending_base.filter(VacancyRequest.campus_id == campus_id_filter)
+    if role_category is not None:
+        pending_base = pending_base.filter(VacancyRequest.role_category == role_category)
+    if department_id is not None:
+        pending_base = pending_base.filter(VacancyRequest.department_id == department_id)
+    if designation_id is not None:
+        pending_base = pending_base.filter(VacancyRequest.designation_id == designation_id)
+    pending_requests_count = pending_base.filter(
+        VacancyRequest.status == VacancyRequestStatusEnum.SUBMITTED
+    ).count()
+    pending_approvals_count = pending_base.filter(
+        VacancyRequest.status == VacancyRequestStatusEnum.DEAN_APPROVED
+    ).count()
+
+    vacancy_by_department = _vacancy_by_dimension(
+        db,
+        campus_id_filter,
+        role_category,
+        department_id=department_id,
+        designation_id=designation_id,
+        location_id=location_id,
+        dimension="department",
+    )
+    vacancy_by_campus = _vacancy_by_dimension(
+        db,
+        campus_id_filter,
+        role_category,
+        department_id=department_id,
+        designation_id=designation_id,
+        location_id=location_id,
+        dimension="campus",
+    )
+    vacancy_by_category = _vacancy_by_dimension(
+        db,
+        campus_id_filter,
+        role_category,
+        department_id=department_id,
+        designation_id=designation_id,
+        location_id=location_id,
+        dimension="category",
     )
 
     # urgent_vacancy_count (Step 3, dashboard-kpi-additions-backend) -- a
@@ -837,6 +1015,15 @@ def get_dashboard_kpis(
         "sanctioned_approved_total": sanctioned_approved_total,
         "sanctioned_working_total": sanctioned_working_total,
         "sanctioned_vacancy_total": sanctioned_vacancy_total,
+        # Additive dashboard-redesign fields (2026-08-30). All derived from
+        # the same current_effective_rows + _resolved_working pair as the
+        # three totals above, so no chart or card can disagree with another.
+        "recruitment_required_count": recruitment_required_count,
+        "pending_requests_count": pending_requests_count,
+        "pending_approvals_count": pending_approvals_count,
+        "vacancy_by_department": vacancy_by_department,
+        "vacancy_by_campus": vacancy_by_campus,
+        "vacancy_by_category": vacancy_by_category,
         "urgent_vacancy_count": urgent_vacancy_count,
         "application_pipeline_funnel": application_pipeline_funnel,
         "critical_vacancies": critical_vacancies,

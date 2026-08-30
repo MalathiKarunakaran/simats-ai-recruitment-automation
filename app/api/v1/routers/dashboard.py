@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
@@ -24,6 +25,13 @@ def get_dashboard_kpis(
     role_category: str | None = Query(None),
     start_date: date | None = Query(None),
     end_date: date | None = Query(None),
+    # Drill-down filters (2026-08-30). All optional and all default to None,
+    # so an existing caller passing none of them gets byte-for-byte the same
+    # response as before. Typed as UUID so a malformed id is a 422 here
+    # rather than a silent no-match deeper in the service.
+    department_id: uuid.UUID | None = Query(None),
+    designation_id: uuid.UUID | None = Query(None),
+    location_id: uuid.UUID | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
@@ -38,5 +46,8 @@ def get_dashboard_kpis(
         role_category=validated_role_category,
         start_date=start_date,
         end_date=end_date,
+        department_id=department_id,
+        designation_id=designation_id,
+        location_id=location_id,
     )
     return DashboardKPIResponse(**kpis)
