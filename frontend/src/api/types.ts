@@ -208,6 +208,19 @@ export interface RecentEmployeeEventRow {
   date: string;
 }
 
+// Mirrors one row from app/services/reporting.py::_vacancy_by_dimension --
+// shared by vacancy_by_department / _campus / _category. `key` is the raw
+// grouping id (a UUID for department/campus, the enum value for category) and
+// is what a drill-down click should send back as a filter; `label` is the
+// human-readable name and must never be used as a filter value.
+export interface VacancyByDimensionRow {
+  key: string;
+  label: string;
+  approved: number;
+  working: number;
+  vacancy: number;
+}
+
 export interface DashboardKpis {
   scope_note: string;
   total_applications: number;
@@ -239,6 +252,24 @@ export interface DashboardKpis {
   // mirrors app/schemas/reporting.py::DashboardKPIResponse's own additive
   // block. application_pipeline_funnel is always exactly 7 rows, always in
   // the same Applied -> ... -> Rejected order -- don't re-sort it.
+  // Dashboard-redesign additions (2026-08-30). Mirrors
+  // app/schemas/reporting.py::DashboardKPIResponse.
+  //
+  // recruitment_required_count counts ROWS whose vacancy is above zero. It is
+  // NOT sanctioned_vacancy_total, which is a signed HEADCOUNT sum: one row
+  // short by nine people is nine vacancies but one row to recruit for.
+  recruitment_required_count: number;
+  // Non-overlapping halves of the Dean -> HR workflow: SUBMITTED awaits a
+  // Dean, DEAN_APPROVED awaits HR. Safe to show as two cards without
+  // double-counting.
+  pending_requests_count: number;
+  pending_approvals_count: number;
+  // All three share one row shape and are built from the same rows as the
+  // sanctioned_* totals above, so a chart never contradicts its own KPI card.
+  // `vacancy` is signed here for the same reason it is signed there.
+  vacancy_by_department: VacancyByDimensionRow[];
+  vacancy_by_campus: VacancyByDimensionRow[];
+  vacancy_by_category: VacancyByDimensionRow[];
   urgent_vacancy_count: number;
   application_pipeline_funnel: PipelineFunnelStage[];
   critical_vacancies: CriticalVacancyRow[];

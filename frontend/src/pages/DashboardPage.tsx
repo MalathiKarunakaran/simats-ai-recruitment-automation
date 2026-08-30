@@ -42,7 +42,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { cn } from "@/lib/utils";
-import { summarizeVacancyRequestStatuses } from "@/lib/vacancyRequestStats";
 
 // Executive Dashboard redesign (2026-08-23): the page's 7 lower-priority KPI
 // metrics, demoted to small compact StatTile("compact") chips below the 6
@@ -57,12 +56,28 @@ const SECONDARY_KPI_CARDS: {
   icon: typeof Users;
   iconColor: StatIconColor;
   tooltip?: string;
-  /** Overrides the strip's shared "No activity in this scope yet" default --
+  /** A short caption shown INSTEAD of a bare 0, for the few tiles where a
+   * zero needs explaining. Left undefined the tile just shows 0, per the
+   * 2026-08-30 brief: a dashboard full of sentences saying nothing happened
+   * reads as broken rather than empty. --
    * some of these tiles have a zero value that means something more specific
    * than "nothing happened here". */
   zeroCaption?: string;
 }[] = [
   { key: "total_applications", label: "Total applications", accent: "blue", icon: Users, iconColor: "blue" },
+  // Demoted from the primary row on 2026-08-30, not deleted: the brief fixes
+  // which six KPIs are primary, and open positions is not one of them, but
+  // dropping the metric entirely would lose information the page already had.
+  // Counts individual OPEN HiringSlot posts, not vacancy requests, so it is
+  // not comparable with "Total requests" on the Vacancy Requests screen.
+  {
+    key: "open_positions",
+    label: "Active Recruitment",
+    accent: "blue",
+    icon: Briefcase,
+    iconColor: "blue",
+    tooltip: "Open HiringSlot posts in scope (not requests) -- OPEN status only, RESERVED/FILLED excluded.",
+  },
   // interviews_today/joinings_today's own labels are computed per-render
   // below (see todayScopedLabel) since the backend genuinely scopes them to
   // whatever the page's date-range control selects, defaulting to the
@@ -274,18 +289,22 @@ export function DashboardPage() {
   const recentResignations = data?.recent_resignations ?? [];
   const criticalVacancyPriorities = computeCriticalVacancyPriorities(criticalVacancies);
 
-  // Vacancy Analysis section -- client-side aggregation of critical_vacancies
-  // by department (summed vacancy_count), sorted descending, top 6 shown with
-  // a "View All" link to the Sanctioned Strength page (no new backend
-  // endpoint for this rollup).
-  const departmentVacancyTotals = new Map<string, number>();
-  for (const row of criticalVacancies) {
-    departmentVacancyTotals.set(row.department, (departmentVacancyTotals.get(row.department) ?? 0) + row.vacancy_count);
-  }
-  const departmentVacancyRows = Array.from(departmentVacancyTotals.entries())
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value);
-  const departmentVacancyTop6 = departmentVacancyRows.slice(0, 6);
+  // Vacancy Analysis (2026-08-30) -- served by the backend's vacancy_by_*
+  // rollups. This previously aggregated `critical_vacancies` client-side,
+  // which is a TOP-10 list: any department outside those ten was silently
+  // missing from the chart, and the bars could not be trusted to sum to the
+  // Vacancies tile above them. The backend rollups cover every
+  // current-effective row and are built from the same resolver as that tile.
+  //
+  // Already sorted highest-vacancy-first server-side; not re-sorted here.
+  const vacancyByDepartment = data?.vacancy_by_department ?? [];
+  const vacancyByCampus = data?.vacancy_by_campus ?? [];
+  const vacancyByCategory = data?.vacancy_by_category ?? [];
+  const departmentVacancyTop6 = vacancyByDepartment
+    .slice(0, 6)
+    .map((row) => ({ label: row.label, value: row.vacancy }));
+  const campusVacancyRows = vacancyByCampus.map((row) => ({ label: row.label, value: row.vacancy }));
+  const categoryVacancyRows = vacancyByCategory.map((row) => ({ label: row.label, value: row.vacancy }));
 
   // Critical vacancies table -- relative highlight for the row(s) at the
   // current result set's single highest vacancy_count (a client-side
@@ -305,17 +324,22 @@ export function DashboardPage() {
     queryKey: ["vacancy-requests", "ALL"],
     queryFn: () => listVacancyRequests(null),
   });
-  const vacancyRequestBuckets = summarizeVacancyRequestStatuses(vacancyRequests ?? []);
-  // "Pending Requests" = SUBMITTED + DEAN_APPROVED -- VacancyRequestsListPage's
-  // own `pending` bucket (rendered there as its "Pending approval" tile).
-  const pendingRequestsCount = vacancyRequestBuckets.pending;
-  // "Pending Approvals" = SUBMITTED + DEAN_APPROVED + APPROVED -- the union of
-  // every status any role's ACTIONABLE_STATUSES_BY_ROLE on VacancyApprovalsPage
-  // can act on (SUPER_ADMIN's own list is exactly this superset), i.e. every
-  // request still awaiting *some* approver's next action anywhere in the
-  // chain. Composed from the same shared buckets as pendingRequestsCount
-  // above (pending + approved), not a separately re-invented filter.
-  const pendingApprovalsCount = vacancyRequestBuckets.pending + vacancyRequestBuckets.approved;
+  // Pending Requests / Pending Approvals now come from /dashboard/kpis
+  // (2026-08-30) instead of being composed client-side from the
+  // vacancy-requests list. Two reasons the old composition had to go:
+  //
+  //  - The two definitions OVERLAPPED. "Pending requests" was
+  //    SUBMITTED+DEAN_APPROVED and "Pending approvals" was that same set plus
+  //    APPROVED, so every submitted request was counted on both cards. The
+  //    backend pair is non-overlapping by construction: SUBMITTED awaits a
+  //    Dean, DEAN_APPROVED awaits HR.
+  //  - They ignored the campus/category/department filters, so the two cards
+  //    sat in a filtered row silently reporting system-wide totals.
+  //
+  // The vacancy-requests list is still fetched below for the Recent Activity
+  // feed, which needs the rows themselves, not a count.
+  const pendingRequestsCount = data?.pending_requests_count ?? 0;
+  const pendingApprovalsCount = data?.pending_approvals_count ?? 0;
 
   // "Vacancy requested"/"Vacancy approved" Recent Activity events (follow-up
   // patch, 2026-08-23) -- derived from this same already-fetched
@@ -428,7 +452,6 @@ export function DashboardPage() {
           icon={Users}
           iconColor="blue"
           tooltip="Sum of approved_strength across every current-effective Sanctioned Strength row in scope (respects the category tabs above)."
-          zeroCaption="No activity in this scope yet"
         />
         <StatTile
           label="Working"
@@ -438,7 +461,6 @@ export function DashboardPage() {
           icon={UserCheck}
           iconColor="green"
           tooltip="Live headcount currently working against those same rows -- Employees for Teaching/Non-Teaching, active Housekeeping Staff for Housekeeping."
-          zeroCaption="No staff currently working against sanctioned strength in this scope"
         />
         <StatTile
           label="Vacancies"
@@ -452,38 +474,35 @@ export function DashboardPage() {
           hero
         />
         <StatTile
-          label="Pending requests"
-          value={isVacancyRequestsLoading ? undefined : pendingRequestsCount}
-          isLoading={isVacancyRequestsLoading}
+          label="Recruitment Required"
+          value={isLoading ? undefined : data?.recruitment_required_count}
+          isLoading={isLoading}
+          accent={vacancyAccent(data?.recruitment_required_count, "gold")}
+          icon={Briefcase}
+          iconColor={vacancyIconColor(data?.recruitment_required_count)}
+          // A COUNT OF ROWS, not of people -- deliberately different from the
+          // Vacancies tile beside it, which is a signed headcount sum. One
+          // designation short by nine staff is 9 there and 1 here.
+          tooltip="Sanctioned Strength rows whose vacancy is above zero -- a count of positions needing recruitment, not of people. Compare with Vacancies, which is a headcount."
+          hero
+        />
+        <StatTile
+          label="Pending Requests"
+          value={isLoading ? undefined : pendingRequestsCount}
+          isLoading={isLoading}
           accent="orange"
           icon={ClipboardList}
           iconColor="orange"
-          tooltip="Vacancy requests awaiting the next actor in the approval chain -- status SUBMITTED or DEAN_APPROVED."
-          zeroCaption="No requests waiting on an approver right now"
+          tooltip="Vacancy requests awaiting Dean review -- status SUBMITTED. Does not overlap with Pending Approvals."
         />
         <StatTile
-          label="Pending approvals"
-          value={isVacancyRequestsLoading ? undefined : pendingApprovalsCount}
-          isLoading={isVacancyRequestsLoading}
+          label="Pending Approvals"
+          value={isLoading ? undefined : pendingApprovalsCount}
+          isLoading={isLoading}
           accent="orange"
           icon={ClipboardCheck}
           iconColor="orange"
-          tooltip="Vacancy requests still actionable by some approver -- status SUBMITTED, DEAN_APPROVED, or APPROVED (ready to publish)."
-          zeroCaption="Nothing awaiting approval or publishing right now"
-        />
-        <StatTile
-          label="Active Recruitment"
-          value={isLoading ? undefined : data?.open_positions}
-          isLoading={isLoading}
-          accent="blue"
-          icon={Briefcase}
-          iconColor="blue"
-          // Precise definition, on hover -- counts individual OPEN HiringSlot
-          // rows (posts), not vacancy requests, so it isn't directly
-          // comparable to "Total requests" on the Vacancy Requests screen
-          // (CLAUDE.md B2).
-          tooltip="Open HiringSlot posts in scope (not requests) -- OPEN status only, RESERVED/FILLED excluded."
-          zeroCaption="No activity in this scope yet"
+          tooltip="Dean-approved requests awaiting HR's final approval -- status DEAN_APPROVED. Does not overlap with Pending Requests."
         />
       </div>
 
@@ -502,7 +521,7 @@ export function DashboardPage() {
                 accent={accent}
                 icon={icon}
                 iconColor={iconColor}
-                zeroCaption={zeroCaption ?? "No activity in this scope yet"}
+                zeroCaption={zeroCaption}
                 tooltip={tooltip}
                 size="compact"
               />
@@ -663,34 +682,78 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Vacancy Analysis -- client-side rollup of critical_vacancies (the
-          VACANCY_RECRUITMENT_REQUIRED-status rows already fetched above), NOT
-          every vacancy in the system. "View All" goes to the Sanctioned
-          Strength page -- there's no dedicated "all critical vacancies"
-          view. */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 p-4 pb-1">
-          <CardTitle className="text-sm">Vacancy analysis -- critical vacancies by department</CardTitle>
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/sanctioned-strength">View All</Link>
-          </Button>
-        </CardHeader>
-        <CardContent className="p-4 pt-0">
-          {isLoading ? (
-            <div role="status" aria-label="Loading vacancy analysis" className="h-56 animate-pulse rounded bg-muted" />
-          ) : departmentVacancyTop6.length === 0 ? (
-            <EmptyState message="No critical vacancies right now -- nothing urgently understaffed." />
-          ) : (
-            <CategoryBarChart
-              ariaLabel="Critical vacancies by department"
-              data={departmentVacancyTop6}
-              color="var(--color-chart-4)"
-              size="lg"
-              testId="critical-vacancies-department-chart"
-            />
-          )}
-        </CardContent>
-      </Card>
+      {/* Vacancy Analysis (2026-08-30) -- three views of the SAME
+          current-effective sanctioned rows the Vacancies tile is computed
+          from, so the bars always reconcile with the card above. This used to
+          roll up `critical_vacancies` client-side, which is a top-10 list:
+          any department outside those ten was silently absent. */}
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 p-4 pb-1">
+            <CardTitle className="text-sm">Vacancy by department</CardTitle>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/sanctioned-strength">View All</Link>
+            </Button>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            {isLoading ? (
+              <div role="status" aria-label="Loading vacancy by department" className="h-56 animate-pulse rounded bg-muted" />
+            ) : departmentVacancyTop6.length === 0 ? (
+              <p className="py-6 text-center text-2xl font-bold tabular-nums text-foreground">0</p>
+            ) : (
+              <CategoryBarChart
+                ariaLabel="Vacancy by department"
+                data={departmentVacancyTop6}
+                color="var(--color-chart-4)"
+                size="lg"
+                testId="vacancy-by-department-chart"
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-sm">Vacancy by campus</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            {isLoading ? (
+              <div role="status" aria-label="Loading vacancy by campus" className="h-56 animate-pulse rounded bg-muted" />
+            ) : campusVacancyRows.length === 0 ? (
+              <p className="py-6 text-center text-2xl font-bold tabular-nums text-foreground">0</p>
+            ) : (
+              <CategoryBarChart
+                ariaLabel="Vacancy by campus"
+                data={campusVacancyRows}
+                color="var(--color-chart-2)"
+                size="lg"
+                testId="vacancy-by-campus-chart"
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-sm">Vacancy by category</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            {isLoading ? (
+              <div role="status" aria-label="Loading vacancy by category" className="h-56 animate-pulse rounded bg-muted" />
+            ) : categoryVacancyRows.length === 0 ? (
+              <p className="py-6 text-center text-2xl font-bold tabular-nums text-foreground">0</p>
+            ) : (
+              <CategoryBarChart
+                ariaLabel="Vacancy by category"
+                data={categoryVacancyRows}
+                color="var(--color-chart-3)"
+                size="lg"
+                testId="vacancy-by-category-chart"
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Secondary analytics row -- campus-wise hiring (left, now an
           aggregate donut -- see CampusHiringChart.tsx) and a compact "Recent

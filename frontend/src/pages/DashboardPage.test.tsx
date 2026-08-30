@@ -152,6 +152,25 @@ function mockKpis(overrides: Partial<DashboardKpis> = {}): void {
     sanctioned_approved_total: roleCategory ? 8 : 25,
     sanctioned_working_total: roleCategory ? 6 : 19,
     sanctioned_vacancy_total: roleCategory ? 2 : 6,
+    // Dashboard-redesign fields (2026-08-30). These narrow with
+    // role_category like the sanctioned_* totals above.
+    //
+    // recruitment_required_count is deliberately NOT equal to
+    // sanctioned_vacancy_total: it counts ROWS above zero vacancy, not
+    // people, so a fixture where they matched could hide the two being
+    // wired to the same field.
+    recruitment_required_count: roleCategory ? 1 : 4,
+    // Non-overlapping by construction -- SUBMITTED awaits a Dean,
+    // DEAN_APPROVED awaits HR. Distinct values so a test asserting either
+    // cannot pass by accident.
+    pending_requests_count: roleCategory ? 2 : 3,
+    pending_approvals_count: roleCategory ? 1 : 5,
+    vacancy_by_department: [
+      { key: "d-cse", label: "CSE", approved: 10, working: 4, vacancy: 6 },
+      { key: "d-ece", label: "ECE", approved: 5, working: 3, vacancy: 2 },
+    ],
+    vacancy_by_campus: [{ key: "c-sse", label: "SSE", approved: 15, working: 7, vacancy: 8 }],
+    vacancy_by_category: [{ key: "TEACHING", label: "TEACHING", approved: 15, working: 7, vacancy: 8 }],
     // Additive fields (Step 3, dashboard-kpi-additions).
     urgent_vacancy_count: 3,
     application_pipeline_funnel: REAL_SHAPE_FUNNEL,
@@ -380,15 +399,18 @@ describe("DashboardPage", () => {
   // tile (sanctioned_vacancy_total), the one the redesign spec calls out as
   // this page's single visually prominent tile. Moved here from "Total
   // applications" (Phase 2's original hero tile), which is no longer hero.
-  it("marks only the Vacancies tile as the hero KPI tile", async () => {
+  it("marks Vacancies and Recruitment Required as the hero KPI tiles", async () => {
     mockKpis();
     const { container } = renderWithProviders();
 
     await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
 
-    const heroTiles = container.querySelectorAll('[data-hero="true"]');
-    expect(heroTiles).toHaveLength(1);
-    expect(within(heroTiles[0] as HTMLElement).getByText("Vacancies")).toBeInTheDocument();
+    // Two heroes as of 2026-08-30: the brief asks for both to be emphasised.
+    const heroTiles = [...container.querySelectorAll('[data-hero="true"]')] as HTMLElement[];
+    expect(heroTiles).toHaveLength(2);
+    const heroLabels = heroTiles.map((tile) => tile.textContent ?? "");
+    expect(heroLabels.some((text) => text.includes("Vacancies"))).toBe(true);
+    expect(heroLabels.some((text) => text.includes("Recruitment Required"))).toBe(true);
   });
 
   it("shows an error message when the request fails", async () => {
@@ -448,7 +470,11 @@ describe("DashboardPage", () => {
 
   // Renamed from "Open positions" to "Active Recruitment" (UI redesign,
   // 2026-08-23) -- same tile, same underlying open_positions field/tooltip.
-  it("shows the Active Recruitment tooltip's precise definition on focus", async () => {
+  // "Active Recruitment" (open_positions) left the PRIMARY row on 2026-08-30:
+  // the brief names six primary KPIs and this is not one of them; its slot
+  // went to Recruitment Required. Skipped rather than deleted -- if that tile
+  // is reinstated, this is the tooltip contract it must honour.
+  it.skip("shows the Active Recruitment tooltip's precise definition on focus", async () => {
     mockKpis();
     renderWithProviders();
 
@@ -662,32 +688,63 @@ describe("DashboardPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("computes Pending requests (SUBMITTED+DEAN_APPROVED) and Pending approvals (+APPROVED) from real listVacancyRequests data, not the /dashboard/kpis response", async () => {
+  // Reversed on 2026-08-30. These two tiles used to be composed client-side
+  // from listVacancyRequests, where "Pending approvals" was defined as
+  // "Pending requests" PLUS APPROVED -- so every submitted request was
+  // counted on BOTH cards, and neither respected the campus/category
+  // filters. They now read the backend's non-overlapping pair.
+  it("reads Pending Requests/Approvals from /dashboard/kpis, not from the vacancy-requests list", async () => {
     mockKpis();
+    // Stocked so the old client-side rollup (3 and 4) differs from the KPI
+    // response (3 and 5): a regression to the old composition fails rather
+    // than coincidentally matching.
     mockedListVacancyRequests.mockResolvedValue(MIXED_STATUS_VACANCY_REQUESTS);
 
     renderWithProviders();
 
-    // Fetched unfiltered, same as VacancyRequestsListPage's own KPI strip.
-    await waitFor(() => expect(mockedListVacancyRequests).toHaveBeenCalledWith(null));
+    // The label renders while the tile is still loading, so waiting on
+    // findByText(label) would assert before the value arrives. textContent
+    // rather than getByText because StatTile splits label, value and caption
+    // across nested spans.
+    await waitFor(() => {
+      const tile = screen.getByText("Pending Requests").closest(".rounded-xl") as HTMLElement;
+      expect(tile.textContent).toContain("3");
+    });
 
-    const pendingRequestsTile = (await screen.findByText("Pending requests")).closest(".rounded-xl") as HTMLElement;
-    // 2 SUBMITTED + 1 DEAN_APPROVED = 3 (DRAFT/APPROVED/PUBLISHED/CLOSED/
-    // REJECTED all deliberately excluded).
-    expect(within(pendingRequestsTile).getByText("3")).toBeInTheDocument();
-
-    const pendingApprovalsTile = screen.getByText("Pending approvals").closest(".rounded-xl") as HTMLElement;
-    // Same 3, plus 1 APPROVED ("ready to publish") = 4.
-    expect(within(pendingApprovalsTile).getByText("4")).toBeInTheDocument();
+    const pendingApprovalsTile = screen.getByText("Pending Approvals").closest(".rounded-xl") as HTMLElement;
+    // 5 from the KPI response -- NOT the 4 the old rollup produced.
+    expect(pendingApprovalsTile.textContent).toContain("5");
   });
 
-  it("shows the Pending requests/approvals zero captions when there are no vacancy requests at all", async () => {
-    mockKpis();
+  it("shows a plain 0 on the pending tiles rather than a sentence explaining the zero", async () => {
+    mockKpis({ pending_requests_count: 0, pending_approvals_count: 0 });
     mockedListVacancyRequests.mockResolvedValue([]);
 
     renderWithProviders();
 
-    expect(await screen.findByText("No requests waiting on an approver right now")).toBeInTheDocument();
-    expect(screen.getByText("Nothing awaiting approval or publishing right now")).toBeInTheDocument();
+    await waitFor(() => {
+      const tile = screen.getByText("Pending Requests").closest(".rounded-xl") as HTMLElement;
+      expect(tile.textContent).toContain("0");
+    });
+    expect(screen.queryByText("No requests waiting on an approver right now")).not.toBeInTheDocument();
+    expect(screen.queryByText(/No activity in this scope yet/)).not.toBeInTheDocument();
+  });
+
+  it("renders all three vacancy-analysis charts from the backend rollups", async () => {
+    mockKpis();
+    renderWithProviders();
+
+    expect(await screen.findByTestId("vacancy-by-department-chart")).toBeInTheDocument();
+    expect(screen.getByTestId("vacancy-by-campus-chart")).toBeInTheDocument();
+    expect(screen.getByTestId("vacancy-by-category-chart")).toBeInTheDocument();
+  });
+
+  it("shows 0 rather than an empty-state card when a scope has no vacancies", async () => {
+    mockKpis({ vacancy_by_department: [], vacancy_by_campus: [], vacancy_by_category: [] });
+    renderWithProviders();
+
+    await waitFor(() => expect(screen.getByText("Vacancy by department")).toBeInTheDocument());
+    expect(screen.queryByTestId("vacancy-by-department-chart")).not.toBeInTheDocument();
+    expect(screen.queryByText(/No critical vacancies right now/)).not.toBeInTheDocument();
   });
 });
