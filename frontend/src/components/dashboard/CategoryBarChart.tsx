@@ -3,6 +3,10 @@ import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, XAxis, YA
 export interface CategoryBarChartDatum {
   label: string;
   value: number;
+  /** Opaque id carried alongside the label for drill-down (2026-08-30).
+   * The LABEL is a human-readable name and must never be used as a filter
+   * value -- two departments can share a name across campuses. */
+  key?: string;
 }
 
 interface CategoryBarChartProps {
@@ -27,6 +31,10 @@ interface CategoryBarChartProps {
    * source-wise/rejected-vs-withdrawn/pipeline-funnel chart-count
    * assertions in DashboardPage.test.tsx. */
   testId?: string;
+  /** Makes bars clickable. Receives the datum's `key` when it has one --
+   * charts whose data carries no id stay non-interactive rather than
+   * emitting a label a caller cannot filter by. */
+  onSelect?: (key: string) => void;
 }
 
 const ROW_HEIGHT = 22;
@@ -47,6 +55,7 @@ export function CategoryBarChart({
   color = "var(--color-chart-1)",
   size = "default",
   testId = "category-bar-chart",
+  onSelect,
 }: CategoryBarChartProps) {
   const isLg = size === "lg";
   const rowHeight = isLg ? ROW_HEIGHT_LG : ROW_HEIGHT;
@@ -74,6 +83,15 @@ export function CategoryBarChart({
             radius={[0, 4, 4, 0]}
             barSize={isLg ? 22 : 13}
             isAnimationActive={false}
+            cursor={onSelect ? "pointer" : undefined}
+            onClick={
+              onSelect
+                ? (datum: unknown) => {
+                    const key = (datum as CategoryBarChartDatum | undefined)?.key;
+                    if (key) onSelect(key);
+                  }
+                : undefined
+            }
           >
             <LabelList
               dataKey="value"

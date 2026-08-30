@@ -1,4 +1,5 @@
 import { Info, type LucideIcon } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -98,6 +99,13 @@ interface StatTileProps {
    * "analytics" icon, or vice versa, per the redesign's own per-metric color
    * choices. */
   iconColor?: StatIconColor;
+  /** Makes the whole tile a link to the records behind the number
+   * (2026-08-30). Purely additive: every existing call site omits it and
+   * renders exactly as before, as a non-interactive tile. Rendered as a real
+   * anchor via react-router's Link rather than an onClick div, so the
+   * destination is visible on hover, keyboard-reachable, and openable in a
+   * new tab -- all of which a click handler on a div silently loses. */
+  to?: string;
 }
 
 export function StatTile({
@@ -111,6 +119,7 @@ export function StatTile({
   size = "default",
   icon: Icon,
   iconColor = "blue",
+  to,
 }: StatTileProps) {
   const isZero = !isLoading && (value === 0 || value === "0");
   const isEmpty = !isLoading && (value === null || value === undefined);
@@ -198,7 +207,17 @@ export function StatTile({
     </Card>
   );
 
-  if (!hero) return tile;
+  // Wrapped BEFORE the hero ring below, so a hero tile is both linked and
+  // ringed rather than one clobbering the other.
+  const linked = to ? (
+    <Link to={to} className="block focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+      {tile}
+    </Link>
+  ) : (
+    tile
+  );
+
+  if (!hero) return linked;
 
   // Gradient-ring technique: an outer padded wrapper painted with the
   // signature gradient, with the card sitting flush inside it -- the same
@@ -214,7 +233,7 @@ export function StatTile({
       className="rounded-[var(--radius-card)] p-[2px]"
       style={{ background: "var(--brand-signature-gradient)" }}
     >
-      {tile}
+      {linked}
     </div>
   );
 }

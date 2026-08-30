@@ -27,6 +27,7 @@ vi.mock("@/api/designations");
 vi.mock("@/api/locations");
 
 const mockedGetDashboardKpis = vi.mocked(dashboardApi.getDashboardKpis);
+const mockedGetStrengthTable = vi.mocked(dashboardApi.getDashboardStrengthTable);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
 const mockedListLocations = vi.mocked(locationsApi.listLocations);
@@ -215,6 +216,7 @@ const FILTER_LOCATION = {
 beforeEach(() => {
   // Filter-bar option lists -- cast loosely because these tests only need the
   // handful of fields the pickers render, not the full master-data shapes.
+  mockedGetStrengthTable.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
   mockedListDepartments.mockResolvedValue([FILTER_DEPARTMENT] as never);
   mockedListDesignations.mockResolvedValue([FILTER_DESIGNATION] as never);
   mockedListLocations.mockResolvedValue([FILTER_LOCATION] as never);
@@ -851,6 +853,43 @@ describe("DashboardPage", () => {
           locationId: null,
         }),
       );
+    });
+  });
+  // --- Drill-down (2026-08-30) --------------------------------------------
+  describe("drill-down", () => {
+    it("links the pending tiles to the matching vacancy-request status", async () => {
+      mockKpis();
+      renderWithProviders();
+
+      await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+
+      // Real anchors, not click handlers -- so the destination is visible on
+      // hover, keyboard-reachable and openable in a new tab.
+      const pendingLink = screen.getByText("Pending Requests").closest("a");
+      expect(pendingLink).toHaveAttribute("href", "/vacancy-requests?status=SUBMITTED");
+
+      const approvalsLink = screen.getByText("Pending Approvals").closest("a");
+      expect(approvalsLink).toHaveAttribute("href", "/vacancy-requests?status=DEAN_APPROVED");
+    });
+
+    it("links the sanctioned-strength tiles to that screen", async () => {
+      mockKpis();
+      renderWithProviders();
+      await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+
+      expect(screen.getByText("Total Sanctioned").closest("a")).toHaveAttribute("href", "/sanctioned-strength");
+    });
+
+    it("leaves a tile with no destination non-interactive", async () => {
+      // Vacancies has no single screen that means "the vacancies" -- it is a
+      // signed net figure across the whole scope -- so it deliberately has
+      // no link rather than one that would mislead.
+      mockKpis();
+      renderWithProviders();
+      await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+
+      const grid = screen.getByTestId("primary-kpi-grid");
+      expect(within(grid).getByText("Vacancies").closest("a")).toBeNull();
     });
   });
 });

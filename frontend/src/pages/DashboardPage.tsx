@@ -396,10 +396,19 @@ export function DashboardPage() {
   const vacancyByDepartment = data?.vacancy_by_department ?? [];
   const vacancyByCampus = data?.vacancy_by_campus ?? [];
   const vacancyByCategory = data?.vacancy_by_category ?? [];
+  // `key` is carried through for drill-down: it is the real department/campus
+  // id, whereas `label` is a display name two records can share.
   const departmentVacancyTop6 = vacancyByDepartment
     .slice(0, 6)
-    .map((row) => ({ label: row.label, value: row.vacancy }));
-  const campusVacancyRows = vacancyByCampus.map((row) => ({ label: row.label, value: row.vacancy }));
+    .map((row) => ({ label: row.label, value: row.vacancy, key: row.key }));
+  const campusVacancyRows = vacancyByCampus.map((row) => ({
+    label: row.label,
+    value: row.vacancy,
+    key: row.key,
+  }));
+  // Category is NOT given a key: selecting a category is what the tabs above
+  // already do, and having two controls own the same state would let them
+  // disagree.
   const categoryVacancyRows = vacancyByCategory.map((row) => ({ label: row.label, value: row.vacancy }));
 
   // Critical vacancies table -- relative highlight for the row(s) at the
@@ -633,6 +642,7 @@ export function DashboardPage() {
           icon={Users}
           iconColor="blue"
           tooltip="Sum of approved_strength across every current-effective Sanctioned Strength row in scope (respects the category tabs above)."
+          to="/sanctioned-strength"
         />
         <StatTile
           label="Working"
@@ -642,6 +652,7 @@ export function DashboardPage() {
           icon={UserCheck}
           iconColor="green"
           tooltip="Live headcount currently working against those same rows -- Employees for Teaching/Non-Teaching, active Housekeeping Staff for Housekeeping."
+          to="/sanctioned-strength"
         />
         <StatTile
           label="Vacancies"
@@ -675,6 +686,7 @@ export function DashboardPage() {
           icon={ClipboardList}
           iconColor="orange"
           tooltip="Vacancy requests awaiting Dean review -- status SUBMITTED. Does not overlap with Pending Approvals."
+          to="/vacancy-requests?status=SUBMITTED"
         />
         <StatTile
           label="Pending Approvals"
@@ -684,6 +696,7 @@ export function DashboardPage() {
           icon={ClipboardCheck}
           iconColor="orange"
           tooltip="Dean-approved requests awaiting HR's final approval -- status DEAN_APPROVED. Does not overlap with Pending Requests."
+          to="/vacancy-requests?status=DEAN_APPROVED"
         />
       </div>
 
@@ -905,6 +918,10 @@ export function DashboardPage() {
                 color="var(--color-chart-4)"
                 size="lg"
                 testId="vacancy-by-department-chart"
+                // Drill-down: sets the same Department filter the bar above
+                // uses, so the tiles, the other charts and the table all move
+                // together rather than this chart owning a private selection.
+                onSelect={setDepartmentId}
               />
             )}
           </CardContent>
