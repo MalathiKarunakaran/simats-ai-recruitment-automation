@@ -22,6 +22,7 @@ import { listUsers } from "@/api/users";
 import { listVacancyRequests, submitVacancyRequest } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { VacancyRequestBulkUploadDialog } from "@/components/vacancyRequests/VacancyRequestBulkUploadDialog";
 import { VacancyRequestQrPanel } from "@/components/vacancyRequests/VacancyRequestQrPanel";
 import { AccordionItem } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -505,7 +506,13 @@ export function VacancyRequestsListPage() {
 
       {canImport ? (
         <section id="qr-request" className="flex flex-col gap-2">
-          <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">QR Request</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">QR Request</h2>
+            {/* The bulk-upload dialog lives here rather than only in the New
+                request menu, so all three intake methods -- single entry,
+                bulk upload, QR -- are visible in one place. */}
+            <VacancyRequestBulkUploadDialog />
+          </div>
           <VacancyRequestQrPanel />
         </section>
       ) : null}

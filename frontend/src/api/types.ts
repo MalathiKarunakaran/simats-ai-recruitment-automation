@@ -2260,3 +2260,35 @@ export interface AssistantQueryResponse {
   tools_used: string[];
   actions: AssistantAction[];
 }
+
+// Mirrors app/schemas/vacancy_request_import.py. Shape-identical to the
+// master-data bulk-upload responses so the dialog pattern carries over --
+// but `updated_count`/`unchanged_count` are ALWAYS 0 here, because a vacancy
+// request is an event and this importer is create-only.
+export interface VacancyRequestBulkUploadRowPreview {
+  row_number: number;
+  /** "created" or "rejected" only -- never "updated"/"unchanged". */
+  status: string;
+  error_reason: string | null;
+  campus_code: string | null;
+  department_name: string | null;
+  designation_name: string | null;
+  requested_count: number | null;
+  priority: string | null;
+  required_by: string | null;
+  justification: string | null;
+}
+
+export interface VacancyRequestBulkUploadValidationResponse {
+  total: number;
+  created_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  rejected_count: number;
+  rows: VacancyRequestBulkUploadRowPreview[];
+}
+
+export interface VacancyRequestBulkUploadCommitResponse extends VacancyRequestBulkUploadValidationResponse {
+  bulk_upload_log_id: string;
+  storage_warning: string | null;
+}

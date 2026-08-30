@@ -9,6 +9,8 @@ import type {
   VacancyRequestStatus,
   VacancyRequestSubmitPayload,
   VacancyRequestUpdatePayload,
+  VacancyRequestBulkUploadCommitResponse,
+  VacancyRequestBulkUploadValidationResponse,
 } from "@/api/types";
 
 // Phase H (glowing-zooming-hamming.md) -- optional department_id/
@@ -133,4 +135,45 @@ export async function getVacancyRequestQrInfo(): Promise<VacancyRequestQrInfo> {
  * header, so it would render a broken image. */
 export async function getVacancyRequestQrPng(): Promise<Blob> {
   return apiFetchBlob("/vacancy-requests/qr/code.png");
+}
+
+// --- Bulk upload (2026-08-30) ---------------------------------------------
+// Mirrors api/locations.ts's own bulk-upload trio. Note that unlike the
+// master-data importers, this one is CREATE-ONLY: updated_count and
+// unchanged_count come back as 0 always (see
+// app/services/vacancy_request_import.py for why a request must not upsert).
+
+export async function downloadVacancyRequestBulkUploadTemplate(): Promise<void> {
+  const blob = await apiFetchBlob("/vacancy-requests/bulk-upload/template");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "vacancy_request_bulk_upload_template.xlsx";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function validateVacancyRequestBulkUpload(
+  file: File,
+): Promise<VacancyRequestBulkUploadValidationResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<VacancyRequestBulkUploadValidationResponse>("/vacancy-requests/bulk-upload/validate", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+// Re-sends the same File the caller validated -- the backend re-validates
+// defensively rather than caching parsed rows server-side, same contract as
+// every other entity's commit.
+export async function commitVacancyRequestBulkUpload(
+  file: File,
+): Promise<VacancyRequestBulkUploadCommitResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<VacancyRequestBulkUploadCommitResponse>("/vacancy-requests/bulk-upload/commit", {
+    method: "POST",
+    body: formData,
+  });
 }
