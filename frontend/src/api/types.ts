@@ -1524,7 +1524,15 @@ export interface DepartmentDesignationBreakdownRow {
   // decide POST-a-new-row vs. PATCH/DELETE/history-on-an-existing-row.
   sanctioned_strength_id: string | null;
   approved: number;
+  // Already the RESOLVED figure: the manual override when the row has one,
+  // the live roster count otherwise. Never add the two together.
   working: number;
+  // The raw override, or null when the row has none (2026-08-30). Exposed
+  // beside `working` because `working` alone cannot tell "someone typed 3"
+  // from "3 people are employed" -- and only the first is clearable.
+  // Corollary: the live count is recoverable from this payload ONLY when
+  // this is null; see SanctionedStrengthDrawer's own `liveWorking`.
+  working_override: number | null;
   vacancy: number;
   // The current-effective row's own effective_from/remarks -- both null
   // (same convention as sanctioned_strength_id) when this designation has
@@ -1724,6 +1732,7 @@ export interface SanctionedStrengthRead {
   designation_id: string;
   category: StaffRoleCategory;
   approved_strength: number;
+  working_override: number | null;
   effective_from: string;
   remarks: string | null;
   is_active: boolean;
@@ -1741,6 +1750,10 @@ export interface SanctionedStrengthCreatePayload {
   department_id: string;
   designation_id: string;
   approved_strength: number;
+  // Manually-entered headcount overriding the live Employee/
+  // HousekeepingStaff count. Omit or send null for "no override, use the
+  // live count" -- which is what every row created before 2026-08-30 has.
+  working_override?: number | null;
   effective_from: string;
   remarks?: string | null;
   // Phase C (glowing-zooming-hamming.md) -- optional for Teaching/
@@ -1758,6 +1771,11 @@ export interface SanctionedStrengthCreatePayload {
 // to be re-pointed at a corrected Location without a full new row.
 export interface SanctionedStrengthUpdatePayload {
   approved_strength?: number;
+  // Unlike every other field here, null is MEANINGFUL rather than "no
+  // change": the backend keys this one off the key's presence, so sending
+  // null clears the override and hands the row back to the live count,
+  // while omitting the key leaves any existing override alone.
+  working_override?: number | null;
   effective_from?: string;
   remarks?: string | null;
   location_id?: string | null;

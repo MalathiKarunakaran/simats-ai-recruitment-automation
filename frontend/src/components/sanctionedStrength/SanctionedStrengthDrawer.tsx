@@ -228,9 +228,19 @@ export function SanctionedStrengthDrawer({
   // Guards the "you have unsaved changes" confirmation. `baseline` is the
   // seeded server state; the form is dirty when any editable field differs.
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
-  const [baseline, setBaseline] = useState({ approvedStrength: "0", effectiveFrom: "", remarks: "", locationId: "" });
+  const [baseline, setBaseline] = useState({
+    approvedStrength: "0",
+    workingOverride: "",
+    effectiveFrom: "",
+    remarks: "",
+    locationId: "",
+  });
   const [selectedDesignationId, setSelectedDesignationId] = useState("");
   const [approvedStrength, setApprovedStrength] = useState("0");
+  // "" means "no override -- use the live roster count", matching the
+  // backend's NULL. Kept as a string, like approvedStrength, so a
+  // half-typed value round-trips through the input without being coerced.
+  const [workingOverride, setWorkingOverride] = useState("");
   const [effectiveFrom, setEffectiveFrom] = useState(todayIsoDate());
   const [remarks, setRemarks] = useState("");
   const [locationId, setLocationId] = useState("");
@@ -268,7 +278,18 @@ export function SanctionedStrengthDrawer({
 
   const breakdownRow = breakdownQuery.data?.find((row) => row.designation_id === designationId);
   const sanctionedStrengthId = breakdownRow?.sanctioned_strength_id ?? null;
-  const working = breakdownRow?.working ?? 0;
+
+  // `breakdownRow.working` is the RESOLVED figure -- the manual override when
+  // the row has one, the live roster count otherwise. So the live count is
+  // recoverable here only when no override is set. That is the common case
+  // (and the only case for every row predating the feature), but while
+  // editing a row that already carries an override the live count is
+  // genuinely unknown client-side: the server does not send both. Rather
+  // than invent a number, `liveWorking` is null there and the Working tile
+  // reads "--" until the clear is saved. Fetching it would cost a second
+  // field on every breakdown row to serve one transient editing state.
+  const serverWorkingOverride = breakdownRow?.working_override ?? null;
+  const liveWorking = serverWorkingOverride === null ? (breakdownRow?.working ?? 0) : null;
 
   // Re-seed the form fields once the breakdown resolves (or immediately, to
   // blank defaults, for Add mode before a designation is chosen) -- separate
@@ -277,21 +298,33 @@ export function SanctionedStrengthDrawer({
     if (!open) return;
     if (mode === "add" && !designationId) {
       setApprovedStrength("0");
+      setWorkingOverride("");
       setEffectiveFrom(todayIsoDate());
       setRemarks("");
       setLocationId("");
-      setBaseline({ approvedStrength: "0", effectiveFrom: todayIsoDate(), remarks: "", locationId: "" });
+      setBaseline({
+        approvedStrength: "0",
+        workingOverride: "",
+        effectiveFrom: todayIsoDate(),
+        remarks: "",
+        locationId: "",
+      });
       return;
     }
     if (!breakdownQuery.isSuccess) return;
     const row = breakdownQuery.data.find((candidate) => candidate.designation_id === designationId);
     const seeded = {
       approvedStrength: String(row?.approved ?? 0),
+      // Seeded from the RAW override, never from the resolved `working` --
+      // pre-filling the box with a live roster count would silently convert
+      // it into a manual override on the next save.
+      workingOverride: row?.working_override === null || row?.working_override === undefined ? "" : String(row.working_override),
       effectiveFrom: row?.effective_from ?? todayIsoDate(),
       remarks: row?.remarks ?? "",
       locationId: row?.location_id ?? "",
     };
     setApprovedStrength(seeded.approvedStrength);
+    setWorkingOverride(seeded.workingOverride);
     setEffectiveFrom(seeded.effectiveFrom);
     setRemarks(seeded.remarks);
     setLocationId(seeded.locationId);
@@ -347,6 +380,19 @@ export function SanctionedStrengthDrawer({
     enabled: open && activeTab === "audit" && Boolean(sanctionedStrengthId) && canViewAuditLog,
   });
 
+  // --- Working override, derived once and used by the payload, the tiles and
+  // the dirty check, so none of the three can disagree. ---
+  const trimmedOverride = workingOverride.trim();
+  // Blank is legal (it IS the "no override" value); anything else must be a
+  // whole number, same rule as Approved.
+  const isOverrideValid = trimmedOverride === "" || NON_NEGATIVE_INTEGER.test(trimmedOverride);
+  const hasOverrideTyped = trimmedOverride !== "" && NON_NEGATIVE_INTEGER.test(trimmedOverride);
+  const overridePayloadValue = hasOverrideTyped ? Number(trimmedOverride) : null;
+  // The figure every derived number below is computed from. null means "not
+  // knowable client-side right now" -- only reachable while clearing an
+  // override that the server still holds (see `liveWorking`).
+  const effectiveWorking: number | null = hasOverrideTyped ? Number(trimmedOverride) : liveWorking;
+
   function invalidateAfterSave() {
     void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-breakdown", departmentId] });
     void queryClient.invalidateQueries({ queryKey: ["sanctioned-strength-register"] });
@@ -360,6 +406,7 @@ export function SanctionedStrengthDrawer({
         department_id: departmentId,
         designation_id: designationId as string,
         approved_strength: Number(approvedStrength.trim()),
+        working_override: overridePayloadValue,
         effective_from: effectiveFrom,
         remarks: remarks.trim() || null,
         location_id: locationId || null,
@@ -375,6 +422,10 @@ export function SanctionedStrengthDrawer({
     mutationFn: () =>
       updateSanctionedStrength(sanctionedStrengthId as string, {
         approved_strength: Number(approvedStrength.trim()),
+        // Always sent, null included -- the backend keys this field off the
+        // key's PRESENCE, so an explicit null is what clears an override.
+        // Omitting it would make "clear this" a silent no-op.
+        working_override: overridePayloadValue,
         effective_from: effectiveFrom,
         remarks: remarks.trim() || null,
         location_id: locationId || null,
@@ -391,7 +442,11 @@ export function SanctionedStrengthDrawer({
   const locationRequired = category === "HOUSEKEEPING";
   const isLocationValid = !locationRequired || Boolean(locationId);
   const canSubmit =
-    isApprovedValid && Boolean(effectiveFrom) && isLocationValid && (mode !== "add" || Boolean(designationId));
+    isApprovedValid &&
+    isOverrideValid &&
+    Boolean(effectiveFrom) &&
+    isLocationValid &&
+    (mode !== "add" || Boolean(designationId));
   const isSaving = createMutation.isPending || updateMutation.isPending;
 
   function save() {
@@ -404,7 +459,12 @@ export function SanctionedStrengthDrawer({
     }
   }
 
-  const computedVacancy = Math.max((Number(trimmedApproved) || 0) - working, 0);
+  // Both headline figures now track whatever Working currently resolves to,
+  // so typing an override moves Vacancy and Filled % with it -- the same way
+  // typing an Approved value already did. null when Working itself is
+  // unknown, rendered "--" rather than guessing at 0.
+  const computedVacancy =
+    effectiveWorking === null ? null : Math.max((Number(trimmedApproved) || 0) - effectiveWorking, 0);
 
   // Live filled % against the value currently typed, so the figure agrees
   // with the Vacancy line above it while editing. Falls back to the view
@@ -413,12 +473,13 @@ export function SanctionedStrengthDrawer({
   // backend, which sends null rather than 0.0 in that case.
   const approvedNumber = Number(trimmedApproved);
   const filledPct =
-    isApprovedValid && approvedNumber > 0
-      ? Math.round((working / approvedNumber) * 100)
+    isApprovedValid && approvedNumber > 0 && effectiveWorking !== null
+      ? Math.round((effectiveWorking / approvedNumber) * 100)
       : (viewRow?.filled_pct ?? null);
 
   const isDirty =
     approvedStrength !== baseline.approvedStrength ||
+    workingOverride !== baseline.workingOverride ||
     effectiveFrom !== baseline.effectiveFrom ||
     remarks !== baseline.remarks ||
     locationId !== baseline.locationId;
@@ -583,12 +644,53 @@ export function SanctionedStrengthDrawer({
                         <p className="text-xs text-destructive">Enter a whole number, 0 or more.</p>
                       ) : null}
                     </div>
-                    <Metric label="Working" value={working} tone="blue" />
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <Label htmlFor="drawer-working" className="text-xs font-medium text-muted-foreground">
+                        Working
+                      </Label>
+                      {canManage ? (
+                        <Input
+                          id="drawer-working"
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          placeholder={liveWorking === null ? "" : String(liveWorking)}
+                          className="h-11 text-lg font-semibold tabular-nums"
+                          value={workingOverride}
+                          aria-invalid={!isOverrideValid}
+                          onChange={(e) => setWorkingOverride(e.target.value)}
+                        />
+                      ) : (
+                        <span className="text-2xl font-bold tabular-nums text-foreground">
+                          {effectiveWorking ?? "--"}
+                        </span>
+                      )}
+                      {canManage && !isOverrideValid ? (
+                        <p className="text-xs text-destructive">Enter a whole number, 0 or more.</p>
+                      ) : canManage ? (
+                        // The one thing a user cannot see from the number
+                        // itself: whether it was typed or counted. Clearing
+                        // the box is a real action (it hands the row back to
+                        // the roster), so it needs saying out loud.
+                        <p className="text-[11px] text-muted-foreground">
+                          {hasOverrideTyped
+                            ? "Entered manually. Clear this box to use the live staff count instead."
+                            : liveWorking === null
+                              ? "Cleared — the live staff count applies once you save."
+                              : `Live staff count (${liveWorking}). Type a number to override it.`}
+                        </p>
+                      ) : null}
+                    </div>
                     <Metric
                       label="Vacancy"
-                      value={computedVacancy}
-                      tone={computedVacancy === 0 ? "green" : "orange"}
-                      hint={`${trimmedApproved || 0} approved - ${working} working`}
+                      value={computedVacancy ?? "--"}
+                      tone={computedVacancy === null ? "neutral" : computedVacancy === 0 ? "green" : "orange"}
+                      hint={
+                        computedVacancy === null
+                          ? undefined
+                          : `${trimmedApproved || 0} approved - ${effectiveWorking} working`
+                      }
                     />
                     <Metric
                       label="Filled %"
@@ -605,8 +707,16 @@ export function SanctionedStrengthDrawer({
                   <p className="mt-3 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
                     <span className="font-semibold text-foreground">Vacancy = Approved - Working</span>
                     {" — "}
-                    {trimmedApproved || 0} - {working} = {computedVacancy}. Recruitment is required while this is
-                    above zero.
+                    {computedVacancy === null ? (
+                      <>
+                        {trimmedApproved || 0} - (live staff count) . Save to see the figure.
+                      </>
+                    ) : (
+                      <>
+                        {trimmedApproved || 0} - {effectiveWorking} = {computedVacancy}. Recruitment is required while
+                        this is above zero.
+                      </>
+                    )}
                   </p>
 
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">

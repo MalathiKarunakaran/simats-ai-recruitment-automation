@@ -47,6 +47,7 @@ const BREAKDOWN_ROWS: DepartmentDesignationBreakdownRow[] = [
     sanctioned_strength_id: "ss-1",
     approved: 10,
     working: 7,
+    working_override: null,
     vacancy: 3,
     effective_from: "2026-08-10",
     remarks: "Existing sanction",
@@ -59,6 +60,7 @@ const BREAKDOWN_ROWS: DepartmentDesignationBreakdownRow[] = [
     sanctioned_strength_id: null,
     approved: 4,
     working: 4,
+    working_override: null,
     vacancy: 0,
     effective_from: null,
     remarks: null,
@@ -114,6 +116,7 @@ const SANCTIONED_STRENGTH_ROW: SanctionedStrengthRead = {
   designation_id: "des-1",
   category: "TEACHING",
   approved_strength: 12,
+  working_override: null,
   effective_from: "2026-08-10",
   remarks: "Revised",
   is_active: true,
@@ -223,7 +226,12 @@ describe("SanctionedStrengthDrawer", () => {
 
       const approvedInput = await screen.findByLabelText("Approved / Sanctioned");
       expect(approvedInput).toHaveValue(10);
-      expect(screen.getByText("7")).toBeInTheDocument(); // Working
+      // Working is now an input (2026-08-30). This row has no override, so
+      // the box is empty and the live count 7 shows as the placeholder --
+      // pre-filling it with 7 would silently promote a counted figure into a
+      // typed one on the next save.
+      expect(screen.getByLabelText("Working")).toHaveValue(null);
+      expect(screen.getByText("Live staff count (7). Type a number to override it.")).toBeInTheDocument();
       expect(screen.getByLabelText("Effective from")).toHaveValue("2026-08-10");
       expect(screen.getByLabelText("Remarks")).toHaveValue("Existing sanction");
 
@@ -234,6 +242,7 @@ describe("SanctionedStrengthDrawer", () => {
       await waitFor(() =>
         expect(mockedUpdate).toHaveBeenCalledWith("ss-1", {
           approved_strength: 12,
+          working_override: null,
           effective_from: "2026-08-10",
           remarks: "Existing sanction",
           location_id: "loc-1",
@@ -288,6 +297,121 @@ describe("SanctionedStrengthDrawer", () => {
           expect.objectContaining({ designation_id: "des-3", approved_strength: 5 }),
         ),
       );
+    });
+
+    // --- Working override (2026-08-30) -------------------------------------
+    // The Working box writes SanctionedStrength.working_override. It exists
+    // because this deployment has no HR feed, so the live roster count is 0
+    // on every row and Vacancy always read equal to Approved.
+    describe("Working override", () => {
+      const OVERRIDDEN_ROWS: DepartmentDesignationBreakdownRow[] = [
+        // `working` is the RESOLVED figure, so a row carrying an override of
+        // 3 reports working: 3 -- the live count is not in this payload at
+        // all, which is exactly what the "cleared" copy has to cope with.
+        { ...BREAKDOWN_ROWS[0], working: 3, working_override: 3 },
+        ...BREAKDOWN_ROWS.slice(1),
+      ];
+
+      it("recomputes Vacancy and Filled % from a typed override, live", async () => {
+        renderDrawer();
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+        await userEvent.type(await screen.findByLabelText("Working"), "4");
+
+        // Approved 10, Working 4 -> Vacancy 6, Filled 40%. Without the
+        // override these read 3 and 70% off the live count of 7.
+        expect(screen.getByText("10 approved - 4 working")).toBeInTheDocument();
+        expect(screen.getByText("40%")).toBeInTheDocument();
+      });
+
+      it("sends the typed override as a number on save", async () => {
+        mockedUpdate.mockResolvedValue(SANCTIONED_STRENGTH_ROW);
+        renderDrawer();
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+        await userEvent.type(await screen.findByLabelText("Working"), "4");
+        await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+        await waitFor(() =>
+          expect(mockedUpdate).toHaveBeenCalledWith("ss-1", expect.objectContaining({ working_override: 4 })),
+        );
+      });
+
+      it("seeds the box from an existing override and says the figure was typed", async () => {
+        mockedGetBreakdown.mockResolvedValue(OVERRIDDEN_ROWS);
+        renderDrawer();
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+        expect(await screen.findByLabelText("Working")).toHaveValue(3);
+        expect(
+          screen.getByText("Entered manually. Clear this box to use the live staff count instead."),
+        ).toBeInTheDocument();
+      });
+
+      it("clearing an existing override sends an explicit null, not an omitted key", async () => {
+        // The backend keys this field off the key's PRESENCE, so omitting it
+        // would make "clear this" a silent no-op that returns 200 OK.
+        mockedGetBreakdown.mockResolvedValue(OVERRIDDEN_ROWS);
+        mockedUpdate.mockResolvedValue(SANCTIONED_STRENGTH_ROW);
+        renderDrawer();
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+        await userEvent.clear(await screen.findByLabelText("Working"));
+        expect(screen.getByText("Cleared — the live staff count applies once you save.")).toBeInTheDocument();
+
+        await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+        await waitFor(() =>
+          expect(mockedUpdate).toHaveBeenCalledWith("ss-1", expect.objectContaining({ working_override: null })),
+        );
+      });
+
+      it("shows -- rather than a guessed 0 while an override is being cleared", async () => {
+        // The server sends the resolved `working` only, so once the override
+        // it resolved from is gone the live count is genuinely unknown here.
+        mockedGetBreakdown.mockResolvedValue(OVERRIDDEN_ROWS);
+        renderDrawer();
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+        await userEvent.clear(await screen.findByLabelText("Working"));
+
+        expect(screen.queryByText("10 approved - 0 working")).not.toBeInTheDocument();
+        // Scoped to the Vacancy tile -- "--" is the empty-value convention
+        // across every read-only field in this modal, so a bare getByText
+        // would match several of them.
+        expect(screen.getByText("Vacancy").nextElementSibling).toHaveTextContent("--");
+      });
+
+      it("rejects a negative override, disabling Save", async () => {
+        renderDrawer();
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+        await userEvent.type(await screen.findByLabelText("Working"), "-2");
+
+        expect(screen.getByText("Enter a whole number, 0 or more.")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
+        expect(mockedUpdate).not.toHaveBeenCalled();
+      });
+
+      it("counts as an unsaved change on its own, so closing asks first", async () => {
+        const { onOpenChange } = renderDrawer();
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+        await userEvent.type(await screen.findByLabelText("Working"), "4");
+        await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+        expect(await screen.findByText("Discard unsaved changes?")).toBeInTheDocument();
+        expect(onOpenChange).not.toHaveBeenCalledWith(false);
+      });
+
+      it("stays read-only for a viewer, showing the resolved figure and no input", async () => {
+        mockedGetBreakdown.mockResolvedValue(OVERRIDDEN_ROWS);
+        renderDrawer({ mode: "view", canManage: false });
+        await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+        expect(screen.queryByLabelText("Working")).not.toBeInTheDocument();
+        expect(await screen.findByText("3")).toBeInTheDocument();
+      });
     });
 
     it("rejects a non-numeric/negative Approved value, disabling Save", async () => {

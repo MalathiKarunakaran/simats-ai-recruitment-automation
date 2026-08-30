@@ -966,6 +966,7 @@ describe("SanctionedStrengthPage", () => {
         sanctioned_strength_id: "ss-1",
         approved: 10,
         working: 7,
+        working_override: null,
         vacancy: 3,
         effective_from: "2026-08-10",
         remarks: "Existing sanction",
@@ -978,6 +979,7 @@ describe("SanctionedStrengthPage", () => {
         sanctioned_strength_id: null,
         approved: 4,
         working: 4,
+        working_override: null,
         vacancy: 0,
         effective_from: null,
         remarks: null,
@@ -1069,6 +1071,7 @@ describe("SanctionedStrengthPage", () => {
         designation_id: "des-1",
         category: "TEACHING",
         approved_strength: 12,
+        working_override: null,
         effective_from: "2026-08-10",
         remarks: null,
         is_active: true,
@@ -1125,6 +1128,7 @@ describe("SanctionedStrengthPage", () => {
         await waitFor(() =>
           expect(mockedUpdateSanctionedStrength).toHaveBeenCalledWith("ss-1", {
             approved_strength: 12,
+            working_override: null,
             effective_from: "2026-08-10",
             remarks: "Revised headcount",
             location_id: null,
@@ -1831,6 +1835,7 @@ describe("SanctionedStrengthPage", () => {
           sanctioned_strength_id: "ts-1",
           approved: 10,
           working: 7,
+          working_override: null,
           vacancy: 3,
           effective_from: "2026-05-01",
           remarks: "Original remark",
@@ -1845,6 +1850,7 @@ describe("SanctionedStrengthPage", () => {
         designation_id: "des-1",
         category: "TEACHING",
         approved_strength: 12,
+        working_override: null,
         effective_from: "2026-05-01",
         remarks: "Original remark",
         is_active: true,
@@ -1885,6 +1891,7 @@ describe("SanctionedStrengthPage", () => {
       await waitFor(() =>
         expect(mockedUpdateSanctionedStrength).toHaveBeenCalledWith("ts-1", {
           approved_strength: 12,
+          working_override: null,
           effective_from: "2026-05-01",
           remarks: "Original remark",
           location_id: null,
@@ -2254,6 +2261,7 @@ describe("SanctionedStrengthPage", () => {
           sanctioned_strength_id: "nts-1",
           approved: 6,
           working: 4,
+          working_override: null,
           vacancy: 2,
           effective_from: "2026-04-01",
           remarks: "Original remark",
@@ -2268,6 +2276,7 @@ describe("SanctionedStrengthPage", () => {
         designation_id: "des-10",
         category: "NON_TEACHING",
         approved_strength: 8,
+        working_override: null,
         effective_from: "2026-04-01",
         remarks: "Original remark",
         is_active: true,
@@ -2303,6 +2312,7 @@ describe("SanctionedStrengthPage", () => {
       await waitFor(() =>
         expect(mockedUpdateSanctionedStrength).toHaveBeenCalledWith("nts-1", {
           approved_strength: 8,
+          working_override: null,
           effective_from: "2026-04-01",
           remarks: "Original remark",
           location_id: null,
