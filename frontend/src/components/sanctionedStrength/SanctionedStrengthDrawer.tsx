@@ -32,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, type TabOption } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { dedupeLocationsForPicker, locationLabel } from "@/lib/locationDisplay";
 import { cn } from "@/lib/utils";
 
 // Unified View/Add/Edit drawer (glowing-zooming-hamming.md Phase H) --
@@ -336,8 +337,14 @@ export function SanctionedStrengthDrawer({
   const candidateDesignations = category
     ? (designationsQuery.data ?? []).filter((d) => d.category === category && !excludeDesignationIds.has(d.id))
     : [];
-  const campusLocations = (locationsQuery.data ?? []).filter(
-    (l) => l.campus_id === campusId && (l.category === null || l.category === category),
+  // Deduped because this is a FORM picker: you are choosing the one place to
+  // attach this row to, so collapsing two records that describe the same
+  // campus+block+floor removes a meaningless choice rather than hiding data.
+  // (Filter dropdowns deliberately do NOT dedupe -- see TeachingStrengthTable.)
+  const campusLocations = dedupeLocationsForPicker(
+    (locationsQuery.data ?? []).filter(
+      (l) => l.campus_id === campusId && (l.category === null || l.category === category),
+    ),
   );
 
   const resolvedDesignationName =
@@ -597,7 +604,7 @@ export function SanctionedStrengthDrawer({
                             ) : (
                               campusLocations.map((location) => (
                                 <SelectItem key={location.id} value={location.id}>
-                                  {location.name}
+                                  {locationLabel(location)}
                                 </SelectItem>
                               ))
                             )}
@@ -607,7 +614,10 @@ export function SanctionedStrengthDrawer({
                         <span className="text-sm font-medium text-foreground">
                           {breakdownRow?.location_name ??
                             viewRow?.location_name ??
-                            campusLocations.find((l) => l.id === locationId)?.name ??
+                            (() => {
+                              const l = campusLocations.find((c) => c.id === locationId);
+                              return l ? locationLabel(l) : null;
+                            })() ??
                             "--"}
                         </span>
                       )}

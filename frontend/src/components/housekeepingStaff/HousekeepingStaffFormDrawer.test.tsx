@@ -58,7 +58,13 @@ const SSE_LOCATION: LocationRead = {
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
-const SCLAS_LOCATION: LocationRead = { ...SSE_LOCATION, id: "l-sclas-1", campus_id: "c-sclas", name: "SCLAS Block" };
+const SCLAS_LOCATION: LocationRead = {
+  ...SSE_LOCATION,
+  id: "l-sclas-1",
+  campus_id: "c-sclas",
+  name: "SCLAS Block",
+  block_building: "SCLAS Block",
+};
 
 const RECORD: HousekeepingStaffRead = {
   id: "hk-1",
@@ -134,7 +140,7 @@ describe("HousekeepingStaffFormDrawer", () => {
     await userEvent.click(await screen.findByRole("option", { name: "Housekeeping Supervisor" }));
 
     await userEvent.click(screen.getByRole("combobox", { name: "Location" }));
-    await userEvent.click(await screen.findByRole("option", { name: "Central Library" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Block A — Ground Floor" }));
 
     await userEvent.click(screen.getByRole("combobox", { name: "Shift" }));
     await userEvent.click(await screen.findByRole("option", { name: "Morning" }));
@@ -191,8 +197,8 @@ describe("HousekeepingStaffFormDrawer", () => {
     await userEvent.click(await screen.findByRole("option", { name: "SCLAS" }));
 
     await userEvent.click(screen.getByRole("combobox", { name: "Location" }));
-    expect(await screen.findByRole("option", { name: "SCLAS Block" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Central Library" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "SCLAS Block — Ground Floor" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Block A — Ground Floor" })).not.toBeInTheDocument();
   });
 
   it("shows required-field errors and blocks submit when bio_id/name are empty", async () => {
@@ -331,7 +337,7 @@ describe("HousekeepingStaffFormDrawer", () => {
     await userEvent.click(screen.getByRole("combobox", { name: "Designation" }));
     await userEvent.click(await screen.findByRole("option", { name: "Housekeeping Supervisor" }));
     await userEvent.click(screen.getByRole("combobox", { name: "Location" }));
-    await userEvent.click(await screen.findByRole("option", { name: "Central Library" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Block A — Ground Floor" }));
     await userEvent.click(screen.getByRole("combobox", { name: "Shift" }));
     await userEvent.click(await screen.findByRole("option", { name: "Morning" }));
     await userEvent.click(screen.getByRole("button", { name: "Add staff" }));

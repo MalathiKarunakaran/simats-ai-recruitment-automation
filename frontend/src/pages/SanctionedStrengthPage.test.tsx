@@ -1730,7 +1730,7 @@ describe("SanctionedStrengthPage", () => {
       );
 
       await userEvent.click(screen.getByRole("combobox", { name: "Location filter" }));
-      await userEvent.click(await screen.findByRole("option", { name: "Block A" }));
+      await userEvent.click(await screen.findByRole("option", { name: "A — 1st Floor" }));
       await waitFor(() =>
         expect(mockedListTeachingStrengthRows).toHaveBeenLastCalledWith(
           expect.objectContaining({ location_id: "loc-1", offset: 0 }),
@@ -2115,7 +2115,7 @@ describe("SanctionedStrengthPage", () => {
       );
 
       await userEvent.click(screen.getByRole("combobox", { name: "Location filter" }));
-      await userEvent.click(await screen.findByRole("option", { name: "Block B" }));
+      await userEvent.click(await screen.findByRole("option", { name: "B — Ground Floor" }));
       await waitFor(() =>
         expect(mockedListNonTeachingStrengthRows).toHaveBeenLastCalledWith(
           expect.objectContaining({ location_id: "loc-2", offset: 0 }),
@@ -2537,7 +2537,7 @@ describe("SanctionedStrengthPage", () => {
       await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
 
       await userEvent.click(screen.getByRole("combobox", { name: "Location filter" }));
-      await userEvent.click(await screen.findByRole("option", { name: "Central Library" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Block A — Ground Floor" }));
       await waitFor(() =>
         expect(mockedListHousekeepingStrengthRows).toHaveBeenLastCalledWith(
           expect.objectContaining({ location_id: "loc-hk-1", offset: 0 }),

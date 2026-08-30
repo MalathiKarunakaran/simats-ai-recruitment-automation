@@ -6,6 +6,7 @@ import { ApiError } from "@/api/client";
 import { listDesignations } from "@/api/designations";
 import { deleteHousekeepingStaff, listHousekeepingStaffByLocation } from "@/api/housekeepingStaff";
 import { listLocations } from "@/api/locations";
+import { compareLocationsForDisplay, locationLabel } from "@/lib/locationDisplay";
 import {
   listHousekeepingStrengthRows,
   type HousekeepingStrengthSortBy,
@@ -287,9 +288,15 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
   // categories) -- offered whenever it's either unset or explicitly
   // HOUSEKEEPING, same convention as Teaching/Non-Teaching's own location
   // filtering.
-  const housekeepingLocations = (locations ?? []).filter(
-    (location) => location.category === null || location.category === "HOUSEKEEPING",
-  );
+  // Sorted block-then-floor, but deliberately NOT deduped: this is a
+  // FILTER. If two duplicate Location records each have rows attached,
+  // collapsing them would make the surviving option silently exclude the
+  // other's data -- worse than the repeated labels it fixes. The labels
+  // are now distinct, and genuine duplicates are reported on the
+  // Locations master page for a human to merge.
+  const housekeepingLocations = (locations ?? [])
+    .filter((location) => location.category === null || location.category === "HOUSEKEEPING")
+    .sort(compareLocationsForDisplay);
   // Resolves each roster entry's designation_id to a display name in
   // RosterExpandRow below -- HousekeepingStaffRead only carries the raw id
   // (same shape as HousekeepingStaffListPage.tsx's own designationById map).
@@ -497,7 +504,7 @@ export function HousekeepingStrengthTable({ canManage, canFilterByCampus, campus
               <SelectItem value="ALL">All locations</SelectItem>
               {housekeepingLocations.map((location) => (
                 <SelectItem key={location.id} value={location.id}>
-                  {location.name}
+                  {locationLabel(location)}
                 </SelectItem>
               ))}
             </SelectContent>

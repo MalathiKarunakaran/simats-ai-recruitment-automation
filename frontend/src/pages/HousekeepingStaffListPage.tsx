@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
+import { locationLabel } from "@/lib/locationDisplay";
 
 // Bare list page (glowing-zooming-hamming.md Phase D) -- sufficient to
 // live-verify the roster CRUD + HousekeepingStaffFormDrawer, deliberately
@@ -241,7 +242,12 @@ export function HousekeepingStaffListPage() {
                       <TableCell className="font-mono text-xs">{campusById.get(s.campus_id)?.code ?? "—"}</TableCell>
                     ) : null}
                     <TableCell>{designationById.get(s.designation_id)?.name ?? "—"}</TableCell>
-                    <TableCell>{locationById.get(s.location_id)?.name ?? "—"}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const l = locationById.get(s.location_id);
+                        return l ? locationLabel(l) : "—";
+                      })()}
+                    </TableCell>
                     <TableCell>{s.block ?? "—"}</TableCell>
                     <TableCell>{SHIFT_LABELS[s.shift] ?? s.shift}</TableCell>
                     <TableCell>{s.supervisor ?? "—"}</TableCell>

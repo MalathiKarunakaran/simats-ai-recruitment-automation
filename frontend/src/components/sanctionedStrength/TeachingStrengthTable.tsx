@@ -5,6 +5,7 @@ import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
 import { listDesignations } from "@/api/designations";
 import { listLocations } from "@/api/locations";
+import { compareLocationsForDisplay, locationLabel } from "@/lib/locationDisplay";
 import {
   listTeachingStrengthRows,
   type TeachingStrengthSortBy,
@@ -272,9 +273,15 @@ export function TeachingStrengthTable({
   // categories, per this epic's plan) -- offered here whenever it's either
   // unset or explicitly TEACHING, never for a Location scoped to a
   // different single category.
-  const teachingLocations = (locations ?? []).filter(
-    (location) => location.category === null || location.category === "TEACHING",
-  );
+  // Sorted block-then-floor, but deliberately NOT deduped: this is a
+  // FILTER. If two duplicate Location records each have rows attached,
+  // collapsing them would make the surviving option silently exclude the
+  // other's data -- worse than the repeated labels it fixes. The labels
+  // are now distinct, and genuine duplicates are reported on the
+  // Locations master page for a human to merge.
+  const teachingLocations = (locations ?? [])
+    .filter((location) => location.category === null || location.category === "TEACHING")
+    .sort(compareLocationsForDisplay);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: [
@@ -458,7 +465,7 @@ export function TeachingStrengthTable({
               <SelectItem value="ALL">All locations</SelectItem>
               {teachingLocations.map((location) => (
                 <SelectItem key={location.id} value={location.id}>
-                  {location.name}
+                  {locationLabel(location)}
                 </SelectItem>
               ))}
             </SelectContent>

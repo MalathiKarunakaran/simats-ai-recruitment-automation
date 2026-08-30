@@ -7,6 +7,7 @@ import { listDepartments } from "@/api/departments";
 import { listDesignations } from "@/api/designations";
 import { listEmployeesByDepartmentDesignation } from "@/api/employees";
 import { listLocations } from "@/api/locations";
+import { compareLocationsForDisplay, locationLabel } from "@/lib/locationDisplay";
 import {
   listNonTeachingStrengthRows,
   type NonTeachingStrengthSortBy,
@@ -227,9 +228,15 @@ export function NonTeachingStrengthTable({
   // Location.category is nullable (a building can serve multiple
   // categories) -- offered whenever it's either unset or explicitly
   // NON_TEACHING, same convention as TeachingStrengthTable's own filtering.
-  const nonTeachingLocations = (locations ?? []).filter(
-    (location) => location.category === null || location.category === "NON_TEACHING",
-  );
+  // Sorted block-then-floor, but deliberately NOT deduped: this is a
+  // FILTER. If two duplicate Location records each have rows attached,
+  // collapsing them would make the surviving option silently exclude the
+  // other's data -- worse than the repeated labels it fixes. The labels
+  // are now distinct, and genuine duplicates are reported on the
+  // Locations master page for a human to merge.
+  const nonTeachingLocations = (locations ?? [])
+    .filter((location) => location.category === null || location.category === "NON_TEACHING")
+    .sort(compareLocationsForDisplay);
   const blockByLocationId = new Map((locations ?? []).map((location) => [location.id, location.block_building]));
 
   const { data, isLoading, isError, error } = useQuery({
@@ -419,7 +426,7 @@ export function NonTeachingStrengthTable({
               <SelectItem value="ALL">All locations</SelectItem>
               {nonTeachingLocations.map((location) => (
                 <SelectItem key={location.id} value={location.id}>
-                  {location.name}
+                  {locationLabel(location)}
                 </SelectItem>
               ))}
             </SelectContent>

@@ -437,4 +437,58 @@ describe("LocationsPage", () => {
       expect(within(dialog).getByText("Something went wrong deleting this location.")).toBeInTheDocument(),
     );
   });
+  // --- Duplicate master-record warning (2026-08-30) -------------------------
+  // Location pickers key on campus + block + floor, so records agreeing on all
+  // three collapse to one option. The page reports them; it never deletes.
+  describe("duplicate location warning", () => {
+    const LIBRARY_DUPLICATE: LocationRead = { ...LIBRARY, id: "l-library-2", name: "Library (old record)" };
+
+    it("warns when two records share campus, block and floor, naming both", async () => {
+      mockUser("HR_ADMIN");
+      mockedListCampuses.mockResolvedValue([SSE]);
+      mockedListLocations.mockResolvedValue([LIBRARY, LIBRARY_DUPLICATE]);
+
+      renderPage();
+
+      expect(await screen.findByText("1 duplicate location found")).toBeInTheDocument();
+      expect(screen.getByText("Block A — Ground Floor")).toBeInTheDocument();
+      // Both records are named so a reviewer can tell which to deactivate.
+      expect(screen.getByText(/Central Library, Library \(old record\)/)).toBeInTheDocument();
+    });
+
+    it("says nothing when every location is distinct", async () => {
+      mockUser("HR_ADMIN");
+      mockedListCampuses.mockResolvedValue([SSE]);
+      mockedListLocations.mockResolvedValue([LIBRARY, HK_STORE]);
+
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+      expect(screen.queryByText(/duplicate location/)).not.toBeInTheDocument();
+    });
+
+    it("does not offer to delete anything -- the records are referenced by other master data", async () => {
+      mockUser("HR_ADMIN");
+      mockedListCampuses.mockResolvedValue([SSE]);
+      mockedListLocations.mockResolvedValue([LIBRARY, LIBRARY_DUPLICATE]);
+
+      renderPage();
+
+      const warning = await screen.findByRole("status");
+      expect(within(warning).queryByRole("button")).not.toBeInTheDocument();
+      expect(within(warning).getByText(/Nothing has been changed or deleted/)).toBeInTheDocument();
+    });
+
+    it("counts duplicates across the active/inactive split, not just the visible rows", async () => {
+      // An inactive twin is still a duplicate; the default filter hides it
+      // from the table but it must not hide it from the warning.
+      mockUser("HR_ADMIN");
+      mockedListCampuses.mockResolvedValue([SSE]);
+      mockedListLocations.mockResolvedValue([LIBRARY, { ...LIBRARY_DUPLICATE, is_active: false }]);
+
+      renderPage();
+
+      expect(await screen.findByText("1 duplicate location found")).toBeInTheDocument();
+    });
+  });
 });

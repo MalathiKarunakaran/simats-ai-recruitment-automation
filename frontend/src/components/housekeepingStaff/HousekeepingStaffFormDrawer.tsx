@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
+import { dedupeLocationsForPicker, locationLabel } from "@/lib/locationDisplay";
 
 // Reusable add/edit drawer for one HousekeepingStaff record
 // (glowing-zooming-hamming.md Phase D). Deliberately controlled from the
@@ -133,7 +134,12 @@ export function HousekeepingStaffFormDrawer({
   });
   const { data: locations } = useQuery({ queryKey: ["locations"], queryFn: listLocations, enabled: open });
 
-  const campusLocations = (locations ?? []).filter((l) => l.campus_id === campusId && l.is_active);
+  // Deduped: a FORM picker chooses the one place to attach this staff
+  // member to, so collapsing records describing the same campus+block+floor
+  // removes a meaningless choice rather than hiding data.
+  const campusLocations = dedupeLocationsForPicker(
+    (locations ?? []).filter((l) => l.campus_id === campusId && l.is_active),
+  );
 
   function buildPayload() {
     return {
@@ -285,7 +291,7 @@ export function HousekeepingStaffFormDrawer({
                 ) : (
                   campusLocations.map((l) => (
                     <SelectItem key={l.id} value={l.id}>
-                      {l.name}
+                      {locationLabel(l)}
                     </SelectItem>
                   ))
                 )}

@@ -28,6 +28,7 @@ import { CategoryTabs } from "@/components/domain/CategoryTabs";
 import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryTab";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 import { required, useFieldValidation } from "@/hooks/useFieldValidation";
+import { findDuplicateLocationGroups } from "@/lib/locationDisplay";
 
 const CATEGORIES: StaffRoleCategory[] = ["TEACHING", "NON_TEACHING", "HOUSEKEEPING"];
 
@@ -72,6 +73,9 @@ export function LocationsPage() {
   const [search, setSearch] = useState("");
 
   const { data: locations, isLoading } = useQuery({ queryKey: ["locations"], queryFn: listLocations });
+  // Computed over EVERY location, not the filtered view -- a duplicate
+  // pair split across an active/inactive filter is still a duplicate.
+  const duplicateGroups = findDuplicateLocationGroups(locations ?? []);
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
 
   // Bug fix: OR'd with hasPermission("MANAGE_LOCATIONS") -- backend's
@@ -408,6 +412,39 @@ export function LocationsPage() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Duplicate master records (2026-08-30). Location pickers key on
+          campus + block + floor, so records agreeing on all three are one
+          place as far as any dropdown is concerned. This REPORTS them and
+          does nothing else: Sanctioned Strength rows and the Housekeeping
+          roster reference locations by id, so merging or deleting the wrong
+          record would orphan real data. That call belongs to a human. */}
+      {duplicateGroups.length > 0 ? (
+        <div
+          role="status"
+          className="rounded-xl border border-brand-warning/40 bg-brand-warning/10 p-4 text-sm"
+        >
+          <p className="font-semibold text-foreground">
+            {duplicateGroups.length} duplicate location{duplicateGroups.length === 1 ? "" : "s"} found
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            These records share a campus, block and floor, so they appear as one option in every location
+            picker. Nothing has been changed or deleted — review them and deactivate whichever is not in
+            use.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {duplicateGroups.map((group) => (
+              <li key={group.label} className="text-foreground">
+                <span className="font-medium">{group.label}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  — {group.locations.length} records ({group.locations.map((l) => l.name).join(", ")})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
           empty/table states, not just the loaded table. */}

@@ -134,7 +134,9 @@ describe("HousekeepingStaffListPage", () => {
     await waitFor(() => expect(screen.getByText("Kamala Devi")).toBeInTheDocument());
     expect(screen.getByText("BIO-001")).toBeInTheDocument();
     expect(screen.getByText("Housekeeping Supervisor")).toBeInTheDocument();
-    expect(screen.getByText("Central Library")).toBeInTheDocument();
+    // The Location column now reads "<block> — <floor>"; the bare
+    // "Block A" assertion below is the STAFF row's own block column.
+    expect(screen.getByText("Block A — Ground Floor")).toBeInTheDocument();
     expect(screen.getByText("Block A")).toBeInTheDocument();
     expect(screen.getByText("Morning")).toBeInTheDocument();
     expect(screen.getByText("Ramesh")).toBeInTheDocument();
