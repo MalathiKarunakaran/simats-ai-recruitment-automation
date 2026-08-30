@@ -53,6 +53,7 @@ api_router.include_router(audit_logs.router)
 # qr_router first: its /vacancy-requests/qr/* paths would otherwise be
 # swallowed by /vacancy-requests/{vacancy_request_id} below.
 api_router.include_router(vacancy_requests.qr_router)
+api_router.include_router(vacancy_requests.bulk_upload_router)
 api_router.include_router(vacancy_requests.router)
 api_router.include_router(approved_vacancies.router)
 api_router.include_router(approved_vacancies.hiring_slots_router)

@@ -1,9 +1,9 @@
 import io
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import openai
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,8 @@ from app.models.campus import Campus
 from app.models.department import Department
 from app.models.designation import Designation
 from app.models.enums import (
+    BulkUploadEntityTypeEnum,
+    BulkUploadStatusEnum,
     CoordinatorCapabilityEnum,
     PermissionEnum,
     UserRoleEnum,
@@ -49,9 +51,18 @@ from app.schemas.vacancy_request import (
     VacancyRequestUpdate,
     VacancySlotCountUpdateRequest,
 )
-from app.services import jd_generation, vacancy_request_intake, vacancy_workflow
+from minio import Minio
+
+from app.models.bulk_upload_log import BulkUploadLog
+from app.schemas.vacancy_request_import import (
+    VacancyRequestBulkUploadCommitResponse,
+    VacancyRequestBulkUploadRowPreview,
+    VacancyRequestBulkUploadValidationResponse,
+)
+from app.services import jd_generation, storage, vacancy_request_import, vacancy_request_intake, vacancy_workflow
+from app.services.storage import get_minio_client
 from app.services.ai_client import get_openai_client
-from app.services.audit import log_create, log_delete, log_update
+from app.services.audit import log_create, log_delete, log_event as log_create_event, log_update
 
 router = APIRouter(prefix="/vacancy-requests", tags=["vacancy-requests"])
 
@@ -563,4 +574,176 @@ def get_vacancy_request_qr_code(
         io.BytesIO(png_bytes),
         media_type="image/png",
         headers={"Content-Disposition": 'attachment; filename="simats-vacancy-request-qr.png"'},
+    )
+
+
+# --- Bulk upload (2026-08-30) ---------------------------------------------
+# Same /bulk-upload/{template,validate,commit} shape the six master-data
+# entities use, so the frontend's shared dialog needs no special-casing. The
+# batch-level history / error-report / original-file / undo endpoints stay in
+# sanctioned_strength.py, dispatched by BulkUploadLog.entity_type, exactly as
+# they do for Locations and Departments.
+#
+# A SEPARATE router registered before `router`, for the same routing-order
+# reason as qr_router above: /vacancy-requests/bulk-upload/validate would
+# otherwise be matched by /vacancy-requests/{vacancy_request_id} and 422 on a
+# failed UUID parse.
+bulk_upload_router = APIRouter(prefix="/vacancy-requests/bulk-upload", tags=["vacancy-requests"])
+
+_XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_MAX_BULK_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+def _read_bulk_upload_bytes(file: UploadFile) -> bytes:
+    if not (file.filename or "").lower().endswith((".xlsx", ".csv")):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only .xlsx or .csv files are accepted")
+    data = file.file.read()
+    if len(data) > _MAX_BULK_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File exceeds the 10 MB limit")
+    return data
+
+
+def _bulk_row_to_preview(row) -> VacancyRequestBulkUploadRowPreview:
+    return VacancyRequestBulkUploadRowPreview(
+        row_number=row.row_number,
+        status=row.status,
+        error_reason=row.error_reason,
+        campus_code=row.campus_code,
+        department_name=row.department_name,
+        designation_name=row.designation_name,
+        requested_count=row.requested_count,
+        priority=row.priority,
+        required_by=row.required_by,
+        justification=row.justification,
+    )
+
+
+@bulk_upload_router.get("/template")
+def download_vacancy_request_bulk_upload_template(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_can_write),
+) -> StreamingResponse:
+    xlsx_bytes = vacancy_request_import.build_bulk_upload_template_xlsx(db)
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type=_XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": 'attachment; filename="vacancy_request_bulk_upload_template.xlsx"'},
+    )
+
+
+@bulk_upload_router.post("/validate", response_model=VacancyRequestBulkUploadValidationResponse)
+def validate_vacancy_request_bulk_upload(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_can_write),
+) -> VacancyRequestBulkUploadValidationResponse:
+    """Parses and validates every row WITHOUT writing anything -- a pure
+    preview, same no-server-side-cache contract as every other entity's
+    validate endpoint (the client re-uploads the same file to commit)."""
+    data = _read_bulk_upload_bytes(file)
+    raw_rows = vacancy_request_import.parse_rows(data, file.filename)
+    validation = vacancy_request_import.validate_rows(db, raw_rows)
+    return VacancyRequestBulkUploadValidationResponse(
+        total=validation.total,
+        created_count=validation.created_count,
+        updated_count=validation.updated_count,
+        unchanged_count=validation.unchanged_count,
+        rejected_count=validation.rejected_count,
+        rows=[_bulk_row_to_preview(row) for row in validation.rows],
+    )
+
+
+@bulk_upload_router.post("/commit", response_model=VacancyRequestBulkUploadCommitResponse)
+def commit_vacancy_request_bulk_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    minio_client: Minio = Depends(get_minio_client),
+    current_user: User = Depends(_can_write),
+) -> VacancyRequestBulkUploadCommitResponse:
+    """Re-validates the re-uploaded file defensively, then creates every
+    non-rejected row as a DRAFT VacancyRequest in one transaction. Rejected
+    rows write nothing at all.
+
+    The created requests are DRAFTS, not submitted: submit() enforces the
+    Sanctioned Strength ceiling per request and would accept some rows and
+    refuse others, leaving a batch half in the approval queue. The uploader
+    submits them afterwards through the normal choke point.
+    """
+    data = _read_bulk_upload_bytes(file)
+    raw_rows = vacancy_request_import.parse_rows(data, file.filename)
+    validation = vacancy_request_import.validate_rows(db, raw_rows)
+
+    now = datetime.now(timezone.utc)
+    log = BulkUploadLog(
+        filename=file.filename or "upload",
+        entity_type=BulkUploadEntityTypeEnum.VACANCY_REQUEST,
+        uploaded_by_id=current_user.id,
+        rows_total=validation.total,
+        rows_created=validation.created_count,
+        rows_updated=validation.updated_count,
+        rows_rejected=validation.rejected_count,
+        status=BulkUploadStatusEnum.COMPLETED,
+        undo_deadline=now + timedelta(hours=24),
+    )
+    db.add(log)
+
+    try:
+        db.flush()  # assigns log.id, needed for the row-log FK
+        vacancy_request_import.commit_rows(
+            db,
+            validation=validation,
+            bulk_upload_log_id=log.id,
+            requested_by_id=current_user.id,
+        )
+        log_create_event(
+            db,
+            actor=current_user,
+            action="VACANCY_REQUEST_BULK_UPLOAD_COMMITTED",
+            entity_type="BulkUploadLog",
+            entity_id=log.id,
+            after_state={
+                "filename": log.filename,
+                "rows_total": log.rows_total,
+                "rows_created": log.rows_created,
+                "rows_rejected": log.rows_rejected,
+            },
+            request=request,
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+    db.commit()
+    db.refresh(log)
+
+    # Archival is attempted only once the real rows are safely committed --
+    # its outcome can never change whether this request reports success, only
+    # whether storage_warning is set.
+    storage_key, _storage_error = storage.try_upload_bulk_upload_file(
+        minio_client,
+        bulk_upload_log_id=log.id,
+        filename=file.filename or "upload",
+        data=data,
+        content_type=file.content_type or "application/octet-stream",
+    )
+    storage_warning = None
+    if storage_key is not None:
+        log.stored_file_object_key = storage_key
+        db.commit()
+    else:
+        storage_warning = (
+            "Workbook storage is temporarily unavailable. The file was successfully parsed, "
+            "but the original workbook could not be archived."
+        )
+
+    return VacancyRequestBulkUploadCommitResponse(
+        total=validation.total,
+        created_count=validation.created_count,
+        updated_count=validation.updated_count,
+        unchanged_count=validation.unchanged_count,
+        rejected_count=validation.rejected_count,
+        rows=[_bulk_row_to_preview(row) for row in validation.rows],
+        bulk_upload_log_id=log.id,
+        storage_warning=storage_warning,
     )

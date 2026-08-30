@@ -88,6 +88,7 @@ from app.models.enums import (
     SANCTIONED_STRENGTH_WRITE_ROLES,
     BulkUploadEntityTypeEnum,
     BulkUploadStatusEnum,
+    VacancyRequestStatusEnum,
     HousekeepingShiftEnum,
     SanctionedStrengthChangeSourceEnum,
     StaffRoleCategoryEnum,
@@ -97,6 +98,7 @@ from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.location import Location
 from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengthHistory
 from app.models.user import User
+from app.models.vacancy_request import VacancyRequest
 from app.schemas.common import PaginatedResponse
 from app.schemas.sanctioned_strength import (
     SanctionedStrengthAvailabilityRead,
@@ -1202,12 +1204,82 @@ def _undo_sanctioned_strength(
     return BulkUploadUndoResponse(id=log.id, status=log.status, reverted_history_count=reverted, not_reverted_count=0)
 
 
+def _undo_vacancy_request_batch(
+    db: Session, *, log: BulkUploadLog, row_logs: list, current_user: User, request: Request
+) -> BulkUploadUndoResponse:
+    """Undo a VACANCY_REQUEST batch by CANCELLING the drafts it created.
+
+    Three ways this differs from the master-data undo beside it, all forced by
+    what a vacancy request actually is:
+
+    - **Cancel, not soft-delete.** VacancyRequest has no `is_active`; CANCELLED
+      is its own terminal "no longer wanted" state, distinct from REJECTED
+      (which means an approver refused it) and CLOSED (filled).
+    - **Only rows still in DRAFT are reverted.** Unlike a Location, a request
+      can move on by itself inside the 24h undo window -- someone may have
+      submitted or even approved it. Cancelling that would be destructive, so
+      anything past DRAFT is counted into `not_reverted_count` and left alone,
+      the same way an *updated* master-data row is.
+    - **No status choke-point call.** `vacancy_workflow.cancel()` expects an
+      approved vacancy and job posting and enforces committed-candidate rules;
+      none of that can exist for an untouched DRAFT, and routing through it
+      would mean fetching two relationships that are always None. The status
+      write is confined here and stays inside the DRAFT-only guard above.
+    """
+    reverted = 0
+    not_reverted = 0
+    now = datetime.now(timezone.utc)
+
+    for entry in row_logs:
+        if not entry.was_created:
+            # This importer never updates, so this should not occur -- kept
+            # for parity with the shared undo's own contract.
+            not_reverted += 1
+            continue
+        vr = db.get(VacancyRequest, entry.entity_id)
+        if vr is None:
+            continue
+        if vr.status != VacancyRequestStatusEnum.DRAFT:
+            not_reverted += 1
+            continue
+        vr.status = VacancyRequestStatusEnum.CANCELLED
+        vr.cancelled_by_id = current_user.id
+        vr.cancelled_at = now
+        vr.cancellation_reason = f"Bulk upload {log.filename} undone"
+        reverted += 1
+
+    log_event(
+        db,
+        actor=current_user,
+        action="VACANCY_REQUEST_BULK_UPLOAD_UNDONE",
+        entity_type="BulkUploadLog",
+        entity_id=log.id,
+        after_state={"reverted_count": reverted, "not_reverted_count": not_reverted},
+        request=request,
+    )
+    # The caller (undo_bulk_upload) already stamps log.status/undone_at/
+    # undone_by_id and commits -- this returns the same shape the shared
+    # row-log undo does and leaves the transaction to it.
+    return BulkUploadUndoResponse(
+        id=log.id, status=log.status, reverted_history_count=reverted, not_reverted_count=not_reverted
+    )
+
+
 def _undo_row_log_based(
     db: Session, *, log: BulkUploadLog, current_user: User, request: Request
 ) -> BulkUploadUndoResponse:
-    """Undo for LOCATION/HOUSEKEEPING_STAFF/DEPARTMENT/ELIGIBILITY_RULE
-    batches -- deliberately narrower in scope than Sanctioned Strength's own
-    undo above. None of these 4 entities has a permanent old-value history
+    """Undo for LOCATION/HOUSEKEEPING_STAFF/DEPARTMENT/ELIGIBILITY_RULE/
+    DESIGNATION/VACANCY_REQUEST batches -- deliberately narrower in scope than
+    Sanctioned Strength's own undo above.
+
+    VACANCY_REQUEST is handled separately below and does NOT soft-delete: a
+    vacancy request has no `is_active` column, it has a status lifecycle, and
+    its established "this is no longer wanted" state is CANCELLED. It is also
+    the only entity here whose rows can move on by themselves between the
+    import and the undo -- someone can submit a bulk-created draft within the
+    24h window -- so only rows still sitting in DRAFT are reverted. Cancelling
+    a request already in an approval chain would be a destructive surprise,
+    not an undo. None of these 4 entities has a permanent old-value history
     table, so there is no way to revert a row this batch *updated* back to
     what it looked like before (`BulkUploadRowLog` only records whether a
     row was created or updated, not the prior values) -- see
@@ -1220,6 +1292,11 @@ def _undo_row_log_based(
     be reverted" rather than silently doing nothing for them.
     """
     row_logs = db.query(BulkUploadRowLog).filter(BulkUploadRowLog.bulk_upload_log_id == log.id).all()
+
+    if log.entity_type == BulkUploadEntityTypeEnum.VACANCY_REQUEST:
+        return _undo_vacancy_request_batch(
+            db, log=log, row_logs=row_logs, current_user=current_user, request=request
+        )
 
     if log.entity_type == BulkUploadEntityTypeEnum.LOCATION:
         model = Location

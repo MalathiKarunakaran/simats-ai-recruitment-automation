@@ -341,6 +341,15 @@ class BulkUploadEntityTypeEnum(str, enum.Enum):
     # d8e9f0a1b2c3_designation_required_skills_bulk_upload.py for why that
     # means this label can never be cleanly removed again.
     DESIGNATION = "DESIGNATION"
+    # Added 2026-08-30 via `ALTER TYPE ... ADD VALUE` (migration
+    # c9d0e1f2a3b4) -- same never-cleanly-removable caveat as the three above.
+    #
+    # The odd one out in this list: every other member is MASTER DATA, where a
+    # re-upload legitimately upserts an existing record. A vacancy request is
+    # an EVENT -- two identical rows are two genuine requests, not a duplicate
+    # -- so its importer is create-only and never reports `updated` or
+    # `unchanged`. See app/services/vacancy_request_import.py.
+    VACANCY_REQUEST = "VACANCY_REQUEST"
 
 
 class RegulatoryAuthorityEnum(str, enum.Enum):
