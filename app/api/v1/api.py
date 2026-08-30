@@ -28,11 +28,16 @@ from app.api.v1.routers import (
     sanctioned_strength,
     users,
     vacancy_register,
+    public_vacancy_requests,
     vacancy_requests,
 )
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+# Unauthenticated intake -- registered alongside the rest, but note it is
+# the only router here besides auth with no auth dependency at all. See
+# its module docstring for the boundaries that keeps it safe.
+api_router.include_router(public_vacancy_requests.router)
 api_router.include_router(users.router)
 api_router.include_router(campuses.router)
 api_router.include_router(departments.router)
@@ -45,6 +50,9 @@ api_router.include_router(eligibility_rules.router)
 api_router.include_router(pipeline_stage_configs.router)
 api_router.include_router(audit_logs.router)
 
+# qr_router first: its /vacancy-requests/qr/* paths would otherwise be
+# swallowed by /vacancy-requests/{vacancy_request_id} below.
+api_router.include_router(vacancy_requests.qr_router)
 api_router.include_router(vacancy_requests.router)
 api_router.include_router(approved_vacancies.router)
 api_router.include_router(approved_vacancies.hiring_slots_router)

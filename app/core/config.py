@@ -60,6 +60,30 @@ class Settings(BaseSettings):
     # frontend exists.
     PUBLIC_APPLY_BASE_URL: str = "https://careers.simats.edu"
 
+    # --- Public vacancy-request (QR) intake, 2026-08-30 ---
+    # Base URL of the FRONTEND app, used to build the QR code's target
+    # (`<base>/vacancy-request/public`). Deliberately separate from
+    # PUBLIC_APPLY_BASE_URL above: that one points at the candidate careers
+    # site, while this form lives inside this app. Pointing the QR at the
+    # careers domain would send staff to the wrong site entirely.
+    #
+    # Falls back to the first configured CORS origin when unset, which in
+    # every real deployment IS the frontend origin -- that keeps a correct QR
+    # in production without a new required env var, while staying overridable.
+    # Never hard-code localhost here; see `public_app_base_url`.
+    PUBLIC_APP_BASE_URL: str = ""
+
+    # Email of the account QR submissions are attributed to. A public
+    # submission has no `User`, but VacancyRequest.requested_by_id is NOT NULL
+    # and five notification sites in vacancy_workflow.py dereference it, so
+    # every QR row needs an owning account. The requester's own details are
+    # stored separately on the row (requester_name/email/mobile).
+    #
+    # When unset, the intake falls back to the longest-standing active
+    # SUPER_ADMIN -- see app/services/vacancy_request_intake.py, which fails
+    # with a clear 503 rather than a foreign-key error if there is none.
+    QR_INTAKE_USER_EMAIL: str = ""
+
     # --- CORS (Phase 7) ---
     # Comma-separated origins, e.g. "https://app.simats.edu,https://staging.simats.edu".
     # Empty by default -- no frontend exists in this repo yet, so no CORS
@@ -72,6 +96,24 @@ class Settings(BaseSettings):
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def public_app_base_url(self) -> str:
+        """Frontend base URL for QR targets, without a trailing slash.
+
+        Explicit setting wins; otherwise the first CORS origin, which is the
+        frontend origin in every real deployment. The final fallback is the
+        local dev origin -- reached only when neither is configured, i.e. on a
+        developer machine, so a QR generated there is correctly local rather
+        than silently pointing at a production domain that does not serve it.
+        """
+        configured = self.PUBLIC_APP_BASE_URL.strip()
+        if configured:
+            return configured.rstrip("/")
+        origins = self.cors_allowed_origins_list
+        if origins:
+            return origins[0].rstrip("/")
+        return "http://localhost:5173"
 
 
 @lru_cache

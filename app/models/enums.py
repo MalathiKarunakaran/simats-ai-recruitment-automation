@@ -105,6 +105,28 @@ class VacancyPriorityEnum(str, enum.Enum):
     URGENT = "URGENT"
 
 
+class VacancyRequestSourceEnum(str, enum.Enum):
+    """How a VacancyRequest got into the system (2026-08-30).
+
+    MANUAL is the pre-existing in-app requisition flow and is the migration's
+    `server_default`, so every row created before this column existed
+    backfills correctly with no data migration.
+
+    QR marks a submission from the public, unauthenticated intake form. Those
+    rows are the reason `requester_name`/`requester_email`/`requester_mobile`
+    exist on the model: there is no internal `User` behind them, so the
+    requester's own details have nowhere else to live.
+
+    This is a NEW native Postgres enum type, not an `ALTER TYPE ... ADD VALUE`
+    on an existing one -- so unlike `BulkUploadEntityTypeEnum`, labels here
+    can still be changed cleanly while the type is young.
+    """
+
+    MANUAL = "MANUAL"
+    BULK_UPLOAD = "BULK_UPLOAD"
+    QR = "QR"
+
+
 class VacancyRequestStatusEnum(str, enum.Enum):
     """DEAN_APPROVED is an added intermediate state (not one of the master
     spec's 6 literal status names) needed to distinguish "Dean approved,

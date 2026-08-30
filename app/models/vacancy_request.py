@@ -1,10 +1,11 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     ARRAY,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -18,7 +19,13 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
-from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, VacancyPriorityEnum, VacancyRequestStatusEnum
+from app.models.enums import (
+    EmploymentTypeEnum,
+    StaffRoleCategoryEnum,
+    VacancyPriorityEnum,
+    VacancyRequestSourceEnum,
+    VacancyRequestStatusEnum,
+)
 
 
 class VacancyRequest(Base):
@@ -107,6 +114,53 @@ class VacancyRequest(Base):
     # -- lets a re-import upsert instead of duplicating rows. Unset for
     # everything created through the normal in-app requisition flow.
     external_ref: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+
+    # --- Intake fields (2026-08-30) ---------------------------------------
+    # Where this request came from. NOT NULL with a MANUAL server_default, so
+    # every pre-existing row backfills as MANUAL with no data migration.
+    source: Mapped[VacancyRequestSourceEnum] = mapped_column(
+        Enum(VacancyRequestSourceEnum, name="vacancy_request_source_enum"),
+        nullable=False,
+        default=VacancyRequestSourceEnum.MANUAL,
+        server_default=VacancyRequestSourceEnum.MANUAL.value,
+        index=True,
+    )
+
+    # Human-facing request identifier ("VR-2026-000123") shown on the QR
+    # confirmation screen and quoted by requesters chasing a request.
+    #
+    # Deliberately NOT `external_ref` above, which is the tracker workbook's
+    # own Request ID and is what lets a re-import upsert instead of
+    # duplicating. Reusing it would make a QR submission collide with a
+    # tracker row, so the two identifiers stay separate.
+    #
+    # Nullable because every row predating this column has none, and unique
+    # so a generation race surfaces as an IntegrityError rather than two
+    # requests quietly sharing an id.
+    request_ref: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True)
+
+    # Where the vacancy physically sits. Nullable: Teaching/Non-Teaching
+    # requests have never needed one, and every existing row has none.
+    # RESTRICT matches every other location_id FK in this schema -- a Location
+    # referenced by a live request must not be deletable out from under it.
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+
+    # "Required by" date from the intake forms. Nullable -- it is a request,
+    # not a commitment, and pre-existing rows have none.
+    required_by: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # The person behind a QR submission, who has no `User` row at all.
+    # `requested_by_id` above stays NOT NULL and points at the account that
+    # owns the intake (see app/services/vacancy_request_intake.py) -- making
+    # it nullable would have rippled through five notification call sites in
+    # vacancy_workflow.py that dereference `.requested_by` as the recipient.
+    # These three are the authoritative "who actually asked" for a QR row and
+    # are all NULL on a normal in-app request.
+    requester_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    requester_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    requester_mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Sanctioned Strength enforcement (zany-snuggling-pie.md Phase E) --
     # set only when a SUPER_ADMIN explicitly overrides the submit()-time

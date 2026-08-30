@@ -1,8 +1,10 @@
+import io
 import uuid
 from datetime import datetime, timezone
 
 import openai
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.deps import (
@@ -22,7 +24,14 @@ from app.models.approved_vacancy import ApprovedVacancy
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.designation import Designation
-from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum, VacancyRequestStatusEnum
+from app.models.enums import (
+    CoordinatorCapabilityEnum,
+    PermissionEnum,
+    UserRoleEnum,
+    VacancyPriorityEnum,
+    VacancyRequestSourceEnum,
+    VacancyRequestStatusEnum,
+)
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
@@ -35,11 +44,12 @@ from app.schemas.vacancy_request import (
     VacancyRequestGenerateJDRequest,
     VacancyRequestRead,
     VacancyRequestRejectRequest,
+    VacancyRequestQrCodeInfo,
     VacancyRequestSubmitRequest,
     VacancyRequestUpdate,
     VacancySlotCountUpdateRequest,
 )
-from app.services import jd_generation, vacancy_workflow
+from app.services import jd_generation, vacancy_request_intake, vacancy_workflow
 from app.services.ai_client import get_openai_client
 from app.services.audit import log_create, log_delete, log_update
 
@@ -189,6 +199,12 @@ def list_vacancy_requests(
     # them is a no-op.
     department_id: uuid.UUID | None = Query(None),
     designation_id: uuid.UUID | None = Query(None),
+    # Source filter (2026-08-30) -- lets the Vacancy Requests screen answer
+    # "where did this come from": MANUAL (in-app), BULK_UPLOAD, or QR (the
+    # public intake form). Additive and optional, same shape as the filters
+    # above, so no existing caller changes.
+    source: VacancyRequestSourceEnum | None = Query(None),
+    priority: VacancyPriorityEnum | None = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
@@ -205,6 +221,10 @@ def list_vacancy_requests(
         query = query.filter(VacancyRequest.department_id == department_id)
     if designation_id is not None:
         query = query.filter(VacancyRequest.designation_id == designation_id)
+    if source is not None:
+        query = query.filter(VacancyRequest.source == source)
+    if priority is not None:
+        query = query.filter(VacancyRequest.priority == priority)
     total = query.count()
     rows = query.order_by(VacancyRequest.created_at.desc()).offset(offset).limit(limit).all()
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
@@ -506,3 +526,41 @@ def adjust_vacancy_request_slot_count(
     db.commit()
     db.refresh(approved_vacancy)
     return approved_vacancy
+
+
+# --- QR intake management (2026-08-30) ------------------------------------
+# A SEPARATE router with its own prefix, registered BEFORE the main one in
+# api.py. Appending these to `router` above would place them after
+# GET /vacancy-requests/{vacancy_request_id}, and FastAPI matches in
+# declaration order -- "qr" would be parsed as a UUID path param and 422
+# before ever reaching these handlers.
+#
+# Staff-facing and authenticated: generating and printing the code is an
+# administrative action. The PUBLIC form it points at lives in
+# app/api/v1/routers/public_vacancy_requests.py and is unauthenticated by
+# design.
+qr_router = APIRouter(prefix="/vacancy-requests/qr", tags=["vacancy-requests"])
+
+
+@qr_router.get("/info", response_model=VacancyRequestQrCodeInfo)
+def get_vacancy_request_qr_info(
+    current_user: User = Depends(_staff_only),
+) -> VacancyRequestQrCodeInfo:
+    """The URL the QR code encodes, so the UI can show it as text beside the
+    image -- a printed QR is far easier to trust when its target is legible
+    next to it."""
+    return VacancyRequestQrCodeInfo(url=vacancy_request_intake.build_public_request_url())
+
+
+@qr_router.get("/code.png")
+def get_vacancy_request_qr_code(
+    current_user: User = Depends(_staff_only),
+) -> StreamingResponse:
+    """PNG for download/print. Generated on demand, never stored -- see
+    vacancy_request_intake.generate_public_request_qr_png."""
+    png_bytes = vacancy_request_intake.generate_public_request_qr_png()
+    return StreamingResponse(
+        io.BytesIO(png_bytes),
+        media_type="image/png",
+        headers={"Content-Disposition": 'attachment; filename="simats-vacancy-request-qr.png"'},
+    )
