@@ -10,6 +10,7 @@ import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
 import { listJobPostings } from "@/api/jobPostings";
 import type {
+  VacancyRequestSource,
   EmploymentType,
   StaffRoleCategory,
   VacancyPriority,
@@ -129,6 +130,9 @@ export function VacancyRequestsListPage() {
   const [designationFilter, setDesignationFilter] = useState<string>(() => searchParams.get("designation") ?? "ALL");
   const [parentGroupFilter, setParentGroupFilter] = useState<string>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<VacancyPriority | "ALL">("ALL");
+  // Source filter (2026-08-30) -- answers "where did this request come from":
+  // MANUAL (raised in-app), BULK_UPLOAD, or QR (the public intake form).
+  const [sourceFilter, setSourceFilter] = useState<VacancyRequestSource | "ALL">("ALL");
   const [employmentTypeFilter, setEmploymentTypeFilter] = useState<EmploymentType | "ALL">("ALL");
   const [requestedByFilter, setRequestedByFilter] = useState<string>("ALL");
   const [dateFrom, setDateFrom] = useState("");
@@ -245,6 +249,20 @@ export function VacancyRequestsListPage() {
   // scoped to the *whole* unfiltered set (not the active category tab),
   // matching this row's existing "always reflects the whole scope" design.
   const kpis = useMemo(() => summarizeVacancyRequestStatuses(vacancyRequests ?? []), [vacancyRequests]);
+  // Urgent and QR-submitted are NOT added to summarizeVacancyRequestStatuses.
+  // That helper's contract is that its buckets partition the set -- every
+  // status maps to exactly one, so they always sum to total (asserted in its
+  // own test). Priority and source are orthogonal dimensions, not status
+  // buckets, so folding them in would quietly destroy that invariant's
+  // meaning. Computed here from the same unfiltered list instead.
+  const urgentCount = useMemo(
+    () => (vacancyRequests ?? []).filter((vr) => vr.priority === "URGENT").length,
+    [vacancyRequests],
+  );
+  const qrSubmittedCount = useMemo(
+    () => (vacancyRequests ?? []).filter((vr) => vr.source === "QR").length,
+    [vacancyRequests],
+  );
 
   const departmentById = useMemo(() => new Map((departments ?? []).map((d) => [d.id, d])), [departments]);
 
@@ -297,6 +315,7 @@ export function VacancyRequestsListPage() {
     if (departmentFilter !== "ALL" && vr.department_id !== departmentFilter) return false;
     if (designationFilter !== "ALL" && vr.designation_id !== designationFilter) return false;
     if (priorityFilter !== "ALL" && vr.priority !== priorityFilter) return false;
+    if (sourceFilter !== "ALL" && vr.source !== sourceFilter) return false;
     if (employmentTypeFilter !== "ALL" && vr.employment_type !== employmentTypeFilter) return false;
     if (requestedByFilter !== "ALL" && vr.requested_by_id !== requestedByFilter) return false;
     if (dateFrom && vr.created_at.slice(0, 10) < dateFrom) return false;
@@ -383,6 +402,7 @@ export function VacancyRequestsListPage() {
     designationFilter !== "ALL",
     parentGroupFilter !== "ALL",
     priorityFilter !== "ALL",
+    sourceFilter !== "ALL",
     employmentTypeFilter !== "ALL",
     requestedByFilter !== "ALL",
     dateFrom !== "",
@@ -394,6 +414,7 @@ export function VacancyRequestsListPage() {
 
   function clearFilters() {
     setStatusFilter("ALL");
+    setSourceFilter("ALL");
     setCampusFilter("ALL");
     setDepartmentFilter("ALL");
     setDesignationFilter("ALL");
@@ -498,17 +519,27 @@ export function VacancyRequestsListPage() {
           the two rows no request is ever silently dropped into no bucket at
           all (CLAUDE.md A1). */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatTile label="Total requests" value={kpis.total} isLoading={isLoading} />
-        <StatTile label="Draft" value={kpis.draft} isLoading={isLoading} />
-        <StatTile label="Pending approval" value={kpis.pending} isLoading={isLoading} accent="gold" />
+        {/* The six the brief names. Draft/Published/Closed have not been
+            deleted -- they moved to the secondary line below, the same way
+            open_positions did on the executive dashboard, so no metric this
+            page already showed is lost. */}
+        <StatTile label="Total Requests" value={kpis.total} isLoading={isLoading} />
+        <StatTile label="Pending" value={kpis.pending} isLoading={isLoading} accent="gold" />
         <StatTile label="Approved" value={kpis.approved} isLoading={isLoading} accent="green" />
-        <StatTile label="Published" value={kpis.published} isLoading={isLoading} accent="green" />
-        <StatTile label="Closed" value={kpis.closed} isLoading={isLoading} />
+        <StatTile label="Rejected" value={kpis.rejected} isLoading={isLoading} accent="red" />
+        <StatTile label="Urgent" value={urgentCount} isLoading={isLoading} accent="red" />
+        <StatTile label="QR Submitted" value={qrSubmittedCount} isLoading={isLoading} accent="blue" />
       </div>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
         <span>
-          Rejected <span className="font-semibold text-foreground tabular-nums">{kpis.rejected}</span>
+          Draft <span className="font-semibold text-foreground tabular-nums">{kpis.draft}</span>
+        </span>
+        <span>
+          Published <span className="font-semibold text-foreground tabular-nums">{kpis.published}</span>
+        </span>
+        <span>
+          Closed <span className="font-semibold text-foreground tabular-nums">{kpis.closed}</span>
         </span>
         <span>
           Cancelled <span className="font-semibold text-foreground tabular-nums">{kpis.cancelled}</span>
@@ -616,6 +647,23 @@ export function VacancyRequestsListPage() {
                     {priority}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-muted-foreground">Source</span>
+            <Select
+              value={sourceFilter}
+              onValueChange={(v) => setSourceFilter(v as VacancyRequestSource | "ALL")}
+            >
+              <SelectTrigger aria-label="Source filter">
+                <SelectValue className="truncate" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All sources</SelectItem>
+                <SelectItem value="MANUAL">Manual</SelectItem>
+                <SelectItem value="BULK_UPLOAD">Bulk Upload</SelectItem>
+                <SelectItem value="QR">QR</SelectItem>
               </SelectContent>
             </Select>
           </div>

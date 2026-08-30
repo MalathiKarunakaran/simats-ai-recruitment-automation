@@ -426,8 +426,69 @@ describe("VacancyRequestsListPage", () => {
 
     // 3 total, 1 draft, 1 pending (SUBMITTED), 1 rejected -- each tile shows its count.
     // Label -> CardHeader -> Card (the tile's own container), not a sibling tile.
-    const totalTile = (await screen.findByText("Total requests")).parentElement?.parentElement;
+    // Renamed to "Total Requests" on 2026-08-30 with the primary row cut to
+    // the six the brief names.
+    const totalTile = (await screen.findByText("Total Requests")).parentElement?.parentElement;
     await waitFor(() => expect(totalTile).toHaveTextContent("3"));
+
+    const rejectedTile = screen.getByText("Rejected").parentElement?.parentElement;
+    expect(rejectedTile).toHaveTextContent("1");
+
+    // Urgent and QR Submitted are orthogonal to status, so they are computed
+    // separately from the status buckets -- both zero for this fixture set,
+    // which is all MANUAL and NORMAL priority.
+    const qrTile = screen.getByText("QR Submitted").parentElement?.parentElement;
+    expect(qrTile).toHaveTextContent("0");
+  });
+
+  it("counts QR-submitted and urgent requests on their own tiles", async () => {
+    mockCommonApis();
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    const fromQr = { ...VR, id: "vr-qr", source: "QR" as const, request_ref: "VR-2026-000001" };
+    const urgent = { ...VR, id: "vr-urgent", priority: "URGENT" as const };
+    mockedListVacancyRequests.mockResolvedValue([VR, fromQr, urgent]);
+    mockedListCampuses.mockResolvedValue([]);
+
+    renderPage();
+
+    const qrTile = (await screen.findByText("QR Submitted")).parentElement?.parentElement;
+    await waitFor(() => expect(qrTile).toHaveTextContent("1"));
+
+    const urgentTile = screen.getByText("Urgent").parentElement?.parentElement;
+    expect(urgentTile).toHaveTextContent("1");
+  });
+
+  it("filters the table by Source", async () => {
+    mockCommonApis();
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    const fromQr = {
+      ...VR,
+      id: "vr-qr",
+      source: "QR" as const,
+      position_title: "Scanned Request",
+      request_ref: "VR-2026-000001",
+    };
+    mockedListVacancyRequests.mockResolvedValue([VR, fromQr]);
+    mockedListCampuses.mockResolvedValue([]);
+
+    renderPage();
+    await screen.findByText("Scanned Request");
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Source filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "QR" }));
+
+    await waitFor(() => expect(screen.queryByText(VR.position_title)).not.toBeInTheDocument());
+    expect(screen.getByText("Scanned Request")).toBeInTheDocument();
   });
 
   it("resolves requester names and offers a Requested by filter for HR Admin", async () => {
