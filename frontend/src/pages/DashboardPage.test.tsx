@@ -5,6 +5,9 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as dashboardApi from "@/api/dashboard";
+import * as departmentsApi from "@/api/departments";
+import * as designationsApi from "@/api/designations";
+import * as locationsApi from "@/api/locations";
 import type {
   CategoryBreakdownRow,
   CriticalVacancyRow,
@@ -18,8 +21,15 @@ import { DashboardPage } from "@/pages/DashboardPage";
 
 vi.mock("@/api/dashboard");
 vi.mock("@/api/vacancyRequests");
+// Filter-bar option lists (2026-08-30).
+vi.mock("@/api/departments");
+vi.mock("@/api/designations");
+vi.mock("@/api/locations");
 
 const mockedGetDashboardKpis = vi.mocked(dashboardApi.getDashboardKpis);
+const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
+const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
+const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedListVacancyRequests = vi.mocked(vacancyRequestsApi.listVacancyRequests);
 
 function renderWithProviders() {
@@ -181,7 +191,26 @@ function mockKpis(overrides: Partial<DashboardKpis> = {}): void {
   }));
 }
 
+const FILTER_DEPARTMENT = { id: "d-cse", name: "CSE" };
+const FILTER_DESIGNATION = { id: "des-ap", name: "Assistant Professor" };
+const FILTER_LOCATION = {
+  id: "loc-cb-ground",
+  campus_id: "c-sse",
+  name: "CB Block",
+  block_building: "Circular Building",
+  floor_venue: "Ground Floor",
+  category: null,
+  is_active: true,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
 beforeEach(() => {
+  // Filter-bar option lists -- cast loosely because these tests only need the
+  // handful of fields the pickers render, not the full master-data shapes.
+  mockedListDepartments.mockResolvedValue([FILTER_DEPARTMENT] as never);
+  mockedListDesignations.mockResolvedValue([FILTER_DESIGNATION] as never);
+  mockedListLocations.mockResolvedValue([FILTER_LOCATION] as never);
   // Default for every test that doesn't explicitly mock the Pending
   // Requests/Approvals composition -- an empty vacancy-requests list so
   // those two new tiles render "0" rather than hanging on a never-resolving
@@ -746,5 +775,75 @@ describe("DashboardPage", () => {
     await waitFor(() => expect(screen.getByText("Vacancy by department")).toBeInTheDocument());
     expect(screen.queryByTestId("vacancy-by-department-chart")).not.toBeInTheDocument();
     expect(screen.queryByText(/No critical vacancies right now/)).not.toBeInTheDocument();
+  });
+
+  // --- Drill-down filter bar (2026-08-30) ----------------------------------
+  describe("drill-down filters", () => {
+    it("sends Department/Designation/Location to the KPI endpoint alongside campus and category", async () => {
+      mockKpis();
+      renderWithProviders();
+
+      await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Department filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "CSE" }));
+
+      await waitFor(() =>
+        expect(mockedGetDashboardKpis.mock.calls.at(-1)?.[3]).toMatchObject({ departmentId: "d-cse" }),
+      );
+    });
+
+    it("composes filters rather than letting the last one win", async () => {
+      mockKpis();
+      renderWithProviders();
+      await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Department filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "CSE" }));
+      await userEvent.click(screen.getByRole("combobox", { name: "Location filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "Circular Building — Ground Floor" }));
+
+      // Both present in the SAME call -- the failure this guards against is a
+      // second filter replacing the first instead of narrowing further.
+      await waitFor(() =>
+        expect(mockedGetDashboardKpis.mock.calls.at(-1)?.[3]).toMatchObject({
+          departmentId: "d-cse",
+          locationId: "loc-cb-ground",
+        }),
+      );
+    });
+
+    it("labels locations by block and floor, not by the repeated name", async () => {
+      mockKpis();
+      renderWithProviders();
+      await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Location filter" }));
+
+      expect(await screen.findByRole("option", { name: "Circular Building — Ground Floor" })).toBeInTheDocument();
+      // "CB Block" is the record's name and repeats across every floor.
+      expect(screen.queryByRole("option", { name: "CB Block" })).not.toBeInTheDocument();
+    });
+
+    it("offers Clear filters only once something is filtered, and clearing resets the query", async () => {
+      mockKpis();
+      renderWithProviders();
+      await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+
+      expect(screen.queryByRole("button", { name: "Clear filters" })).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("combobox", { name: "Department filter" }));
+      await userEvent.click(await screen.findByRole("option", { name: "CSE" }));
+
+      await userEvent.click(await screen.findByRole("button", { name: "Clear filters" }));
+
+      await waitFor(() =>
+        expect(mockedGetDashboardKpis.mock.calls.at(-1)?.[3]).toMatchObject({
+          departmentId: null,
+          designationId: null,
+          locationId: null,
+        }),
+      );
+    });
   });
 });

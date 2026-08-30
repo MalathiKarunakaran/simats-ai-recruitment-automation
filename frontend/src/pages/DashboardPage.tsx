@@ -17,6 +17,9 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { getDashboardKpis } from "@/api/dashboard";
+import { listDepartments } from "@/api/departments";
+import { listDesignations } from "@/api/designations";
+import { listLocations } from "@/api/locations";
 import { downloadAdBriefingExport } from "@/api/reports";
 import type {
   CategoryBreakdownRow,
@@ -39,8 +42,10 @@ import { CategoryTabs, type CategoryTabValue } from "@/components/domain/Categor
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
+import { compareLocationsForDisplay, locationLabel } from "@/lib/locationDisplay";
 import { cn } from "@/lib/utils";
 
 // Executive Dashboard redesign (2026-08-23): the page's 7 lower-priority KPI
@@ -121,6 +126,10 @@ const SECONDARY_KPI_CARDS: {
     zeroCaption: "No urgent vacancies right now",
   },
 ];
+
+// Radix Select cannot hold an empty-string item value, so "no filter" needs a
+// sentinel. Kept distinct from any real UUID it shares a Select with.
+const ALL_FILTER_VALUE = "ALL";
 
 /** sanctioned_vacancy_total is the one KPI that can legitimately go negative
  * (net overstaffed) -- everything else on this strip is a nonnegative count.
@@ -234,6 +243,13 @@ export function DashboardPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [categoryTab, setCategoryTab] = useCategoryTabState();
+  // Drill-down filters (2026-08-30). "" is the "no filter" value throughout,
+  // because Radix Select cannot hold an empty-string SelectItem value -- the
+  // ALL sentinel below is the option's value and is translated to null on the
+  // way into the query.
+  const [departmentId, setDepartmentId] = useState("");
+  const [designationId, setDesignationId] = useState("");
+  const [locationId, setLocationId] = useState("");
 
   // Single call to /dashboard/kpis serves both the top-line KPI strip (which
   // *does* respect categoryTab, via the role_category param) and the
@@ -243,10 +259,48 @@ export function DashboardPage() {
   // the old pattern of calling this endpoint 3x more (once per category)
   // just to read total_applications out of each.
   const roleCategoryParam = toRoleCategoryParam(categoryTab);
+  // Every filter is part of the query key, so changing any one of them
+  // refetches and the whole page -- tiles, charts, category summary -- moves
+  // together. Campus/Category/Department/Designation/Location therefore
+  // compose rather than override one another.
+  const drilldownFilters = {
+    departmentId: departmentId || null,
+    designationId: designationId || null,
+    locationId: locationId || null,
+  };
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["dashboard-kpis", selectedCampusCode, dateRange.startDate, dateRange.endDate, roleCategoryParam],
-    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, roleCategoryParam),
+    queryKey: [
+      "dashboard-kpis",
+      selectedCampusCode,
+      dateRange.startDate,
+      dateRange.endDate,
+      roleCategoryParam,
+      departmentId,
+      designationId,
+      locationId,
+    ],
+    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, roleCategoryParam, drilldownFilters),
   });
+
+  // Filter-bar option lists. Designations are narrowed by the category tab so
+  // the picker cannot offer a Teaching designation while the page is scoped
+  // to Housekeeping; locations are relabelled and ordered by the shared
+  // helper (see lib/locationDisplay) rather than printing `.name`, which
+  // repeats across floors.
+  const { data: departmentOptions } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
+  const { data: designationOptions } = useQuery({
+    queryKey: ["designations", roleCategoryParam ?? "ALL"],
+    queryFn: () => listDesignations(roleCategoryParam ? { category: roleCategoryParam } : {}),
+  });
+  const { data: locationOptions } = useQuery({ queryKey: ["locations"], queryFn: listLocations });
+  const sortedLocationOptions = [...(locationOptions ?? [])].sort(compareLocationsForDisplay);
+
+  const hasActiveDrilldown = Boolean(departmentId || designationId || locationId);
+  function clearDrilldownFilters() {
+    setDepartmentId("");
+    setDesignationId("");
+    setLocationId("");
+  }
 
   // Category Summary section (Executive Dashboard redesign) -- always all 3
   // categories side by side, deliberately NOT affected by categoryTab above
@@ -437,6 +491,71 @@ export function DashboardPage() {
         <p className="text-[11px] text-muted-foreground">
           Scopes the KPI tiles below. The category-wise split card always shows all 3 categories.
         </p>
+      </div>
+
+      {/* Drill-down filter bar (2026-08-30). Campus comes from the app-wide
+          campus switcher and Category from the tabs above, so only the three
+          that have no home elsewhere live here. All of them compose: each is
+          part of the KPI query key, so selecting Campus=SSE, Category=Teaching
+          and Department=CSE narrows every tile and chart together rather than
+          the last one winning. */}
+      <div data-testid="dashboard-filter-bar" className="flex flex-wrap items-end gap-2">
+        <div className="flex min-w-[180px] flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted-foreground">Department</span>
+          <Select value={departmentId || ALL_FILTER_VALUE} onValueChange={(v) => setDepartmentId(v === ALL_FILTER_VALUE ? "" : v)}>
+            <SelectTrigger aria-label="Department filter">
+              <SelectValue placeholder="All departments" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_FILTER_VALUE}>All departments</SelectItem>
+              {(departmentOptions ?? []).map((department) => (
+                <SelectItem key={department.id} value={department.id}>
+                  {department.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex min-w-[180px] flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted-foreground">Designation</span>
+          <Select value={designationId || ALL_FILTER_VALUE} onValueChange={(v) => setDesignationId(v === ALL_FILTER_VALUE ? "" : v)}>
+            <SelectTrigger aria-label="Designation filter">
+              <SelectValue placeholder="All designations" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_FILTER_VALUE}>All designations</SelectItem>
+              {(designationOptions ?? []).map((designation) => (
+                <SelectItem key={designation.id} value={designation.id}>
+                  {designation.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex min-w-[200px] flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted-foreground">Location</span>
+          <Select value={locationId || ALL_FILTER_VALUE} onValueChange={(v) => setLocationId(v === ALL_FILTER_VALUE ? "" : v)}>
+            <SelectTrigger aria-label="Location filter">
+              <SelectValue placeholder="All locations" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_FILTER_VALUE}>All locations</SelectItem>
+              {sortedLocationOptions.map((location) => (
+                <SelectItem key={location.id} value={location.id}>
+                  {locationLabel(location)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {hasActiveDrilldown ? (
+          <Button variant="outline" size="sm" onClick={clearDrilldownFilters}>
+            Clear filters
+          </Button>
+        ) : null}
       </div>
 
       {/* Primary KPI row -- exactly 6 tiles, "Vacancies" is this page's one
