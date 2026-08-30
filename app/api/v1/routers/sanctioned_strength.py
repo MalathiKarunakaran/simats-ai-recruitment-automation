@@ -216,6 +216,7 @@ def _snapshot(row: SanctionedStrength) -> dict:
         "location_id": row.location_id,
         "category": row.category.value,
         "approved_strength": row.approved_strength,
+        "working_override": row.working_override,
         "effective_from": row.effective_from,
         "remarks": row.remarks,
         "is_active": row.is_active,
@@ -690,6 +691,7 @@ def create_sanctioned_strength(
         location_id=payload.location_id,
         category=designation.category,
         approved_strength=payload.approved_strength,
+        working_override=payload.working_override,
         effective_from=payload.effective_from,
         remarks=payload.remarks,
         created_by_id=current_user.id,
@@ -741,6 +743,13 @@ def update_sanctioned_strength(
         row.effective_from = payload.effective_from
     if payload.remarks is not None:
         row.remarks = payload.remarks
+    # Keyed off model_fields_set, not `is not None`, because null is a
+    # MEANINGFUL value here: sending working_override=null clears the manual
+    # figure and hands the row back to the live Employee/HousekeepingStaff
+    # count, while omitting the key leaves any existing override alone. The
+    # `is not None` checks above cannot express that difference.
+    if "working_override" in payload.model_fields_set:
+        row.working_override = payload.working_override
     if payload.location_id is not None:
         if db.get(Location, payload.location_id) is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown location_id")

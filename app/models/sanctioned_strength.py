@@ -79,6 +79,18 @@ class SanctionedStrength(Base):
         Enum(StaffRoleCategoryEnum, name="staff_role_category_enum"), nullable=False
     )
     approved_strength: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Manually-entered headcount that OVERRIDES the live count derived from
+    # Employee/HousekeepingStaff rows (2026-08-29). This deployment is run
+    # standalone, with no HR system feeding the Employee roster -- production
+    # holds zero employee rows -- so the derived `working` was 0 everywhere,
+    # which made Vacancy equal Approved on every row and Filled % always 0.
+    #
+    # NULL means "no override, use the live count", so the derived behaviour
+    # is untouched for any row that does not set one, and no backfill is
+    # needed. Resolve it ONLY through
+    # `app.services.sanctioned_strength.resolved_working_for` -- never read
+    # this column directly at a call site, or the two sources will drift.
+    working_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
     effective_from: Mapped[date] = mapped_column(Date, nullable=False)
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

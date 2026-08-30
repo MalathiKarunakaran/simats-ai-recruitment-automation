@@ -151,6 +151,14 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
     Teaching/Non-Teaching-only, unchanged) since each Housekeeping
     designation can have a different current-effective `location_id` to
     scope by; this is an additive branch, not a rewrite.
+
+    2026-08-29 -- whichever of those two live counts a designation lands on,
+    the result then passes through `resolved_working_for`, so a
+    manually-entered `working_override` on the current-effective row wins.
+    The raw override is emitted beside it as `working_override` (see
+    `app.schemas.sanctioned_strength.DepartmentDesignationBreakdownRow` for
+    why both are needed); `vacancy` is derived from the resolved figure, so
+    it moves with the override too.
     """
     designations = (
         db.query(Designation)
@@ -211,6 +219,7 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
             )
         else:
             working = working_by_designation.get(designation.id, 0)
+        working = resolved_working_for(current_row, working)
         rows.append(
             {
                 "designation_id": designation.id,
@@ -218,6 +227,10 @@ def list_department_designation_breakdown(db: Session, department_id: uuid.UUID)
                 "sanctioned_strength_id": current_row.id if current_row is not None else None,
                 "approved": approved,
                 "working": working,
+                # The resolved `working` above cannot say whether it came
+                # from a typed-in figure or the live roster; the edit form
+                # needs to know, so the raw override rides along beside it.
+                "working_override": current_row.working_override if current_row is not None else None,
                 "vacancy": max(approved - working, 0),
                 "effective_from": current_row.effective_from if current_row is not None else None,
                 "remarks": current_row.remarks if current_row is not None else None,
@@ -277,8 +290,11 @@ def compute_availability_to_request(
     designation = db.get(Designation, designation_id)
     category = designation.category if designation is not None else None
     location_id = current_row.location_id if current_row is not None else None
-    working = working_count_for(
-        db, department_id=department_id, designation_id=designation_id, category=category, location_id=location_id
+    working = resolved_working_for(
+        current_row,
+        working_count_for(
+            db, department_id=department_id, designation_id=designation_id, category=category, location_id=location_id
+        ),
     )
 
     already_requested = (
@@ -300,6 +316,32 @@ def compute_availability_to_request(
         "already_requested": already_requested,
         "available_to_request": approved - working - already_requested,
     }
+
+
+def resolved_working_for(current_row, live_working: int) -> int:
+    """The ONE place `working_override` is allowed to win over the live count.
+
+    `working_override` (2026-08-29) exists because this deployment runs
+    standalone with no HR feed: the Employee roster is empty in production, so
+    the live `working_count_for` count was 0 on every row, making Vacancy
+    equal Approved everywhere and Filled % always 0.
+
+    NULL override -> the live count, unchanged. That keeps every row that has
+    never been overridden behaving exactly as before, and means the feature
+    needed no backfill.
+
+    Deliberately NOT applied to the delete guard in
+    `app/api/v1/routers/sanctioned_strength.py` ("N active employees in this
+    designation, cannot delete") or to `reporting.py`'s reconciliation report.
+    Both are asking about REAL people -- a manually-typed figure must never be
+    able to unblock a delete that live employee rows should be blocking, and
+    the reconciliation report exists precisely to compare sanctioned strength
+    against the actual roster. Those two keep calling `working_count_for`
+    directly, and that difference is the point, not an oversight.
+    """
+    if current_row is not None and current_row.working_override is not None:
+        return current_row.working_override
+    return live_working
 
 
 def working_count_for(

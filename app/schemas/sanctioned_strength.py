@@ -26,6 +26,12 @@ class SanctionedStrengthCreate(BaseModel):
     # department's category, item 6), never client-supplied, so the two can
     # never silently diverge.
     approved_strength: int = Field(ge=0)
+    # Manually-entered headcount that overrides the live Employee/
+    # HousekeepingStaff count (2026-08-29). None means "no override, use
+    # the live count" -- see
+    # app.services.sanctioned_strength.resolved_working_for, the only
+    # place it is allowed to win.
+    working_override: int | None = Field(default=None, ge=0)
     effective_from: date
     remarks: str | None = None
     # Phase C (glowing-zooming-hamming.md) -- optional for Teaching/
@@ -46,6 +52,12 @@ class SanctionedStrengthUpdate(BaseModel):
     need to be re-pointed at a corrected Location without a full new row."""
 
     approved_strength: int | None = Field(default=None, ge=0)
+    # Manually-entered headcount that overrides the live Employee/
+    # HousekeepingStaff count (2026-08-29). None means "no override, use
+    # the live count" -- see
+    # app.services.sanctioned_strength.resolved_working_for, the only
+    # place it is allowed to win.
+    working_override: int | None = Field(default=None, ge=0)
     effective_from: date | None = None
     remarks: str | None = None
     location_id: uuid.UUID | None = None
@@ -61,6 +73,12 @@ class SanctionedStrengthRead(BaseModel):
     location_id: uuid.UUID | None
     category: StaffRoleCategoryEnum
     approved_strength: int
+    # Manually-entered headcount that overrides the live Employee/
+    # HousekeepingStaff count (2026-08-29). None means "no override, use
+    # the live count" -- see
+    # app.services.sanctioned_strength.resolved_working_for, the only
+    # place it is allowed to win.
+    working_override: int | None = Field(default=None, ge=0)
     effective_from: date
     remarks: str | None
     is_active: bool
@@ -97,6 +115,16 @@ class DepartmentDesignationBreakdownRow(BaseModel):
     `max(approved - working, 0)`, same floor-at-zero convention as the
     Vacancy Register's own vacancy_count.
 
+    `working_override` (2026-08-29) is the current-effective row's own
+    manually-entered headcount, or None when it has none. It is exposed
+    ALONGSIDE `working` rather than folded into it because the two answer
+    different questions: `working` is already the resolved figure to display
+    (see `app.services.sanctioned_strength.resolved_working_for`), while
+    this field is what an edit form needs to tell "someone typed 3" apart
+    from "the live roster happens to hold 3" -- indistinguishable from
+    `working` alone, and the difference decides whether clearing the field
+    is a meaningful action.
+
     `sanctioned_strength_id` is the current-effective SanctionedStrength
     row's own id (None when this designation has never been sanctioned for
     this department -- approved=0 by construction in that case). Phase D's
@@ -122,6 +150,7 @@ class DepartmentDesignationBreakdownRow(BaseModel):
     sanctioned_strength_id: uuid.UUID | None
     approved: int
     working: int
+    working_override: int | None
     vacancy: int
     effective_from: date | None
     remarks: str | None

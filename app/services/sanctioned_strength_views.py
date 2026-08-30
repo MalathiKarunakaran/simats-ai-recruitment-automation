@@ -279,7 +279,7 @@ from app.models.enums import VACANCY_REQUEST_IN_FLIGHT_STATUSES, StaffRoleCatego
 from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.location import Location
 from app.models.vacancy_request import VacancyRequest
-from app.services.sanctioned_strength import current_effective_rows, working_count_for
+from app.services.sanctioned_strength import current_effective_rows, resolved_working_for, working_count_for
 from app.services.scoping import resolve_campus_filter
 
 TEACHING_STRENGTH_SORT_FIELDS: tuple[str, ...] = (
@@ -509,11 +509,19 @@ def list_strength_view_rows(
             if pattern not in haystack:
                 continue
 
-        working = working_count_for(
-            db,
-            department_id=row.department_id,
-            designation_id=row.designation_id,
-            category=category,
+        # `resolved_working_for` lets a manually-entered working_override win
+        # over the live roster count (2026-08-29) -- see its docstring. Applied
+        # here so vacancy/filled_pct/status below all agree with the figure the
+        # edit modal shows; they are derived from `working`, so overriding at
+        # this single point keeps every downstream number consistent.
+        working = resolved_working_for(
+            row,
+            working_count_for(
+                db,
+                department_id=row.department_id,
+                designation_id=row.designation_id,
+                category=category,
+            ),
         )
         approved = row.approved_strength
         row_vacancy = approved - working
