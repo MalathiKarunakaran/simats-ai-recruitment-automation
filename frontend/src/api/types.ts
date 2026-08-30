@@ -221,6 +221,43 @@ export interface VacancyByDimensionRow {
   vacancy: number;
 }
 
+// Mirrors app/schemas/reporting.py::DashboardStrengthTableRow -- one row of
+// the dashboard's main table, shaped by reporting.py's
+// dashboard_strength_table_rows, which reuses the three Sanctioned Strength
+// view services. Working therefore honours working_override here too.
+//
+// sanctioned_strength_id is null for HOUSEKEEPING rows: that view is
+// Location-grained and aggregates several sanctioned rows per location, so
+// there is no single record to open. Treat null as "not drillable" rather
+// than assuming every row links somewhere.
+export interface DashboardStrengthTableRow {
+  sanctioned_strength_id: string | null;
+  campus_code: string | null;
+  department_id: string | null;
+  department_name: string;
+  designation_id: string | null;
+  designation_name: string;
+  category: StaffRoleCategory;
+  location_id: string | null;
+  location_name: string | null;
+  approved: number;
+  working: number;
+  // Signed, like every other vacancy figure in this app -- negative means
+  // overstaffed, which is what makes the OVER STRENGTH badge meaningful.
+  vacancy: number;
+  // null (not 0) when approved is 0 -- 0% would read as "nothing filled"
+  // rather than "nothing sanctioned".
+  filled_pct: number | null;
+  status: TeachingStrengthStatus;
+}
+
+export interface DashboardStrengthTableResponse {
+  items: DashboardStrengthTableRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface DashboardKpis {
   scope_note: string;
   total_applications: number;

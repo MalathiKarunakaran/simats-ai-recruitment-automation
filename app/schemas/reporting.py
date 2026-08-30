@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.models.enums import StaffRoleCategoryEnum
+
 
 class PipelineFunnelStage(BaseModel):
     """One bucket of `DashboardKPIResponse.application_pipeline_funnel` --
@@ -99,6 +101,46 @@ class DashboardKPIResponse(BaseModel):
     critical_vacancies: list[CriticalVacancyRow]
     recent_joins: list[RecentEmployeeEventRow]
     recent_resignations: list[RecentEmployeeEventRow]
+
+
+class DashboardStrengthTableRow(BaseModel):
+    """One row of the dashboard's main table (2026-08-30).
+
+    Shaped by app/services/reporting.py::dashboard_strength_table_rows, which
+    reuses the three Sanctioned Strength view services -- so Working here
+    honours `working_override` exactly as the operational screens do.
+
+    `sanctioned_strength_id` is null for Housekeeping rows: that view is
+    Location-grained and aggregates several sanctioned rows per location, so
+    there is no single row to open. A client should treat a null here as "not
+    drillable" rather than assuming every row links somewhere.
+
+    `filled_pct` is null when approved is 0 -- the same null-not-zero
+    convention the rest of this module follows, because 0% would read as
+    "nothing filled" rather than "nothing sanctioned".
+    """
+
+    sanctioned_strength_id: str | None
+    campus_code: str | None
+    department_id: str | None
+    department_name: str
+    designation_id: str | None
+    designation_name: str
+    category: StaffRoleCategoryEnum
+    location_id: str | None
+    location_name: str | None
+    approved: int
+    working: int
+    vacancy: int
+    filled_pct: float | None
+    status: str
+
+
+class DashboardStrengthTableResponse(BaseModel):
+    items: list[DashboardStrengthTableRow]
+    total: int
+    limit: int
+    offset: int
 
 
 class ReportResponse(BaseModel):

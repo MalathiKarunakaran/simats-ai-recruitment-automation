@@ -581,6 +581,144 @@ def _critical_vacancy_rows(db: Session, scope: CampusScope, campus_code: str | N
     return rows[:_CRITICAL_VACANCY_LIMIT]
 
 
+def dashboard_strength_table_rows(
+    db: Session,
+    scope: CampusScope,
+    *,
+    campus_code: str | None = None,
+    role_category: StaffRoleCategoryEnum | None = None,
+    department_id: uuid.UUID | None = None,
+    designation_id: uuid.UUID | None = None,
+    location_id: uuid.UUID | None = None,
+    recruitment_status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """The dashboard's main table: one row per current-effective sanctioned
+    strength row, with the full Campus/Department/Designation/Category/
+    Location/Sanctioned/Working/Vacancy/Filled%/Status shape (2026-08-30).
+
+    Reuses the same three Sanctioned Strength view services the operational
+    screens use (`list_teaching_strength_rows`,
+    `list_strength_view_rows(..., NON_TEACHING)`,
+    `list_housekeeping_strength_rows`) rather than adding a fourth query, so
+    Working here honours `working_override` exactly as those screens do and
+    the table cannot disagree with the screen it mirrors.
+
+    Deliberately NOT `_critical_vacancy_rows`, which this sits beside: that
+    one hard-filters to VACANCY_RECRUITMENT_REQUIRED and cuts to ten, because
+    it backs a "what is worst right now" card. A main table showing only
+    understaffed rows could never render a FULLY_STAFFED or OVERSTAFFED badge,
+    which the brief explicitly asks for -- so `recruitment_status` here is an
+    OPTIONAL filter, absent by default.
+
+    Housekeeping's genuinely different grain (Location, not
+    department+designation) is mapped the same way `_critical_vacancy_rows`
+    maps it, so the two never describe the same row differently -- see that
+    function's docstring for the reasoning.
+
+    Sorted by vacancy descending across all categories, per the brief's "sort
+    by highest vacancy first". `total` is the count before the offset/limit
+    slice so a caller can paginate.
+    """
+    unrestricted_dept_scope = DepartmentScope(is_restricted=False, department_ids=None)
+    rows: list[dict] = []
+
+    def _wanted(category: StaffRoleCategoryEnum) -> bool:
+        return role_category is None or role_category == category
+
+    common = {
+        "limit": _CRITICAL_VACANCY_FETCH_LIMIT,
+        "offset": 0,
+        "sort_by": "vacancy",
+        "sort_dir": "desc",
+        "campus_code": campus_code,
+        "status": recruitment_status,
+    }
+
+    if _wanted(StaffRoleCategoryEnum.TEACHING):
+        teaching_rows, *_rest = list_teaching_strength_rows(db, scope, unrestricted_dept_scope, **common)
+        rows.extend(
+            _dashboard_table_row(row, StaffRoleCategoryEnum.TEACHING) for row in teaching_rows
+        )
+
+    if _wanted(StaffRoleCategoryEnum.NON_TEACHING):
+        non_teaching_rows, *_rest = list_strength_view_rows(
+            db, scope, unrestricted_dept_scope, category=StaffRoleCategoryEnum.NON_TEACHING, **common
+        )
+        rows.extend(
+            _dashboard_table_row(row, StaffRoleCategoryEnum.NON_TEACHING) for row in non_teaching_rows
+        )
+
+    if _wanted(StaffRoleCategoryEnum.HOUSEKEEPING):
+        housekeeping_rows, *_rest = list_housekeeping_strength_rows(db, scope, unrestricted_dept_scope, **common)
+        rows.extend(_housekeeping_table_row(row) for row in housekeeping_rows)
+
+    # department/designation/location narrowing happens here rather than being
+    # pushed into each view function: the Housekeeping view has no
+    # department_id or designation_id at all, so a shared predicate applied
+    # after row-shaping is the only place all three categories can be filtered
+    # consistently.
+    if department_id is not None:
+        rows = [row for row in rows if row["department_id"] == str(department_id)]
+    if designation_id is not None:
+        rows = [row for row in rows if row["designation_id"] == str(designation_id)]
+    if location_id is not None:
+        rows = [row for row in rows if row["location_id"] == str(location_id)]
+
+    rows.sort(key=lambda r: r["vacancy"], reverse=True)
+    return rows[offset : offset + limit], len(rows)
+
+
+def _dashboard_table_row(row: dict, category: StaffRoleCategoryEnum) -> dict:
+    """Teaching/Non-Teaching view row -> the dashboard table's shape."""
+    return {
+        "sanctioned_strength_id": str(row["sanctioned_strength_id"]),
+        "campus_code": row.get("campus_code"),
+        "department_id": str(row["department_id"]) if row.get("department_id") else None,
+        "department_name": row.get("department_name") or "-",
+        "designation_id": str(row["designation_id"]) if row.get("designation_id") else None,
+        "designation_name": row.get("designation_name") or "-",
+        "category": category.value,
+        "location_id": str(row["location_id"]) if row.get("location_id") else None,
+        "location_name": row.get("location_name"),
+        "approved": row["approved"],
+        "working": row["working"],
+        "vacancy": row["vacancy"],
+        "filled_pct": row.get("filled_pct"),
+        "status": row["status"],
+    }
+
+
+def _housekeeping_table_row(row: dict) -> dict:
+    """Housekeeping is Location-grained, so it has no department/designation
+    to report. Mapped exactly as `_critical_vacancy_rows` maps it so the two
+    surfaces never describe one row two ways: the location stands in for the
+    designation, and there is no real department at this grain.
+
+    Its `vacancy` is already floored at 0 by that view (unlike Teaching's
+    signed figure) -- see `list_housekeeping_strength_rows`. Left as the view
+    reports it rather than re-derived here, so the dashboard table and the
+    Housekeeping screen agree.
+    """
+    return {
+        "sanctioned_strength_id": None,
+        "campus_code": row.get("campus_code"),
+        "department_id": None,
+        "department_name": "Housekeeping",
+        "designation_id": None,
+        "designation_name": row.get("location_name") or "-",
+        "category": StaffRoleCategoryEnum.HOUSEKEEPING.value,
+        "location_id": str(row["location_id"]) if row.get("location_id") else None,
+        "location_name": row.get("block"),
+        "approved": row["required"],
+        "working": row["available"],
+        "vacancy": row["vacancy"],
+        "filled_pct": None if not row["required"] else round(row["available"] / row["required"] * 100, 1),
+        "status": row["status"],
+    }
+
+
 def _recent_employee_rows(employees: list[Employee], event_date_attr: str) -> list[dict]:
     """Shared row-shaping for `recent_joins`/`recent_resignations` --
     `event_date_attr` is `"date_of_joining"` or `"separation_date"`, the

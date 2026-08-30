@@ -16,7 +16,7 @@ import {
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { getDashboardKpis } from "@/api/dashboard";
+import { getDashboardKpis, getDashboardStrengthTable } from "@/api/dashboard";
 import { listDepartments } from "@/api/departments";
 import { listDesignations } from "@/api/designations";
 import { listLocations } from "@/api/locations";
@@ -26,6 +26,7 @@ import type {
   CriticalVacancyRow,
   DashboardKpis,
   StaffRoleCategory,
+  TeachingStrengthStatus,
   VacancyRequestRead,
   VacancyRequestStatus,
 } from "@/api/types";
@@ -38,7 +39,9 @@ import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/Da
 import { EmptyState } from "@/components/dashboard/EmptyState";
 import { RecentActivityFeed, type VacancyLifecycleActivityRow } from "@/components/dashboard/RecentActivityFeed";
 import { StatTile, type StatAccent, type StatIconColor } from "@/components/dashboard/StatTile";
+import { StrengthTable } from "@/components/dashboard/StrengthTable";
 import { CategoryTabs, type CategoryTabValue } from "@/components/domain/CategoryTabs";
+import { STATUS_DISPLAY } from "@/components/sanctionedStrength/TeachingStrengthTable";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -130,6 +133,17 @@ const SECONDARY_KPI_CARDS: {
 // Radix Select cannot hold an empty-string item value, so "no filter" needs a
 // sentinel. Kept distinct from any real UUID it shares a Select with.
 const ALL_FILTER_VALUE = "ALL";
+
+// The five states strength_row_status can return. Labels come from
+// TeachingStrengthTable's exported STATUS_DISPLAY so the filter and the
+// table badges can never drift apart.
+const RECRUITMENT_STATUS_OPTIONS: TeachingStrengthStatus[] = [
+  "VACANCY_RECRUITMENT_REQUIRED",
+  "FULLY_STAFFED",
+  "OVERSTAFFED",
+  "APPROVAL_PENDING",
+  "INACTIVE",
+];
 
 /** sanctioned_vacancy_total is the one KPI that can legitimately go negative
  * (net overstaffed) -- everything else on this strip is a nonnegative count.
@@ -250,6 +264,10 @@ export function DashboardPage() {
   const [departmentId, setDepartmentId] = useState("");
   const [designationId, setDesignationId] = useState("");
   const [locationId, setLocationId] = useState("");
+  // Scopes the main table only, never the KPI tiles: a "Vacancies" total
+  // computed from rows already filtered to "has vacancies" is a number nobody
+  // can reason about.
+  const [recruitmentStatus, setRecruitmentStatus] = useState("");
 
   // Single call to /dashboard/kpis serves both the top-line KPI strip (which
   // *does* respect categoryTab, via the role_category param) and the
@@ -295,12 +313,36 @@ export function DashboardPage() {
   const { data: locationOptions } = useQuery({ queryKey: ["locations"], queryFn: listLocations });
   const sortedLocationOptions = [...(locationOptions ?? [])].sort(compareLocationsForDisplay);
 
-  const hasActiveDrilldown = Boolean(departmentId || designationId || locationId);
+  const hasActiveDrilldown = Boolean(departmentId || designationId || locationId || recruitmentStatus);
   function clearDrilldownFilters() {
     setDepartmentId("");
     setDesignationId("");
     setLocationId("");
+    setRecruitmentStatus("");
   }
+
+  // Main table. A separate request from /kpis because it paginates and takes
+  // a status filter the tiles must not see.
+  const { data: strengthTable, isLoading: isStrengthTableLoading } = useQuery({
+    queryKey: [
+      "dashboard-strength-table",
+      selectedCampusCode,
+      roleCategoryParam,
+      departmentId,
+      designationId,
+      locationId,
+      recruitmentStatus,
+    ],
+    queryFn: () =>
+      getDashboardStrengthTable({
+        campusCode: selectedCampusCode,
+        roleCategory: roleCategoryParam,
+        departmentId: departmentId || null,
+        designationId: designationId || null,
+        locationId: locationId || null,
+        recruitmentStatus: recruitmentStatus || null,
+      }),
+  });
 
   // Category Summary section (Executive Dashboard redesign) -- always all 3
   // categories side by side, deliberately NOT affected by categoryTab above
@@ -545,6 +587,26 @@ export function DashboardPage() {
               {sortedLocationOptions.map((location) => (
                 <SelectItem key={location.id} value={location.id}>
                   {locationLabel(location)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex min-w-[200px] flex-col gap-1">
+          <span className="text-[11px] font-medium text-muted-foreground">Recruitment Status</span>
+          <Select
+            value={recruitmentStatus || ALL_FILTER_VALUE}
+            onValueChange={(v) => setRecruitmentStatus(v === ALL_FILTER_VALUE ? "" : v)}
+          >
+            <SelectTrigger aria-label="Recruitment status filter">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_FILTER_VALUE}>All statuses</SelectItem>
+              {RECRUITMENT_STATUS_OPTIONS.map((status) => (
+                <SelectItem key={status} value={status}>
+                  {STATUS_DISPLAY[status].label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -798,6 +860,23 @@ export function DashboardPage() {
               size="lg"
             />
           )}
+        </CardContent>
+      </Card>
+
+      {/* Main table (2026-08-30) -- every figure arrives precomputed from
+          /dashboard/strength-table, which reuses the Sanctioned Strength view
+          services, so nothing here is recomputed client-side. */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 p-4 pb-1">
+          <CardTitle className="text-sm">Sanctioned strength by position</CardTitle>
+          {strengthTable ? (
+            <span className="text-[11px] text-muted-foreground">
+              {strengthTable.total} position{strengthTable.total === 1 ? "" : "s"}
+            </span>
+          ) : null}
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          <StrengthTable rows={strengthTable?.items ?? []} isLoading={isStrengthTableLoading} />
         </CardContent>
       </Card>
 
