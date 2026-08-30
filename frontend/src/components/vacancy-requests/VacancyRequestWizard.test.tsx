@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import * as campusesApi from "@/api/campuses";
+import * as locationsApi from "@/api/locations";
 import { ApiError } from "@/api/client";
 import * as departmentsApi from "@/api/departments";
 import * as designationsApi from "@/api/designations";
@@ -17,6 +18,7 @@ import { VacancyRequestWizard } from "@/components/vacancy-requests/VacancyReque
 vi.mock("@/api/campuses");
 vi.mock("@/api/departments");
 vi.mock("@/api/designations");
+vi.mock("@/api/locations");
 vi.mock("@/api/sanctionedStrength");
 vi.mock("@/api/vacancyRequests");
 vi.mock("@/auth/AuthContext", async () => {
@@ -26,6 +28,7 @@ vi.mock("@/auth/AuthContext", async () => {
 
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
+const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
 const mockedGetAvailability = vi.mocked(sanctionedStrengthApi.getSanctionedStrengthAvailability);
@@ -87,6 +90,7 @@ describe("VacancyRequestWizard", () => {
       logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListLocations.mockResolvedValue([]);
     mockedListDepartments.mockResolvedValue(DEPARTMENTS);
     mockedListDesignations.mockResolvedValue(DESIGNATIONS);
     mockedGetAvailability.mockResolvedValue({
@@ -132,7 +136,7 @@ describe("VacancyRequestWizard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
 
     // Step 7: remarks + submit.
-    await userEvent.type(screen.getByLabelText("Remarks (optional)"), "Please expedite");
+    await userEvent.type(screen.getByLabelText("Justification / Remarks (optional)"), "Please expedite");
     await userEvent.click(screen.getByRole("button", { name: "Submit vacancy request" }));
 
     await waitFor(() =>
@@ -148,6 +152,10 @@ describe("VacancyRequestWizard", () => {
         experience_required: "2+ years",
         priority: "NORMAL",
         remarks: "Please expedite",
+        // Intake fields (2026-08-30) -- always sent, null when the optional
+        // pickers are left alone.
+        location_id: null,
+        required_by: null,
       }),
     );
   }, 15000);
@@ -160,6 +168,7 @@ describe("VacancyRequestWizard", () => {
       logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListLocations.mockResolvedValue([]);
     mockedListDepartments.mockResolvedValue(DEPARTMENTS);
     mockedListDesignations.mockResolvedValue([]);
     mockedCreateVacancyRequest.mockResolvedValue({ id: "vr-new" } as never);
@@ -207,6 +216,7 @@ describe("VacancyRequestWizard", () => {
       logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListLocations.mockResolvedValue([]);
     mockedListDepartments.mockResolvedValue(DEPARTMENTS);
     mockedListDesignations.mockResolvedValue(DESIGNATIONS);
     mockedGetAvailability.mockResolvedValue({
@@ -241,6 +251,7 @@ describe("VacancyRequestWizard", () => {
       logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListLocations.mockResolvedValue([]);
     mockedListDepartments.mockResolvedValue([
       { ...DEPARTMENTS[0], supported_categories: ["TEACHING" as const] },
     ]);

@@ -803,6 +803,9 @@ export type VacancyPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
 export type StaffRoleCategory = "TEACHING" | "NON_TEACHING" | "HOUSEKEEPING";
 
 // Mirrors app/schemas/vacancy_request.py::VacancyRequestRead.
+// Mirrors app/models/enums.py::VacancyRequestSourceEnum.
+export type VacancyRequestSource = "MANUAL" | "BULK_UPLOAD" | "QR";
+
 export interface VacancyRequestRead {
   id: string;
   campus_id: string;
@@ -821,6 +824,20 @@ export interface VacancyRequestRead {
   skills: string[] | null;
   priority: VacancyPriority;
   status: VacancyRequestStatus;
+  // Intake fields (2026-08-30). `source` backs the Source filter -- MANUAL is
+  // the in-app flow and the value every pre-existing row backfilled to.
+  //
+  // requester_* are populated ONLY for QR rows, where nobody signed in: for
+  // those, requested_by_id is the account that OWNS the intake, not the
+  // person who asked, so any "raised by" display should prefer
+  // requester_name when it is set.
+  source: VacancyRequestSource;
+  request_ref: string | null;
+  location_id: string | null;
+  required_by: string | null;
+  requester_name: string | null;
+  requester_email: string | null;
+  requester_mobile: string | null;
   requested_by_id: string;
   submitted_at: string | null;
   dean_reviewed_by_id: string | null;
@@ -866,6 +883,11 @@ export interface VacancyRequestCreatePayload {
   remarks?: string | null;
   skills?: string[] | null;
   priority?: VacancyPriority;
+  // Intake fields (2026-08-30). Both optional -- Teaching/Non-Teaching
+  // requests have never needed a location, and "required by" is a wish, not
+  // a commitment.
+  location_id?: string | null;
+  required_by?: string | null;
 }
 
 export type VacancyRequestUpdatePayload = Partial<Omit<VacancyRequestCreatePayload, "campus_id" | "department_id">>;

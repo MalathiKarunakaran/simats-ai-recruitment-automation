@@ -6,7 +6,9 @@ import { ApiError } from "@/api/client";
 import { listCampuses } from "@/api/campuses";
 import { listDepartments } from "@/api/departments";
 import { listDesignations } from "@/api/designations";
+import { listLocations } from "@/api/locations";
 import { getSanctionedStrengthAvailability } from "@/api/sanctionedStrength";
+import { dedupeLocationsForPicker, locationLabel } from "@/lib/locationDisplay";
 import type {
   DesignationRead,
   EmploymentType,
@@ -31,6 +33,11 @@ const ROLE_CATEGORIES: { value: StaffRoleCategory; label: string; hint: string }
 ];
 const EMPLOYMENT_TYPES: EmploymentType[] = ["FULL_TIME", "PART_TIME", "CONTRACT", "VISITING", "ADJUNCT", "TRA", "JRF"];
 const PRIORITIES: VacancyPriority[] = ["LOW", "NORMAL", "HIGH", "URGENT"];
+
+// Radix Select cannot hold an empty-string item value, so a missing
+// location needs a sentinel distinct from any real UUID it shares a
+// Select with.
+const LOCATION_NONE = "NONE";
 
 const STEP_TITLES = [
   "Teaching / Non-Teaching",
@@ -90,6 +97,12 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
   const [employmentType, setEmploymentType] = useState<EmploymentType>("FULL_TIME");
   const [priority, setPriority] = useState<VacancyPriority>("NORMAL");
   const [remarks, setRemarks] = useState("");
+  // Intake fields (2026-08-30). Both optional, and both added to the final
+  // step rather than as new wizard steps: this wizard is already seven steps
+  // long, and neither of these gates anything downstream the way category or
+  // designation do.
+  const [locationId, setLocationId] = useState("");
+  const [requiredBy, setRequiredBy] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
@@ -113,6 +126,16 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
     queryFn: () => listDesignations({ departmentId, category: roleCategory ?? undefined, isActive: true }),
     enabled: Boolean(departmentId && roleCategory),
   });
+
+  // Campus-scoped location options for the final step. Deduped because this
+  // is a FORM picker -- you are choosing the one place this vacancy sits, so
+  // collapsing records that describe the same campus+block+floor removes a
+  // meaningless choice (filter dropdowns deliberately do NOT dedupe; see
+  // lib/locationDisplay for why).
+  const { data: allLocations } = useQuery({ queryKey: ["locations"], queryFn: listLocations });
+  const campusLocations = dedupeLocationsForPicker(
+    (allLocations ?? []).filter((l) => l.campus_id === campusId && l.is_active),
+  );
 
   // Phase E item 24's availability strip -- fetched (and shown) only once
   // campus+department+designation are all known, since Sanctioned Strength
@@ -155,6 +178,8 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
         experience_required: experienceRequired,
         priority,
         remarks: remarks.trim() || null,
+        location_id: locationId || null,
+        required_by: requiredBy || null,
       };
       return createVacancyRequest(payload);
     },
@@ -473,8 +498,41 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
 
         {currentStep === 6 ? (
           <div className="flex flex-col gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label>Location (optional)</Label>
+                <Select
+                  value={locationId || LOCATION_NONE}
+                  onValueChange={(value) => setLocationId(value === LOCATION_NONE ? "" : value)}
+                  disabled={!campusId}
+                >
+                  <SelectTrigger aria-label="Location">
+                    <SelectValue placeholder="Not specified" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={LOCATION_NONE}>Not specified</SelectItem>
+                    {campusLocations.map((location) => (
+                      <SelectItem key={location.id} value={location.id}>
+                        {locationLabel(location)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="required-by">Required by (optional)</Label>
+                <Input
+                  id="required-by"
+                  type="date"
+                  value={requiredBy}
+                  onChange={(e) => setRequiredBy(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="remarks">Remarks (optional)</Label>
+              <Label htmlFor="remarks">Justification / Remarks (optional)</Label>
               <Textarea id="remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
             </div>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border p-3 text-sm">
@@ -490,6 +548,15 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
               <dd>{employmentType.replace(/_/g, " ")}</dd>
               <dt className="text-muted-foreground">Priority</dt>
               <dd>{priority}</dd>
+              <dt className="text-muted-foreground">Location</dt>
+              <dd>
+                {(() => {
+                  const picked = campusLocations.find((l) => l.id === locationId);
+                  return picked ? locationLabel(picked) : "—";
+                })()}
+              </dd>
+              <dt className="text-muted-foreground">Required by</dt>
+              <dd>{requiredBy || "—"}</dd>
             </dl>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
           </div>
