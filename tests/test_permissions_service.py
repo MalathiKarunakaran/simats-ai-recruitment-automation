@@ -57,6 +57,10 @@ def test_seed_default_permissions_grants_documented_campus_hod_set(db_session, u
         PermissionEnum.ACTIVITY_LOG,
         PermissionEnum.REPORTS,
         PermissionEnum.SETTINGS,
+        # Added to EVERY role 2026-08-31: the Sanctioned Strength reads were
+        # open to any staff member before they became a permission, so a
+        # default that omitted it would have revoked viewing organization-wide.
+        PermissionEnum.VIEW_SANCTIONED_STRENGTH,
     }
 
 
@@ -76,6 +80,10 @@ def test_seed_default_permissions_grants_minimal_coordinator_set(db_session, use
         PermissionEnum.VIEW_CANDIDATES,
         PermissionEnum.REPORTS,
         PermissionEnum.SETTINGS,
+        # Read-only, same as every other role. The coordinator's Sanctioned
+        # Strength WRITE verbs (create/edit/bulk upload/delete) stay opt-in
+        # per user -- that is the whole design of this role.
+        PermissionEnum.VIEW_SANCTIONED_STRENGTH,
     }
     assert granted == DEFAULT_PERMISSIONS_BY_ROLE[UserRoleEnum.RECRUITMENT_COORDINATOR]
 

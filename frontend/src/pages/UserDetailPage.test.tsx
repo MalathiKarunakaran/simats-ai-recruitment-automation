@@ -871,9 +871,11 @@ describe("UserDetailPage permission matrix", () => {
     // Wait on the summary strip, not on the switches: every switch renders
     // immediately (unchecked) and only becomes checked once GET
     // /users/{id}/permissions resolves and seeds the draft, so the presence
-    // of a switch is not the condition to wait on -- and re-querying 32 of
-    // them inside a waitFor is slow enough to trip its 1s default.
-    expect(await screen.findByText(exactText("Enabled: 2"))).toBeInTheDocument();
+    // of a switch is not the condition to wait on. The explicit timeout is
+    // needed because the matrix renders every permission the backend defines
+    // (37 switches as of the Sanctioned Strength split), which is enough
+    // work to overrun findBy's 1s default on a loaded machine.
+    expect(await screen.findByText(exactText("Enabled: 2"), {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "View vacancies" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Manage users" })).toBeChecked();
     expect(screen.getByRole("switch", { name: "Create vacancy requests" })).not.toBeChecked();
@@ -898,7 +900,7 @@ describe("UserDetailPage permission matrix", () => {
     );
     // The top summary strip is reactive, not frozen at the value it had on
     // initial load, and the save is confirmed in place.
-    expect(await screen.findByText(exactText("Enabled: 2"))).toBeInTheDocument();
+    expect(await screen.findByText(exactText("Enabled: 2"), {}, { timeout: 5000 })).toBeInTheDocument();
     expect(await screen.findByText("Permissions saved.")).toBeInTheDocument();
     expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
   });

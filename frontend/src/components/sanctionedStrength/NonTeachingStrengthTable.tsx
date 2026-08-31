@@ -180,14 +180,16 @@ function EmployeeExpandRow({ departmentId, designationId }: { departmentId: stri
 }
 
 export interface NonTeachingStrengthTableProps {
-  canManage: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   canViewAuditLog: boolean;
   canFilterByCampus: boolean;
   campuses: CampusRead[] | undefined;
 }
 
 export function NonTeachingStrengthTable({
-  canManage,
+  canEdit,
+  canDelete,
   canViewAuditLog,
   canFilterByCampus,
   campuses,
@@ -566,7 +568,8 @@ export function NonTeachingStrengthTable({
                       <TableCell>
                         <StrengthRowActions
                           row={row}
-                          canManage={canManage}
+                          canEdit={canEdit}
+                          canDelete={canDelete}
                           canViewAuditLog={canViewAuditLog}
                           category="NON_TEACHING"
                           onSaved={() =>

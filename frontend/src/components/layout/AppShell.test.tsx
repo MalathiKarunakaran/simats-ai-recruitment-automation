@@ -46,7 +46,14 @@ window.matchMedia =
       dispatchEvent: vi.fn(),
     }) as unknown as MediaQueryList);
 
-function mockAuth(role: UserRole, hasPermission: (permission: string) => boolean = () => false) {
+// The default grants VIEW_SANCTIONED_STRENGTH and nothing else: that
+// permission is in EVERY role's default set (it replaced a staff-wide read on
+// 2026-08-31), so a bare mockAuth(role) reflects a real user of that role.
+// Pass an explicit function to model a user who has had it revoked.
+function mockAuth(
+  role: UserRole,
+  hasPermission: (permission: string) => boolean = (permission) => permission === "VIEW_SANCTIONED_STRENGTH",
+) {
   mockedUseAuth.mockReturnValue({
     user: { role, full_name: "Test User", campus_id: "c-1" } as UserRead,
     isLoading: false,
@@ -136,7 +143,10 @@ describe("AppShell nav", () => {
   });
 
   it("shows Users to a RECRUITMENT_COORDINATOR individually granted MANAGE_USERS", async () => {
-    mockAuth("RECRUITMENT_COORDINATOR", (permission) => permission === "MANAGE_USERS");
+    mockAuth(
+      "RECRUITMENT_COORDINATOR",
+      (permission) => permission === "MANAGE_USERS" || permission === "VIEW_SANCTIONED_STRENGTH",
+    );
     renderShell();
 
     const link = await screen.findByRole("link", { name: "Users" });
@@ -155,10 +165,22 @@ describe("AppShell nav", () => {
   });
 
   it("shows Activity Log to a RECRUITMENT_COORDINATOR individually granted ACTIVITY_LOG", async () => {
-    mockAuth("RECRUITMENT_COORDINATOR", (permission) => permission === "ACTIVITY_LOG");
+    mockAuth(
+      "RECRUITMENT_COORDINATOR",
+      (permission) => permission === "ACTIVITY_LOG" || permission === "VIEW_SANCTIONED_STRENGTH",
+    );
     renderShell();
 
     const link = await screen.findByRole("link", { name: "Activity Log" });
     expect(link).toHaveAttribute("href", "/activity-log");
+  });
+  it("hides Sanctioned Strength from a user whose VIEW_SANCTIONED_STRENGTH was revoked", async () => {
+    // The nav follows the page's own gate, so a revoked user is not sent to a
+    // link that 403s.
+    mockAuth("RECRUITMENT_COORDINATOR", () => false);
+    renderShell();
+
+    await waitFor(() => expect(screen.getByRole("link", { name: /Vacancy Requests/ })).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: /Sanctioned Strength/ })).not.toBeInTheDocument();
   });
 });

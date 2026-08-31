@@ -118,11 +118,12 @@ function formatDate(value: string | null): string {
 // One row's actions cluster -- Phase H (glowing-zooming-hamming.md)
 // collapsed the previous Edit-popover-trigger + History-button + Delete +
 // "Raise vacancy request"-link cluster down to a single drawer-trigger
-// button (Approved span + one trigger + (canManage ? Delete : nothing)),
+// button (Approved span + one trigger + (canDelete ? Delete : nothing)),
 // per the user-confirmed decision that a row's actions collapse to ONE
 // trigger, not two. "Raise vacancy request" moved inside the drawer's own
 // Recruitment Status tab as a CTA there. The trigger opens
-// SanctionedStrengthDrawer in "edit" mode for a write-role (canManage) user
+// SanctionedStrengthDrawer in "edit" mode for a user holding
+// EDIT_SANCTIONED_STRENGTH
 // or "view" mode (read-only, defaults to the History tab) otherwise --
 // DeleteSanctionedStrengthDialog is untouched by this phase and stays its
 // own separate destructive-action button next to the trigger.
@@ -161,13 +162,15 @@ export type StrengthActionRow = Pick<
 
 export function StrengthRowActions({
   row,
-  canManage,
+  canEdit,
+  canDelete,
   canViewAuditLog,
   category,
   onSaved,
 }: {
   row: StrengthActionRow;
-  canManage: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   canViewAuditLog: boolean;
   category: StaffRoleCategory;
   /** Forwarded to SanctionedStrengthDrawer's own onSaved -- lets the caller
@@ -188,12 +191,12 @@ export function StrengthRowActions({
         type="button"
         variant="outline"
         size="sm"
-        aria-label={`${canManage ? "Edit" : "View"} sanctioned strength for ${designationName}`}
+        aria-label={`${canEdit ? "Edit" : "View"} sanctioned strength for ${designationName}`}
         onClick={() => setDrawerOpen(true)}
       >
-        {canManage ? "Edit" : "View"}
+        {canEdit ? "Edit" : "View"}
       </Button>
-      {canManage ? (
+      {canDelete ? (
         <DeleteSanctionedStrengthDialog
           sanctionedStrengthId={row.sanctioned_strength_id}
           designationName={designationName}
@@ -208,8 +211,8 @@ export function StrengthRowActions({
       <SanctionedStrengthDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
-        mode={canManage ? "edit" : "view"}
-        canManage={canManage}
+        mode={canEdit ? "edit" : "view"}
+        canManage={canEdit}
         canViewAuditLog={canViewAuditLog}
         campusId={row.campus_id}
         campusLabel={row.campus_code ?? row.campus_id}
@@ -226,14 +229,16 @@ export function StrengthRowActions({
 }
 
 export interface TeachingStrengthTableProps {
-  canManage: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   canViewAuditLog: boolean;
   canFilterByCampus: boolean;
   campuses: CampusRead[] | undefined;
 }
 
 export function TeachingStrengthTable({
-  canManage,
+  canEdit,
+  canDelete,
   canViewAuditLog,
   canFilterByCampus,
   campuses,
@@ -590,7 +595,8 @@ export function TeachingStrengthTable({
                     <TableCell>
                       <StrengthRowActions
                         row={row}
-                        canManage={canManage}
+                        canEdit={canEdit}
+                        canDelete={canDelete}
                         canViewAuditLog={canViewAuditLog}
                         category="TEACHING"
                         onSaved={() => queryClient.invalidateQueries({ queryKey: ["teaching-strength-view"] })}

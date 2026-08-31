@@ -80,12 +80,18 @@ const NAV_GROUPS: NavGroup[] = [
         to: "/sanctioned-strength",
         label: "Sanctioned Strength",
         icon: ClipboardList,
-        // Mirrors vacancy_register.py's own read gate (_staff_only) -- broad
-        // read, same pattern as Eligibility Rules/Designations/Campuses/
-        // Departments. Moved here from Administration (and renamed from
-        // "Vacancy Register") per zany-snuggling-pie.md Phase C -- sits
-        // directly above "Vacancy Requests" since it's the ceiling that
-        // requests are made against.
+        // Mirrors the page's own read gate. That was `_staff_only` (any
+        // authenticated staff member) until 2026-08-31, when it became
+        // require_permission(VIEW_SANCTIONED_STRENGTH) -- so the nav follows
+        // the permission rather than staying unconditionally visible, which
+        // would send a user whose VIEW was revoked to a 403 page. Every role
+        // holds it by default, so this hides the item only where a Super
+        // Admin has deliberately taken it away.
+        //
+        // Moved here from Administration (and renamed from "Vacancy
+        // Register") per zany-snuggling-pie.md Phase C -- sits directly above
+        // "Vacancy Requests" since it's the ceiling requests are made against.
+        visibleForPermission: "VIEW_SANCTIONED_STRENGTH",
       },
       { to: "/vacancy-requests", label: "Vacancy Requests", icon: Briefcase },
       {

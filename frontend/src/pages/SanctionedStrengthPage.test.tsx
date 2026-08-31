@@ -473,15 +473,29 @@ function getKpiTile(label: string): HTMLElement {
   return tile;
 }
 
-// `permissions` defaults to what each role held back when the page gated its
-// write affordances on SANCTIONED_STRENGTH_WRITE_ROLES, so every existing
-// mockAuth("HR_ADMIN") / mockAuth("CAMPUS_HOD") call site keeps meaning
-// exactly what it meant before the 2026-08-31 move to
-// require_permission(MANAGE_SANCTIONED_STRENGTH). Pass it explicitly to test
-// a role whose access is now individually granted.
+// The six granular Sanctioned Strength permissions HR_ADMIN and SUPER_ADMIN
+// hold by default (DEFAULT_PERMISSIONS_BY_ROLE / the has_permission bypass),
+// so every existing mockAuth("HR_ADMIN") call site keeps meaning exactly what
+// it meant when the page had a single canManage. Every other role gets VIEW
+// only -- also its real default, since the reads were staff-wide before they
+// became a permission.
+const FULL_STRENGTH_PERMISSIONS = [
+  "VIEW_SANCTIONED_STRENGTH",
+  "CREATE_SANCTIONED_STRENGTH",
+  "EDIT_SANCTIONED_STRENGTH",
+  "BULK_UPLOAD_SANCTIONED_STRENGTH",
+  "VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY",
+  "DELETE_SANCTIONED_STRENGTH",
+] as Permission[];
+
+// Pass `permissions` explicitly to test a role whose access is granted
+// individually -- that is the whole point of the split.
 function mockAuth(role: UserRole, permissions?: Permission[]) {
   const granted =
-    permissions ?? (role === "HR_ADMIN" || role === "SUPER_ADMIN" ? ["MANAGE_SANCTIONED_STRENGTH" as Permission] : []);
+    permissions ??
+    (role === "HR_ADMIN" || role === "SUPER_ADMIN"
+      ? FULL_STRENGTH_PERMISSIONS
+      : (["VIEW_SANCTIONED_STRENGTH"] as Permission[]));
   mockedUseAuth.mockReturnValue({
     user: { role } as UserRead,
     isLoading: false,
@@ -1445,13 +1459,41 @@ describe("SanctionedStrengthPage", () => {
       expect(screen.getByRole("tab", { name: "Upload history" })).toBeInTheDocument();
     });
 
-    // 2026-08-31: the page's write gate reads
-    // hasPermission("MANAGE_SANCTIONED_STRENGTH"), not the
-    // SANCTIONED_STRENGTH_WRITE_ROLES tuple. These two pin the reason that
-    // changed -- a RECRUITMENT_COORDINATOR can now be given the module
-    // individually, which the role tuple made impossible.
-    it("shows the write affordances to a RECRUITMENT_COORDINATOR granted MANAGE_SANCTIONED_STRENGTH", async () => {
-      mockAuth("RECRUITMENT_COORDINATOR", ["MANAGE_SANCTIONED_STRENGTH"]);
+    // The exact scenario the split was asked for: View + Edit on, everything
+    // else off. Edit must be reachable; Bulk upload and Upload history must
+    // not appear at all.
+    it("gives a coordinator with only View + Edit the edit affordance and nothing else", async () => {
+      mockAuth("RECRUITMENT_COORDINATOR", ["VIEW_SANCTIONED_STRENGTH", "EDIT_SANCTIONED_STRENGTH"]);
+      mockCampuses();
+      mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+      // Can see the register...
+      expect(screen.getByText("Computer Science")).toBeInTheDocument();
+      // ...but none of the affordances they were not granted.
+      expect(screen.queryByRole("button", { name: "Bulk upload" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: "Upload history" })).not.toBeInTheDocument();
+    });
+
+    it("hides every write affordance from a coordinator who can only view", async () => {
+      mockAuth("RECRUITMENT_COORDINATOR", ["VIEW_SANCTIONED_STRENGTH"]);
+      mockCampuses();
+      mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+      expect(screen.queryByRole("button", { name: "Bulk upload" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: "Upload history" })).not.toBeInTheDocument();
+    });
+
+    // 2026-08-31: each affordance reads its OWN permission. These pin the
+    // reason that changed -- a RECRUITMENT_COORDINATOR can be given exactly
+    // the verbs they need, which one all-or-nothing permission could not do.
+    it("shows Bulk upload to a coordinator granted BULK_UPLOAD_SANCTIONED_STRENGTH", async () => {
+      mockAuth("RECRUITMENT_COORDINATOR", ["VIEW_SANCTIONED_STRENGTH", "BULK_UPLOAD_SANCTIONED_STRENGTH"]);
       mockCampuses();
       mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
 
@@ -1461,8 +1503,8 @@ describe("SanctionedStrengthPage", () => {
       expect(screen.getByRole("button", { name: "Bulk upload" })).toBeInTheDocument();
     });
 
-    it("hides them from a RECRUITMENT_COORDINATOR without the grant", async () => {
-      mockAuth("RECRUITMENT_COORDINATOR", []);
+    it("hides Bulk upload from a coordinator who can only view", async () => {
+      mockAuth("RECRUITMENT_COORDINATOR", ["VIEW_SANCTIONED_STRENGTH"]);
       mockCampuses();
       mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
 
@@ -1472,10 +1514,10 @@ describe("SanctionedStrengthPage", () => {
       expect(screen.queryByRole("button", { name: "Bulk upload" })).not.toBeInTheDocument();
     });
 
-    // An HR_ADMIN whose grant was revoked loses the buttons too -- the reason
-    // this gate is NOT OR'd with the old role list.
-    it("hides them from an HR_ADMIN whose MANAGE_SANCTIONED_STRENGTH grant was revoked", async () => {
-      mockAuth("HR_ADMIN", []);
+    // An HR_ADMIN whose grant was revoked loses the button too -- the reason
+    // these gates are NOT OR'd with the old role list.
+    it("hides Bulk upload from an HR_ADMIN whose bulk-upload grant was revoked", async () => {
+      mockAuth("HR_ADMIN", ["VIEW_SANCTIONED_STRENGTH"]);
       mockCampuses();
       mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
 

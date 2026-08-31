@@ -491,11 +491,10 @@ export const DESIGNATION_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "REC
 
 // Mirrors app/models/enums.py::SANCTIONED_STRENGTH_WRITE_ROLES.
 //
-// 2026-08-31: the backend's Sanctioned Strength WRITE endpoints no longer use
-// this tuple -- they moved to require_permission(MANAGE_SANCTIONED_STRENGTH)
-// so the module can be granted to an individual user. This constant survives
-// only for the places still keyed off the role (nav visibility and the
-// comments below); do not reintroduce it as a write gate.
+// 2026-08-31: the backend's Sanctioned Strength endpoints no longer use this
+// tuple at all. Reads take VIEW_SANCTIONED_STRENGTH and each write verb takes
+// its own permission (CREATE_/EDIT_/BULK_UPLOAD_/DELETE_). This constant
+// survives only for the comments below; do not reintroduce it as a gate.
 //
 // Original note: gates the
 // Sanctioned Strength page's inline edit / add designation / soft-delete
@@ -576,7 +575,7 @@ export interface CoordinatorCapabilitiesRead {
   capabilities: CoordinatorCapability[];
 }
 
-// Mirrors app/models/enums.py::PermissionEnum -- the 32-permission matrix,
+// Mirrors app/models/enums.py::PermissionEnum -- the 37-permission matrix,
 // generalized beyond RECRUITMENT_COORDINATOR to any staff role.
 export const PERMISSIONS = [
   "VIEW_VACANCY", "CREATE_VACANCY_REQUEST", "EDIT_VACANCY_REQUEST", "APPROVE_VACANCY",
@@ -585,7 +584,10 @@ export const PERMISSIONS = [
   "SCHEDULE_INTERVIEW", "RESCHEDULE_INTERVIEW", "CANCEL_INTERVIEW", "MARK_INTERVIEW_COMPLETED",
   "JOB_DISTRIBUTION", "RESUME_SCREENING", "OFFERS", "ONBOARDING",
   "VIEW_EMPLOYEES", "EDIT_EMPLOYEES", "MANAGE_DEPARTMENTS", "MANAGE_DESIGNATIONS",
-  "MANAGE_LOCATIONS", "MANAGE_CAMPUSES", "MANAGE_SANCTIONED_STRENGTH", "MANAGE_USERS",
+  "MANAGE_LOCATIONS", "MANAGE_CAMPUSES", "MANAGE_USERS",
+  "VIEW_SANCTIONED_STRENGTH", "CREATE_SANCTIONED_STRENGTH", "EDIT_SANCTIONED_STRENGTH",
+  "BULK_UPLOAD_SANCTIONED_STRENGTH", "VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY",
+  "DELETE_SANCTIONED_STRENGTH",
   "ACTIVITY_LOG", "REPORTS", "SETTINGS",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -632,8 +634,19 @@ export const PERMISSION_CATEGORIES: { key: string; label: string; permissions: P
       "MANAGE_DESIGNATIONS",
       "MANAGE_LOCATIONS",
       "MANAGE_CAMPUSES",
-      "MANAGE_SANCTIONED_STRENGTH",
       "MANAGE_USERS",
+    ],
+  },
+  {
+    key: "SANCTIONED_STRENGTH",
+    label: "Sanctioned Strength",
+    permissions: [
+      "VIEW_SANCTIONED_STRENGTH",
+      "CREATE_SANCTIONED_STRENGTH",
+      "EDIT_SANCTIONED_STRENGTH",
+      "BULK_UPLOAD_SANCTIONED_STRENGTH",
+      "VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY",
+      "DELETE_SANCTIONED_STRENGTH",
     ],
   },
   {
@@ -671,8 +684,13 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_DESIGNATIONS: "Manage designations",
   MANAGE_LOCATIONS: "Manage locations",
   MANAGE_CAMPUSES: "Manage campuses",
-  MANAGE_SANCTIONED_STRENGTH: "Manage sanctioned strength",
   MANAGE_USERS: "Manage users",
+  VIEW_SANCTIONED_STRENGTH: "View sanctioned strength",
+  CREATE_SANCTIONED_STRENGTH: "Create sanctioned strength",
+  EDIT_SANCTIONED_STRENGTH: "Edit sanctioned strength",
+  BULK_UPLOAD_SANCTIONED_STRENGTH: "Bulk upload sanctioned strength",
+  VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY: "View upload history",
+  DELETE_SANCTIONED_STRENGTH: "Delete sanctioned strength",
   ACTIVITY_LOG: "View activity log",
   REPORTS: "View reports",
   SETTINGS: "Manage settings",

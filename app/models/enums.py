@@ -427,13 +427,14 @@ class PermissionEnum(str, enum.Enum):
     CoordinatorCapabilityEnum and CoordinatorCapabilityGrant remain wired for
     the endpoints that still use them; the two schemes coexist.
 
-    MANAGE_SANCTIONED_STRENGTH was added 2026-08-31. Sanctioned Strength was
-    the one master-data module left on a bare role tuple
-    (SANCTIONED_STRENGTH_WRITE_ROLES = SUPER_ADMIN + HR_ADMIN) rather than a
-    permission, so there was no way to grant it to an individual user at all
-    -- a RECRUITMENT_COORDINATOR could not be given the screen no matter what
-    was ticked. Migrations `d0e1f2a3b4c5` (the label) and `e1a2b3c4d5e6` (the
-    backfill, so existing HR_ADMINs keep the access they already had)."""
+    Sanctioned Strength moved onto this matrix on 2026-08-31 (it was the one
+    master-data module still gated by a bare role tuple), first as a single
+    MANAGE_SANCTIONED_STRENGTH and then, the same day, as the six granular
+    permissions above -- because all-or-nothing could not express "may edit an
+    existing row, may not create/bulk-upload/delete". The old label still
+    exists in the Postgres type (no ALTER TYPE ... DROP VALUE) but is no
+    longer a member of this enum and no grant row references it: migration
+    `a2b3c4d5e6f7` mapped every holder onto the six and deleted those rows."""
 
     # Vacancy Management (8)
     VIEW_VACANCY = "VIEW_VACANCY"
@@ -467,8 +468,19 @@ class PermissionEnum(str, enum.Enum):
     MANAGE_DESIGNATIONS = "MANAGE_DESIGNATIONS"
     MANAGE_LOCATIONS = "MANAGE_LOCATIONS"
     MANAGE_CAMPUSES = "MANAGE_CAMPUSES"
-    MANAGE_SANCTIONED_STRENGTH = "MANAGE_SANCTIONED_STRENGTH"
     MANAGE_USERS = "MANAGE_USERS"
+    # Sanctioned Strength (6) -- its own group, NOT under Administration.
+    # Replaced the single MANAGE_SANCTIONED_STRENGTH on 2026-08-31: one
+    # all-or-nothing permission could not express "may edit an existing row
+    # but may not create, bulk upload or delete", which is exactly what a
+    # Recruitment Coordinator needs. Verb_noun naming matches the rest of the
+    # matrix (VIEW_CANDIDATES / CREATE_CANDIDATE / EDIT_CANDIDATE / ...).
+    VIEW_SANCTIONED_STRENGTH = "VIEW_SANCTIONED_STRENGTH"
+    CREATE_SANCTIONED_STRENGTH = "CREATE_SANCTIONED_STRENGTH"
+    EDIT_SANCTIONED_STRENGTH = "EDIT_SANCTIONED_STRENGTH"
+    BULK_UPLOAD_SANCTIONED_STRENGTH = "BULK_UPLOAD_SANCTIONED_STRENGTH"
+    VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY = "VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY"
+    DELETE_SANCTIONED_STRENGTH = "DELETE_SANCTIONED_STRENGTH"
     # System (3)
     ACTIVITY_LOG = "ACTIVITY_LOG"
     REPORTS = "REPORTS"
@@ -514,8 +526,20 @@ PERMISSION_CATEGORIES: dict[str, list[PermissionEnum]] = {
         PermissionEnum.MANAGE_DESIGNATIONS,
         PermissionEnum.MANAGE_LOCATIONS,
         PermissionEnum.MANAGE_CAMPUSES,
-        PermissionEnum.MANAGE_SANCTIONED_STRENGTH,
         PermissionEnum.MANAGE_USERS,
+    ],
+    # Its own group, placed straight after RECRUITMENT rather than inside it:
+    # the group's own n/total count is what makes "2 of the 6 Sanctioned
+    # Strength permissions are on" legible, and folding these into
+    # RECRUITMENT would bury them in a 10-permission count alongside job
+    # distribution and offers.
+    "SANCTIONED_STRENGTH": [
+        PermissionEnum.VIEW_SANCTIONED_STRENGTH,
+        PermissionEnum.CREATE_SANCTIONED_STRENGTH,
+        PermissionEnum.EDIT_SANCTIONED_STRENGTH,
+        PermissionEnum.BULK_UPLOAD_SANCTIONED_STRENGTH,
+        PermissionEnum.VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY,
+        PermissionEnum.DELETE_SANCTIONED_STRENGTH,
     ],
     "SYSTEM": [
         PermissionEnum.ACTIVITY_LOG,

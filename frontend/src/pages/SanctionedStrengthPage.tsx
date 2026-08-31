@@ -107,7 +107,8 @@ function DesignationRow({
   campusLabel,
   departmentLabel,
   category,
-  canManage,
+  canEdit,
+  canDelete,
   canViewAuditLog,
 }: {
   row: DepartmentDesignationBreakdownRow;
@@ -116,7 +117,8 @@ function DesignationRow({
   campusLabel: string;
   departmentLabel: string;
   category: string | null;
-  canManage: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   canViewAuditLog: boolean;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -133,12 +135,12 @@ function DesignationRow({
             type="button"
             variant="outline"
             size="sm"
-            aria-label={`${canManage ? "Edit" : "View"} sanctioned strength for ${row.designation_name}`}
+            aria-label={`${canEdit ? "Edit" : "View"} sanctioned strength for ${row.designation_name}`}
             onClick={() => setDrawerOpen(true)}
           >
-            {canManage ? "Edit" : "View"}
+            {canEdit ? "Edit" : "View"}
           </Button>
-          {canManage && row.sanctioned_strength_id ? (
+          {canDelete && row.sanctioned_strength_id ? (
             <DeleteSanctionedStrengthDialog
               sanctionedStrengthId={row.sanctioned_strength_id}
               designationName={row.designation_name}
@@ -150,8 +152,8 @@ function DesignationRow({
       <SanctionedStrengthDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
-        mode={canManage ? "edit" : "view"}
-        canManage={canManage}
+        mode={canEdit ? "edit" : "view"}
+        canManage={canEdit}
         canViewAuditLog={canViewAuditLog}
         campusId={campusId}
         campusLabel={campusLabel}
@@ -227,7 +229,9 @@ function DepartmentBreakdownRow({
   campusLabel,
   departmentLabel,
   category,
-  canManage,
+  canEdit,
+  canCreate,
+  canDelete,
   canViewAuditLog,
 }: {
   departmentId: string;
@@ -235,7 +239,9 @@ function DepartmentBreakdownRow({
   campusLabel: string;
   departmentLabel: string;
   category: string | null;
-  canManage: boolean;
+  canEdit: boolean;
+  canCreate: boolean;
+  canDelete: boolean;
   canViewAuditLog: boolean;
 }) {
   const { data, isLoading, isError } = useQuery({
@@ -276,11 +282,12 @@ function DepartmentBreakdownRow({
                     campusLabel={campusLabel}
                     departmentLabel={departmentLabel}
                     category={category}
-                    canManage={canManage}
+                    canEdit={canEdit}
+                    canDelete={canDelete}
                     canViewAuditLog={canViewAuditLog}
                   />
                 ))}
-                {canManage ? (
+                {canCreate ? (
                   <AddDesignationTrigger
                     departmentId={departmentId}
                     campusId={campusId}
@@ -358,20 +365,26 @@ export function SanctionedStrengthPage() {
   // A single-campus role's campus_code is always ignored server-side (see
   // resolve_campus_filter) -- only global-scope roles get a working filter.
   const canFilterByCampus = Boolean(user && GLOBAL_SCOPE_ROLES.includes(user.role));
-  // Mirrors app/api/v1/routers/sanctioned_strength.py's write gate -- gates
-  // the breakdown's inline edit / add designation / soft-delete affordances
-  // (Phase D). The history drawer trigger is deliberately not gated by this
-  // -- it's read-only, same as the backend's own history endpoint
-  // (staff-only, not write-gated).
+  // One flag per backend verb, each mirroring that endpoint's own
+  // require_permission(...) gate in
+  // app/api/v1/routers/sanctioned_strength.py. These replaced a single
+  // `canManage` on 2026-08-31: all-or-nothing could not express "may edit an
+  // existing row but may not create, bulk upload or delete it", which is
+  // exactly what a Recruitment Coordinator needs.
   //
-  // 2026-08-31: that gate is now require_permission(MANAGE_SANCTIONED_STRENGTH),
-  // not the SANCTIONED_STRENGTH_WRITE_ROLES tuple, so this reads the
-  // permission. NOT OR'd with the old role list, unlike canViewAuditLog
-  // below: there the roles and the permission are two genuinely parallel
-  // gates on the backend, whereas here the permission REPLACED the roles.
-  // Keeping the role check would show buttons to an HR_ADMIN whose grant had
-  // been revoked, and every button would 403.
-  const canManage = Boolean(user && hasPermission?.("MANAGE_SANCTIONED_STRENGTH"));
+  // None of these is OR'd with a role list, unlike canViewAuditLog below --
+  // there the roles and the permission are two genuinely parallel backend
+  // gates, whereas here the permissions REPLACED the roles outright. Showing
+  // a button to someone whose grant was revoked would just produce a 403.
+  //
+  // These are UX affordances only. The backend re-checks every one of them,
+  // and campus/department scoping is applied server-side on top regardless of
+  // what this page renders.
+  const canEditStrength = Boolean(user && hasPermission?.("EDIT_SANCTIONED_STRENGTH"));
+  const canCreateStrength = Boolean(user && hasPermission?.("CREATE_SANCTIONED_STRENGTH"));
+  const canDeleteStrength = Boolean(user && hasPermission?.("DELETE_SANCTIONED_STRENGTH"));
+  const canBulkUploadStrength = Boolean(user && hasPermission?.("BULK_UPLOAD_SANCTIONED_STRENGTH"));
+  const canViewUploadHistory = Boolean(user && hasPermission?.("VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY"));
   // Phase G: HousekeepingStrengthTable's own Actions/roster-expand mutations
   // are all HousekeepingStaff writes, never SanctionedStrength writes -- its
   // canManage mirrors app/api/v1/routers/housekeeping_staff.py's own
@@ -466,15 +479,13 @@ export function SanctionedStrengthPage() {
       <PageHeader
         title="Sanctioned Strength"
         description="Sanctioned vs working strength per department. This defines how many posts may be requested."
-        // Phase F item 1: "Bulk upload" entry point, gated to the same
-        // canManage (MANAGE_SANCTIONED_STRENGTH) check as every other
-        // write affordance on this page -- the backend's own bulk-upload
-        // endpoints are gated identically (_write_only in
-        // sanctioned_strength.py).
-        actions={canManage ? <BulkUploadDialog /> : undefined}
+        // Its own permission, mirroring `_can_bulk_upload` in
+        // sanctioned_strength.py: a bulk upload writes an unbounded number of
+        // rows in one action, so it is deliberately NOT implied by edit.
+        actions={canBulkUploadStrength ? <BulkUploadDialog /> : undefined}
       />
 
-      {canManage ? (
+      {canViewUploadHistory ? (
         <Tabs
           value={section}
           onValueChange={setSection}
@@ -485,7 +496,7 @@ export function SanctionedStrengthPage() {
         />
       ) : null}
 
-      {section === "history" && canManage ? (
+      {section === "history" && canViewUploadHistory ? (
         // Phase J (glowing-zooming-hamming.md) -- UploadHistoryTab now
         // serves all 3 bulk-upload entities; explicitly scope this page's
         // own tab to SANCTIONED_STRENGTH so a Location/HousekeepingStaff
@@ -534,7 +545,8 @@ export function SanctionedStrengthPage() {
             // (CategoryTabs' own counts need it), it's just not rendered as a
             // table body while on the Teaching tab.
             <TeachingStrengthTable
-              canManage={canManage}
+              canEdit={canEditStrength}
+              canDelete={canDeleteStrength}
               canViewAuditLog={canViewAuditLog}
               canFilterByCampus={canFilterByCampus}
               campuses={campuses}
@@ -550,7 +562,8 @@ export function SanctionedStrengthPage() {
             // category so it isn't a single designation-level grain to begin
             // with).
             <NonTeachingStrengthTable
-              canManage={canManage}
+              canEdit={canEditStrength}
+              canDelete={canDeleteStrength}
               canViewAuditLog={canViewAuditLog}
               canFilterByCampus={canFilterByCampus}
               campuses={campuses}
@@ -805,7 +818,9 @@ export function SanctionedStrengthPage() {
                                   ? row.supported_categories[0]
                                   : null
                             }
-                            canManage={canManage}
+                            canEdit={canEditStrength}
+                            canCreate={canCreateStrength}
+                            canDelete={canDeleteStrength}
                             canViewAuditLog={canViewAuditLog}
                           />
                         ) : null}

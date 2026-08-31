@@ -17,6 +17,14 @@ from app.models.enums import PermissionEnum, UserRoleEnum
 from app.models.user import User
 from app.models.user_permission_grant import UserPermissionGrant
 
+# VIEW_SANCTIONED_STRENGTH appears in EVERY role's set on purpose. The
+# Sanctioned Strength read endpoints were gated by `_staff_only` (any
+# authenticated staff member) until 2026-08-31; making them
+# require_permission(VIEW_SANCTIONED_STRENGTH) without giving every role the
+# permission would have silently revoked viewing from the whole organization.
+# Migration `a2b3c4d5e6f7` backfills the same grant for users who already
+# existed. It is still a real permission -- a Super Admin can revoke it from an
+# individual -- just not one anybody loses by default.
 DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
     UserRoleEnum.HR_ADMIN: frozenset(
         {
@@ -41,13 +49,17 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
             PermissionEnum.EDIT_EMPLOYEES,
             PermissionEnum.MANAGE_DEPARTMENTS,
             PermissionEnum.MANAGE_LOCATIONS,
-            # HR_ADMIN only, matching the SANCTIONED_STRENGTH_WRITE_ROLES
-            # tuple this permission replaced (SUPER_ADMIN is an implicit
-            # bypass and never carries grant rows). Every other role starts
-            # without it and is granted it individually -- which is the whole
-            # point of the change.
-            PermissionEnum.MANAGE_SANCTIONED_STRENGTH,
             PermissionEnum.MANAGE_USERS,
+            # All six: HR_ADMIN held the single MANAGE_SANCTIONED_STRENGTH
+            # that these replaced, which was full write. Splitting the
+            # permission must not quietly take access away from the role that
+            # already had it.
+            PermissionEnum.VIEW_SANCTIONED_STRENGTH,
+            PermissionEnum.CREATE_SANCTIONED_STRENGTH,
+            PermissionEnum.EDIT_SANCTIONED_STRENGTH,
+            PermissionEnum.BULK_UPLOAD_SANCTIONED_STRENGTH,
+            PermissionEnum.VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY,
+            PermissionEnum.DELETE_SANCTIONED_STRENGTH,
             PermissionEnum.ACTIVITY_LOG,
             PermissionEnum.REPORTS,
             PermissionEnum.SETTINGS,
@@ -55,6 +67,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
     ),
     UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT: frozenset(
         {
+            PermissionEnum.VIEW_SANCTIONED_STRENGTH,
             PermissionEnum.VIEW_VACANCY,
             PermissionEnum.APPROVE_VACANCY,
             PermissionEnum.REJECT_VACANCY,
@@ -67,6 +80,15 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
     ),
     UserRoleEnum.RECRUITMENT_OFFICER: frozenset(
         {
+            PermissionEnum.VIEW_SANCTIONED_STRENGTH,
+            # Reached Sanctioned Strength upload history through
+            # `_SHARED_BULK_UPLOAD_ROLES` before that tuple stopped being
+            # consulted for this entity. Kept so the split does not silently
+            # take it away. RECRUITMENT_COORDINATOR is in that same tuple and
+            # is deliberately NOT given it here -- a coordinator holding the
+            # module by virtue of a broad role is the exact behaviour this
+            # change was asked to end.
+            PermissionEnum.VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY,
             PermissionEnum.VIEW_VACANCY,
             PermissionEnum.PUBLISH_VACANCY,
             PermissionEnum.VIEW_CANDIDATES,
@@ -86,6 +108,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
     ),
     UserRoleEnum.CAMPUS_HOD: frozenset(
         {
+            PermissionEnum.VIEW_SANCTIONED_STRENGTH,
             PermissionEnum.VIEW_VACANCY,
             PermissionEnum.CREATE_VACANCY_REQUEST,
             PermissionEnum.EDIT_VACANCY_REQUEST,
@@ -97,6 +120,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
     ),
     UserRoleEnum.INTERVIEW_PANEL_MEMBER: frozenset(
         {
+            PermissionEnum.VIEW_SANCTIONED_STRENGTH,
             PermissionEnum.VIEW_VACANCY,
             PermissionEnum.VIEW_CANDIDATES,
             PermissionEnum.MARK_INTERVIEW_COMPLETED,
@@ -106,6 +130,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
     ),
     UserRoleEnum.MANAGEMENT: frozenset(
         {
+            PermissionEnum.VIEW_SANCTIONED_STRENGTH,
             PermissionEnum.VIEW_VACANCY,
             PermissionEnum.VIEW_CANDIDATES,
             PermissionEnum.VIEW_EMPLOYEES,
@@ -121,6 +146,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
     # grants preserved via the migration backfill, not this default.
     UserRoleEnum.RECRUITMENT_COORDINATOR: frozenset(
         {
+            PermissionEnum.VIEW_SANCTIONED_STRENGTH,
             PermissionEnum.VIEW_VACANCY,
             PermissionEnum.VIEW_CANDIDATES,
             PermissionEnum.REPORTS,

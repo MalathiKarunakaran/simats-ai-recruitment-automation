@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 // text badges below -- deliberately kept out of frontend/src/api/types.ts,
 // which mirrors real backend enums/constants 1:1. This is presentation
 // judgment, not a generated mirror of anything backend.
-const DESTRUCTIVE_PERMISSIONS: ReadonlySet<Permission> = new Set(["DELETE_CANDIDATE"]);
+const DESTRUCTIVE_PERMISSIONS: ReadonlySet<Permission> = new Set(["DELETE_CANDIDATE", "DELETE_SANCTIONED_STRENGTH"]);
 const SENSITIVE_PERMISSIONS: ReadonlySet<Permission> = new Set([
   "MANAGE_USERS",
   "MANAGE_CAMPUSES",
@@ -23,6 +23,10 @@ const SENSITIVE_PERMISSIONS: ReadonlySet<Permission> = new Set([
   "CANCEL_VACANCY",
   "OFFERS",
   "SETTINGS",
+  // A bulk upload writes an unbounded number of rows in one action -- a
+  // materially bigger grant than editing a single row, so it is flagged even
+  // though it is not destructive.
+  "BULK_UPLOAD_SANCTIONED_STRENGTH",
 ]);
 
 function isSensitiveOrDestructive(permission: Permission): boolean {

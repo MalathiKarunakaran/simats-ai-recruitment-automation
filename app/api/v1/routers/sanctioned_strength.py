@@ -176,27 +176,87 @@ _SHARED_BULK_UPLOAD_ROLES = (
 )
 
 
-def _write_only(
-    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_SANCTIONED_STRENGTH)),
+def _can_bulk_upload(
+    current_user: User = Depends(require_permission(PermissionEnum.BULK_UPLOAD_SANCTIONED_STRENGTH)),
 ) -> User:
-    """Sanctioned Strength's write gate. Moved off
-    `require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)` on 2026-08-31: this was
-    the last master-data module still gated by a bare role tuple, which meant
-    its access could not be granted to an individual user at all -- a
-    RECRUITMENT_COORDINATOR could not be given the screen no matter what was
-    ticked on the permission matrix. Existing HR_ADMINs keep the access they
-    had via migration `e1a2b3c4d5e6`'s backfill; SUPER_ADMIN keeps it through
-    has_permission's implicit bypass.
+    """Gate for the three Sanctioned Strength bulk-upload endpoints
+    (template / validate / commit).
 
-    `SANCTIONED_STRENGTH_WRITE_ROLES` itself is deliberately NOT deleted --
-    the frontend still imports it to decide which nav/buttons to show by
-    default, and `_SHARED_BULK_UPLOAD_ROLES` below documents itself against
-    it."""
+    Deliberately its own permission rather than folding into create+edit: a
+    bulk upload writes an unbounded number of rows in one action, which is a
+    materially different grant from "may edit this one row", and it is the
+    split the Recruitment Coordinator case asked for.
+
+    `SANCTIONED_STRENGTH_WRITE_ROLES` is no longer a write gate anywhere; it
+    survives only as documentation for `_SHARED_BULK_UPLOAD_ROLES` below."""
     return current_user
 
 
 def _shared_bulk_upload_write(current_user: User = Depends(require_roles(*_SHARED_BULK_UPLOAD_ROLES))) -> User:
     return current_user
+
+
+def _holds(db: Session, user: User, permission: PermissionEnum) -> bool:
+    from app.services.permissions import has_permission
+
+    return has_permission(db, user, permission)
+
+
+def _shared_bulk_upload_actor(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """Authentication only -- authorization for the four SHARED bulk-upload
+    endpoints below is decided per request, because they serve all seven
+    entity types from this one router.
+
+    A blanket `require_permission(...SANCTIONED_STRENGTH...)` here would be
+    wrong in both directions: it would lock the existing roles out of
+    Department/Designation/Location batches, and it would let someone granted
+    a Sanctioned Strength permission read every other entity's batches too.
+    So each endpoint calls `_authorize_shared_bulk_upload` with the entity
+    type actually in play."""
+    return current_user
+
+
+def _authorize_shared_bulk_upload(
+    db: Session,
+    user: User,
+    entity_type: BulkUploadEntityTypeEnum | None,
+    *,
+    write: bool = False,
+) -> None:
+    """On a SANCTIONED_STRENGTH batch the granular permission is the ONLY
+    gate -- the role tuple is deliberately not consulted. `_SHARED_BULK_UPLOAD_ROLES`
+    contains RECRUITMENT_COORDINATOR, so accepting the role first would let
+    every coordinator read Sanctioned Strength upload history no matter what
+    the permission matrix said, which is exactly the "broad role implies the
+    module" behaviour this split exists to end.
+
+    Reading history needs VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY; undo needs
+    BULK_UPLOAD_SANCTIONED_STRENGTH, because undo MUTATES the rows a batch
+    created and must not fall out of a read permission.
+
+    Every OTHER entity type keeps the role tuple exactly as before -- these
+    four endpoints serve all seven importers, and narrowing them globally
+    would break Department/Designation/Location/... upload history for the
+    roles that have always had it.
+
+    SUPER_ADMIN passes either way (`has_permission`'s implicit bypass).
+    """
+    if entity_type == BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH:
+        needed = (
+            PermissionEnum.BULK_UPLOAD_SANCTIONED_STRENGTH
+            if write
+            else PermissionEnum.VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY
+        )
+        if _holds(db, user, needed):
+            return
+    elif user.role in _SHARED_BULK_UPLOAD_ROLES:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have permission to perform this action",
+    )
 
 
 def _read_upload_bytes(file: UploadFile) -> bytes:
@@ -220,6 +280,21 @@ def _row_to_preview(row: sanctioned_strength_import.ImportRowResult) -> BulkUplo
         effective_from=row.effective_from,
         remarks=row.remarks,
     )
+
+
+def _can_view(
+    current_user: User = Depends(require_permission(PermissionEnum.VIEW_SANCTIONED_STRENGTH)),
+) -> User:
+    """Read gate for every Sanctioned Strength view, export, availability
+    lookup and per-row history.
+
+    Was `_staff_only` (any authenticated staff member) until 2026-08-31. It is
+    a real permission now, but every role's default set and migration
+    `a2b3c4d5e6f7`'s backfill both include VIEW_SANCTIONED_STRENGTH, so no
+    existing user lost the read -- a Super Admin has to revoke it deliberately.
+    Campus and department scoping are unchanged and still applied on top by
+    each endpoint's own CampusScope/DepartmentScope dependencies."""
+    return current_user
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -271,7 +346,7 @@ def list_teaching_strength_view(
     row_status: str | None = Query(None, alias="status"),
     vacancy: int | None = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_staff_only),
+    current_user: User = Depends(_can_view),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> TeachingStrengthListResponse:
@@ -355,7 +430,7 @@ def list_non_teaching_strength_view(
     row_status: str | None = Query(None, alias="status"),
     vacancy: int | None = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_staff_only),
+    current_user: User = Depends(_can_view),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> NonTeachingStrengthListResponse:
@@ -443,7 +518,7 @@ def list_housekeeping_strength_view(
     row_status: str | None = Query(None, alias="status"),
     vacancy: int | None = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_staff_only),
+    current_user: User = Depends(_can_view),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> HousekeepingStrengthListResponse:
@@ -544,7 +619,7 @@ def export_strength_view(
     row_status: str | None = Query(None, alias="status"),
     vacancy: int | None = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_staff_only),
+    current_user: User = Depends(_can_view),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> StreamingResponse:
@@ -636,7 +711,7 @@ def get_sanctioned_strength_availability(
     department_id: uuid.UUID = Query(...),
     designation_id: uuid.UUID = Query(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_staff_only),
+    current_user: User = Depends(_can_view),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> dict:
@@ -669,10 +744,21 @@ def create_sanctioned_strength(
     payload: SanctionedStrengthCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_SANCTIONED_STRENGTH)),
+    current_user: User = Depends(require_permission(PermissionEnum.CREATE_SANCTIONED_STRENGTH)),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> SanctionedStrength:
     if db.get(Campus, payload.campus_id) is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown campus_id")
+    # Scope check added 2026-08-31 with CREATE_SANCTIONED_STRENGTH. This
+    # endpoint had NO campus/department enforcement -- harmless while only
+    # SUPER_ADMIN and HR_ADMIN could reach it, since both are
+    # GLOBAL_SCOPE_ROLES, but a real cross-campus write the moment a
+    # campus-scoped Recruitment Coordinator can be granted create. Update and
+    # delete already enforced this through `_get_or_404_scoped`; create was
+    # the gap, because there is no existing row to scope-check against.
+    enforce_campus_match(scope, payload.campus_id)
+    enforce_department_match(scope_dept, payload.department_id)
     department = db.get(Department, payload.department_id)
     if department is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown department_id")
@@ -749,7 +835,7 @@ def update_sanctioned_strength(
     payload: SanctionedStrengthUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_SANCTIONED_STRENGTH)),
+    current_user: User = Depends(require_permission(PermissionEnum.EDIT_SANCTIONED_STRENGTH)),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> SanctionedStrength:
@@ -809,7 +895,7 @@ def delete_sanctioned_strength(
     sanctioned_strength_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_SANCTIONED_STRENGTH)),
+    current_user: User = Depends(require_permission(PermissionEnum.DELETE_SANCTIONED_STRENGTH)),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> None:
@@ -857,7 +943,7 @@ def list_sanctioned_strength_history(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_staff_only),
+    current_user: User = Depends(_can_view),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> PaginatedResponse[SanctionedStrengthHistoryRead]:
@@ -885,7 +971,7 @@ def list_sanctioned_strength_history(
 @router.get("/bulk-upload/template")
 def download_bulk_upload_template(
     db: Session = Depends(get_db),
-    current_user: User = Depends(_write_only),
+    current_user: User = Depends(_can_bulk_upload),
 ) -> StreamingResponse:
     """Live-generated on every request (unlike migration.py's static
     tracker-template FileResponse) so the "Master Lists" sheet always
@@ -904,7 +990,7 @@ def download_bulk_upload_template(
 def validate_bulk_upload(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_write_only),
+    current_user: User = Depends(_can_bulk_upload),
 ) -> BulkUploadValidationResponse:
     """Parses+validates every row **without writing anything to the DB** --
     a pure preview. No server-side caching of the parsed rows between this
@@ -930,7 +1016,7 @@ def commit_bulk_upload(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     minio_client: Minio = Depends(get_minio_client),
-    current_user: User = Depends(_write_only),
+    current_user: User = Depends(_can_bulk_upload),
 ) -> BulkUploadCommitResponse:
     """Re-validates the re-uploaded file defensively (never trusts a stale
     client-held preview -- see `validate_rows`), then applies every non-
@@ -1043,17 +1129,37 @@ def list_bulk_uploads(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_shared_bulk_upload_write),
+    current_user: User = Depends(_shared_bulk_upload_actor),
 ) -> PaginatedResponse[BulkUploadLogRead]:
     """Not campus-scoped -- a single upload batch can span rows across
     multiple campuses, so there is no single `campus_id` to gate on (unlike
     the single-resource SanctionedStrength endpoints above). `entity_type`
     (Phase J) is an optional filter, additive same as every other list-filter
     added this epic -- omitting it returns every batch regardless of which
-    entity it imported."""
+    entity it imported.
+
+    Authorization is per entity type (see `_authorize_shared_bulk_upload`). A
+    caller who holds only VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY and is not
+    in the role tuple is PINNED to SANCTIONED_STRENGTH: an unfiltered request
+    from them is narrowed rather than refused, so the Sanctioned Strength
+    page's own Upload History tab works while every other entity's batches
+    stay invisible to them."""
+    if entity_type is None and current_user.role not in _SHARED_BULK_UPLOAD_ROLES:
+        # Not in the role tuple at all: the only batches they can possibly be
+        # entitled to are Sanctioned Strength ones, so narrow rather than
+        # refuse -- the page's own Upload History tab still works.
+        entity_type = BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH
+    _authorize_shared_bulk_upload(db, current_user, entity_type)
+
     query = db.query(BulkUploadLog)
     if entity_type is not None:
         query = query.filter(BulkUploadLog.entity_type == entity_type)
+    elif not _holds(db, current_user, PermissionEnum.VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY):
+        # An UNFILTERED list from someone allowed here by role but lacking the
+        # Sanctioned Strength history permission must not leak those batches
+        # in among the others -- otherwise dropping the filter is a trivial
+        # way around the gate above.
+        query = query.filter(BulkUploadLog.entity_type != BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH)
     query = query.order_by(BulkUploadLog.uploaded_at.desc())
     total = query.count()
     items = query.offset(offset).limit(limit).all()
@@ -1094,7 +1200,7 @@ def download_bulk_upload_error_report(
     bulk_upload_log_id: uuid.UUID,
     db: Session = Depends(get_db),
     minio_client: Minio = Depends(get_minio_client),
-    current_user: User = Depends(_shared_bulk_upload_write),
+    current_user: User = Depends(_shared_bulk_upload_actor),
 ) -> StreamingResponse:
     """Re-downloads the original file from MinIO and re-runs `validate_rows`
     against *current* DB state (rather than caching the original per-row
@@ -1110,6 +1216,7 @@ def download_bulk_upload_error_report(
     endpoint.
     """
     log = _get_bulk_upload_log_or_404(db, bulk_upload_log_id)
+    _authorize_shared_bulk_upload(db, current_user, log.entity_type)
     if log.stored_file_object_key is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Original file not available")
 
@@ -1133,11 +1240,12 @@ def download_bulk_upload_original_file(
     bulk_upload_log_id: uuid.UUID,
     db: Session = Depends(get_db),
     minio_client: Minio = Depends(get_minio_client),
-    current_user: User = Depends(_shared_bulk_upload_write),
+    current_user: User = Depends(_shared_bulk_upload_actor),
 ) -> StreamingResponse:
     """Proxied download, same shape as candidates.py's resume download --
     never a presigned URL (see app/services/storage.py)."""
     log = _get_bulk_upload_log_or_404(db, bulk_upload_log_id)
+    _authorize_shared_bulk_upload(db, current_user, log.entity_type)
     if log.stored_file_object_key is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Original file not available")
 
@@ -1367,7 +1475,7 @@ def undo_bulk_upload(
     bulk_upload_log_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_shared_bulk_upload_write),
+    current_user: User = Depends(_shared_bulk_upload_actor),
 ) -> BulkUploadUndoResponse:
     """Only within the stored 24h `undo_deadline`. Dispatches on
     `log.entity_type` (Phase J): SANCTIONED_STRENGTH keeps its pre-existing
@@ -1377,6 +1485,10 @@ def undo_bulk_upload(
     that function's own docstring for why.
     """
     log = _get_bulk_upload_log_or_404(db, bulk_upload_log_id)
+    # write=True: undo MUTATES the rows a batch created, so on a Sanctioned
+    # Strength batch it takes BULK_UPLOAD_SANCTIONED_STRENGTH -- the
+    # history-view permission alone must not be able to revert an import.
+    _authorize_shared_bulk_upload(db, current_user, log.entity_type, write=True)
     if log.status == BulkUploadStatusEnum.UNDONE:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This upload has already been undone")
 

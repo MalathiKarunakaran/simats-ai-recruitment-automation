@@ -811,82 +811,324 @@ def _strength_setup(campus_factory, department_factory, designation_factory, db_
     return campus, department, designation
 
 
-def test_create_sanctioned_strength_requires_manage_sanctioned_strength_permission(
+def _create_row(client, actor, campus, department, designation):
+    return client.post(
+        "/api/v1/sanctioned-strength",
+        json=_strength_payload(campus, department, designation),
+        headers=auth_headers(client, actor),
+    )
+
+
+def test_each_sanctioned_strength_verb_needs_its_own_permission(
     client, campus_factory, department_factory, designation_factory, user_factory, grant_permission, db_session
 ):
+    """The whole point of splitting MANAGE_SANCTIONED_STRENGTH into six: a
+    user granted EDIT can edit and nothing else."""
     campus, department, designation = _strength_setup(
         campus_factory, department_factory, designation_factory, db_session
     )
-    mgmt = user_factory(UserRoleEnum.MANAGEMENT)
-
-    denied = client.post(
-        "/api/v1/sanctioned-strength",
-        json=_strength_payload(campus, department, designation),
-        headers=auth_headers(client, mgmt),
-    )
-    assert denied.status_code == 403
-
-    grant_permission(mgmt, PermissionEnum.MANAGE_SANCTIONED_STRENGTH)
-    allowed = client.post(
-        "/api/v1/sanctioned-strength",
-        json=_strength_payload(campus, department, designation),
-        headers=auth_headers(client, mgmt),
-    )
-    assert allowed.status_code == 201, allowed.text
-
     admin = user_factory(UserRoleEnum.SUPER_ADMIN)
-    campus2, department2, designation2 = _strength_setup(
-        campus_factory, department_factory, designation_factory, db_session
+    row_id = _create_row(client, admin, campus, department, designation).json()["id"]
+
+    # VIEW arrives with every role's defaults (see DEFAULT_PERMISSIONS_BY_ROLE);
+    # only EDIT is granted individually here.
+    mgmt = user_factory(UserRoleEnum.MANAGEMENT)
+    grant_permission(mgmt, PermissionEnum.EDIT_SANCTIONED_STRENGTH)
+    headers = auth_headers(client, mgmt)
+
+    # EDIT granted -> the edit succeeds.
+    edited = client.patch(
+        f"/api/v1/sanctioned-strength/{row_id}", json={"approved_strength": 9}, headers=headers
     )
-    admin_ok = client.post(
-        "/api/v1/sanctioned-strength",
-        json=_strength_payload(campus2, department2, designation2),
-        headers=auth_headers(client, admin),
-    )
-    assert admin_ok.status_code == 201, admin_ok.text
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["approved_strength"] == 9
+
+    # ...and nothing else is unlocked by it.
+    assert _create_row(client, mgmt, campus, department, designation).status_code == 403
+    assert client.delete(f"/api/v1/sanctioned-strength/{row_id}", headers=headers).status_code == 403
+    assert client.get("/api/v1/sanctioned-strength/bulk-upload/template", headers=headers).status_code == 403
 
 
-def test_a_recruitment_coordinator_can_be_granted_sanctioned_strength(
+def test_edit_permission_revoked_closes_the_edit_again(
     client, campus_factory, department_factory, designation_factory, user_factory, grant_permission, db_session
 ):
-    """The case that prompted the change: before it, there was no permission
-    to tick, and a coordinator was refused by a role tuple they could never
-    be added to without changing code."""
     campus, department, designation = _strength_setup(
         campus_factory, department_factory, designation_factory, db_session
     )
-    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    row_id = _create_row(client, admin, campus, department, designation).json()["id"]
 
-    denied = client.post(
-        "/api/v1/sanctioned-strength",
-        json=_strength_payload(campus, department, designation),
-        headers=auth_headers(client, coordinator),
+    # Holds VIEW by role default, but was never granted EDIT.
+    mgmt = user_factory(UserRoleEnum.MANAGEMENT)
+    denied = client.patch(
+        f"/api/v1/sanctioned-strength/{row_id}",
+        json={"approved_strength": 4},
+        headers=auth_headers(client, mgmt),
     )
     assert denied.status_code == 403
 
-    grant_permission(coordinator, PermissionEnum.MANAGE_SANCTIONED_STRENGTH)
-    allowed = client.post(
-        "/api/v1/sanctioned-strength",
-        json=_strength_payload(campus, department, designation),
-        headers=auth_headers(client, coordinator),
-    )
-    assert allowed.status_code == 201, allowed.text
+
+def test_view_permission_gates_the_read_endpoints(
+    client, user_factory, grant_permission, db_session
+):
+    """Reads were open to any staff member before 2026-08-31. They are a real
+    permission now -- but every role's default set includes it, so this test
+    has to build a user who has been deliberately stripped of it."""
+    from app.models.user_permission_grant import UserPermissionGrant
+
+    mgmt = user_factory(UserRoleEnum.MANAGEMENT)
+    assert client.get("/api/v1/sanctioned-strength/views/teaching", headers=auth_headers(client, mgmt)).status_code == 200
+
+    db_session.query(UserPermissionGrant).filter(
+        UserPermissionGrant.user_id == mgmt.id,
+        UserPermissionGrant.permission == PermissionEnum.VIEW_SANCTIONED_STRENGTH,
+    ).delete()
+    db_session.commit()
+
+    revoked = client.get("/api/v1/sanctioned-strength/views/teaching", headers=auth_headers(client, mgmt))
+    assert revoked.status_code == 403
 
 
-def test_hr_admin_keeps_sanctioned_strength_through_the_role_default(
+def test_every_role_can_still_view_sanctioned_strength_by_default(client, user_factory):
+    """The regression the VIEW backfill exists to prevent -- gating a
+    previously staff-wide read must not revoke it from the organization."""
+    for role in (
+        UserRoleEnum.HR_ADMIN,
+        UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT,
+        UserRoleEnum.RECRUITMENT_OFFICER,
+        UserRoleEnum.RECRUITMENT_COORDINATOR,
+        UserRoleEnum.CAMPUS_HOD,
+        UserRoleEnum.INTERVIEW_PANEL_MEMBER,
+        UserRoleEnum.MANAGEMENT,
+    ):
+        user = user_factory(role)
+        response = client.get(
+            "/api/v1/sanctioned-strength/views/teaching", headers=auth_headers(client, user)
+        )
+        assert response.status_code == 200, f"{role.value} lost the read: {response.text}"
+
+
+def test_super_admin_keeps_full_access_without_any_grant_rows(
     client, campus_factory, department_factory, designation_factory, user_factory, db_session
 ):
-    """The regression the migration backfill exists to prevent: HR_ADMIN held
-    this access through SANCTIONED_STRENGTH_WRITE_ROLES and must keep it now
-    that the gate reads a grant row instead."""
+    """SUPER_ADMIN is an implicit bypass in has_permission and carries no
+    grant rows at all -- splitting the permission must not change that."""
+    campus, department, designation = _strength_setup(
+        campus_factory, department_factory, designation_factory, db_session
+    )
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    headers = auth_headers(client, admin)
+
+    created = _create_row(client, admin, campus, department, designation)
+    assert created.status_code == 201, created.text
+    row_id = created.json()["id"]
+
+    assert client.get("/api/v1/sanctioned-strength/views/teaching", headers=headers).status_code == 200
+    assert client.patch(
+        f"/api/v1/sanctioned-strength/{row_id}", json={"approved_strength": 3}, headers=headers
+    ).status_code == 200
+    assert client.get("/api/v1/sanctioned-strength/bulk-upload/template", headers=headers).status_code == 200
+    assert client.delete(f"/api/v1/sanctioned-strength/{row_id}", headers=headers).status_code == 204
+
+
+def test_hr_admin_keeps_full_sanctioned_strength_through_its_role_defaults(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    """HR_ADMIN held the single MANAGE_SANCTIONED_STRENGTH the six replaced.
+    Splitting it must not quietly narrow the role."""
     campus, department, designation = _strength_setup(
         campus_factory, department_factory, designation_factory, db_session
     )
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    headers = auth_headers(client, hr_admin)
 
-    response = client.post(
+    created = _create_row(client, hr_admin, campus, department, designation)
+    assert created.status_code == 201, created.text
+    row_id = created.json()["id"]
+
+    assert client.patch(
+        f"/api/v1/sanctioned-strength/{row_id}", json={"approved_strength": 7}, headers=headers
+    ).status_code == 200
+    assert client.get("/api/v1/sanctioned-strength/bulk-upload/template", headers=headers).status_code == 200
+    assert client.delete(f"/api/v1/sanctioned-strength/{row_id}", headers=headers).status_code == 204
+
+
+def test_create_still_obeys_a_campus_scoped_callers_scope(
+    client, campus_factory, department_factory, designation_factory, user_factory, grant_permission, db_session
+):
+    """Create had NO campus enforcement -- harmless while only SUPER_ADMIN and
+    HR_ADMIN (both GLOBAL_SCOPE_ROLES) could reach it, a real cross-campus
+    write once any campus-scoped role can hold CREATE_SANCTIONED_STRENGTH.
+    404 rather than 403 is this codebase's cross-campus convention: an
+    unauthorized caller must not learn the resource exists.
+
+    Uses CAMPUS_HOD deliberately. RECRUITMENT_COORDINATOR is in
+    GLOBAL_SCOPE_ROLES (see app/models/enums.py) and so is NOT campus-scoped
+    at all -- department scope is the only narrowing that applies to it, which
+    the next test covers.
+    """
+    from app.models.enums import StaffRoleCategoryEnum
+
+    campus_factory("SSE")
+    other_campus = campus_factory("SCAD")
+    department = department_factory("SCAD", name=f"Scoped Dept {__import__('uuid').uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    db_session.flush()
+
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    grant_permission(hod, PermissionEnum.CREATE_SANCTIONED_STRENGTH)
+
+    blocked = client.post(
         "/api/v1/sanctioned-strength",
-        json=_strength_payload(campus, department, designation),
-        headers=auth_headers(client, hr_admin),
+        json=_strength_payload(other_campus, department, designation),
+        headers=auth_headers(client, hod),
     )
-    assert response.status_code == 201, response.text
+    assert blocked.status_code == 404, blocked.text
+
+
+def test_department_scope_still_narrows_a_coordinator(
+    client,
+    campus_factory,
+    department_factory,
+    designation_factory,
+    user_factory,
+    grant_permission,
+    department_scope_factory,
+    db_session,
+):
+    """Granting EDIT must not widen what a coordinator can reach. Department
+    scope is the narrowing mechanism that applies to GLOBAL_SCOPE_ROLES, and
+    it is AND-combined with the permission, never replaced by it."""
+    from app.models.enums import StaffRoleCategoryEnum
+
+    campus = campus_factory("SSE")
+    allowed_dept = department_factory("SSE", name=f"Allowed {__import__('uuid').uuid4().hex[:6]}")
+    other_dept = department_factory("SSE", name=f"Other {__import__('uuid').uuid4().hex[:6]}")
+    for dept in (allowed_dept, other_dept):
+        dept.supported_categories = [StaffRoleCategoryEnum.TEACHING]
+    allowed_designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=allowed_dept)
+    other_designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=other_dept)
+    db_session.flush()
+
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    in_scope_id = _create_row(client, admin, campus, allowed_dept, allowed_designation).json()["id"]
+    out_of_scope_id = _create_row(client, admin, campus, other_dept, other_designation).json()["id"]
+
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+    grant_permission(coordinator, PermissionEnum.EDIT_SANCTIONED_STRENGTH)
+    department_scope_factory(coordinator, allowed_dept)
+    db_session.commit()
+    headers = auth_headers(client, coordinator)
+
+    inside = client.patch(
+        f"/api/v1/sanctioned-strength/{in_scope_id}", json={"approved_strength": 6}, headers=headers
+    )
+    assert inside.status_code == 200, inside.text
+
+    outside = client.patch(
+        f"/api/v1/sanctioned-strength/{out_of_scope_id}", json={"approved_strength": 6}, headers=headers
+    )
+    assert outside.status_code == 404, outside.text
+
+
+def test_a_coordinator_granted_view_and_edit_can_do_exactly_that(
+    client, campus_factory, department_factory, designation_factory, user_factory, grant_permission, db_session
+):
+    """The exact scenario this change was asked for."""
+    campus, department, designation = _strength_setup(
+        campus_factory, department_factory, designation_factory, db_session
+    )
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    row_id = _create_row(client, admin, campus, department, designation).json()["id"]
+
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+    grant_permission(coordinator, PermissionEnum.EDIT_SANCTIONED_STRENGTH)
+    headers = auth_headers(client, coordinator)
+
+    # 1-2. can open and read
+    assert client.get("/api/v1/sanctioned-strength/views/teaching", headers=headers).status_code == 200
+    # 3-5. can edit and save
+    saved = client.patch(
+        f"/api/v1/sanctioned-strength/{row_id}", json={"approved_strength": 12}, headers=headers
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["approved_strength"] == 12
+    # 6-8. and nothing more
+    assert _create_row(client, coordinator, campus, department, designation).status_code == 403
+    assert client.get("/api/v1/sanctioned-strength/bulk-upload/template", headers=headers).status_code == 403
+    assert client.delete(f"/api/v1/sanctioned-strength/{row_id}", headers=headers).status_code == 403
+
+
+# --- the shared bulk-upload endpoints, which serve all seven importers --------
+
+
+def test_sanctioned_strength_upload_history_needs_the_permission_not_the_role(
+    client, user_factory, grant_permission
+):
+    """`_SHARED_BULK_UPLOAD_ROLES` contains RECRUITMENT_COORDINATOR, so before
+    2026-08-31 every coordinator could read Sanctioned Strength upload history
+    by role alone. That is exactly the "broad role implies the module"
+    behaviour the split exists to end, so the permission is now the only gate
+    for this entity."""
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    url = "/api/v1/sanctioned-strength/bulk-uploads?entity_type=SANCTIONED_STRENGTH"
+
+    assert client.get(url, headers=auth_headers(client, coordinator)).status_code == 403
+
+    grant_permission(coordinator, PermissionEnum.VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY)
+    assert client.get(url, headers=auth_headers(client, coordinator)).status_code == 200
+
+
+def test_other_entities_upload_history_still_works_by_role(client, user_factory):
+    """The same four endpoints serve Department/Designation/Location/... --
+    narrowing them globally would have broken every other module's history."""
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    response = client.get(
+        "/api/v1/sanctioned-strength/bulk-uploads?entity_type=LOCATION",
+        headers=auth_headers(client, coordinator),
+    )
+    assert response.status_code == 200
+
+
+def test_an_unfiltered_list_hides_sanctioned_strength_from_someone_without_the_permission(
+    client, user_factory, campus_factory, department_factory, designation_factory, db_session
+):
+    """Dropping the entity_type filter must not be a way around the gate."""
+    from app.models.bulk_upload_log import BulkUploadLog
+    from app.models.enums import BulkUploadEntityTypeEnum, BulkUploadStatusEnum
+    from datetime import datetime, timedelta, timezone
+
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    db_session.add(
+        BulkUploadLog(
+            filename="ss.xlsx",
+            entity_type=BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH,
+            uploaded_by_id=admin.id,
+            rows_total=1,
+            rows_created=1,
+            rows_updated=0,
+            rows_rejected=0,
+            status=BulkUploadStatusEnum.COMPLETED,
+            undo_deadline=datetime.now(timezone.utc) + timedelta(hours=24),
+        )
+    )
+    db_session.commit()
+
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    body = client.get(
+        "/api/v1/sanctioned-strength/bulk-uploads?limit=100", headers=auth_headers(client, coordinator)
+    ).json()
+    assert all(item["entity_type"] != "SANCTIONED_STRENGTH" for item in body["items"])
+
+
+def test_recruitment_officer_keeps_the_upload_history_it_had_by_role(client, user_factory):
+    """RECRUITMENT_OFFICER also reached this through the role tuple. It is in
+    that role's defaults now so the split does not silently revoke it --
+    unlike RECRUITMENT_COORDINATOR, deliberately."""
+    officer = user_factory(UserRoleEnum.RECRUITMENT_OFFICER)
+    response = client.get(
+        "/api/v1/sanctioned-strength/bulk-uploads?entity_type=SANCTIONED_STRENGTH",
+        headers=auth_headers(client, officer),
+    )
+    assert response.status_code == 200
