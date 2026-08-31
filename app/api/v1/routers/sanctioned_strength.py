@@ -128,6 +128,7 @@ from app.services import (
     location_import,
     sanctioned_strength_import,
     storage,
+    vacancy_request_import,
 )
 from app.services import sanctioned_strength_views
 from app.services.audit import log_create, log_delete, log_event, log_update
@@ -1052,7 +1053,8 @@ def _get_bulk_upload_log_or_404(db: Session, bulk_upload_log_id: uuid.UUID) -> B
 def _import_module_for(entity_type: BulkUploadEntityTypeEnum):
     """The plain `if/elif` dispatch on `entity_type` the 4 shared endpoints
     below use, matching this codebase's own preference for explicit code
-    over indirection at this scale (4 known values, not a registry)."""
+    over indirection at this scale (a handful of known values, not a
+    registry)."""
     if entity_type == BulkUploadEntityTypeEnum.SANCTIONED_STRENGTH:
         return sanctioned_strength_import
     if entity_type == BulkUploadEntityTypeEnum.LOCATION:
@@ -1065,6 +1067,8 @@ def _import_module_for(entity_type: BulkUploadEntityTypeEnum):
         return eligibility_rule_import
     if entity_type == BulkUploadEntityTypeEnum.DESIGNATION:
         return designation_import
+    if entity_type == BulkUploadEntityTypeEnum.VACANCY_REQUEST:
+        return vacancy_request_import
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unknown bulk upload entity type")
 
 
@@ -1084,8 +1088,9 @@ def download_bulk_upload_error_report(
     renamed) -- an accepted, documented edge case, not a bug.
 
     Phase J -- dispatches to the right service module via `log.entity_type`
-    (`_import_module_for`) so this one endpoint serves all 3 entity types'
-    error reports.
+    (`_import_module_for`) so this one endpoint serves every entity type's
+    error report -- VACANCY_REQUEST included, whose dialog reuses this same
+    endpoint.
     """
     log = _get_bulk_upload_log_or_404(db, bulk_upload_log_id)
     if log.stored_file_object_key is None:

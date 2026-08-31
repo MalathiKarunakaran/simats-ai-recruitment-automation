@@ -463,3 +463,40 @@ def test_a_rejected_row_still_echoes_back_the_requester_it_was_given(client, bul
 
     assert body["rejected_count"] == 1
     assert body["rows"][0]["requester_name"] == "Named Referrer"
+
+
+def test_error_report_for_a_vacancy_request_batch(client, bulk_setup):
+    """The dialog's "Download error report" button reuses the SHARED endpoint
+    on the sanctioned-strength router, whose `_import_module_for` dispatch had
+    no VACANCY_REQUEST branch and so answered 500 for these batches. Pinned
+    here because that button is the only caller.
+    """
+    from openpyxl import load_workbook
+
+    campus, department, designation, actor = bulk_setup
+    log_id = _upload(
+        client,
+        actor,
+        COMMIT,
+        [
+            ("SSE", department.name, designation.name, 1, "NORMAL", "", "Good row", "", "", ""),
+            ("ZZZ", department.name, designation.name, 1, "NORMAL", "", "Bad campus", "Named Referrer", "", ""),
+        ],
+        HEADERS_WITH_REQUESTER,
+    ).json()["bulk_upload_log_id"]
+
+    response = client.get(
+        f"/api/v1/sanctioned-strength/bulk-upload/{log_id}/error-report",
+        headers=auth_headers(client, actor),
+    )
+    assert response.status_code == 200, response.text
+
+    ws = load_workbook(io.BytesIO(response.content)).active
+    assert tuple(cell.value for cell in ws[1]) == ("Row", *HEADERS_WITH_REQUESTER, "Error Reason")
+    rejected = [row for row in ws.iter_rows(min_row=2, values_only=True) if any(cell is not None for cell in row)]
+    assert len(rejected) == 1
+    # Requester columns land under their own headings, and the reason stays in
+    # the LAST column -- the pairing the report writer's strict zip enforces.
+    assert rejected[0][1] == "ZZZ"
+    assert rejected[0][8] == "Named Referrer"
+    assert "campus" in rejected[0][-1].lower()
