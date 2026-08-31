@@ -26,6 +26,9 @@ function row(overrides = {}) {
     priority: "NORMAL",
     required_by: null,
     justification: "Growth",
+    requester_name: null,
+    requester_email: null,
+    requester_mobile: null,
     ...overrides,
   };
 }
@@ -78,6 +81,30 @@ describe("VacancyRequestBulkUploadDialog", () => {
     expect(screen.getByText("Assistant Professor")).toBeInTheDocument();
     // Validate is a preview -- nothing is written until Commit is pressed.
     expect(mockedCommit).not.toHaveBeenCalled();
+  });
+
+  it("shows the referrer a row names, falling back through the three optional cells", async () => {
+    mockedValidate.mockResolvedValue(
+      validation({
+        total: 3,
+        created_count: 3,
+        rows: [
+          row({ row_number: 2, requester_name: "Dr Referrer", requester_email: "r@simats.ac.in" }),
+          // Only a mobile: keying the column off the name alone would render
+          // this as "no requester", which is wrong -- the backend accepts
+          // each of the three independently.
+          row({ row_number: 3, requester_mobile: "+91 90000 00000" }),
+          row({ row_number: 4 }),
+        ],
+      }) as never,
+    );
+    renderDialog();
+
+    await openAndUpload();
+    await screen.findByText(/3 created/);
+
+    expect(screen.getByText("Dr Referrer")).toBeInTheDocument();
+    expect(screen.getByText("+91 90000 00000")).toBeInTheDocument();
   });
 
   it("never offers Updated or Unchanged filters, which this importer cannot produce", async () => {

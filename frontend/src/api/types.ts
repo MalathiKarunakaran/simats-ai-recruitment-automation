@@ -2277,6 +2277,11 @@ export interface VacancyRequestBulkUploadRowPreview {
   priority: string | null;
   required_by: string | null;
   justification: string | null;
+  /** Optional referrer details -- who the uploader raised the row on behalf
+   *  of. Echoed back on rejected rows too. */
+  requester_name: string | null;
+  requester_email: string | null;
+  requester_mobile: string | null;
 }
 
 export interface VacancyRequestBulkUploadValidationResponse {

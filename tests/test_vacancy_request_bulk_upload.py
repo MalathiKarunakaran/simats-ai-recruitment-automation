@@ -48,11 +48,22 @@ HEADERS = (
     "Justification",
 )
 
+# The current template. HEADERS above is deliberately left as the ORIGINAL
+# seven columns and every pre-existing test still uses it -- that is the
+# backward-compatibility check: a workbook downloaded before the referrer
+# columns existed must still import.
+HEADERS_WITH_REQUESTER = (
+    *HEADERS,
+    "Requester Name",
+    "Requester Email",
+    "Requester Mobile",
+)
 
-def _workbook(rows: list[tuple]) -> bytes:
+
+def _workbook(rows: list[tuple], headers: tuple = HEADERS) -> bytes:
     wb = Workbook()
     ws = wb.active
-    ws.append(HEADERS)
+    ws.append(headers)
     for row in rows:
         ws.append(row)
     buf = io.BytesIO()
@@ -60,14 +71,14 @@ def _workbook(rows: list[tuple]) -> bytes:
     return buf.getvalue()
 
 
-def _upload(client, actor, url, rows):
+def _upload(client, actor, url, rows, headers: tuple = HEADERS):
     return client.post(
         url,
         headers=auth_headers(client, actor),
         files={
             "file": (
                 "vacancy_requests.xlsx",
-                _workbook(rows),
+                _workbook(rows, headers),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         },
@@ -322,3 +333,133 @@ def test_undo_leaves_a_request_that_has_already_moved_on(client, bulk_setup, db_
     assert body["not_reverted_count"] == 1
     db_session.refresh(moved_on)
     assert moved_on.status == VacancyRequestStatusEnum.SUBMITTED
+
+
+# --- referrer details ---------------------------------------------------------
+#
+# Optional columns appended to the template so an uploader can say who they are
+# raising a row ON BEHALF OF. They fill the same
+# `requester_name`/`_email`/`_mobile` columns the public QR intake writes;
+# `requested_by_id` stays the uploader either way.
+
+
+def test_template_carries_the_requester_columns(client, bulk_setup):
+    from openpyxl import load_workbook
+
+    _c, _d, _des, actor = bulk_setup
+    response = client.get(TEMPLATE, headers=auth_headers(client, actor))
+
+    ws = load_workbook(io.BytesIO(response.content))["Vacancy Requests"]
+    header_row = tuple(cell.value for cell in ws[1])
+    assert header_row == HEADERS_WITH_REQUESTER
+
+
+def test_a_seven_column_workbook_still_imports(client, bulk_setup, db_session):
+    """The template that was downloadable before these columns existed. Cells
+    are keyed by header name, so the three new keys are simply absent."""
+    campus, department, designation, actor = bulk_setup
+
+    body = _upload(
+        client, actor, COMMIT, [("SSE", department.name, designation.name, 1, "NORMAL", "", "Old template")]
+    ).json()
+
+    assert body["created_count"] == 1
+    vr = db_session.query(VacancyRequest).filter(VacancyRequest.remarks == "Old template").one()
+    assert vr.requester_name is None
+    assert vr.requester_email is None
+    assert vr.requester_mobile is None
+
+
+def test_commit_records_the_referrer_without_reassigning_the_row(client, bulk_setup, db_session):
+    campus, department, designation, actor = bulk_setup
+
+    response = _upload(
+        client,
+        actor,
+        COMMIT,
+        [
+            (
+                "SSE",
+                department.name,
+                designation.name,
+                1,
+                "NORMAL",
+                "",
+                "Referred vacancy",
+                "Dr Referrer",
+                "referrer@simats.ac.in",
+                "+91 90000 00000",
+            )
+        ],
+        HEADERS_WITH_REQUESTER,
+    )
+    assert response.status_code == 200, response.text
+
+    vr = db_session.query(VacancyRequest).filter(VacancyRequest.remarks == "Referred vacancy").one()
+    assert vr.requester_name == "Dr Referrer"
+    assert vr.requester_email == "referrer@simats.ac.in"
+    assert vr.requester_mobile == "+91 90000 00000"
+    # Ownership does NOT move: requested_by_id is NOT NULL and five
+    # notification sites dereference `.requested_by`.
+    assert vr.requested_by_id == actor.id
+
+
+def test_each_requester_column_is_independently_optional(client, bulk_setup, db_session):
+    """A staff member may only have a name and a mobile for the person who
+    referred the vacancy. Rejecting the row would throw away the detail they
+    do have."""
+    campus, department, designation, actor = bulk_setup
+
+    body = _upload(
+        client,
+        actor,
+        COMMIT,
+        [("SSE", department.name, designation.name, 1, "NORMAL", "", "Partial", "Only A Name", "", "")],
+        HEADERS_WITH_REQUESTER,
+    ).json()
+
+    assert body["created_count"] == 1
+    vr = db_session.query(VacancyRequest).filter(VacancyRequest.remarks == "Partial").one()
+    assert vr.requester_name == "Only A Name"
+    assert vr.requester_email is None
+    assert vr.requester_mobile is None
+
+
+@pytest.mark.parametrize(
+    "name, email, mobile, fragment",
+    [
+        ("A", "", "", "requester name"),
+        ("", "not-an-email", "", "email"),
+        ("", "", "call me", "mobile"),
+    ],
+)
+def test_rejects_unreadable_requester_details(client, bulk_setup, name, email, mobile, fragment):
+    campus, department, designation, actor = bulk_setup
+
+    body = _upload(
+        client,
+        actor,
+        VALIDATE,
+        [("SSE", department.name, designation.name, 1, "NORMAL", "", "x", name, email, mobile)],
+        HEADERS_WITH_REQUESTER,
+    ).json()
+
+    assert body["rejected_count"] == 1
+    assert fragment in body["rows"][0]["error_reason"].lower()
+
+
+def test_a_rejected_row_still_echoes_back_the_requester_it_was_given(client, bulk_setup):
+    """So the preview table and the error report show what was typed rather
+    than blanking it next to the reason it failed."""
+    campus, department, designation, actor = bulk_setup
+
+    body = _upload(
+        client,
+        actor,
+        VALIDATE,
+        [("XXX", department.name, designation.name, 1, "NORMAL", "", "x", "Named Referrer", "", "")],
+        HEADERS_WITH_REQUESTER,
+    ).json()
+
+    assert body["rejected_count"] == 1
+    assert body["rows"][0]["requester_name"] == "Named Referrer"

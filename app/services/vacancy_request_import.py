@@ -37,6 +37,7 @@ Validation mirrors the authenticated create path, including the
 """
 
 import io
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -70,6 +71,15 @@ COUNT_HEADER = "Number of Positions"
 PRIORITY_HEADER = "Priority"
 REQUIRED_BY_HEADER = "Required By (DD-MM-YYYY)"
 JUSTIFICATION_HEADER = "Justification"
+# Referrer details. Optional, and APPENDED to the end of TEMPLATE_HEADERS on
+# purpose: `parse_rows` keys cells by header name, so a workbook downloaded
+# from the older seven-column template still parses -- the three new keys are
+# simply absent and read as blank. Prepending or interleaving them would have
+# been just as correct for a fresh download and would have silently broken
+# every template already sitting on someone's disk.
+REQUESTER_NAME_HEADER = "Requester Name"
+REQUESTER_EMAIL_HEADER = "Requester Email"
+REQUESTER_MOBILE_HEADER = "Requester Mobile"
 
 TEMPLATE_HEADERS = (
     CAMPUS_HEADER,
@@ -79,14 +89,31 @@ TEMPLATE_HEADERS = (
     PRIORITY_HEADER,
     REQUIRED_BY_HEADER,
     JUSTIFICATION_HEADER,
+    REQUESTER_NAME_HEADER,
+    REQUESTER_EMAIL_HEADER,
+    REQUESTER_MOBILE_HEADER,
 )
 
 # Same functional backstop every other importer uses: "XXX" is never a real
 # campus code, so a forgotten example row always comes back rejected rather
 # than silently importing as a real vacancy request.
+# The second row deliberately leaves all three requester cells blank: they are
+# optional, and an example where every column is filled reads as though they
+# are not.
 _EXAMPLE_ROWS = (
-    ("XXX", "EXAMPLE - DELETE THIS ROW", "Assistant Professor", 2, "NORMAL", "01-04-2026", "Sample only"),
-    ("XXX", "EXAMPLE - DELETE THIS ROW", "Lab Assistant", 1, "HIGH", "", "Sample only"),
+    (
+        "XXX",
+        "EXAMPLE - DELETE THIS ROW",
+        "Assistant Professor",
+        2,
+        "NORMAL",
+        "01-04-2026",
+        "Sample only",
+        "Example Referrer",
+        "referrer@example.com",
+        "+91 90000 00000",
+    ),
+    ("XXX", "EXAMPLE - DELETE THIS ROW", "Lab Assistant", 1, "HIGH", "", "Sample only", "", "", ""),
 )
 
 _HEADER_FILL = PatternFill(start_color="1B5FAA", end_color="1B5FAA", fill_type="solid")
@@ -114,6 +141,9 @@ class ImportRowResult:
     priority: str | None = None
     required_by: date | None = None
     justification: str | None = None
+    requester_name: str | None = None
+    requester_email: str | None = None
+    requester_mobile: str | None = None
     # Resolved only for non-rejected rows -- commit_rows() uses these directly
     # rather than re-running the lookups a second time.
     campus_id: uuid.UUID | None = None
@@ -165,6 +195,39 @@ def _parse_date(text: str) -> tuple[date | None, str | None]:
     return None, f"Could not read '{text}' as a date. Use DD-MM-YYYY."
 
 
+# Deliberately permissive, and matched to the public QR form's own rules
+# (`app/schemas/vacancy_request.py::PublicVacancyRequestCreate`) rather than
+# invented here -- the same three DB columns are being filled either way.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_MOBILE_RE = re.compile(r"^[0-9+\-\s()]+$")
+
+
+def _validate_requester(name: str, email: str, mobile: str) -> tuple[str | None, str | None, str | None, str | None]:
+    """Returns (name, email, mobile, error_reason) with blanks normalised to
+    None.
+
+    **All three are independently optional.** The QR form demands all three
+    because a stranger submitting through a public link must be reachable; a
+    spreadsheet is filled in by an authenticated staff member who already owns
+    the batch, and who may genuinely only have a name and a mobile for the
+    person who referred the vacancy. Rejecting the row would throw away the
+    detail they do have, so only the cells actually filled are checked. A row
+    with all three blank behaves exactly as it did before these columns
+    existed.
+    """
+    if name and not (2 <= len(name) <= 150):
+        return None, None, None, "Requester Name must be between 2 and 150 characters."
+    if email:
+        if len(email) > 255 or not _EMAIL_RE.match(email):
+            return None, None, None, f"Could not read '{email}' as an email address."
+    if mobile:
+        if not (6 <= len(mobile) <= 20) or not _MOBILE_RE.match(mobile):
+            return None, None, None, (
+                f"Could not read '{mobile}' as a mobile number. Use 6-20 digits, optionally with + - ( ) or spaces."
+            )
+    return name or None, email or None, mobile or None, None
+
+
 def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
     """Pure preview -- writes nothing. Mirrors the authenticated create
     path's own validation so a row that previews as `created` here would also
@@ -199,6 +262,9 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
         priority_text = _cell(raw, PRIORITY_HEADER).upper() or VacancyPriorityEnum.NORMAL.value
         required_by_text = _cell(raw, REQUIRED_BY_HEADER)
         justification = _cell(raw, JUSTIFICATION_HEADER)
+        requester_name = _cell(raw, REQUESTER_NAME_HEADER)
+        requester_email = _cell(raw, REQUESTER_EMAIL_HEADER)
+        requester_mobile = _cell(raw, REQUESTER_MOBILE_HEADER)
 
         result = ImportRowResult(
             row_number=index,
@@ -208,6 +274,11 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
             designation_name=designation_name or None,
             priority=priority_text,
             justification=justification or None,
+            # Echoed back even on rows that go on to be rejected, so the
+            # preview table and the error report both show what was typed.
+            requester_name=requester_name or None,
+            requester_email=requester_email or None,
+            requester_mobile=requester_mobile or None,
         )
 
         if not campus_code or not department_name or not designation_name:
@@ -267,6 +338,17 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
             rows.append(result)
             continue
 
+        clean_name, clean_email, clean_mobile, requester_error = _validate_requester(
+            requester_name, requester_email, requester_mobile
+        )
+        if requester_error:
+            result.error_reason = requester_error
+            rows.append(result)
+            continue
+        result.requester_name = clean_name
+        result.requester_email = clean_email
+        result.requester_mobile = clean_mobile
+
         result.status = "created"
         result.error_reason = None
         result.requested_count = requested_count
@@ -305,7 +387,9 @@ def commit_rows(
     `requested_by_id` is the UPLOADER. They are authenticated and permitted to
     raise requests, so attributing the rows to them is accurate; `source` is
     BULK_UPLOAD, which is what distinguishes these from what that person
-    raised by hand.
+    raised by hand. The optional Requester Name/Email/Mobile columns record
+    who the uploader is raising the request ON BEHALF OF -- they never change
+    ownership of the row.
     """
     for row in validation.rows:
         if row.status == "rejected":
@@ -331,6 +415,14 @@ def commit_rows(
             required_by=row.required_by,
             source=VacancyRequestSourceEnum.BULK_UPLOAD,
             requested_by_id=requested_by_id,
+            # The person the row says referred the vacancy, when the sheet
+            # named one. `requested_by_id` above stays the UPLOADER either
+            # way -- it is NOT NULL and five notification sites dereference
+            # `.requested_by` -- so these three are additive detail, exactly
+            # as they are on a QR-intake row.
+            requester_name=row.requester_name,
+            requester_email=row.requester_email,
+            requester_mobile=row.requester_mobile,
         )
         db.add(vr)
         db.flush()  # assigns vr.id for the row log below
@@ -387,6 +479,15 @@ def build_bulk_upload_template_xlsx(db: Session) -> bytes:
     for offset, value in enumerate(_PRIORITY_VALUES, start=2):
         reference[f"B{offset}"] = value
 
+    reference["D1"] = "Notes"
+    reference["D1"].font = Font(bold=True)
+    reference["D2"] = (
+        "Requester Name / Email / Mobile are optional. Fill them in when you are raising the "
+        "request on behalf of someone else; leave them blank when the request is your own."
+    )
+    reference.column_dimensions["D"].width = 90
+    reference["D2"].alignment = Alignment(wrap_text=True, vertical="top")
+
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -403,15 +504,29 @@ def build_error_report_xlsx(log: BulkUploadLog, rejected_rows: list[ImportRowRes
     _write_header(ws, headers)
 
     for offset, row in enumerate(rejected_rows, start=2):
-        ws.cell(row=offset, column=1, value=row.row_number)
-        ws.cell(row=offset, column=2, value=row.campus_code)
-        ws.cell(row=offset, column=3, value=row.department_name)
-        ws.cell(row=offset, column=4, value=row.designation_name)
-        ws.cell(row=offset, column=5, value=row.requested_count)
-        ws.cell(row=offset, column=6, value=row.priority)
-        ws.cell(row=offset, column=7, value=row.required_by.isoformat() if row.required_by else None)
-        ws.cell(row=offset, column=8, value=row.justification)
-        ws.cell(row=offset, column=9, value=row.error_reason)
+        # Built as one tuple in header order rather than nine hand-numbered
+        # `column=` arguments: those had to be renumbered by hand every time a
+        # column was added, and a miscount puts the error reason under the
+        # wrong heading with nothing to catch it.
+        values = (
+            row.row_number,
+            row.campus_code,
+            row.department_name,
+            row.designation_name,
+            row.requested_count,
+            row.priority,
+            row.required_by.isoformat() if row.required_by else None,
+            row.justification,
+            row.requester_name,
+            row.requester_email,
+            row.requester_mobile,
+            row.error_reason,
+        )
+        # strict=True so a future column added to TEMPLATE_HEADERS without a
+        # matching value here fails loudly instead of silently truncating the
+        # report.
+        for column_index, (value, _header) in enumerate(zip(values, headers, strict=True), start=1):
+            ws.cell(row=offset, column=column_index, value=value)
 
     buf = io.BytesIO()
     wb.save(buf)

@@ -26,6 +26,11 @@ class VacancyRequestBulkUploadRowPreview(BaseModel):
     priority: str | None = None
     required_by: date | None = None
     justification: str | None = None
+    # Optional referrer details. Echoed back on rejected rows too, so the
+    # preview shows what was typed rather than blanking it.
+    requester_name: str | None = None
+    requester_email: str | None = None
+    requester_mobile: str | None = None
 
 
 class VacancyRequestBulkUploadValidationResponse(BaseModel):

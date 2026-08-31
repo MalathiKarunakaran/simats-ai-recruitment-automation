@@ -615,6 +615,9 @@ def _bulk_row_to_preview(row) -> VacancyRequestBulkUploadRowPreview:
         priority=row.priority,
         required_by=row.required_by,
         justification=row.justification,
+        requester_name=row.requester_name,
+        requester_email=row.requester_email,
+        requester_mobile=row.requester_mobile,
     )
 
 

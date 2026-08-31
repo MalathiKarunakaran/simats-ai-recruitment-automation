@@ -26,6 +26,18 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+// The three referrer cells are independently optional (the backend validates
+// only the ones that are filled), so the preview column falls through them
+// rather than keying off the name alone -- a row carrying only a mobile
+// number would otherwise render as "no requester", which is wrong.
+function requesterLabel(row: {
+  requester_name: string | null;
+  requester_email: string | null;
+  requester_mobile: string | null;
+}): string | null {
+  return row.requester_name ?? row.requester_email ?? row.requester_mobile ?? null;
+}
+
 // Upload -> Validate preview -> Commit for Vacancy Requests (2026-08-30),
 // a sibling of components/locations/LocationBulkUploadDialog.tsx. Follows this
 // codebase's one-dialog-per-domain convention rather than abstracting a shared
@@ -109,6 +121,7 @@ function PreviewTable({
                 <TableHead>Designation</TableHead>
                 <TableHead>Positions</TableHead>
                 <TableHead>Priority</TableHead>
+                <TableHead>Requester</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -128,10 +141,22 @@ function PreviewTable({
                     <TableCell>{row.designation_name ?? "—"}</TableCell>
                     <TableCell>{row.requested_count ?? "—"}</TableCell>
                     <TableCell>{row.priority ?? "—"}</TableCell>
+                    <TableCell
+                      // Full detail on hover: the column shows one of the
+                      // three, and which one it is matters when checking a
+                      // batch.
+                      title={
+                        [row.requester_name, row.requester_email, row.requester_mobile]
+                          .filter(Boolean)
+                          .join(" · ") || undefined
+                      }
+                    >
+                      {requesterLabel(row) ?? "—"}
+                    </TableCell>
                   </TableRow>
                   {row.error_reason ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="pt-0 text-destructive">
+                      <TableCell colSpan={8} className="pt-0 text-destructive">
                         {row.error_reason}
                       </TableCell>
                     </TableRow>
