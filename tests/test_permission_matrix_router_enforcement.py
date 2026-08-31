@@ -775,3 +775,118 @@ def test_get_dashboard_kpis_requires_settings_permission(client, user_factory):
     admin = user_factory(UserRoleEnum.SUPER_ADMIN)
     admin_ok = client.get("/api/v1/dashboard/kpis", headers=auth_headers(client, admin))
     assert admin_ok.status_code == 200
+
+
+# --- Sanctioned Strength (added 2026-08-31) ----------------------------------
+#
+# The last master-data module still gated by a bare role tuple
+# (SANCTIONED_STRENGTH_WRITE_ROLES = SUPER_ADMIN + HR_ADMIN) rather than the
+# matrix, which meant its access could not be granted to an individual user at
+# all -- a RECRUITMENT_COORDINATOR could not be given the screen no matter
+# what was ticked.
+
+
+def _strength_payload(campus, department, designation):
+    from datetime import date
+
+    return {
+        "campus_id": str(campus.id),
+        "department_id": str(department.id),
+        "designation_id": str(designation.id),
+        "approved_strength": 5,
+        "effective_from": str(date.today()),
+    }
+
+
+def _strength_setup(campus_factory, department_factory, designation_factory, db_session):
+    import uuid as _uuid
+
+    from app.models.enums import StaffRoleCategoryEnum
+
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Perm Dept {_uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    db_session.flush()
+    return campus, department, designation
+
+
+def test_create_sanctioned_strength_requires_manage_sanctioned_strength_permission(
+    client, campus_factory, department_factory, designation_factory, user_factory, grant_permission, db_session
+):
+    campus, department, designation = _strength_setup(
+        campus_factory, department_factory, designation_factory, db_session
+    )
+    mgmt = user_factory(UserRoleEnum.MANAGEMENT)
+
+    denied = client.post(
+        "/api/v1/sanctioned-strength",
+        json=_strength_payload(campus, department, designation),
+        headers=auth_headers(client, mgmt),
+    )
+    assert denied.status_code == 403
+
+    grant_permission(mgmt, PermissionEnum.MANAGE_SANCTIONED_STRENGTH)
+    allowed = client.post(
+        "/api/v1/sanctioned-strength",
+        json=_strength_payload(campus, department, designation),
+        headers=auth_headers(client, mgmt),
+    )
+    assert allowed.status_code == 201, allowed.text
+
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    campus2, department2, designation2 = _strength_setup(
+        campus_factory, department_factory, designation_factory, db_session
+    )
+    admin_ok = client.post(
+        "/api/v1/sanctioned-strength",
+        json=_strength_payload(campus2, department2, designation2),
+        headers=auth_headers(client, admin),
+    )
+    assert admin_ok.status_code == 201, admin_ok.text
+
+
+def test_a_recruitment_coordinator_can_be_granted_sanctioned_strength(
+    client, campus_factory, department_factory, designation_factory, user_factory, grant_permission, db_session
+):
+    """The case that prompted the change: before it, there was no permission
+    to tick, and a coordinator was refused by a role tuple they could never
+    be added to without changing code."""
+    campus, department, designation = _strength_setup(
+        campus_factory, department_factory, designation_factory, db_session
+    )
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+
+    denied = client.post(
+        "/api/v1/sanctioned-strength",
+        json=_strength_payload(campus, department, designation),
+        headers=auth_headers(client, coordinator),
+    )
+    assert denied.status_code == 403
+
+    grant_permission(coordinator, PermissionEnum.MANAGE_SANCTIONED_STRENGTH)
+    allowed = client.post(
+        "/api/v1/sanctioned-strength",
+        json=_strength_payload(campus, department, designation),
+        headers=auth_headers(client, coordinator),
+    )
+    assert allowed.status_code == 201, allowed.text
+
+
+def test_hr_admin_keeps_sanctioned_strength_through_the_role_default(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    """The regression the migration backfill exists to prevent: HR_ADMIN held
+    this access through SANCTIONED_STRENGTH_WRITE_ROLES and must keep it now
+    that the gate reads a grant row instead."""
+    campus, department, designation = _strength_setup(
+        campus_factory, department_factory, designation_factory, db_session
+    )
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = client.post(
+        "/api/v1/sanctioned-strength",
+        json=_strength_payload(campus, department, designation),
+        headers=auth_headers(client, hr_admin),
+    )
+    assert response.status_code == 201, response.text

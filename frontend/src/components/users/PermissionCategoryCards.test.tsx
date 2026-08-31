@@ -75,18 +75,19 @@ describe("PermissionCategoryCards", () => {
         "MANAGE_DESIGNATIONS",
         "MANAGE_LOCATIONS",
         "MANAGE_CAMPUSES",
+        "MANAGE_SANCTIONED_STRENGTH",
         "MANAGE_USERS",
       ],
     });
 
     const region = categoriesRegion();
     const adminCard = within(region).getByText("Administration").closest(".rounded-xl") as HTMLElement;
-    expect(within(adminCard).getByText("7/7")).toBeInTheDocument();
+    expect(within(adminCard).getByText("8/8")).toBeInTheDocument();
     expect(within(adminCard).getByText("View employees")).toBeInTheDocument();
     expect(within(adminCard).getByText("Edit employees")).toBeInTheDocument();
     expect(within(adminCard).getByText("Manage departments")).toBeInTheDocument();
     expect(within(adminCard).getByText("Manage designations")).toBeInTheDocument();
-    expect(within(adminCard).getByText("+3 more")).toBeInTheDocument();
+    expect(within(adminCard).getByText("+4 more")).toBeInTheDocument();
     expect(within(adminCard).queryByText("Manage users")).not.toBeInTheDocument();
   });
 

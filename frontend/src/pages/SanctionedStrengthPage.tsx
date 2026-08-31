@@ -15,7 +15,6 @@ import {
   AUDIT_LOG_READ_ROLES,
   GLOBAL_SCOPE_ROLES,
   HOUSEKEEPING_STAFF_MANAGEMENT_ROLES,
-  SANCTIONED_STRENGTH_WRITE_ROLES,
   type ApprovalStatus,
   type DepartmentDesignationBreakdownRow,
   type RecruitmentStatus,
@@ -359,12 +358,20 @@ export function SanctionedStrengthPage() {
   // A single-campus role's campus_code is always ignored server-side (see
   // resolve_campus_filter) -- only global-scope roles get a working filter.
   const canFilterByCampus = Boolean(user && GLOBAL_SCOPE_ROLES.includes(user.role));
-  // Mirrors app/api/v1/routers/sanctioned_strength.py's write-role gate --
-  // gates the breakdown's inline edit / add designation / soft-delete
-  // affordances (Phase D). The history drawer trigger is deliberately not
-  // gated by this -- it's read-only, same as the backend's own history
-  // endpoint (staff-only, not write-role-only).
-  const canManage = Boolean(user && SANCTIONED_STRENGTH_WRITE_ROLES.includes(user.role));
+  // Mirrors app/api/v1/routers/sanctioned_strength.py's write gate -- gates
+  // the breakdown's inline edit / add designation / soft-delete affordances
+  // (Phase D). The history drawer trigger is deliberately not gated by this
+  // -- it's read-only, same as the backend's own history endpoint
+  // (staff-only, not write-gated).
+  //
+  // 2026-08-31: that gate is now require_permission(MANAGE_SANCTIONED_STRENGTH),
+  // not the SANCTIONED_STRENGTH_WRITE_ROLES tuple, so this reads the
+  // permission. NOT OR'd with the old role list, unlike canViewAuditLog
+  // below: there the roles and the permission are two genuinely parallel
+  // gates on the backend, whereas here the permission REPLACED the roles.
+  // Keeping the role check would show buttons to an HR_ADMIN whose grant had
+  // been revoked, and every button would 403.
+  const canManage = Boolean(user && hasPermission?.("MANAGE_SANCTIONED_STRENGTH"));
   // Phase G: HousekeepingStrengthTable's own Actions/roster-expand mutations
   // are all HousekeepingStaff writes, never SanctionedStrength writes -- its
   // canManage mirrors app/api/v1/routers/housekeeping_staff.py's own
@@ -460,7 +467,7 @@ export function SanctionedStrengthPage() {
         title="Sanctioned Strength"
         description="Sanctioned vs working strength per department. This defines how many posts may be requested."
         // Phase F item 1: "Bulk upload" entry point, gated to the same
-        // canManage (SANCTIONED_STRENGTH_WRITE_ROLES) check as every other
+        // canManage (MANAGE_SANCTIONED_STRENGTH) check as every other
         // write affordance on this page -- the backend's own bulk-upload
         // endpoints are gated identically (_write_only in
         // sanctioned_strength.py).

@@ -489,7 +489,15 @@ export const HOUSEKEEPING_STAFF_MANAGEMENT_ROLES: readonly UserRole[] = [
 // narrower than DEPARTMENT_MANAGEMENT_ROLES (no HR_ADMIN).
 export const DESIGNATION_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
-// Mirrors app/models/enums.py::SANCTIONED_STRENGTH_WRITE_ROLES -- gates the
+// Mirrors app/models/enums.py::SANCTIONED_STRENGTH_WRITE_ROLES.
+//
+// 2026-08-31: the backend's Sanctioned Strength WRITE endpoints no longer use
+// this tuple -- they moved to require_permission(MANAGE_SANCTIONED_STRENGTH)
+// so the module can be granted to an individual user. This constant survives
+// only for the places still keyed off the role (nav visibility and the
+// comments below); do not reintroduce it as a write gate.
+//
+// Original note: gates the
 // Sanctioned Strength page's inline edit / add designation / soft-delete
 // affordances (zany-snuggling-pie.md Phase D). History reads stay open to
 // any staff role (mirrors app/api/v1/routers/sanctioned_strength.py's
@@ -568,7 +576,7 @@ export interface CoordinatorCapabilitiesRead {
   capabilities: CoordinatorCapability[];
 }
 
-// Mirrors app/models/enums.py::PermissionEnum -- the 31-permission matrix,
+// Mirrors app/models/enums.py::PermissionEnum -- the 32-permission matrix,
 // generalized beyond RECRUITMENT_COORDINATOR to any staff role.
 export const PERMISSIONS = [
   "VIEW_VACANCY", "CREATE_VACANCY_REQUEST", "EDIT_VACANCY_REQUEST", "APPROVE_VACANCY",
@@ -577,7 +585,7 @@ export const PERMISSIONS = [
   "SCHEDULE_INTERVIEW", "RESCHEDULE_INTERVIEW", "CANCEL_INTERVIEW", "MARK_INTERVIEW_COMPLETED",
   "JOB_DISTRIBUTION", "RESUME_SCREENING", "OFFERS", "ONBOARDING",
   "VIEW_EMPLOYEES", "EDIT_EMPLOYEES", "MANAGE_DEPARTMENTS", "MANAGE_DESIGNATIONS",
-  "MANAGE_LOCATIONS", "MANAGE_CAMPUSES", "MANAGE_USERS",
+  "MANAGE_LOCATIONS", "MANAGE_CAMPUSES", "MANAGE_SANCTIONED_STRENGTH", "MANAGE_USERS",
   "ACTIVITY_LOG", "REPORTS", "SETTINGS",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -624,6 +632,7 @@ export const PERMISSION_CATEGORIES: { key: string; label: string; permissions: P
       "MANAGE_DESIGNATIONS",
       "MANAGE_LOCATIONS",
       "MANAGE_CAMPUSES",
+      "MANAGE_SANCTIONED_STRENGTH",
       "MANAGE_USERS",
     ],
   },
@@ -662,6 +671,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MANAGE_DESIGNATIONS: "Manage designations",
   MANAGE_LOCATIONS: "Manage locations",
   MANAGE_CAMPUSES: "Manage campuses",
+  MANAGE_SANCTIONED_STRENGTH: "Manage sanctioned strength",
   MANAGE_USERS: "Manage users",
   ACTIVITY_LOG: "View activity log",
   REPORTS: "View reports",

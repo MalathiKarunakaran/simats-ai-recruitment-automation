@@ -420,13 +420,20 @@ class CoordinatorCapabilityEnum(str, enum.Enum):
 
 
 class PermissionEnum(str, enum.Enum):
-    """Granular permission matrix -- Phase 1 (schema + services only) of the
-    epic that will eventually replace CoordinatorCapabilityEnum's 4-value,
-    RECRUITMENT_COORDINATOR-only scheme with a 31-permission matrix usable by
-    any role. Deliberately additive: CoordinatorCapabilityEnum and
-    CoordinatorCapabilityGrant stay exactly as-is and fully wired until a
-    later phase cuts routers over and retires them. Not yet consulted by any
-    router -- see app.services.permissions.has_permission."""
+    """Granular permission matrix. Now the live gate for most routers via
+    app.core.deps.require_permission -- it replaced CoordinatorCapabilityEnum's
+    4-value,
+    RECRUITMENT_COORDINATOR-only scheme for most endpoints.
+    CoordinatorCapabilityEnum and CoordinatorCapabilityGrant remain wired for
+    the endpoints that still use them; the two schemes coexist.
+
+    MANAGE_SANCTIONED_STRENGTH was added 2026-08-31. Sanctioned Strength was
+    the one master-data module left on a bare role tuple
+    (SANCTIONED_STRENGTH_WRITE_ROLES = SUPER_ADMIN + HR_ADMIN) rather than a
+    permission, so there was no way to grant it to an individual user at all
+    -- a RECRUITMENT_COORDINATOR could not be given the screen no matter what
+    was ticked. Migrations `d0e1f2a3b4c5` (the label) and `e1a2b3c4d5e6` (the
+    backfill, so existing HR_ADMINs keep the access they already had)."""
 
     # Vacancy Management (8)
     VIEW_VACANCY = "VIEW_VACANCY"
@@ -460,6 +467,7 @@ class PermissionEnum(str, enum.Enum):
     MANAGE_DESIGNATIONS = "MANAGE_DESIGNATIONS"
     MANAGE_LOCATIONS = "MANAGE_LOCATIONS"
     MANAGE_CAMPUSES = "MANAGE_CAMPUSES"
+    MANAGE_SANCTIONED_STRENGTH = "MANAGE_SANCTIONED_STRENGTH"
     MANAGE_USERS = "MANAGE_USERS"
     # System (3)
     ACTIVITY_LOG = "ACTIVITY_LOG"
@@ -506,6 +514,7 @@ PERMISSION_CATEGORIES: dict[str, list[PermissionEnum]] = {
         PermissionEnum.MANAGE_DESIGNATIONS,
         PermissionEnum.MANAGE_LOCATIONS,
         PermissionEnum.MANAGE_CAMPUSES,
+        PermissionEnum.MANAGE_SANCTIONED_STRENGTH,
         PermissionEnum.MANAGE_USERS,
     ],
     "SYSTEM": [

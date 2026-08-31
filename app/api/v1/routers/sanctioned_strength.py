@@ -76,6 +76,7 @@ from app.core.deps import (
     get_current_active_user,
     get_db,
     get_department_scope,
+    require_permission,
     require_roles,
 )
 from app.models.bulk_upload_log import BulkUploadLog
@@ -90,6 +91,7 @@ from app.models.enums import (
     BulkUploadStatusEnum,
     VacancyRequestStatusEnum,
     HousekeepingShiftEnum,
+    PermissionEnum,
     SanctionedStrengthChangeSourceEnum,
     StaffRoleCategoryEnum,
     UserRoleEnum,
@@ -174,7 +176,22 @@ _SHARED_BULK_UPLOAD_ROLES = (
 )
 
 
-def _write_only(current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES))) -> User:
+def _write_only(
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_SANCTIONED_STRENGTH)),
+) -> User:
+    """Sanctioned Strength's write gate. Moved off
+    `require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)` on 2026-08-31: this was
+    the last master-data module still gated by a bare role tuple, which meant
+    its access could not be granted to an individual user at all -- a
+    RECRUITMENT_COORDINATOR could not be given the screen no matter what was
+    ticked on the permission matrix. Existing HR_ADMINs keep the access they
+    had via migration `e1a2b3c4d5e6`'s backfill; SUPER_ADMIN keeps it through
+    has_permission's implicit bypass.
+
+    `SANCTIONED_STRENGTH_WRITE_ROLES` itself is deliberately NOT deleted --
+    the frontend still imports it to decide which nav/buttons to show by
+    default, and `_SHARED_BULK_UPLOAD_ROLES` below documents itself against
+    it."""
     return current_user
 
 
@@ -652,7 +669,7 @@ def create_sanctioned_strength(
     payload: SanctionedStrengthCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_SANCTIONED_STRENGTH)),
 ) -> SanctionedStrength:
     if db.get(Campus, payload.campus_id) is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown campus_id")
@@ -732,7 +749,7 @@ def update_sanctioned_strength(
     payload: SanctionedStrengthUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_SANCTIONED_STRENGTH)),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> SanctionedStrength:
@@ -792,7 +809,7 @@ def delete_sanctioned_strength(
     sanctioned_strength_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*SANCTIONED_STRENGTH_WRITE_ROLES)),
+    current_user: User = Depends(require_permission(PermissionEnum.MANAGE_SANCTIONED_STRENGTH)),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> None:

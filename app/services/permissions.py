@@ -41,6 +41,12 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
             PermissionEnum.EDIT_EMPLOYEES,
             PermissionEnum.MANAGE_DEPARTMENTS,
             PermissionEnum.MANAGE_LOCATIONS,
+            # HR_ADMIN only, matching the SANCTIONED_STRENGTH_WRITE_ROLES
+            # tuple this permission replaced (SUPER_ADMIN is an implicit
+            # bypass and never carries grant rows). Every other role starts
+            # without it and is granted it individually -- which is the whole
+            # point of the change.
+            PermissionEnum.MANAGE_SANCTIONED_STRENGTH,
             PermissionEnum.MANAGE_USERS,
             PermissionEnum.ACTIVITY_LOG,
             PermissionEnum.REPORTS,
