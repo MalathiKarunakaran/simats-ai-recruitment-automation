@@ -795,15 +795,25 @@ export function UserDetailPage() {
         {canManageCapabilities && isCoordinator ? (
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle>Coordinator capabilities</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle>Coordinator capabilities</CardTitle>
+                <Badge variant="info">Coordinator-only</Badge>
+              </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <p className="text-sm text-muted-foreground">
-                A Recruitment Coordinator only gets write access to these action groups if granted here -- unlike
+                A separate, older scheme covering four broad action groups, and it applies to Recruitment
+                Coordinators only. A coordinator gets write access to these groups only if granted here -- unlike
                 every other role, coordinator access isn't automatic. Toggle the groups this coordinator needs, then
-                save.
+                save. This is <span className="font-medium text-foreground">not</span> the same list as the
+                Permission Matrix below, and saving one never changes the other.
               </p>
-              <div className="flex flex-col gap-2">
+              {/* Named group: the Permission Matrix below now renders each
+                  category as an expandable <button> carrying that category's
+                  label, and two of those labels ("Interviews", "Recruitment")
+                  are also capability names. Without this the two controls are
+                  indistinguishable by accessible name. */}
+              <div role="group" aria-label="Coordinator capabilities" className="flex flex-col gap-2">
                 {COORDINATOR_CAPABILITIES.map((capability) => (
                   <Button
                     key={capability}
@@ -837,12 +847,16 @@ export function UserDetailPage() {
         {canManagePermissions ? (
           <Card className="border-brand-primary/20 bg-brand-primary/5 backdrop-blur-sm lg:col-span-2">
             <CardHeader>
-              <CardTitle>Permission Matrix</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle>Permission Matrix</CardTitle>
+                <Badge variant="outline">All staff roles</Badge>
+              </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <p className="text-sm text-muted-foreground">
-                Grant or revoke fine-grained access for this user, grouped by area. This full-replace matrix is
-                independent of any Coordinator capabilities above.
+                Every individual permission this user can hold, grouped by area. Toggle what they need and press
+                Save Permissions -- the whole matrix is saved at once, so anything left unticked is revoked.
+                Independent of the Coordinator capabilities above.
               </p>
 
               <PermissionCategoryCards
@@ -851,7 +865,7 @@ export function UserDetailPage() {
                 onSave={(permissions, options) => savePermissionsMutation.mutate(permissions, options)}
                 isSaving={savePermissionsMutation.isPending}
                 saveError={permissionsError}
-                onDrawerOpen={() => setPermissionsError(null)}
+                onEdit={() => setPermissionsError(null)}
               />
             </CardContent>
           </Card>

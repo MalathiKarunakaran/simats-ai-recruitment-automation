@@ -5,6 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 import { PERMISSIONS, type Permission } from "@/api/types";
 import { PermissionCategoryCards } from "@/components/users/PermissionCategoryCards";
 
+// Rewritten 2026-08-31 alongside the component. The old suite drove a
+// per-category "Manage Permissions" drawer; the matrix is now inline and
+// saves as one whole set, so the flows under test are genuinely different --
+// what survives unchanged is the coverage of the things that must NOT drift:
+// the category set and labels, the summary strip, the Sensitive/Destructive
+// badges, and the fact that exactly one call reaches PUT /users/{id}/permissions.
+
 function renderCards(overrides: Partial<Parameters<typeof PermissionCategoryCards>[0]> = {}) {
   const onPermissionsChange = vi.fn();
   const onSave = vi.fn();
@@ -34,8 +41,20 @@ function exactText(text: string) {
   return (_content: string, element: Element | null) => element?.textContent === text;
 }
 
+/** The section wrapper for a category, so Select All / Clear All can be scoped. */
+function section(label: string): HTMLElement {
+  const heading = within(categoriesRegion()).getByText(label);
+  const wrapper = heading.closest(".rounded-2xl");
+  if (!wrapper) throw new Error(`No section wrapper found for "${label}"`);
+  return wrapper as HTMLElement;
+}
+
+function toggle(name: string) {
+  return screen.getByRole("switch", { name });
+}
+
 describe("PermissionCategoryCards", () => {
-  it("renders one compact card per category, using the cosmetic 'Candidates & Applications' label for CANDIDATES only", () => {
+  it("renders one expandable section per category, using the cosmetic 'Candidates & Applications' label for CANDIDATES only", () => {
     renderCards();
 
     const region = categoriesRegion();
@@ -45,7 +64,25 @@ describe("PermissionCategoryCards", () => {
     expect(within(region).getByText("Recruitment")).toBeInTheDocument();
     expect(within(region).getByText("Administration")).toBeInTheDocument();
     expect(within(region).getByText("System")).toBeInTheDocument();
-    expect(within(region).getAllByRole("button", { name: "Manage Permissions" })).toHaveLength(6);
+  });
+
+  it("shows every permission as a visible toggle without opening anything -- the point of the rework", () => {
+    renderCards();
+
+    // No drawer, no per-category button standing between the admin and the
+    // controls: one switch per permission the backend defines, on screen.
+    expect(screen.getAllByRole("switch")).toHaveLength(PERMISSIONS.length);
+    expect(screen.queryByRole("button", { name: "Manage Permissions" })).not.toBeInTheDocument();
+  });
+
+  it("checks exactly the permissions the backend already granted", () => {
+    renderCards({ permissions: ["VIEW_VACANCY", "MANAGE_USERS"] });
+
+    expect(toggle("View vacancies")).toBeChecked();
+    expect(toggle("Manage users")).toBeChecked();
+    expect(toggle("Create vacancy requests")).not.toBeChecked();
+    expect(toggle("Delete candidates")).not.toBeChecked();
+    expect(screen.getAllByRole("switch", { checked: true })).toHaveLength(2);
   });
 
   it("shows the top summary strip, live from the permissions prop", () => {
@@ -57,185 +94,193 @@ describe("PermissionCategoryCards", () => {
     expect(screen.getByText(exactText("Sensitive: 1"))).toBeInTheDocument();
   });
 
-  it("shows a 0/N count and no pills on an empty category", () => {
-    renderCards();
-
-    const region = categoriesRegion();
-    const vacancyCard = within(region).getByText("Vacancy Management").closest(".rounded-xl") as HTMLElement;
-    expect(within(vacancyCard).getByText("0/8")).toBeInTheDocument();
-    expect(within(vacancyCard).getByText("No permissions granted yet.")).toBeInTheDocument();
-  });
-
-  it("shows enabled-permission pills capped at 4 with a '+N more' overflow indicator", () => {
-    renderCards({
-      permissions: [
-        "VIEW_EMPLOYEES",
-        "EDIT_EMPLOYEES",
-        "MANAGE_DEPARTMENTS",
-        "MANAGE_DESIGNATIONS",
-        "MANAGE_LOCATIONS",
-        "MANAGE_CAMPUSES",
-        "MANAGE_SANCTIONED_STRENGTH",
-        "MANAGE_USERS",
-      ],
-    });
-
-    const region = categoriesRegion();
-    const adminCard = within(region).getByText("Administration").closest(".rounded-xl") as HTMLElement;
-    expect(within(adminCard).getByText("8/8")).toBeInTheDocument();
-    expect(within(adminCard).getByText("View employees")).toBeInTheDocument();
-    expect(within(adminCard).getByText("Edit employees")).toBeInTheDocument();
-    expect(within(adminCard).getByText("Manage departments")).toBeInTheDocument();
-    expect(within(adminCard).getByText("Manage designations")).toBeInTheDocument();
-    expect(within(adminCard).getByText("+4 more")).toBeInTheDocument();
-    expect(within(adminCard).queryByText("Manage users")).not.toBeInTheDocument();
-  });
-
-  it("opens a drawer scoped to the clicked category, with a live enabled/total header count", async () => {
+  it("moves the summary as permissions are toggled, before anything is saved", async () => {
     renderCards({ permissions: ["VIEW_VACANCY"] });
 
-    const region = categoriesRegion();
-    const vacancyCard = within(region).getByText("Vacancy Management").closest(".rounded-xl") as HTMLElement;
-    await userEvent.click(within(vacancyCard).getByRole("button", { name: "Manage Permissions" }));
+    await userEvent.click(toggle("Approve vacancies")); // Sensitive
 
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByText("1/8 enabled")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "View vacancies" })).toBeChecked();
-    expect(screen.getByRole("switch", { name: "Create vacancy requests" })).not.toBeChecked();
-    // Interviews-category permissions must not leak into this drawer.
-    expect(screen.queryByRole("switch", { name: "Schedule interviews" })).not.toBeInTheDocument();
+    expect(screen.getByText(exactText("Enabled: 2"))).toBeInTheDocument();
+    expect(screen.getByText(exactText(`Restricted: ${PERMISSIONS.length - 2}`))).toBeInTheDocument();
+    expect(screen.getByText(exactText("Sensitive: 1"))).toBeInTheDocument();
   });
 
-  it("shows a 'Sensitive' badge on sensitive permissions and a 'Destructive' badge on DELETE_CANDIDATE, never color alone", async () => {
+  it("shows an n/total count per section that tracks the draft", async () => {
+    renderCards({ permissions: ["VIEW_VACANCY"] });
+
+    expect(within(section("Vacancy Management")).getByText("1/8")).toBeInTheDocument();
+
+    await userEvent.click(toggle("Close vacancies"));
+    expect(within(section("Vacancy Management")).getByText("2/8")).toBeInTheDocument();
+  });
+
+  it("Select All fills a group and Clear All empties it, without touching other groups", async () => {
+    renderCards({ permissions: ["VIEW_CANDIDATES"] });
+
+    await userEvent.click(within(section("Vacancy Management")).getByRole("button", { name: "Select All" }));
+    expect(within(section("Vacancy Management")).getByText("8/8")).toBeInTheDocument();
+    // The Candidates group is untouched by Vacancy Management's Select All.
+    expect(toggle("View candidates")).toBeChecked();
+    expect(within(section("Candidates & Applications")).getByText("1/5")).toBeInTheDocument();
+
+    await userEvent.click(within(section("Vacancy Management")).getByRole("button", { name: "Clear All" }));
+    expect(within(section("Vacancy Management")).getByText("0/8")).toBeInTheDocument();
+    expect(toggle("View candidates")).toBeChecked();
+  });
+
+  it("Select All covers rows the search has filtered out, so it grants what it says", async () => {
     renderCards();
 
-    const region = categoriesRegion();
-    await userEvent.click(
-      within(within(region).getByText("Candidates & Applications").closest(".rounded-xl") as HTMLElement).getByRole(
-        "button",
-        { name: "Manage Permissions" },
-      ),
-    );
+    await userEvent.type(screen.getByLabelText("Search permissions"), "approve");
+    expect(screen.queryByRole("switch", { name: "Close vacancies" })).not.toBeInTheDocument();
 
-    const deleteRow = screen.getByRole("switch", { name: "Delete candidates" }).closest("div")!.parentElement!;
-    expect(within(deleteRow).getByText("Destructive")).toBeInTheDocument();
-    const viewRow = screen.getByRole("switch", { name: "View candidates" }).closest("div")!.parentElement!;
-    expect(within(viewRow).queryByText("Destructive")).not.toBeInTheDocument();
-    expect(within(viewRow).queryByText("Sensitive")).not.toBeInTheDocument();
-  });
+    await userEvent.click(within(section("Vacancy Management")).getByRole("button", { name: "Select All" }));
+    expect(within(section("Vacancy Management")).getByText("8/8")).toBeInTheDocument();
 
-  it("filters visible rows by the search box without losing the toggle state of a hidden row", async () => {
-    renderCards({ permissions: [] });
-    const region = categoriesRegion();
-    await userEvent.click(
-      within(within(region).getByText("Administration").closest(".rounded-xl") as HTMLElement).getByRole("button", {
-        name: "Manage Permissions",
-      }),
-    );
-
-    // Toggle a row on, then search for something that hides it.
-    await userEvent.click(screen.getByRole("switch", { name: "View employees" }));
-    await userEvent.type(screen.getByLabelText("Search permissions"), "manage");
-
-    expect(screen.queryByRole("switch", { name: "View employees" })).not.toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Manage users" })).toBeInTheDocument();
-
-    // Clearing the search reveals the row again, still toggled on.
     await userEvent.clear(screen.getByLabelText("Search permissions"));
-    expect(screen.getByRole("switch", { name: "View employees" })).toBeChecked();
+    expect(toggle("Close vacancies")).toBeChecked();
   });
 
-  it("Enable All / Disable All toggle every permission in the category", async () => {
-    renderCards({ permissions: [] });
-    const region = categoriesRegion();
-    await userEvent.click(
-      within(within(region).getByText("Interviews").closest(".rounded-xl") as HTMLElement).getByRole("button", {
-        name: "Manage Permissions",
-      }),
-    );
+  it("flags unsaved changes, and only enables Save once something actually changed", async () => {
+    renderCards({ permissions: ["VIEW_VACANCY"] });
 
-    await userEvent.click(screen.getByRole("button", { name: "Enable All" }));
-    expect(screen.getByText("4/4 enabled")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Schedule interviews" })).toBeChecked();
-    expect(screen.getByRole("switch", { name: "Cancel interviews" })).toBeChecked();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Permissions" })).toBeDisabled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Disable All" }));
-    expect(screen.getByText("0/4 enabled")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Schedule interviews" })).not.toBeChecked();
+    await userEvent.click(toggle("Create vacancy requests"));
+
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save Permissions" })).toBeEnabled();
   });
 
-  it("Cancel discards the local draft entirely -- neither onSave nor onPermissionsChange fire, and reopening shows the original state", async () => {
-    const { onSave, onPermissionsChange } = renderCards({ permissions: ["VIEW_VACANCY"] });
-    const region = categoriesRegion();
-    const vacancyCard = within(region).getByText("Vacancy Management").closest(".rounded-xl") as HTMLElement;
-    await userEvent.click(within(vacancyCard).getByRole("button", { name: "Manage Permissions" }));
+  it("Discard changes returns the draft to what the backend holds", async () => {
+    renderCards({ permissions: ["VIEW_VACANCY"] });
 
-    await userEvent.click(screen.getByRole("switch", { name: "Create vacancy requests" }));
-    expect(screen.getByRole("switch", { name: "Create vacancy requests" })).toBeChecked();
+    await userEvent.click(toggle("Create vacancy requests"));
+    await userEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(onSave).not.toHaveBeenCalled();
-    expect(onPermissionsChange).not.toHaveBeenCalled();
-
-    await userEvent.click(within(vacancyCard).getByRole("button", { name: "Manage Permissions" }));
-    expect(screen.getByRole("switch", { name: "Create vacancy requests" })).not.toBeChecked();
-    expect(screen.getByRole("switch", { name: "View vacancies" })).toBeChecked();
+    expect(toggle("Create vacancy requests")).not.toBeChecked();
+    expect(toggle("View vacancies")).toBeChecked();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
   });
 
-  it("Save merges this category's draft into the full permission set, calls onSave once, and only updates/closes on success", async () => {
+  it("saves the WHOLE matrix in one call -- granting keeps the permissions already held", async () => {
+    const { onSave } = renderCards({ permissions: ["VIEW_VACANCY", "MANAGE_USERS"] });
+
+    await userEvent.click(toggle("Schedule interviews"));
+    await userEvent.click(screen.getByRole("button", { name: "Save Permissions" }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const [sent] = onSave.mock.calls[0];
+    expect([...sent].sort()).toEqual(["MANAGE_USERS", "SCHEDULE_INTERVIEW", "VIEW_VACANCY"]);
+  });
+
+  it("saves a revoke as an absence -- the full-replace contract of PUT /users/{id}/permissions", async () => {
+    const { onSave } = renderCards({ permissions: ["VIEW_VACANCY", "MANAGE_USERS"] });
+
+    await userEvent.click(toggle("Manage users"));
+    await userEvent.click(screen.getByRole("button", { name: "Save Permissions" }));
+
+    const [sent] = onSave.mock.calls[0];
+    expect(sent).toEqual(["VIEW_VACANCY"]);
+  });
+
+  it("confirms the save and clears the dirty flag once the parent reports success", async () => {
     const onSave = vi.fn((_permissions: Permission[], options: { onSuccess: () => void }) => options.onSuccess());
-    const onPermissionsChange = vi.fn();
-    render(
+    const { onPermissionsChange } = renderCards({ permissions: ["VIEW_VACANCY"], onSave });
+
+    await userEvent.click(toggle("Create vacancy requests"));
+    await userEvent.click(screen.getByRole("button", { name: "Save Permissions" }));
+
+    expect(onPermissionsChange).toHaveBeenCalledWith(["VIEW_VACANCY", "CREATE_VACANCY_REQUEST"]);
+    expect(screen.getByText("Permissions saved.")).toBeInTheDocument();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+  });
+
+  it("re-seeds from the backend when the saved set changes underneath it", () => {
+    const { rerender } = renderCards({ permissions: ["VIEW_VACANCY"] });
+    expect(toggle("Manage users")).not.toBeChecked();
+
+    rerender(
       <PermissionCategoryCards
         permissions={["VIEW_VACANCY", "MANAGE_USERS"]}
-        onPermissionsChange={onPermissionsChange}
-        onSave={onSave}
+        onPermissionsChange={vi.fn()}
+        onSave={vi.fn()}
         isSaving={false}
         saveError={null}
       />,
     );
-    const region = categoriesRegion();
-    const recruitmentCard = within(region).getByText("Recruitment").closest(".rounded-xl") as HTMLElement;
-    await userEvent.click(within(recruitmentCard).getByRole("button", { name: "Manage Permissions" }));
 
-    await userEvent.click(screen.getByRole("switch", { name: "Job distribution" }));
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(onSave).toHaveBeenCalledTimes(1);
-    const [savedPermissions] = onSave.mock.calls[0];
-    // Untouched categories' grants (VIEW_VACANCY, MANAGE_USERS) survive the
-    // merge; JOB_DISTRIBUTION (Recruitment) is newly added; every other
-    // Recruitment permission stays off.
-    expect(new Set(savedPermissions)).toEqual(new Set(["VIEW_VACANCY", "MANAGE_USERS", "JOB_DISTRIBUTION"]));
-    expect(onPermissionsChange).toHaveBeenCalledWith(savedPermissions);
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(toggle("Manage users")).toBeChecked();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
   });
 
-  it("shows the inline save error and keeps the drawer open on failure", async () => {
-    renderCards({ saveError: "Update failed" });
-    const region = categoriesRegion();
-    await userEvent.click(
-      within(within(region).getByText("System").closest(".rounded-xl") as HTMLElement).getByRole("button", {
-        name: "Manage Permissions",
-      }),
+  it("does not clobber an in-progress edit when an identical refetch arrives in a different order", async () => {
+    const { rerender } = renderCards({ permissions: ["VIEW_VACANCY", "MANAGE_USERS"] });
+
+    await userEvent.click(toggle("Schedule interviews"));
+
+    rerender(
+      <PermissionCategoryCards
+        permissions={["MANAGE_USERS", "VIEW_VACANCY"]}
+        onPermissionsChange={vi.fn()}
+        onSave={vi.fn()}
+        isSaving={false}
+        saveError={null}
+      />,
     );
+
+    expect(toggle("Schedule interviews")).toBeChecked();
+  });
+
+  it("shows a 'Sensitive' badge on sensitive permissions and a 'Destructive' badge on DELETE_CANDIDATE, never color alone", () => {
+    renderCards();
+
+    const candidates = section("Candidates & Applications");
+    expect(within(candidates).getByText("Destructive")).toBeInTheDocument();
+
+    const administration = section("Administration");
+    // MANAGE_USERS and MANAGE_CAMPUSES are both in the Sensitive set.
+    expect(within(administration).getAllByText("Sensitive")).toHaveLength(2);
+  });
+
+  it("narrows visible rows by search without losing a toggle made before searching", async () => {
+    renderCards();
+
+    await userEvent.click(toggle("Close vacancies"));
+    await userEvent.type(screen.getByLabelText("Search permissions"), "approve");
+
+    expect(screen.getByRole("switch", { name: "Approve vacancies" })).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Close vacancies" })).not.toBeInTheDocument();
+    // Still counted, still in the draft.
+    expect(within(section("Vacancy Management")).getByText("1/8")).toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText("Search permissions"));
+    expect(toggle("Close vacancies")).toBeChecked();
+  });
+
+  it("collapses and re-expands a section without discarding its draft", async () => {
+    renderCards();
+
+    await userEvent.click(toggle("Approve vacancies"));
+    const header = within(section("Vacancy Management")).getByRole("button", { expanded: true });
+    await userEvent.click(header);
+
+    expect(within(section("Vacancy Management")).getByRole("button", { expanded: false })).toBeInTheDocument();
+    expect(within(section("Vacancy Management")).getByText("1/8")).toBeInTheDocument();
+  });
+
+  it("surfaces a save error and keeps the draft intact so it can be retried", async () => {
+    renderCards({ permissions: ["VIEW_VACANCY"], saveError: "Update failed" });
+
+    await userEvent.click(toggle("Create vacancy requests"));
 
     expect(screen.getByText("Update failed")).toBeInTheDocument();
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(toggle("Create vacancy requests")).toBeChecked();
   });
 
-  it("disables Save/Cancel and shows 'Saving…' while a save is pending", async () => {
-    renderCards({ isSaving: true });
-    const region = categoriesRegion();
-    await userEvent.click(
-      within(within(region).getByText("System").closest(".rounded-xl") as HTMLElement).getByRole("button", {
-        name: "Manage Permissions",
-      }),
-    );
+  it("disables Save while a save is in flight", () => {
+    renderCards({ permissions: ["VIEW_VACANCY"], isSaving: true });
 
     expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
   });
 });

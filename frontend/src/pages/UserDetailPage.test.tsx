@@ -294,8 +294,10 @@ describe("UserDetailPage coordinator capabilities", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /Interviews/ })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: /Interviews/ }));
+    // Scoped to the capabilities group: "Interviews" is also a Permission
+    // Matrix category, whose section header is a button with the same name.
+    const capabilities = await screen.findByRole("group", { name: "Coordinator capabilities" });
+    await userEvent.click(within(capabilities).getByRole("button", { name: /Interviews/ }));
     await userEvent.click(screen.getByRole("button", { name: "Save capabilities" }));
 
     await waitFor(() =>
@@ -833,7 +835,7 @@ describe("UserDetailPage recent activity visibility -- dynamic ACTIVITY_LOG perm
 });
 
 describe("UserDetailPage permission matrix", () => {
-  it("renders the Permission Matrix card as compact category cards for a Super Admin viewer", async () => {
+  it("renders the Permission Matrix card as inline expandable sections for a Super Admin viewer", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -844,16 +846,20 @@ describe("UserDetailPage permission matrix", () => {
 
     expect(await screen.findByText("Permission Matrix")).toBeInTheDocument();
     expect(mockedGetUserPermissions).toHaveBeenCalledWith(HR_ADMIN_USER.id);
-    // Category grouping/labels and the drawer-toggle mechanics themselves
-    // are covered in PermissionCategoryCards.test.tsx -- this integration
-    // test only confirms the new component is actually wired up here.
+    // Category grouping/labels and the toggle mechanics themselves are
+    // covered in PermissionCategoryCards.test.tsx -- this integration test
+    // only confirms the component is actually wired up here.
     const region = screen.getByRole("region", { name: "Permission categories" });
     expect(within(region).getByText("Vacancy Management")).toBeInTheDocument();
     expect(within(region).getByText("Candidates & Applications")).toBeInTheDocument();
-    expect(within(region).getAllByRole("button", { name: "Manage Permissions" })).toHaveLength(6);
+    // Every permission is directly toggleable from the page itself -- the
+    // 2026-08-31 rework replaced the per-category "Manage Permissions"
+    // drawer, which left the page with no visible way to grant or revoke.
+    expect(within(region).getAllByRole("switch").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Manage Permissions" })).not.toBeInTheDocument();
   });
 
-  it("pre-selects the target's currently granted permissions as pills on the relevant category cards", async () => {
+  it("checks the target's currently granted permissions in the matrix", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -862,12 +868,18 @@ describe("UserDetailPage permission matrix", () => {
 
     renderPage(HR_ADMIN_USER.id);
 
-    expect(await screen.findByText("View vacancies")).toBeInTheDocument();
-    expect(screen.getByText("Manage users")).toBeInTheDocument();
-    expect(screen.getByText(exactText("Enabled: 2"))).toBeInTheDocument();
+    // Wait on the summary strip, not on the switches: every switch renders
+    // immediately (unchecked) and only becomes checked once GET
+    // /users/{id}/permissions resolves and seeds the draft, so the presence
+    // of a switch is not the condition to wait on -- and re-querying 32 of
+    // them inside a waitFor is slow enough to trip its 1s default.
+    expect(await screen.findByText(exactText("Enabled: 2"))).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "View vacancies" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Manage users" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Create vacancy requests" })).not.toBeChecked();
   });
 
-  it("toggles a permission in a category drawer and saves the full replacement set via the real mutation", async () => {
+  it("toggles a permission inline and saves the full replacement set via the real mutation", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -877,22 +889,21 @@ describe("UserDetailPage permission matrix", () => {
 
     renderPage(HR_ADMIN_USER.id);
 
-    const region = await screen.findByRole("region", { name: "Permission categories" });
-    const adminCard = within(region).getByText("Administration").closest(".rounded-xl") as HTMLElement;
-    await userEvent.click(within(adminCard).getByRole("button", { name: "Manage Permissions" }));
+    await screen.findByRole("region", { name: "Permission categories" });
     await userEvent.click(screen.getByRole("switch", { name: "Manage users" }));
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save Permissions" }));
 
     await waitFor(() =>
       expect(mockedSetUserPermissions).toHaveBeenCalledWith(HR_ADMIN_USER.id, ["VIEW_VACANCY", "MANAGE_USERS"]),
     );
-    // Drawer closes on success, and the top summary strip is reactive --
-    // not frozen at the value it had on initial load.
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // The top summary strip is reactive, not frozen at the value it had on
+    // initial load, and the save is confirmed in place.
     expect(await screen.findByText(exactText("Enabled: 2"))).toBeInTheDocument();
+    expect(await screen.findByText("Permissions saved.")).toBeInTheDocument();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
   });
 
-  it("Cancel in a category drawer never calls setUserPermissions -- a true no-op", async () => {
+  it("Discard changes never calls setUserPermissions -- a true no-op", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -902,14 +913,13 @@ describe("UserDetailPage permission matrix", () => {
 
     renderPage(HR_ADMIN_USER.id);
 
-    const region = await screen.findByRole("region", { name: "Permission categories" });
-    const adminCard = within(region).getByText("Administration").closest(".rounded-xl") as HTMLElement;
-    await userEvent.click(within(adminCard).getByRole("button", { name: "Manage Permissions" }));
+    await screen.findByRole("region", { name: "Permission categories" });
     await userEvent.click(screen.getByRole("switch", { name: "Manage users" }));
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(mockedSetUserPermissions).not.toHaveBeenCalled();
+    expect(screen.getByRole("switch", { name: "Manage users" })).not.toBeChecked();
     expect(screen.getByText(exactText("Enabled: 1"))).toBeInTheDocument();
   });
 
