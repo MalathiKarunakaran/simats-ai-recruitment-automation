@@ -1,5 +1,25 @@
 # CLAUDE.md
 
+## Core Behavior
+1. Don't assume. Don't hide confusion. Surface tradeoffs.
+2. Minimum code that solves the problem. Nothing speculative.
+3. Touch only what you must. Clean up only your own mess.
+4. Define success criteria. Loop until verified.
+
+## How I Work
+- Plan before build — confirm approach in chat before generating files
+- I prefer execution-ready output, not outlines or scaffolds
+- When iterating, make targeted corrections — don't rewrite the whole thing
+
+## Communication
+- Ask before assuming scope on ambiguous requests
+- If a task needs more than ~3 file changes, outline the plan first
+- Flag when you're uncertain rather than picking silently
+
+## Never
+- Never touch .env, secrets, or credentials files without asking
+- Never `git push --force` without explicit confirmation
+- Never delete files outside the current task's scope
 Instructions for Claude Code when working in this repository.
 
 ## Source spec
@@ -87,16 +107,27 @@ Testing: Vitest 4 + Testing Library + jsdom. Lint: `oxlint`.
 ## Conventions actually in use
 
 **RBAC**: `UserRoleEnum` in `app/models/enums.py` (SUPER_ADMIN, HR_ADMIN,
-ASSOCIATE_DEAN_RECRUITMENT, RECRUITMENT_OFFICER, CAMPUS_HOD,
-INTERVIEW_PANEL_MEMBER, MANAGEMENT, CANDIDATE) is a distinct concept from
+ASSOCIATE_DEAN_RECRUITMENT, RECRUITMENT_OFFICER, RECRUITMENT_COORDINATOR,
+CAMPUS_HOD, INTERVIEW_PANEL_MEMBER, MANAGEMENT, CANDIDATE — nine, and
+RECRUITMENT_COORDINATOR is the one this file used to omit) is a distinct
+concept from
 `StaffRoleCategoryEnum` (TEACHING/NON_TEACHING/HOUSEKEEPING — what kind of
 position a vacancy hires for). Never conflate them. `app/core/deps.py`'s
 `require_roles(*roles)` gates endpoints; `get_campus_scope` +
 `enforce_campus_match` gate campus-scoped data — cross-campus access to a
 single resource returns **404, not 403**, so an unauthorized caller can't
 even confirm the resource exists. `GLOBAL_SCOPE_ROLES` (SUPER_ADMIN, HR_ADMIN,
-ASSOCIATE_DEAN_RECRUITMENT, MANAGEMENT) see all campuses; everyone else is
-scoped to `current_user.campus_id`.
+ASSOCIATE_DEAN_RECRUITMENT, MANAGEMENT **and RECRUITMENT_COORDINATOR**) see
+all campuses; everyone else is scoped to `current_user.campus_id`.
+
+That last member is easy to miss and is user-visible: **a Recruitment
+Coordinator sees every campus, not their assigned one.** The only narrowing
+that reaches them is `get_department_scope` (`user_department_scope` rows, PUT
+`/users/{id}/department-scope`), which by design only restricts users who are
+already globally scoped. Making a coordinator campus-scoped means taking them
+out of `GLOBAL_SCOPE_ROLES`, which changes every module at once — raised with
+the user 2026-08-31 and deliberately NOT done. Don't do it as a side effect of
+some other change.
 
 **Department categories are a SET, and every check is membership**: a
 department is a place, not a staff category -- CSE employs Assistant
