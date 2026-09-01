@@ -59,7 +59,10 @@ const EMPLOYMENT_TYPES: EmploymentType[] = ["FULL_TIME", "PART_TIME", "CONTRACT"
 // app/services/tracker_import.py / migration.py's log_event calls.
 const BULK_IMPORT_ACTIONS = ["TRACKER_WORKBOOK_IMPORTED", "LEGACY_VACANCIES_IMPORTED"];
 
-const CAN_CREATE_ROLES = ["CAMPUS_HOD", "SUPER_ADMIN"];
+// One role tuple, two gates: the backend splits vacancy writing into
+// _can_create (CREATE_VACANCY_REQUEST) and _can_edit
+// (EDIT_VACANCY_REQUEST), both OR'd with this same pair of roles.
+const CAN_WRITE_ROLES = ["CAMPUS_HOD", "SUPER_ADMIN"];
 const CAN_IMPORT_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
 const AUDIT_READ_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "ASSOCIATE_DEAN_RECRUITMENT", "CAMPUS_HOD"];
 
@@ -112,7 +115,7 @@ function WorkflowIndicator() {
 }
 
 export function VacancyRequestsListPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const queryClient = useQueryClient();
   // Phase E item 28/29: SanctionedStrengthPage's clickable Recruitment/
   // Approval Status badges and VacancyRequestDetailPage's reverse link both
@@ -161,7 +164,12 @@ export function VacancyRequestsListPage() {
   // which this codebase doesn't have.
   const [rowActionError, setRowActionError] = useState<string | null>(null);
 
-  const canCreate = Boolean(user && CAN_CREATE_ROLES.includes(user.role));
+  const canCreate = Boolean(
+    user && (CAN_WRITE_ROLES.includes(user.role) || (hasPermission?.("CREATE_VACANCY_REQUEST") ?? false))
+  );
+  const canSubmitRow = Boolean(
+    user && (CAN_WRITE_ROLES.includes(user.role) || (hasPermission?.("EDIT_VACANCY_REQUEST") ?? false))
+  );
   const canImport = Boolean(user && CAN_IMPORT_ROLES.includes(user.role));
   const canResolveRequesterNames = Boolean(user && USER_MANAGEMENT_ROLES.includes(user.role));
   const canReadAuditLogs = Boolean(user && AUDIT_READ_ROLES.includes(user.role));
@@ -196,9 +204,10 @@ export function VacancyRequestsListPage() {
   // calls, with no override payload -- safe as a quick inline row action
   // because it needs no extra reason/justification for the common case
   // (submitVacancyRequest(id) with no body) and mirrors the exact same
-  // role+status gate as VacancyRequestDetailPage's canSubmit (CAMPUS_HOD/
-  // SUPER_ADMIN + status DRAFT, which is also exactly _can_write's role set
-  // on the backend's own submit endpoint -- no ownership check either side).
+  // gate as VacancyRequestDetailPage's canSubmit (CAMPUS_HOD/SUPER_ADMIN or
+  // an individually granted EDIT_VACANCY_REQUEST, + status DRAFT, which is
+  // exactly _can_edit on the backend's own submit endpoint -- no ownership
+  // check either side).
   // A SUPER_ADMIN hitting the sanction-limit block still gets a real error
   // here (rowActionError) and can open the detail page for the override
   // dialog -- that path deliberately isn't duplicated inline.
@@ -865,7 +874,7 @@ export function VacancyRequestsListPage() {
                       <TableCell className="whitespace-nowrap">{new Date(vr.created_at).toLocaleDateString()}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {canCreate && vr.status === "DRAFT" ? (
+                          {canSubmitRow && vr.status === "DRAFT" ? (
                             <Button
                               variant="outline"
                               size="sm"

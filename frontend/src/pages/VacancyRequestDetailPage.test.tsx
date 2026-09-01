@@ -163,10 +163,10 @@ describe("VacancyRequestDetailPage", () => {
 
   // RBAC permission-gate audit (2026-08-24): reject/publish/close/cancel are
   // each gated by their own require_permission(...PermissionEnum), not the
-  // hardcoded role checks alone -- this locks in the fix (Dean-approve stays
-  // hidden -- that's require_roles, a different, unrelated gate -- but
-  // Reject now shows) without changing the test above (no grant passed
-  // there, so it behaves exactly as before).
+  // hardcoded role checks alone -- this locks in the fix without changing
+  // the test above (no grant passed there, so it behaves exactly as
+  // before). Dean-approve stays hidden here because this user holds only
+  // REJECT_VACANCY; it has its own APPROVE_VACANCY gate, covered below.
   it("shows Reject to an unrelated role individually granted REJECT_VACANCY (but not Dean-approve)", async () => {
     mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "SUBMITTED" }));
     mockedUseAuth.mockReturnValue({
@@ -181,6 +181,36 @@ describe("VacancyRequestDetailPage", () => {
 
     await waitFor(() => expect(screen.getByText("Reject")).toBeInTheDocument());
     expect(screen.queryByText("Dean-approve")).not.toBeInTheDocument();
+  });
+
+  it("shows Dean-approve to an unrelated role individually granted APPROVE_VACANCY", async () => {
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "SUBMITTED" }));
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "APPROVE_VACANCY",
+    });
+
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByText("Dean-approve")).toBeInTheDocument());
+  });
+
+  it("shows Submit on a draft to an unrelated role individually granted EDIT_VACANCY_REQUEST", async () => {
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "EDIT_VACANCY_REQUEST",
+    });
+
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByText("Submit")).toBeInTheDocument());
   });
 
   it("clicking Submit calls the mutation and the status updates", async () => {

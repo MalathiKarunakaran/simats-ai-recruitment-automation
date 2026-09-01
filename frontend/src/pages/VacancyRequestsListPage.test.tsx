@@ -185,6 +185,45 @@ describe("VacancyRequestsListPage", () => {
     expect(screen.queryByRole("button", { name: /New request/ })).not.toBeInTheDocument();
   });
 
+  // The two halves of the create/edit permission split, from an unrelated
+  // role that has neither by virtue of its role. "New request" follows
+  // CREATE_VACANCY_REQUEST and the row's inline Submit follows
+  // EDIT_VACANCY_REQUEST -- holding one must never confer the other, which
+  // is exactly what the backend's _can_create / _can_edit gates enforce.
+  it("gates New request on CREATE_VACANCY_REQUEST and the row's Submit on EDIT_VACANCY_REQUEST", async () => {
+    mockCommonApis();
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListVacancyRequests.mockResolvedValue([VR]); // VR.status === "DRAFT"
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "CREATE_VACANCY_REQUEST",
+    });
+    const { unmount } = renderPage();
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /New request/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Submit" })).not.toBeInTheDocument();
+    unmount();
+
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "EDIT_VACANCY_REQUEST",
+    });
+    renderPage();
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /New request/ })).not.toBeInTheDocument();
+  });
+
   it("narrows the list client-side by status without re-fetching (KPIs need the full unfiltered set)", async () => {
     mockCommonApis();
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);

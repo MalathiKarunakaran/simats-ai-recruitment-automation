@@ -169,10 +169,18 @@ export function VacancyRequestDetailPage() {
 
   const role = user.role;
   const isSuperAdmin = role === "SUPER_ADMIN";
-  const canSubmit = (role === "CAMPUS_HOD" || role === "SUPER_ADMIN") && vr.status === "DRAFT";
+  // submit/edit/delete/generate-jd all sit behind the backend's `_can_edit`
+  // (EDIT_VACANCY_REQUEST OR'd with CAMPUS_HOD/SUPER_ADMIN); "New request"
+  // on the list page is the CREATE_VACANCY_REQUEST half of the same split.
+  const canSubmit =
+    ((role === "CAMPUS_HOD" || role === "SUPER_ADMIN") || (hasPermission?.("EDIT_VACANCY_REQUEST") ?? false)) &&
+    vr.status === "DRAFT";
   const canEdit = canSubmit;
   const canDelete = canSubmit;
-  const canDeanApprove = (role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "SUPER_ADMIN") && vr.status === "SUBMITTED";
+  const canDeanApprove =
+    ((role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "SUPER_ADMIN") ||
+      (hasPermission?.("APPROVE_VACANCY") ?? false)) &&
+    vr.status === "SUBMITTED";
   // Bug fix: each of these 4 OR's in hasPermission(...) for the matching
   // backend permission -- vacancy_requests.py's reject/publish/close/cancel
   // endpoints are all gated by require_permission(PermissionEnum.X), not a
@@ -186,6 +194,10 @@ export function VacancyRequestDetailPage() {
       role === "RECRUITMENT_COORDINATOR") ||
       (hasPermission?.("REJECT_VACANCY") ?? false)) &&
     (vr.status === "SUBMITTED" || vr.status === "DEAN_APPROVED");
+  // Deliberately NOT OR'd with hasPermission("APPROVE_VACANCY") the way
+  // canDeanApprove is -- hr-approve is the one vacancy gate still on the
+  // coordinator-capability scheme, precisely so a Dean's default
+  // APPROVE_VACANCY cannot carry them through HR's stage.
   const canHrApprove =
     (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
     (vr.status === "DEAN_APPROVED" || (vr.status === "SUBMITTED" && role === "SUPER_ADMIN"));

@@ -338,6 +338,135 @@ def test_management_cannot_create_vacancy_request(client, user_factory, departme
     assert response.status_code == 403
 
 
+# --- Individually-granted vacancy permissions --------------------------
+#
+# create/edit/dean-approve/hr-approve are gated by
+# require_roles_or_permission: the historical role keeps its access AND a
+# holder of the matching permission gets in. These four tests cover the
+# second half of that OR -- the role-only half is covered by the tests above
+# (test_hod_can_create_vacancy_request_for_own_campus,
+# test_recruitment_officer_cannot_dean_approve, ...).
+
+
+def test_coordinator_without_grants_cannot_create_or_edit(client, user_factory, department_factory):
+    department = department_factory("SSE")
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+
+    response = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, coordinator),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    assert response.status_code == 403
+
+
+def test_coordinator_with_create_grant_can_create_vacancy_request(
+    client, user_factory, department_factory, grant_permission
+):
+    department = department_factory("SSE")
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+    grant_permission(coordinator, PermissionEnum.CREATE_VACANCY_REQUEST)
+
+    response = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, coordinator),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    assert response.status_code == 201
+    assert response.json()["status"] == "DRAFT"
+
+
+def test_coordinator_with_edit_grant_can_edit_and_submit_but_not_create(
+    client, user_factory, department_factory, grant_permission
+):
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+    grant_permission(coordinator, PermissionEnum.EDIT_VACANCY_REQUEST)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+
+    # EDIT_VACANCY_REQUEST is not CREATE_VACANCY_REQUEST -- the split is the
+    # whole point of replacing the old single `_can_write` gate.
+    denied = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, coordinator),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    assert denied.status_code == 403
+
+    updated = client.patch(
+        f"/api/v1/vacancy-requests/{vr_id}",
+        headers=auth_headers(client, coordinator),
+        json={"qualification": "PhD or equivalent"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["qualification"] == "PhD or equivalent"
+
+    submitted = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, coordinator)
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == "SUBMITTED"
+
+
+def test_hr_admin_can_dean_approve_via_default_approve_vacancy_permission(
+    client, user_factory, department_factory
+):
+    # Pins a deliberate consequence of gating dean-approve on the shared
+    # APPROVE_VACANCY: HR_ADMIN holds it in DEFAULT_PERMISSIONS_BY_ROLE, so
+    # an HR Admin can now perform the Dean stage. The reverse does NOT hold
+    # -- see test_permission_matrix_router_enforcement.py::
+    # test_associate_dean_default_approve_vacancy_permission_cannot_hr_approve.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, hr_admin)
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "DEAN_APPROVED"
+
+
+def test_officer_with_approve_grant_can_dean_approve(
+    client, user_factory, department_factory, grant_permission
+):
+    # The negative of test_recruitment_officer_cannot_dean_approve: the same
+    # role, the same call, plus an individually granted APPROVE_VACANCY.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    officer = user_factory(UserRoleEnum.RECRUITMENT_OFFICER, campus_code="SSE")
+    grant_permission(officer, PermissionEnum.APPROVE_VACANCY)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, officer)
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "DEAN_APPROVED"
+
+
 # --- Cancel ------------------------------------------------------------
 
 

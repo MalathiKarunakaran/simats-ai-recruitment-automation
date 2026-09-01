@@ -17,8 +17,8 @@ from app.core.deps import (
     get_db,
     get_department_scope,
     require_permission,
-    require_roles,
     require_roles_or_coordinator_capability,
+    require_roles_or_permission,
 )
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.campus import Campus
@@ -73,8 +73,30 @@ def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
     return current_user
 
 
-def _can_write(
-    current_user: User = Depends(require_roles(UserRoleEnum.CAMPUS_HOD, UserRoleEnum.SUPER_ADMIN)),
+# One `_can_write` gate covered create and edit alike until the permission
+# matrix split them into CREATE_VACANCY_REQUEST / EDIT_VACANCY_REQUEST, so
+# there are two gates now. CAMPUS_HOD/SUPER_ADMIN are OR'd in rather than
+# replaced -- see require_roles_or_permission's docstring. Delete, submit and
+# generate-jd all sit under _can_edit: the matrix has no
+# DELETE_VACANCY_REQUEST, and each of the three acts on an existing request
+# rather than bringing a new one into being. Bulk upload is _can_create --
+# committing it creates requests.
+def _can_create(
+    current_user: User = Depends(
+        require_roles_or_permission(
+            PermissionEnum.CREATE_VACANCY_REQUEST, UserRoleEnum.CAMPUS_HOD, UserRoleEnum.SUPER_ADMIN
+        )
+    ),
+) -> User:
+    return current_user
+
+
+def _can_edit(
+    current_user: User = Depends(
+        require_roles_or_permission(
+            PermissionEnum.EDIT_VACANCY_REQUEST, UserRoleEnum.CAMPUS_HOD, UserRoleEnum.SUPER_ADMIN
+        )
+    ),
 ) -> User:
     return current_user
 
@@ -115,7 +137,7 @@ def create_vacancy_request(
     payload: VacancyRequestCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_can_write),
+    current_user: User = Depends(_can_create),
 ) -> VacancyRequest:
     if current_user.role == UserRoleEnum.CAMPUS_HOD and payload.campus_id != current_user.campus_id:
         raise HTTPException(
@@ -258,7 +280,7 @@ def update_vacancy_request(
     payload: VacancyRequestUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_can_write),
+    current_user: User = Depends(_can_edit),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
@@ -307,7 +329,7 @@ def generate_jd_for_vacancy_request(
     payload: VacancyRequestGenerateJDRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_can_write),
+    current_user: User = Depends(_can_edit),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
     ai: openai.OpenAI = Depends(get_openai_client),
@@ -336,7 +358,7 @@ def delete_vacancy_request(
     vacancy_request_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_can_write),
+    current_user: User = Depends(_can_edit),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> None:
@@ -366,7 +388,7 @@ def submit_vacancy_request(
     request: Request,
     payload: VacancyRequestSubmitRequest = VacancyRequestSubmitRequest(),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_can_write),
+    current_user: User = Depends(_can_edit),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
@@ -389,7 +411,15 @@ def dean_approve_vacancy_request(
     vacancy_request_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT, UserRoleEnum.SUPER_ADMIN)),
+    # Consequence of the shared APPROVE_VACANCY (see hr-approve below for the
+    # mirror image): HR_ADMIN holds it in DEFAULT_PERMISSIONS_BY_ROLE, so an
+    # HR Admin can now perform the Dean stage as well. Deliberate -- the
+    # alternative is a second permission -- but it is a real widening.
+    current_user: User = Depends(
+        require_roles_or_permission(
+            PermissionEnum.APPROVE_VACANCY, UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT, UserRoleEnum.SUPER_ADMIN
+        )
+    ),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> VacancyRequest:
@@ -422,6 +452,13 @@ def hr_approve_vacancy_request(
     vacancy_request_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    # NOT require_roles_or_permission(APPROVE_VACANCY, ...): there is one
+    # APPROVE_VACANCY covering both approval stages, and
+    # ASSOCIATE_DEAN_RECRUITMENT holds it by default for dean-approve --
+    # honouring it here would let a Dean walk their own request through HR's
+    # stage too, collapsing the Dean -> HR separation. Pinned by
+    # tests/test_permission_matrix_router_enforcement.py::
+    # test_associate_dean_default_approve_vacancy_permission_cannot_hr_approve.
     current_user: User = Depends(
         require_roles_or_coordinator_capability(
             CoordinatorCapabilityEnum.VACANCY_APPROVAL, UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN
@@ -624,7 +661,7 @@ def _bulk_row_to_preview(row) -> VacancyRequestBulkUploadRowPreview:
 @bulk_upload_router.get("/template")
 def download_vacancy_request_bulk_upload_template(
     db: Session = Depends(get_db),
-    current_user: User = Depends(_can_write),
+    current_user: User = Depends(_can_create),
 ) -> StreamingResponse:
     xlsx_bytes = vacancy_request_import.build_bulk_upload_template_xlsx(db)
     return StreamingResponse(
@@ -638,7 +675,7 @@ def download_vacancy_request_bulk_upload_template(
 def validate_vacancy_request_bulk_upload(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(_can_write),
+    current_user: User = Depends(_can_create),
 ) -> VacancyRequestBulkUploadValidationResponse:
     """Parses and validates every row WITHOUT writing anything -- a pure
     preview, same no-server-side-cache contract as every other entity's
@@ -662,7 +699,7 @@ def commit_vacancy_request_bulk_upload(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     minio_client: Minio = Depends(get_minio_client),
-    current_user: User = Depends(_can_write),
+    current_user: User = Depends(_can_create),
 ) -> VacancyRequestBulkUploadCommitResponse:
     """Re-validates the re-uploaded file defensively, then creates every
     non-rejected row as a DRAFT VacancyRequest in one transaction. Rejected

@@ -93,6 +93,42 @@ def require_roles(*allowed_roles: UserRoleEnum):
     return _checker
 
 
+def require_roles_or_permission(permission: PermissionEnum, *allowed_roles: UserRoleEnum):
+    """Passes if the caller holds `permission` OR has one of `allowed_roles`.
+
+    Deliberately additive rather than a replacement for `require_roles`. It
+    exists for endpoints that were role-gated before the permission matrix
+    and must keep working exactly as they do for those roles, while ALSO
+    honouring an individually-granted permission -- the vacancy workflow's
+    dean-approve and create/edit gates (2026-08-31), where replacing the
+    roles outright would have silently revoked access from
+    ASSOCIATE_DEAN_RECRUITMENT and CAMPUS_HOD.
+
+    hr-approve is deliberately NOT one of them: a single APPROVE_VACANCY
+    covers both approval stages, so honouring it there would let a Dean carry
+    their own request through HR's stage. It stays on
+    require_roles_or_coordinator_capability -- see the comment at that
+    endpoint.
+
+    Use `require_permission` instead for anything new: OR-ing a role in means
+    that role can never be revoked through the matrix."""
+
+    def _checker(
+        current_user: User = Depends(get_current_active_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        from app.services.permissions import has_permission
+
+        if current_user.role in allowed_roles or has_permission(db, current_user, permission):
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+
+    return _checker
+
+
 def require_roles_or_coordinator_capability(capability: CoordinatorCapabilityEnum, *other_allowed_roles: UserRoleEnum):
     """Like require_roles, but a RECRUITMENT_COORDINATOR is additionally
     allowed through if (and only if) they hold a CoordinatorCapabilityGrant

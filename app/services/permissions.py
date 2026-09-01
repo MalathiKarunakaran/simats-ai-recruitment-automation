@@ -1,9 +1,12 @@
-"""Phase 1 (schema + services only) of the granular permission-matrix epic --
-see UserPermissionGrant/PermissionEnum's docstrings for the full context.
-Nothing here is wired into any router yet; that's Phase 2's job. This module
-is the single source of truth for each role's default permission set, derived
-directly from a full audit of every router's actual current role gates (not
-guessed).
+"""The granular permission-matrix epic -- see UserPermissionGrant/
+PermissionEnum's docstrings for the full context. This module is the single
+source of truth for each role's default permission set, derived directly from
+a full audit of every router's actual current role gates (not guessed).
+
+Routers DO consult this now (it stopped being schema-only): Sanctioned
+Strength via require_permission, and the vacancy workflow's create / edit /
+dean-approve via require_roles_or_permission, which OR's the historical role
+in so nobody loses access they already had.
 
 SUPER_ADMIN and CANDIDATE are deliberately excluded from
 DEFAULT_PERMISSIONS_BY_ROLE: SUPER_ADMIN is an implicit bypass everywhere
@@ -159,8 +162,7 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
 def has_permission(db: Session, user: User, permission: PermissionEnum) -> bool:
     """True unconditionally for SUPER_ADMIN (implicit "has every permission"
     bypass, never represented by stored grant rows); otherwise checks whether
-    a UserPermissionGrant row exists for (user.id, permission). Not yet
-    consulted by any router -- Phase 2's job."""
+    a UserPermissionGrant row exists for (user.id, permission)."""
     if user.role == UserRoleEnum.SUPER_ADMIN:
         return True
 
