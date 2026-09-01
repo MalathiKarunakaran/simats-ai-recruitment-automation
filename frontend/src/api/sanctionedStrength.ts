@@ -91,6 +91,45 @@ export async function listSanctionedStrengthRegister(
   return apiFetch<SanctionedStrengthListResponse>(`/departments/vacancy-register${qs ? `?${qs}` : ""}`);
 }
 
+/** Mirrors GET /departments/vacancy-register/export.
+ *
+ * The Sanctioned Strength "All" tab -- the last of the six master-data
+ * screens to get an export (2026-09-01). Takes the same filters as
+ * listSanctionedStrengthRegister minus pagination, so the workbook holds
+ * every row the tab currently matches, not just the page on screen.
+ *
+ * A page-level button is correct HERE, unlike the three view tabs, whose
+ * Export buttons live inside their own table components because those
+ * components own their filter state. The All tab's filters live on
+ * SanctionedStrengthPage itself.
+ */
+export async function exportVacancyRegister(
+  params: Omit<ListSanctionedStrengthParams, "limit" | "offset"> = {},
+): Promise<void> {
+  const query = new URLSearchParams();
+  if (params.sort_by) query.set("sort_by", params.sort_by);
+  if (params.sort_dir) query.set("sort_dir", params.sort_dir);
+  if (params.campus_code) query.set("campus_code", params.campus_code);
+  if (params.category) query.set("category", params.category);
+  if (params.department_id) query.set("department_id", params.department_id);
+  if (params.search) query.set("search", params.search);
+  if (params.approval_status) query.set("approval_status", params.approval_status);
+  if (params.recruitment_status) query.set("recruitment_status", params.recruitment_status);
+  if (params.is_active !== undefined && params.is_active !== null) {
+    query.set("is_active", String(params.is_active));
+  }
+
+  const qs = query.toString();
+  const blob = await apiFetchBlob(`/departments/vacancy-register/export${qs ? `?${qs}` : ""}`);
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `simats-sanctioned-strength-all-${date}.xlsx`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // Mirrors GET /departments/{department_id}/sanctioned-strength-breakdown
 // (app/api/v1/routers/vacancy_register.py) -- one row per designation
 // linked to the department, only fetched when that department's row is

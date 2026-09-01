@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { Fragment, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -6,6 +6,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { listCampuses } from "@/api/campuses";
 import { ApiError } from "@/api/client";
 import {
+  exportVacancyRegister,
   getDepartmentSanctionedStrengthBreakdown,
   listSanctionedStrengthRegister,
   type SanctionedStrengthSortBy,
@@ -432,6 +433,23 @@ export function SanctionedStrengthPage() {
       }),
   });
 
+  // Same filter/sort arguments as the query above, deliberately built from
+  // the same state rather than from the fetched page -- the workbook holds
+  // every matching row, not just the 50 currently rendered.
+  const exportAllMutation = useMutation({
+    mutationFn: () =>
+      exportVacancyRegister({
+        sort_by: sortBy,
+        sort_dir: sortDir,
+        campus_code: campusFilter === "ALL" ? null : campusFilter,
+        category: categoryFilter === "ALL" ? null : categoryFilter,
+        approval_status: approvalStatusFilter === "ALL" ? null : approvalStatusFilter,
+        recruitment_status: recruitmentStatusFilter === "ALL" ? null : recruitmentStatusFilter,
+        is_active: activeFilter === "ALL" ? null : activeFilter === "true",
+        search: search.trim() || null,
+      }),
+  });
+
   function handleSort(column: ColumnDef) {
     if (!column.sortBy) return;
     if (sortBy === column.sortBy) {
@@ -664,6 +682,22 @@ export function SanctionedStrengthPage() {
                 </SelectContent>
               </Select>
             </div>
+            {/* Exports exactly what this tab currently shows -- same filters,
+                same sort, minus pagination. Unlike the three view tabs, whose
+                Export buttons live inside their own table components because
+                those components own their filter state, the All tab's filters
+                are page-level state right here, so a page-level button sees
+                them correctly. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              disabled={exportAllMutation.isPending}
+              onClick={() => exportAllMutation.mutate()}
+            >
+              {exportAllMutation.isPending ? "Exporting…" : "Export"}
+            </Button>
           </div>
 
           {/* UI redesign Phase 3 -- Card replaces the old bare

@@ -52,6 +52,7 @@ vi.mock("@/auth/AuthContext", async () => {
 
 const mockedListSanctionedStrengthRegister = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthRegister);
 const mockedGetBreakdown = vi.mocked(sanctionedStrengthApi.getDepartmentSanctionedStrengthBreakdown);
+const mockedExportVacancyRegister = vi.mocked(sanctionedStrengthApi.exportVacancyRegister);
 const mockedCreateSanctionedStrength = vi.mocked(sanctionedStrengthApi.createSanctionedStrength);
 const mockedUpdateSanctionedStrength = vi.mocked(sanctionedStrengthApi.updateSanctionedStrength);
 const mockedDeleteSanctionedStrength = vi.mocked(sanctionedStrengthApi.deleteSanctionedStrength);
@@ -649,6 +650,57 @@ describe("SanctionedStrengthPage", () => {
     await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
     await waitFor(() => expect(mockedGetBreakdown).toHaveBeenCalledWith("d-cse"));
     expect(screen.getByRole("button", { name: /Collapse Computer Science/ })).toBeInTheDocument();
+  });
+
+  // Export parity (2026-09-01): the "All" tab was the last of the six
+  // master-data screens without an export.
+  it("exports the All tab with the filters and sort currently on screen, not just the visible page", async () => {
+    mockAuth("HR_ADMIN");
+    mockCampuses();
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW], 120));
+    mockedExportVacancyRegister.mockResolvedValue(undefined);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+    // Change the sort so the export has something non-default to carry.
+    await userEvent.click(screen.getByRole("button", { name: /Approved/ }));
+    await waitFor(() =>
+      expect(mockedListSanctionedStrengthRegister).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort_by: "approved_count" }),
+      ),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    await waitFor(() => expect(mockedExportVacancyRegister).toHaveBeenCalledTimes(1));
+    const args = mockedExportVacancyRegister.mock.calls[0][0];
+    expect(args).toMatchObject({ sort_by: "approved_count", sort_dir: "asc" });
+    // Pagination is deliberately NOT forwarded -- the workbook holds every
+    // matching row (total 120 here), not the 50 on screen.
+    expect(args).not.toHaveProperty("limit");
+    expect(args).not.toHaveProperty("offset");
+  });
+
+  it("shows Exporting… while the All-tab export is in flight", async () => {
+    mockAuth("HR_ADMIN");
+    mockCampuses();
+    mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW]));
+    let resolveExport: () => void = () => {};
+    mockedExportVacancyRegister.mockImplementation(
+      () => new Promise<void>((resolve) => { resolveExport = resolve; }),
+    );
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Computer Science")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    const busy = await screen.findByRole("button", { name: "Exporting…" });
+    expect(busy).toBeDisabled();
+
+    resolveExport();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Export" })).toBeEnabled());
   });
 
   it("sorts by a clicked column ascending, then toggles to descending on a second click", async () => {

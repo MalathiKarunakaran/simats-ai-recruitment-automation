@@ -273,3 +273,90 @@ def test_export_strength_view_forbidden_for_candidate(client, user_factory):
         "/api/v1/sanctioned-strength/views/teaching/export", headers=auth_headers(client, candidate)
     )
     assert response.status_code == 403
+
+
+# --- Sanctioned Strength "All" tab ------------------------------------------
+#
+# The last gap in the 2026-08-27 export-parity pass (`c64cf8a`), closed
+# 2026-09-01. Unlike the three views above this one is DEPARTMENT-grained --
+# a rollup across every category, backed by GET /departments/vacancy-register
+# -- so it has its own header set and its own sheet.
+
+
+def test_export_vacancy_register_all_tab(client, strength_setup):
+    sheet = _sheet(
+        client.get(
+            "/api/v1/departments/vacancy-register/export",
+            headers=auth_headers(client, strength_setup["admin"]),
+        )
+    )
+
+    assert sheet.title == "Sanctioned Strength (All)"
+    headers = _headers(sheet)
+    assert headers[:4] == ["Campus", "Department", "Category", "Approved"]
+    # Department-grained, so no Designation column at all -- that is what
+    # distinguishes this sheet from the Teaching/Non-Teaching ones.
+    assert "Designation" not in headers
+    assert "Recruitment Status" in headers and "Approval Status" in headers
+
+    rows = _data_rows(sheet)
+    row = next(r for r in rows if r[1] == "Computer Science")
+    assert row[0] == "SSE"
+    # Approved rolls the department's sanctioned strength up: one row of 7.
+    assert row[3] == 7
+
+
+def test_export_vacancy_register_renders_categories_as_text_not_enum_reprs(client, strength_setup):
+    """`supported_categories` is a list of enum MEMBERS, not strings. Joining
+    it naively is the kind of thing that silently ships
+    "StaffRoleCategoryEnum.TEACHING" into a customer's spreadsheet."""
+    sheet = _sheet(
+        client.get(
+            "/api/v1/departments/vacancy-register/export",
+            headers=auth_headers(client, strength_setup["admin"]),
+        )
+    )
+    row = next(r for r in _data_rows(sheet) if r[1] == "Computer Science")
+    assert row[2] == "TEACHING"
+
+
+def test_export_vacancy_register_honours_the_category_filter(client, strength_setup):
+    """The export mirrors whatever the tab is showing, filters included."""
+    response = client.get(
+        "/api/v1/departments/vacancy-register/export?category=HOUSEKEEPING",
+        headers=auth_headers(client, strength_setup["admin"]),
+    )
+    sheet = _sheet(response)
+    assert all(r[1] != "Computer Science" for r in _data_rows(sheet))
+
+
+def test_export_vacancy_register_rejects_a_bad_sort_field(client, strength_setup):
+    # Shares _validate_register_params with the list endpoint, so the two
+    # cannot drift into accepting different values for the same param.
+    response = client.get(
+        "/api/v1/departments/vacancy-register/export?sort_by=nonsense",
+        headers=auth_headers(client, strength_setup["admin"]),
+    )
+    assert response.status_code == 422
+
+
+def test_export_vacancy_register_is_not_swallowed_by_the_department_id_route(client, strength_setup):
+    """`/departments/vacancy-register/export` and
+    `/departments/{department_id}/sanctioned-strength-breakdown` are both
+    two-segment paths under the same prefix. If the literal is ever registered
+    after the parameterised one, "vacancy-register" parses as a department_id
+    and this 422s instead of returning a workbook."""
+    response = client.get(
+        "/api/v1/departments/vacancy-register/export",
+        headers=auth_headers(client, strength_setup["admin"]),
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(XLSX_CONTENT_TYPE)
+
+
+def test_export_vacancy_register_forbidden_for_candidate(client, user_factory):
+    candidate = user_factory(UserRoleEnum.CANDIDATE)
+    response = client.get(
+        "/api/v1/departments/vacancy-register/export", headers=auth_headers(client, candidate)
+    )
+    assert response.status_code == 403

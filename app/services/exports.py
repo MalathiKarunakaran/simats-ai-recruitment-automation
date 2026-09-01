@@ -300,6 +300,29 @@ _STRENGTH_VIEW_EXPORT_HEADERS = [
     "Last Updated",
 ]
 
+# The Sanctioned Strength "All" tab. Unlike the three view tabs above, this
+# one is DEPARTMENT-grained (a rollup across every category) and is backed by
+# GET /departments/vacancy-register, so it has its own header set rather than
+# reusing _STRENGTH_VIEW_EXPORT_HEADERS.
+#
+# Mirrors SanctionedStrengthPage's own COLUMNS array exactly, in order, with
+# Campus prepended -- every other export in this family leads with Campus, and
+# the All tab is the one that most often spans several.
+_VACANCY_REGISTER_EXPORT_HEADERS = [
+    "Campus",
+    "Department",
+    "Category",
+    "Approved",
+    "Working",
+    "Vacancy",
+    "Filled %",
+    "Recruitment Status",
+    "Approval Status",
+    "Last Join",
+    "Last Resignation",
+    "Last Updated",
+]
+
 _HOUSEKEEPING_STRENGTH_EXPORT_HEADERS = [
     "Campus",
     "Location",
@@ -454,6 +477,50 @@ def build_strength_view_export_excel(
                 row.get("vacancy"),
                 row.get("filled_pct"),
                 row.get("status"),
+                row.get("last_join"),
+                row.get("last_resignation"),
+                row.get("last_updated"),
+            ]
+            for row in rows
+        ],
+        generated_at=generated_at,
+        scope_note=scope_note,
+    )
+
+
+def build_vacancy_register_export_excel(
+    rows: list[dict], generated_at: datetime, scope_note: str
+) -> bytes:
+    """The Sanctioned Strength "All" tab, which is a department-level rollup
+    rather than one of the three designation/location-grained views.
+
+    `build_strength_view_export_excel`'s docstring notes that it refuses to
+    invent a combined shape "matching nothing on screen" -- this is not that.
+    The All tab has a real on-screen table of its own
+    (SanctionedStrengthPage's legacy rollup body, backed by
+    GET /departments/vacancy-register) and this mirrors that table's columns,
+    same as every other export mirrors its own list.
+
+    `supported_categories` is a Postgres array of enum MEMBERS (not strings) --
+    a department is a place, not a staff category, so a mixed one legitimately
+    reads "TEACHING, NON_TEACHING" in one cell rather than occupying two rows.
+    """
+    return _build_master_export_excel(
+        sheet_title="Sanctioned Strength (All)",
+        headers=_VACANCY_REGISTER_EXPORT_HEADERS,
+        row_values=[
+            [
+                row.get("campus_code"),
+                row.get("department_name"),
+                ", ".join(
+                    getattr(member, "value", member) for member in (row.get("supported_categories") or [])
+                ),
+                row.get("approved_count"),
+                row.get("working_count"),
+                row.get("vacancy_count"),
+                row.get("filled_pct"),
+                row.get("recruitment_status"),
+                row.get("approval_status"),
                 row.get("last_join"),
                 row.get("last_resignation"),
                 row.get("last_updated"),
