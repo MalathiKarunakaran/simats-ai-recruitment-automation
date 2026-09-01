@@ -787,8 +787,22 @@ def create_sanctioned_strength(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Location is required for Housekeeping sanctioned strength records.",
         )
-    if payload.location_id is not None and db.get(Location, payload.location_id) is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown location_id")
+    if payload.location_id is not None:
+        location = db.get(Location, payload.location_id)
+        if location is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown location_id")
+        # Campus, and deliberately NOT category (2026-09-01). A Location is a
+        # physical place; it does not belong to a staff category, and every
+        # location in production is categorised TEACHING, so enforcing
+        # category here would reject every Non-Teaching and Housekeeping row.
+        # Campus IS a real containment relationship and was previously
+        # unchecked -- a caller could attach another campus's room to a row
+        # the UI would then never offer.
+        if location.campus_id != payload.campus_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Location belongs to a different campus",
+            )
 
     row = SanctionedStrength(
         campus_id=payload.campus_id,
@@ -857,8 +871,16 @@ def update_sanctioned_strength(
     if "working_override" in payload.model_fields_set:
         row.working_override = payload.working_override
     if payload.location_id is not None:
-        if db.get(Location, payload.location_id) is None:
+        location = db.get(Location, payload.location_id)
+        if location is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown location_id")
+        # Same campus check as create -- against the ROW's campus, which an
+        # update cannot change.
+        if location.campus_id != row.campus_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Location belongs to a different campus",
+            )
         row.location_id = payload.location_id
     row.updated_by_id = current_user.id
 

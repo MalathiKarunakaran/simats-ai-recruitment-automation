@@ -11,7 +11,7 @@ from datetime import date
 
 from app.models.enums import SanctionedStrengthChangeSourceEnum, StaffRoleCategoryEnum, UserRoleEnum
 from app.models.location import Location
-from app.models.sanctioned_strength import SanctionedStrengthHistory
+from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengthHistory
 
 from tests.conftest import auth_headers
 
@@ -510,3 +510,183 @@ def test_create_non_teaching_without_location_id_still_succeeds(
     )
     assert response.status_code == 201, response.text
     assert response.json()["location_id"] is None
+
+
+# --- Location is filtered by CAMPUS, never by category (2026-09-01) ---------
+#
+# The reported bug was the Edit drawer showing "Select a location" over an
+# empty list for a NON_TEACHING designation. Root cause was a category filter
+# on the picker, and production has 23 locations of which every single one is
+# categorised TEACHING -- so Non-Teaching and Housekeeping rows matched
+# nothing. These pin the backend half: a Location is a physical place, so its
+# category must never gate which rows may reference it, while its CAMPUS must.
+
+
+def _location(db_session, campus, name="Block A", category=None):
+    location = Location(campus_id=campus.id, name=name, category=category)
+    db_session.add(location)
+    db_session.flush()
+    return location
+
+
+def test_non_teaching_row_accepts_a_teaching_categorised_location(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    """The exact production shape: every location is TEACHING, the designation
+    is NON_TEACHING. This must be accepted, not rejected."""
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"NT Dept {uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.NON_TEACHING]
+    designation = designation_factory(StaffRoleCategoryEnum.NON_TEACHING, department=department)
+    location = _location(db_session, campus, category=StaffRoleCategoryEnum.TEACHING)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _create(
+        client,
+        hr_admin,
+        campus_id=campus.id,
+        department_id=department.id,
+        designation_id=designation.id,
+        location_id=location.id,
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["location_id"] == str(location.id)
+
+
+def test_teaching_row_accepts_a_location_with_no_category_at_all(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"T Dept {uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    location = _location(db_session, campus, category=None)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _create(
+        client,
+        hr_admin,
+        campus_id=campus.id,
+        department_id=department.id,
+        designation_id=designation.id,
+        location_id=location.id,
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_housekeeping_row_accepts_a_teaching_categorised_location(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    """Housekeeping is the one category where a location is REQUIRED, so a
+    category filter here did not merely hide options -- it made the row
+    impossible to save at all."""
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"HK Dept {uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.HOUSEKEEPING]
+    designation = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
+    location = _location(db_session, campus, category=StaffRoleCategoryEnum.TEACHING)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _create(
+        client,
+        hr_admin,
+        campus_id=campus.id,
+        department_id=department.id,
+        designation_id=designation.id,
+        location_id=location.id,
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_create_rejects_a_location_from_another_campus(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    """Campus IS a real containment relationship, and was previously
+    unchecked -- a caller could attach another campus's room to a row that the
+    UI would then never offer as an option."""
+    campus = campus_factory("SSE")
+    other_campus = campus_factory("SCAD")
+    department = department_factory("SSE", name=f"XCampus Dept {uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    foreign_location = _location(db_session, other_campus, name="SCAD Block")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    response = _create(
+        client,
+        hr_admin,
+        campus_id=campus.id,
+        department_id=department.id,
+        designation_id=designation.id,
+        location_id=foreign_location.id,
+    )
+    assert response.status_code == 400
+    assert "different campus" in response.json()["detail"].lower()
+
+
+def test_update_rejects_a_location_from_another_campus(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    campus = campus_factory("SSE")
+    other_campus = campus_factory("SCAD")
+    department = department_factory("SSE", name=f"XCampus Upd {uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    good_location = _location(db_session, campus, name="SSE Block")
+    foreign_location = _location(db_session, other_campus, name="SCAD Block")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    created = _create(
+        client,
+        hr_admin,
+        campus_id=campus.id,
+        department_id=department.id,
+        designation_id=designation.id,
+        location_id=good_location.id,
+    )
+    assert created.status_code == 201, created.text
+    row_id = created.json()["id"]
+
+    response = client.patch(
+        f"{ENDPOINT}/{row_id}",
+        json={"location_id": str(foreign_location.id)},
+        headers=auth_headers(client, hr_admin),
+    )
+    assert response.status_code == 400
+    assert "different campus" in response.json()["detail"].lower()
+
+    # And the row keeps the location it had -- a rejected update must not
+    # half-apply. Checked against the DB because this router has no
+    # single-row GET.
+    db_session.expire_all()
+    assert db_session.get(SanctionedStrength, uuid.UUID(row_id)).location_id == good_location.id
+
+
+def test_update_to_a_same_campus_location_of_a_different_category_succeeds(
+    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+):
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"NT Upd {uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.NON_TEACHING]
+    designation = designation_factory(StaffRoleCategoryEnum.NON_TEACHING, department=department)
+    first = _location(db_session, campus, name="First Block", category=StaffRoleCategoryEnum.TEACHING)
+    second = _location(db_session, campus, name="Second Block", category=StaffRoleCategoryEnum.TEACHING)
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+
+    created = _create(
+        client,
+        hr_admin,
+        campus_id=campus.id,
+        department_id=department.id,
+        designation_id=designation.id,
+        location_id=first.id,
+    )
+    assert created.status_code == 201, created.text
+
+    response = client.patch(
+        f"{ENDPOINT}/{created.json()['id']}",
+        json={"location_id": str(second.id)},
+        headers=auth_headers(client, hr_admin),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["location_id"] == str(second.id)

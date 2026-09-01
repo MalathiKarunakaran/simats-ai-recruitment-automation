@@ -486,7 +486,7 @@ describe("SanctionedStrengthDrawer", () => {
   });
 
   describe("Location tab", () => {
-    it("shows a campus/category-scoped Location picker, editable in edit mode, and sends location_id on save", async () => {
+    it("shows a campus-scoped Location picker, editable in edit mode, and sends location_id on save", async () => {
       mockedUpdate.mockResolvedValue(SANCTIONED_STRENGTH_ROW);
       renderDrawer();
 
@@ -508,6 +508,71 @@ describe("SanctionedStrengthDrawer", () => {
 
       expect(await screen.findByText("Location is required for Housekeeping.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
+    });
+
+    // --- Location is scoped by CAMPUS, never by category (2026-09-01) -----
+    //
+    // The picker used to also require the location's category to match the
+    // designation's. Production has 23 locations and every one is categorised
+    // TEACHING, so the dropdown was empty for every Non-Teaching and
+    // Housekeeping designation -- it rendered "Select a location" over
+    // nothing. A location is a physical place; it does not stop existing
+    // because the post you are budgeting for is non-teaching.
+
+    it("offers a TEACHING-categorised location to a NON_TEACHING designation", async () => {
+      renderDrawer({ category: "NON_TEACHING", designationId: "des-2", designationName: "Lab Assistant" });
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+      await userEvent.click(await screen.findByRole("combobox", { name: "Location" }));
+
+      expect(await screen.findByRole("option", { name: /Block A|A — 1st Floor/ })).toBeInTheDocument();
+      expect(screen.queryByText("No locations configured for this campus.")).not.toBeInTheDocument();
+    });
+
+    it("offers a TEACHING-categorised location to a HOUSEKEEPING designation, where one is mandatory", async () => {
+      // Worse than a hidden option for Housekeeping: a location is REQUIRED,
+      // so an empty list made the row impossible to save at all.
+      renderDrawer({ category: "HOUSEKEEPING", designationId: "des-2", designationName: "Housekeeper" });
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+      await userEvent.click(await screen.findByRole("combobox", { name: "Location" }));
+      expect(await screen.findByRole("option", { name: /Block A|A — 1st Floor/ })).toBeInTheDocument();
+    });
+
+    it("does not offer a location belonging to another campus", async () => {
+      mockedListLocations.mockResolvedValue([
+        LOCATION_A,
+        { ...LOCATION_A, id: "loc-scad", campus_id: "c-scad", name: "SCAD Block", block_building: "SCAD Block" },
+      ]);
+      renderDrawer();
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+      await userEvent.click(await screen.findByRole("combobox", { name: "Location" }));
+      expect(await screen.findByRole("option", { name: /Block A|A — 1st Floor/ })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: /SCAD Block/ })).not.toBeInTheDocument();
+    });
+
+    it("keeps a saved location selectable even when it is not in the campus list", async () => {
+      // An inactive location, or one whose campus moved: the picker must not
+      // silently drop a real saved value. That is the same class of bug as
+      // the category filter -- a value that exists but cannot be seen.
+      mockedListLocations.mockResolvedValue([
+        { ...LOCATION_A, campus_id: "c-somewhere-else" },
+      ]);
+      renderDrawer();
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+      await userEvent.click(await screen.findByRole("combobox", { name: "Location" }));
+      expect(await screen.findByRole("option", { name: /Block A|A — 1st Floor/ })).toBeInTheDocument();
+    });
+
+    it("says so plainly when the campus has no locations, instead of an empty dropdown", async () => {
+      mockedListLocations.mockResolvedValue([]);
+      renderDrawer();
+      await userEvent.click(await screen.findByRole("tab", { name: "Details" }));
+
+      await userEvent.click(await screen.findByRole("combobox", { name: "Location" }));
+      expect(await screen.findByText("No locations configured for this campus.")).toBeInTheDocument();
     });
 
     it("shows the resolved location name as read-only text in view mode", async () => {

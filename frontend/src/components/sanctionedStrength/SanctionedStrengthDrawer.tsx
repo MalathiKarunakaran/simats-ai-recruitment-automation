@@ -341,11 +341,37 @@ export function SanctionedStrengthDrawer({
   // attach this row to, so collapsing two records that describe the same
   // campus+block+floor removes a meaningless choice rather than hiding data.
   // (Filter dropdowns deliberately do NOT dedupe -- see TeachingStrengthTable.)
+  //
+  // Campus ONLY. This used to also require
+  // `l.category === null || l.category === category`, which emptied the
+  // dropdown for every non-Teaching designation: production has 23 locations
+  // and every one of them is categorised TEACHING, so a NON_TEACHING
+  // designation like "Lab Assistant" (and every HOUSEKEEPING one, where a
+  // location is REQUIRED) matched nothing and the field rendered its
+  // "Select a location" placeholder over an empty list.
+  //
+  // It also broke editing: a row with a saved location whose category didn't
+  // match was filtered out of the options, so Radix had a value with no
+  // matching item and fell back to the placeholder -- the form looked like it
+  // had no location saved when it did.
+  //
+  // A location is a physical place. A room does not stop existing because the
+  // person you are budgeting for is non-teaching, so category was never the
+  // right axis to filter a place by.
   const campusLocations = dedupeLocationsForPicker(
-    (locationsQuery.data ?? []).filter(
-      (l) => l.campus_id === campusId && (l.category === null || l.category === category),
-    ),
+    (locationsQuery.data ?? []).filter((l) => l.campus_id === campusId),
   );
+
+  // Whatever is already saved on this row stays selectable even if it is not
+  // in the list above -- an inactive location, or one whose campus was
+  // changed out from under the row. Without this the picker would silently
+  // drop a real saved value the moment it became unlisted, which is the class
+  // of bug this whole fix is about.
+  const savedLocation = (locationsQuery.data ?? []).find((l) => l.id === locationId);
+  const locationOptions =
+    savedLocation && !campusLocations.some((l) => l.id === savedLocation.id)
+      ? [savedLocation, ...campusLocations]
+      : campusLocations;
 
   const resolvedDesignationName =
     breakdownRow?.designation_name ??
@@ -597,12 +623,16 @@ export function SanctionedStrengthDrawer({
                             <SelectValue placeholder="Select a location" />
                           </SelectTrigger>
                           <SelectContent>
-                            {campusLocations.length === 0 ? (
+                            {locationOptions.length === 0 ? (
+                              // The field stays open and usable -- this is a
+                              // message inside the dropdown, not a disabled
+                              // control, so it is obvious that the campus has
+                              // no locations yet rather than looking broken.
                               <div className="px-3 py-2 text-sm text-muted-foreground">
-                                No locations on this campus.
+                                No locations configured for this campus.
                               </div>
                             ) : (
-                              campusLocations.map((location) => (
+                              locationOptions.map((location) => (
                                 <SelectItem key={location.id} value={location.id}>
                                   {locationLabel(location)}
                                 </SelectItem>
@@ -615,7 +645,7 @@ export function SanctionedStrengthDrawer({
                           {breakdownRow?.location_name ??
                             viewRow?.location_name ??
                             (() => {
-                              const l = campusLocations.find((c) => c.id === locationId);
+                              const l = locationOptions.find((c) => c.id === locationId);
                               return l ? locationLabel(l) : null;
                             })() ??
                             "--"}
