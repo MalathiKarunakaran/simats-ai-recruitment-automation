@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
-from app.models.enums import GLOBAL_SCOPE_ROLES, CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
+from app.models.enums import (
+    DEPARTMENT_SCOPABLE_ROLES,
+    GLOBAL_SCOPE_ROLES,
+    CoordinatorCapabilityEnum,
+    PermissionEnum,
+    UserRoleEnum,
+)
 from app.models.user import User
 from app.models.user_department_scope import user_department_scope
 
@@ -252,15 +258,21 @@ def get_department_scope(
     `CampusScope` already applies, never a replacement for it).
 
     SUPER_ADMIN is always unrestricted (same unconditional bypass as
-    `CampusScope`'s `is_global`), and any role *outside*
-    `GLOBAL_SCOPE_ROLES` (e.g. CAMPUS_HOD, RECRUITMENT_OFFICER) is always
-    unrestricted by this mechanism too, regardless of whether it happens to
-    have `user_department_scope` rows -- that table is also used by the
-    pre-existing GET/PUT /users/{id}/department-scope CRUD endpoints for
+    `CampusScope`'s `is_global`), and any role outside
+    `DEPARTMENT_SCOPABLE_ROLES` (e.g. CAMPUS_HOD, RECRUITMENT_OFFICER) is
+    always unrestricted by this mechanism too, regardless of whether it
+    happens to have `user_department_scope` rows -- that table is also used by
+    the pre-existing GET/PUT /users/{id}/department-scope CRUD endpoints for
     other roles (e.g. CAMPUS_HOD), and this dependency deliberately does not
     enforce anything for roles this phase was not asked to cover.
+
+    That set used to be computed here as "GLOBAL_SCOPE_ROLES minus
+    SUPER_ADMIN". It is now its own set in `enums.py` precisely so that
+    changing who is globally campus-scoped cannot silently change who can be
+    department-scoped -- see that set's comment; RECRUITMENT_COORDINATOR left
+    GLOBAL_SCOPE_ROLES on 2026-09-01 and must still be narrowable here.
     """
-    if current_user.role == UserRoleEnum.SUPER_ADMIN or current_user.role not in GLOBAL_SCOPE_ROLES:
+    if current_user.role not in DEPARTMENT_SCOPABLE_ROLES:
         return DepartmentScope(is_restricted=False, department_ids=None)
     rows = (
         db.execute(

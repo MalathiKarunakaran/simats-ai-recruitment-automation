@@ -607,7 +607,7 @@ export function UserDetailPage() {
             <div className="flex flex-col gap-1.5">
               <span className="text-sm text-muted-foreground">Role</span>
               <Select value={role} onValueChange={(value) => handleRoleChange(value as UserRole)}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="Role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -624,7 +624,7 @@ export function UserDetailPage() {
               <div className="flex flex-col gap-1.5">
                 <span className="text-sm text-muted-foreground">Campus</span>
                 <Select value={campusId} onValueChange={handleCampusChange}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Campus">
                     <SelectValue placeholder="Select a campus" />
                   </SelectTrigger>
                   <SelectContent>
@@ -647,7 +647,7 @@ export function UserDetailPage() {
               <div className="flex flex-col gap-1.5">
                 <span className="text-sm text-muted-foreground">Department (optional)</span>
                 <Select value={departmentId} onValueChange={handleDepartmentChange} disabled={!campusId}>
-                  <SelectTrigger>
+                  <SelectTrigger aria-label="Department">
                     <SelectValue placeholder={campusId ? "Select a department" : "Select a campus first"} />
                   </SelectTrigger>
                   <SelectContent>

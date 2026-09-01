@@ -120,7 +120,7 @@ def test_recruitment_coordinator_with_grant_can_distribute(
     # JOB_DISTRIBUTION_SCREENING onto JOB_DISTRIBUTION/RESUME_SCREENING) --
     # the test DB never runs that migration, so both are inserted directly.
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
-    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.JOB_DISTRIBUTION_SCREENING)
     grant_permission(coordinator, PermissionEnum.JOB_DISTRIBUTION)
     app.dependency_overrides[get_n8n_client_or_503] = lambda: FakeN8nClient()

@@ -22,21 +22,47 @@ class UserRoleEnum(str, enum.Enum):
 
 
 # Roles with organization-wide (all-campus) visibility by default.
+#
+# RECRUITMENT_COORDINATOR was removed 2026-09-01. It had been here since
+# Phase 1, which made a coordinator see EVERY campus -- the user asked for a
+# coordinator to see only their own, and this set was the reason they didn't.
 GLOBAL_SCOPE_ROLES = {
     UserRoleEnum.SUPER_ADMIN,
     UserRoleEnum.HR_ADMIN,
     UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT,
     UserRoleEnum.MANAGEMENT,
-    UserRoleEnum.RECRUITMENT_COORDINATOR,
 }
 
 # Roles that are scoped to a single home campus (documented Phase 1 assumption
 # for the roles the master spec didn't fully pin down: RECRUITMENT_OFFICER and
 # INTERVIEW_PANEL_MEMBER).
+#
+# Membership here is not just descriptive -- it makes `campus_id` REQUIRED on
+# the user forms and narrows `notifications.notify_role` fan-out to the
+# matching campus. A coordinator with a NULL `campus_id` would resolve to
+# CampusScope(is_global=False, campus_id=None) and match nothing, so every
+# existing coordinator must have a campus before this ships.
 SINGLE_CAMPUS_SCOPE_ROLES = {
     UserRoleEnum.CAMPUS_HOD,
     UserRoleEnum.RECRUITMENT_OFFICER,
     UserRoleEnum.INTERVIEW_PANEL_MEMBER,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+}
+
+# Roles that `deps.get_department_scope` can narrow to specific departments.
+#
+# This deliberately is NOT "GLOBAL_SCOPE_ROLES minus SUPER_ADMIN", which is
+# what the guard used to compute inline. Department scope and campus scope are
+# separate questions, and conflating them meant that removing
+# RECRUITMENT_COORDINATOR from GLOBAL_SCOPE_ROLES above would ALSO have
+# silently stopped department narrowing from applying to them -- fixing the
+# campus half by regressing the department half, with no error anywhere.
+# Keeping the two sets independent is the whole point.
+DEPARTMENT_SCOPABLE_ROLES = {
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT,
+    UserRoleEnum.MANAGEMENT,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
 }
 
 # Roles allowed to create/update/deactivate other users in Phase 1.

@@ -131,7 +131,7 @@ def test_granting_one_capability_allows_only_that_action_group(
     client, user_factory, department_factory, published_vacancy_factory
 ):
     admin = user_factory(UserRoleEnum.SUPER_ADMIN)
-    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
     client.put(
         f"/api/v1/users/{coordinator.id}/capabilities",
         headers=auth_headers(client, admin),

@@ -80,7 +80,7 @@ def test_recruitment_coordinator_with_interviews_grant_can_schedule_interview(
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
     panel_member = user_factory(UserRoleEnum.INTERVIEW_PANEL_MEMBER, campus_code="SSE")
-    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.INTERVIEWS)
     grant_permission(coordinator, PermissionEnum.SCHEDULE_INTERVIEW)
 

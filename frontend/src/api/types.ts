@@ -12,20 +12,26 @@ export type UserRole =
 
 // Mirrors app/models/enums.py::GLOBAL_SCOPE_ROLES -- roles that see all
 // campuses and can narrow via a campus_code query param.
+//
+// RECRUITMENT_COORDINATOR moved to SINGLE_CAMPUS_SCOPE_ROLES on 2026-09-01.
+// This list drives whether CampusSwitcher renders at all, so it has to ship in
+// the same release as the backend change -- a stale bundle would keep offering
+// a campus switcher to a user the API now scopes to one campus.
 export const GLOBAL_SCOPE_ROLES: readonly UserRole[] = [
   "SUPER_ADMIN",
   "HR_ADMIN",
   "ASSOCIATE_DEAN_RECRUITMENT",
   "MANAGEMENT",
-  "RECRUITMENT_COORDINATOR",
 ];
 
 // Mirrors app/models/enums.py::SINGLE_CAMPUS_SCOPE_ROLES -- roles that must
-// be pinned to one home campus.
+// be pinned to one home campus. Membership makes Campus a REQUIRED field on
+// the user create/edit forms.
 export const SINGLE_CAMPUS_SCOPE_ROLES: readonly UserRole[] = [
   "CAMPUS_HOD",
   "RECRUITMENT_OFFICER",
   "INTERVIEW_PANEL_MEMBER",
+  "RECRUITMENT_COORDINATOR",
 ];
 
 // Mirrors app/models/enums.py::USER_MANAGEMENT_ROLES -- roles allowed to

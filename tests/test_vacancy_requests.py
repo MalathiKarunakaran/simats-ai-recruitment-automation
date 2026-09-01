@@ -1076,7 +1076,7 @@ def test_recruitment_coordinator_with_vacancy_approval_grant_can_reject(
     # test DB never runs that migration, so both are inserted directly.
     department = department_factory("SSE")
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
-    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.VACANCY_APPROVAL)
     grant_permission(coordinator, PermissionEnum.REJECT_VACANCY)
 
@@ -1108,7 +1108,7 @@ def test_recruitment_coordinator_with_vacancy_approval_grant_can_hr_approve_and_
     department = department_factory("SSE")
     hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
     dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
-    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.VACANCY_APPROVAL)
     grant_permission(coordinator, PermissionEnum.PUBLISH_VACANCY)
 
@@ -1141,7 +1141,7 @@ def test_recruitment_coordinator_with_vacancy_approval_grant_can_close_cancel_an
     # only gate (untouched by this phase). Grant both systems so this test
     # reflects real post-migration-backfill coordinator state (see
     # can_reject's comment above for the full rationale).
-    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
     grant_coordinator_capability(coordinator, CoordinatorCapabilityEnum.VACANCY_APPROVAL)
     grant_permission(coordinator, PermissionEnum.CLOSE_VACANCY)
     grant_permission(coordinator, PermissionEnum.CANCEL_VACANCY)

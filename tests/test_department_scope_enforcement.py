@@ -9,11 +9,18 @@ docstring for the full reasoning, not re-derived here):
 - Empty `user_department_scope` rows for a user = fully unrestricted (opt-in
   narrowing only) -- the pre-existing, unrestricted behavior for every real
   user except the 2 CAMPUS_HOD rows that already exist.
-- Applies only to GLOBAL_SCOPE_ROLES minus SUPER_ADMIN (HR_ADMIN,
+- Applies to `DEPARTMENT_SCOPABLE_ROLES` (HR_ADMIN,
   ASSOCIATE_DEAN_RECRUITMENT, MANAGEMENT, RECRUITMENT_COORDINATOR).
-  SUPER_ADMIN is always unrestricted; any role outside GLOBAL_SCOPE_ROLES
-  (e.g. CAMPUS_HOD) is always unrestricted by this mechanism regardless of
-  whether it has user_department_scope rows.
+  SUPER_ADMIN is always unrestricted; any role outside that set (e.g.
+  CAMPUS_HOD) is always unrestricted by this mechanism regardless of whether
+  it has user_department_scope rows.
+
+  That used to read "GLOBAL_SCOPE_ROLES minus SUPER_ADMIN", computed inline
+  in the dependency. It became its own set on 2026-09-01 when
+  RECRUITMENT_COORDINATOR left GLOBAL_SCOPE_ROLES to become campus-scoped:
+  under the old inline rule that single change would ALSO have stopped
+  department narrowing applying to coordinators, silently. The last two tests
+  in this file exist to catch exactly that.
 - AND-combined with the pre-existing CampusScope, never a replacement.
 
 Each router section below covers, at minimum: (a) an unrestricted
@@ -503,3 +510,66 @@ def test_job_distribution_recruitment_officer_unrestricted_despite_department_sc
         headers=auth_headers(client, vacancy_a.recruitment_officer),
     )
     assert ad_b.status_code == 200
+
+
+# --- Recruitment Coordinator campus + department scope (2026-09-01) --------
+#
+# RECRUITMENT_COORDINATOR moved from GLOBAL_SCOPE_ROLES to
+# SINGLE_CAMPUS_SCOPE_ROLES so a coordinator sees only their own campus, which
+# is what the user asked for. These two pin BOTH halves, because the obvious
+# one-line version of that change fixes the first and breaks the second.
+
+
+def test_coordinator_sees_only_their_own_campus(
+    client, db_session, campus_factory, department_factory, user_factory
+):
+    sse = campus_factory("SSE")
+    scad = campus_factory("SCAD")
+    sse_dept = department_factory("SSE", name=f"SSE Dept {uuid.uuid4().hex[:6]}")
+    scad_dept = department_factory("SCAD", name=f"SCAD Dept {uuid.uuid4().hex[:6]}")
+    sse_hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    scad_hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SCAD")
+    sse_vr = _make_vr(db_session, sse, sse_dept, sse_hod)
+    scad_vr = _make_vr(db_session, scad, scad_dept, scad_hod)
+
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+
+    response = client.get("/api/v1/vacancy-requests", headers=auth_headers(client, coordinator))
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()["items"]}
+    assert str(sse_vr.id) in ids
+    assert str(scad_vr.id) not in ids
+
+    # 404, not 403 -- the house rule for cross-campus single-resource access,
+    # so an unauthorized caller cannot even confirm the row exists.
+    assert (
+        client.get(f"/api/v1/vacancy-requests/{scad_vr.id}", headers=auth_headers(client, coordinator))
+    ).status_code == 404
+
+
+def test_coordinator_is_still_department_scopable_within_their_campus(
+    client, db_session, campus_factory, department_factory, user_factory, department_scope_factory
+):
+    # The regression guard. Department narrowing used to be gated on
+    # "in GLOBAL_SCOPE_ROLES"; had that not been split out into
+    # DEPARTMENT_SCOPABLE_ROLES, making the coordinator campus-scoped would
+    # have silently made them see EVERY department in their campus.
+    campus = campus_factory("SSE")
+    dept_a = department_factory("SSE", name=f"Dept A {uuid.uuid4().hex[:6]}")
+    dept_b = department_factory("SSE", name=f"Dept B {uuid.uuid4().hex[:6]}")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    vr_a = _make_vr(db_session, campus, dept_a, hod)
+    vr_b = _make_vr(db_session, campus, dept_b, hod)
+
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+    department_scope_factory(coordinator, dept_a)
+
+    response = client.get("/api/v1/vacancy-requests", headers=auth_headers(client, coordinator))
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.json()["items"]}
+    assert str(vr_a.id) in ids
+    assert str(vr_b.id) not in ids
+
+    assert (
+        client.get(f"/api/v1/vacancy-requests/{vr_b.id}", headers=auth_headers(client, coordinator))
+    ).status_code == 404

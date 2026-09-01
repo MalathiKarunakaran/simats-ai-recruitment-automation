@@ -191,7 +191,7 @@ describe("UserDetailPage access control -- save/cancel", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
 
-    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(screen.getByRole("combobox", { name: "Role" }));
     await userEvent.click(await screen.findByText("SUPER ADMIN"));
 
     expect(screen.getByRole("button", { name: "Save Changes" })).not.toBeDisabled();
@@ -205,15 +205,15 @@ describe("UserDetailPage access control -- save/cancel", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("combobox"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Role" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("combobox", { name: "Role" }));
     await userEvent.click(await screen.findByText("SUPER ADMIN"));
     expect(screen.getByRole("button", { name: "Save Changes" })).not.toBeDisabled();
 
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeDisabled();
-    expect(screen.getByRole("combobox")).toHaveTextContent("RECRUITMENT COORDINATOR");
+    expect(screen.getByRole("combobox", { name: "Role" })).toHaveTextContent("RECRUITMENT COORDINATOR");
   });
 
   it("saves the new role and shows an inline confirmation", async () => {
@@ -225,8 +225,8 @@ describe("UserDetailPage access control -- save/cancel", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("combobox"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Role" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("combobox", { name: "Role" }));
     await userEvent.click(await screen.findByText("SUPER ADMIN"));
     await userEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
@@ -242,16 +242,33 @@ describe("UserDetailPage access control -- save/cancel", () => {
 
   it("shows 'All Campuses' and 'All Departments' as static text for a global-scope role instead of pickers", async () => {
     mockCurrentUser("SUPER_ADMIN");
-    mockedGetUser.mockResolvedValue(COORDINATOR); // RECRUITMENT_COORDINATOR is global-scope
+    // Was COORDINATOR until 2026-09-01, when RECRUITMENT_COORDINATOR left
+    // GLOBAL_SCOPE_ROLES to become campus-scoped. HR_ADMIN is still genuinely
+    // global, so this keeps testing what it always meant to test.
+    mockedGetUser.mockResolvedValue(HR_ADMIN_USER);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
-    renderPage();
+    renderPage(HR_ADMIN_USER.id);
 
     await waitFor(() => expect(screen.getByText("All Campuses")).toBeInTheDocument());
     expect(screen.getByText("All Departments")).toBeInTheDocument();
     // Only the Role select renders as a combobox -- no Campus/Department pickers.
     expect(screen.getAllByRole("combobox")).toHaveLength(1);
+  });
+
+  it("shows a Campus picker for a Recruitment Coordinator, which is now campus-scoped", async () => {
+    // The other side of the change: a coordinator must be pinned to one
+    // campus, so the page offers the picker instead of "All Campuses".
+    mockCurrentUser("SUPER_ADMIN");
+    mockedGetUser.mockResolvedValue(COORDINATOR);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Campus" })).toBeInTheDocument());
+    expect(screen.queryByText("All Campuses")).not.toBeInTheDocument();
   });
 });
 
