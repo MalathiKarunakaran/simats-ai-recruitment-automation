@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import openai
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import (
     CampusScope,
@@ -243,7 +243,10 @@ def list_vacancy_requests(
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> PaginatedResponse[VacancyRequestRead]:
-    query = db.query(VacancyRequest)
+    # `requested_by` is eager-loaded because VacancyRequestRead exposes the
+    # computed `requested_by_name` -- lazily that is one extra SELECT per row
+    # (limit is 200), and the approvals queue reads it for every row it shows.
+    query = db.query(VacancyRequest).options(selectinload(VacancyRequest.requested_by))
     if not scope.is_global:
         query = query.filter(VacancyRequest.campus_id == scope.campus_id)
     if scope_dept.is_restricted:

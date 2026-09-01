@@ -1,4 +1,14 @@
-from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
+import uuid
+
+import pytest
+
+from app.models.enums import (
+    CoordinatorCapabilityEnum,
+    PermissionEnum,
+    UserRoleEnum,
+    VacancyRequestSourceEnum,
+)
+from app.models.vacancy_request import VacancyRequest
 
 from tests.conftest import auth_headers
 
@@ -465,6 +475,201 @@ def test_officer_with_approve_grant_can_dean_approve(
     )
     assert response.status_code == 200
     assert response.json()["status"] == "DEAN_APPROVED"
+
+
+# --- Self-approval guard ------------------------------------------------
+#
+# app/services/vacancy_workflow.py::_reject_self_approval. Only reachable now
+# that the Permission Matrix can hand APPROVE_VACANCY to a role that can also
+# raise a request -- before that, approving and requesting were disjoint role
+# sets and nobody could be both parties.
+
+
+def test_hod_with_approve_grant_cannot_dean_approve_own_request(
+    client, user_factory, department_factory, grant_permission
+):
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    grant_permission(hod, PermissionEnum.APPROVE_VACANCY)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, hod)
+    )
+    assert response.status_code == 403
+    assert "cannot Dean-approve it yourself" in response.json()["detail"]
+
+
+def test_approve_grant_still_works_on_someone_elses_request(
+    client, user_factory, department_factory, grant_permission
+):
+    # The other half of the test above: the grant is not what is refused, the
+    # actor being the requester is.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    other_hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    grant_permission(other_hod, PermissionEnum.APPROVE_VACANCY)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, other_hod)
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "DEAN_APPROVED"
+
+
+def test_hr_admin_cannot_hr_approve_own_request(
+    client, user_factory, department_factory, grant_permission
+):
+    department = department_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
+    grant_permission(hr_admin, PermissionEnum.CREATE_VACANCY_REQUEST)
+    grant_permission(hr_admin, PermissionEnum.EDIT_VACANCY_REQUEST)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hr_admin),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hr_admin))
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, dean))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/hr-approve", headers=auth_headers(client, hr_admin)
+    )
+    assert response.status_code == 403
+    assert "cannot HR-approve it yourself" in response.json()["detail"]
+
+
+def test_super_admin_is_exempt_from_the_self_approval_guard(client, user_factory, department_factory):
+    # The break-glass exemption, and the reason a large part of this suite
+    # still passes: it drives create -> submit -> hr-approve as one actor.
+    department = department_factory("SSE")
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, super_admin),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, super_admin))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/hr-approve", headers=auth_headers(client, super_admin)
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("source", ["BULK_UPLOAD", "QR"])
+def test_uploader_and_intake_account_are_exempt_from_the_self_approval_guard(
+    client, user_factory, department_factory, db_session, grant_permission, source
+):
+    # On these two sources `requested_by_id` is an attribution, not the person
+    # who asked: the uploader for BULK_UPLOAD, the intake account for QR.
+    # Guarding them would lock HR out of every request they uploaded on a
+    # department's behalf.
+    department = department_factory("SSE")
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
+    grant_permission(hr_admin, PermissionEnum.CREATE_VACANCY_REQUEST)
+    grant_permission(hr_admin, PermissionEnum.EDIT_VACANCY_REQUEST)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hr_admin),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    # Faster and more direct than driving the whole importer or the public QR
+    # endpoint -- the guard reads `source` and nothing else about the origin.
+    vr = db_session.get(VacancyRequest, uuid.UUID(vr_id))
+    vr.source = VacancyRequestSourceEnum[source]
+    db_session.flush()
+
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hr_admin))
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, dean))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/hr-approve", headers=auth_headers(client, hr_admin)
+    )
+    assert response.status_code == 200
+
+
+def test_wrong_status_still_answers_409_for_the_requester(
+    client, user_factory, department_factory, grant_permission
+):
+    # The guard runs AFTER each stage's status check, so a DRAFT request keeps
+    # its more informative 409 instead of flipping to 403 for its own author.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    grant_permission(hod, PermissionEnum.APPROVE_VACANCY)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/dean-approve", headers=auth_headers(client, hod)
+    )
+    assert response.status_code == 409
+
+
+# --- Raised by ----------------------------------------------------------
+
+
+def test_requested_by_name_falls_back_to_the_requesting_user(client, user_factory, department_factory):
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    assert create.json()["requested_by_name"] == hod.full_name
+
+
+def test_requested_by_name_prefers_requester_name_when_set(
+    client, user_factory, department_factory, db_session
+):
+    # A QR row is attributed to the intake account, so the person named on the
+    # row itself wins -- that is what an approver needs to see.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    vr = db_session.get(VacancyRequest, uuid.UUID(vr_id))
+    vr.source = VacancyRequestSourceEnum.QR
+    vr.requester_name = "Dr Ramesh Kumar"
+    db_session.flush()
+
+    read = client.get(f"/api/v1/vacancy-requests/{vr_id}", headers=auth_headers(client, hod))
+    assert read.json()["requested_by_name"] == "Dr Ramesh Kumar"
 
 
 # --- Cancel ------------------------------------------------------------

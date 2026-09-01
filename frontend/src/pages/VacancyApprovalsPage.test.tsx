@@ -1,12 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api/client";
 import * as campusesApi from "@/api/campuses";
-import type { UserRead, VacancyRequestRead } from "@/api/types";
+import * as departmentsApi from "@/api/departments";
+import type { DepartmentRead, UserRead, VacancyRequestRead } from "@/api/types";
 import * as vacancyRequestsApi from "@/api/vacancyRequests";
 import * as authContext from "@/auth/AuthContext";
 import { ToastProvider } from "@/components/ui/toast";
@@ -14,6 +15,7 @@ import { VacancyApprovalsPage } from "@/pages/VacancyApprovalsPage";
 
 vi.mock("@/api/vacancyRequests");
 vi.mock("@/api/campuses");
+vi.mock("@/api/departments");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -22,6 +24,7 @@ vi.mock("@/auth/AuthContext", async () => {
 const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListVacancyRequests = vi.mocked(vacancyRequestsApi.listVacancyRequests);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
+const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedDeanApprove = vi.mocked(vacancyRequestsApi.deanApproveVacancyRequest);
 const mockedHrApprove = vi.mocked(vacancyRequestsApi.hrApproveVacancyRequest);
 const mockedPublish = vi.mocked(vacancyRequestsApi.publishVacancyRequest);
@@ -54,6 +57,7 @@ function makeVR(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
     requester_email: null,
     requester_mobile: null,
     requested_by_id: "u-1",
+    requested_by_name: "Test User",
     submitted_at: "2026-07-20T00:00:00Z",
     dean_reviewed_by_id: null,
     dean_reviewed_at: null,
@@ -96,6 +100,13 @@ function mockQueue(byStatus: Partial<Record<VacancyRequestRead["status"], Vacanc
 }
 
 describe("VacancyApprovalsPage", () => {
+  beforeEach(() => {
+    // The page reads departments for its Department column and filter. Every
+    // case that cares overrides this; the rest just need it not to hit the
+    // network.
+    mockedListDepartments.mockResolvedValue([]);
+  });
+
   it("shows a scope message for a role outside the approval chain", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,
@@ -316,5 +327,171 @@ describe("VacancyApprovalsPage", () => {
     // surfaces via toast.tsx's `role="status"` stack, replacing the old
     // `<p className="text-destructive">{actionError}</p>` inline banner.
     expect(await screen.findByRole("status")).toHaveTextContent("Cannot Dean-approve from status SUBMITTED");
+  });
+  // --- Summary tiles, filters and the widened gate (2026-09-01) -----------
+
+  it("summarises the whole picture in four tiles, unaffected by the filters", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "SUPER_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+    mockQueue({
+      SUBMITTED: [makeVR({ id: "vr-1" })],
+      DEAN_APPROVED: [makeVR({ id: "vr-2", status: "DEAN_APPROVED" })],
+      APPROVED: [makeVR({ id: "vr-3", status: "APPROVED" })],
+      REJECTED: [
+        makeVR({ id: "vr-4", status: "REJECTED" }),
+        makeVR({ id: "vr-5", status: "REJECTED" }),
+      ],
+    });
+
+    renderPage();
+
+    // Label -> CardHeader -> Card (the tile's own container), the same walk
+    // VacancyRequestsListPage's tile assertions use.
+    const pendingTile = (await screen.findByText("Pending")).parentElement?.parentElement;
+    await waitFor(() => expect(pendingTile).toHaveTextContent("2"));
+    expect(screen.getByText("Approved").parentElement?.parentElement).toHaveTextContent("1");
+    expect(screen.getByText("Rejected").parentElement?.parentElement).toHaveTextContent("2");
+    expect(screen.getByText("Total").parentElement?.parentElement).toHaveTextContent("5");
+  });
+
+  it("narrows the queue client-side by campus without refetching", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "SUPER_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+    mockQueue({
+      SUBMITTED: [
+        makeVR({ id: "vr-sse", position_title: "Assistant Professor", campus_id: "c-sse" }),
+        makeVR({ id: "vr-scad", position_title: "Lab Assistant", campus_id: "c-scad" }),
+      ],
+    });
+
+    renderPage();
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+    expect(screen.getByText("Lab Assistant")).toBeInTheDocument();
+    const callsBefore = mockedListVacancyRequests.mock.calls.length;
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SCAD" }));
+
+    expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
+    expect(screen.getByText("Lab Assistant")).toBeInTheDocument();
+    // Client-side, exactly like VacancyRequestsListPage's own campus filter --
+    // GET /vacancy-requests has no campus_id parameter to push this down to.
+    expect(mockedListVacancyRequests).toHaveBeenCalledTimes(callsBefore);
+  });
+
+  it("narrows the queue by the date the request was raised", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "SUPER_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue([]);
+    mockQueue({
+      SUBMITTED: [
+        makeVR({ id: "vr-jun", position_title: "June Request", created_at: "2026-06-10T00:00:00Z" }),
+        makeVR({ id: "vr-jul", position_title: "July Request", created_at: "2026-07-19T00:00:00Z" }),
+      ],
+    });
+
+    renderPage();
+    expect(await screen.findByText("June Request")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Raised from"), { target: { value: "2026-07-01" } });
+
+    expect(screen.queryByText("June Request")).not.toBeInTheDocument();
+    expect(screen.getByText("July Request")).toBeInTheDocument();
+  });
+
+  it("says there is nothing pending when the queue is empty, and says so differently when a filter emptied it", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue([
+      { id: "c-sse", code: "SSE", name: "SSE Campus", is_active: true, created_at: "", updated_at: "" },
+      { id: "c-scad", code: "SCAD", name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ]);
+    mockQueue({});
+
+    const { unmount } = renderPage();
+    expect(await screen.findByText("No pending vacancy approvals")).toBeInTheDocument();
+    unmount();
+
+    mockQueue({ SUBMITTED: [makeVR({ campus_id: "c-sse" })] });
+    renderPage();
+    expect(await screen.findByText("Assistant Professor")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Campus filter" }));
+    await userEvent.click(await screen.findByRole("option", { name: "SCAD" }));
+
+    expect(screen.getByText("No vacancy approvals match these filters.")).toBeInTheDocument();
+  });
+
+  it("shows the SUBMITTED queue and Dean-approve to a role outside the chain granted APPROVE_VACANCY", async () => {
+    // Mirrors 6c010d4's backend gate: dean-approve is
+    // require_roles_or_permission(APPROVE_VACANCY, ...), so the grant alone is
+    // enough. hr-approve deliberately is NOT, which the next assertion pins.
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "APPROVE_VACANCY",
+    });
+    mockedListCampuses.mockResolvedValue([]);
+    mockQueue({
+      SUBMITTED: [makeVR({})],
+      DEAN_APPROVED: [makeVR({ id: "vr-2", position_title: "Lab Assistant", status: "DEAN_APPROVED" })],
+    });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Dean-approve" })).toBeInTheDocument());
+    // DEAN_APPROVED is not in this user's queue at all: APPROVE_VACANCY
+    // unlocks the Dean stage only.
+    expect(screen.queryByText("Lab Assistant")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "HR-approve" })).not.toBeInTheDocument();
+  });
+
+  it("shows who raised each request, and its ref and department", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "ASSOCIATE_DEAN_RECRUITMENT" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue([]);
+    mockedListDepartments.mockResolvedValue([{ id: "d-1", name: "Computer Science" } as DepartmentRead]);
+    mockQueue({
+      SUBMITTED: [
+        makeVR({ request_ref: "VR-2026-0012", requested_by_name: "Dr Ramesh Kumar", department_id: "d-1" }),
+      ],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Dr Ramesh Kumar")).toBeInTheDocument();
+    expect(screen.getByText("VR-2026-0012")).toBeInTheDocument();
+    expect(screen.getByText("Computer Science")).toBeInTheDocument();
+    expect(screen.getByText("Teaching")).toBeInTheDocument();
   });
 });

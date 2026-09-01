@@ -56,7 +56,11 @@ interface NavItem {
    * RECRUITMENT_COORDINATOR given MANAGE_USERS could call the API but never
    * saw the "Users" link to get there. Additive: doesn't change any
    * already-visible-by-role item's behavior. */
-  visibleForPermission?: Permission;
+  /** One permission, or several any-of. The array form (2026-09-01) exists
+   * for Vacancy Approvals, whose page is open to holders of either
+   * APPROVE_VACANCY or REJECT_VACANCY -- a single value could only ever name
+   * one of the two. */
+  visibleForPermission?: Permission | Permission[];
 }
 
 interface NavGroup {
@@ -101,6 +105,11 @@ const NAV_GROUPS: NavGroup[] = [
         // Mirrors VacancyApprovalsPage's own ACTIONABLE_STATUSES_BY_ROLE --
         // only roles that actually take part in the approval chain see this.
         visibleForRoles: ["ASSOCIATE_DEAN_RECRUITMENT", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
+        // ...plus anyone individually granted one of the two permissions that
+        // page is gated on, so a granted approver can actually reach it.
+        // Matches the page's own `statuses` union, which is what decides
+        // whether they see a queue once they get there.
+        visibleForPermission: ["APPROVE_VACANCY", "REJECT_VACANCY"],
       },
       { to: "/job-postings", label: "Job Postings", icon: Newspaper },
     ],
@@ -253,10 +262,19 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const { user, logout, hasPermission } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
-  function isNavItemVisible(item: { visibleForRoles?: string[]; visibleForPermission?: Permission }): boolean {
+  function isNavItemVisible(item: {
+    visibleForRoles?: string[];
+    visibleForPermission?: Permission | Permission[];
+  }): boolean {
     if (!item.visibleForRoles && !item.visibleForPermission) return true;
     const roleMatch = Boolean(item.visibleForRoles && user && item.visibleForRoles.includes(user.role));
-    const permissionMatch = Boolean(item.visibleForPermission && (hasPermission?.(item.visibleForPermission) ?? false));
+    const required =
+      item.visibleForPermission === undefined
+        ? []
+        : Array.isArray(item.visibleForPermission)
+          ? item.visibleForPermission
+          : [item.visibleForPermission];
+    const permissionMatch = required.some((permission) => hasPermission?.(permission) ?? false);
     return roleMatch || permissionMatch;
   }
 

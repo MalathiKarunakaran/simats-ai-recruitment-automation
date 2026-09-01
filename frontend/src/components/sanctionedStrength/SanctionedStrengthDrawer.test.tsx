@@ -589,6 +589,7 @@ describe("SanctionedStrengthDrawer", () => {
           requester_email: null,
           requester_mobile: null,
           requested_by_id: "11111111-2222-3333-4444-555555555555",
+          requested_by_name: "Test User",
           submitted_at: "2026-07-01T00:00:00Z",
           dean_reviewed_by_id: null,
           dean_reviewed_at: null,

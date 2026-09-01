@@ -11,7 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.approved_vacancy import ApprovedVacancy
-from app.models.enums import HiringSlotStatusEnum, UserRoleEnum, VacancyRequestStatusEnum
+from app.models.enums import (
+    HiringSlotStatusEnum,
+    UserRoleEnum,
+    VacancyRequestSourceEnum,
+    VacancyRequestStatusEnum,
+)
 from app.models.hiring_slot import HiringSlot
 from app.models.job_posting import JobPosting
 from app.models.user import User
@@ -23,6 +28,50 @@ from app.services.sanctioned_strength import compute_availability_to_request
 
 def _snapshot(vacancy_request: VacancyRequest) -> dict:
     return {"status": vacancy_request.status.value}
+
+
+# Self-approval guard (2026-09-01). Nothing previously stopped the person who
+# raised a vacancy request from carrying it through an approval stage
+# themselves -- both stages checked the actor's role/permission and never who
+# the requester was.
+#
+# Two deliberate exemptions, both of which would otherwise break a real flow:
+#
+# * SUPER_ADMIN is the break-glass role. `app/db/seed.py` and a large part of
+#   the test suite legitimately drive create -> submit -> approve as one super
+#   admin, and locking that out buys nothing a super admin could not undo.
+# * QR and BULK_UPLOAD rows, because `requested_by_id` is NOT the person who
+#   asked on those. A QR row is attributed to the intake account
+#   (`vacancy_request_intake.resolve_intake_user`, which falls back to the
+#   longest-standing SUPER_ADMIN) with the real requester recorded only in
+#   `requester_name`/`_email`/`_mobile`; a bulk row is attributed to the
+#   UPLOADER (see `vacancy_request_import`). Guarding them would lock the
+#   intake owner out of every QR request and HR out of every request they
+#   uploaded on a department's behalf.
+#
+# So the guard covers MANUAL rows, where the requester really is a person who
+# signed in and raised it.
+_SELF_APPROVAL_EXEMPT_SOURCES = frozenset(
+    {VacancyRequestSourceEnum.QR, VacancyRequestSourceEnum.BULK_UPLOAD}
+)
+
+
+def _reject_self_approval(vacancy_request: VacancyRequest, actor: User, stage: str) -> None:
+    """Refuse when `actor` is the person who raised `vacancy_request`.
+
+    Called AFTER each stage's own status check, so a wrong-status transition
+    keeps answering 409 rather than flipping to 403 for the requester alone.
+    """
+    if actor.role == UserRoleEnum.SUPER_ADMIN:
+        return
+    if vacancy_request.source in _SELF_APPROVAL_EXEMPT_SOURCES:
+        return
+    if actor.id != vacancy_request.requested_by_id:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"You raised this vacancy request and cannot {stage}-approve it yourself",
+    )
 
 
 def submit(
@@ -143,6 +192,8 @@ def dean_approve(
             detail=f"Cannot Dean-approve from status {vacancy_request.status.value}",
         )
 
+    _reject_self_approval(vacancy_request, actor, "Dean")
+
     before = _snapshot(vacancy_request)
     vacancy_request.status = VacancyRequestStatusEnum.DEAN_APPROVED
     vacancy_request.dean_reviewed_by_id = actor.id
@@ -239,6 +290,8 @@ def hr_approve(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot HR-approve from status {vacancy_request.status.value}",
         )
+
+    _reject_self_approval(vacancy_request, actor, "HR")
 
     before = _snapshot(vacancy_request)
     now = datetime.now(timezone.utc)

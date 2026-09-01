@@ -867,6 +867,11 @@ export interface VacancyRequestRead {
   requester_email: string | null;
   requester_mobile: string | null;
   requested_by_id: string;
+  // Server-computed (app/models/vacancy_request.py::requested_by_name): the
+  // name to show in a "Raised by" column. Prefers requester_name, else the
+  // requesting user's full name -- so a QR row names the person who actually
+  // asked rather than the intake account.
+  requested_by_name: string | null;
   submitted_at: string | null;
   dean_reviewed_by_id: string | null;
   dean_reviewed_at: string | null;

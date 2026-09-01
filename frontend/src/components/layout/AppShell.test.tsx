@@ -164,6 +164,33 @@ describe("AppShell nav", () => {
     expect(screen.queryByRole("link", { name: "Activity Log" })).not.toBeInTheDocument();
   });
 
+  // Same bug class again, on Vacancy Approvals (2026-09-01). This item is the
+  // first to name TWO permissions -- its page is open to holders of either
+  // APPROVE_VACANCY or REJECT_VACANCY -- so these three cases also cover the
+  // any-of array form of visibleForPermission itself.
+  it("hides Vacancy Approvals from a RECRUITMENT_OFFICER with neither approval grant", async () => {
+    mockAuth("RECRUITMENT_OFFICER");
+    renderShell();
+
+    await waitFor(() => expect(screen.getByRole("navigation")).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: "Vacancy Approvals" })).not.toBeInTheDocument();
+  });
+
+  it("shows Vacancy Approvals to a RECRUITMENT_OFFICER granted APPROVE_VACANCY", async () => {
+    mockAuth("RECRUITMENT_OFFICER", (permission) => permission === "APPROVE_VACANCY");
+    renderShell();
+
+    const link = await screen.findByRole("link", { name: "Vacancy Approvals" });
+    expect(link).toHaveAttribute("href", "/vacancy-approvals");
+  });
+
+  it("shows Vacancy Approvals to a RECRUITMENT_OFFICER granted only the other of the two, REJECT_VACANCY", async () => {
+    mockAuth("RECRUITMENT_OFFICER", (permission) => permission === "REJECT_VACANCY");
+    renderShell();
+
+    expect(await screen.findByRole("link", { name: "Vacancy Approvals" })).toBeInTheDocument();
+  });
+
   it("shows Activity Log to a RECRUITMENT_COORDINATOR individually granted ACTIVITY_LOG", async () => {
     mockAuth(
       "RECRUITMENT_COORDINATOR",

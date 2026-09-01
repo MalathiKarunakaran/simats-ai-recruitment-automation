@@ -1,10 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { listCampuses } from "@/api/campuses";
 import { ApiError } from "@/api/client";
-import type { UserRole, VacancyPriority, VacancyRequestRead, VacancyRequestStatus } from "@/api/types";
+import { listDepartments } from "@/api/departments";
+import type {
+  StaffRoleCategory,
+  UserRole,
+  VacancyPriority,
+  VacancyRequestRead,
+  VacancyRequestStatus,
+} from "@/api/types";
 import {
   deanApproveVacancyRequest,
   hrApproveVacancyRequest,
@@ -13,6 +21,7 @@ import {
   rejectVacancyRequest,
 } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
+import { StatTile } from "@/components/dashboard/StatTile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,7 +32,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
@@ -39,15 +50,10 @@ const ACTIONABLE_STATUSES_BY_ROLE: Record<string, VacancyRequestStatus[]> = {
   RECRUITMENT_COORDINATOR: ["DEAN_APPROVED", "APPROVED"],
 };
 
-const STATUS_ACTION_LABEL: Record<VacancyRequestStatus, string> = {
-  DRAFT: "",
-  SUBMITTED: "Needs dean approval",
-  DEAN_APPROVED: "Needs HR approval",
-  APPROVED: "Ready to publish",
-  PUBLISHED: "",
-  CLOSED: "",
-  REJECTED: "",
-  CANCELLED: "",
+const CATEGORY_LABELS: Record<StaffRoleCategory, string> = {
+  TEACHING: "Teaching",
+  NON_TEACHING: "Non-Teaching",
+  HOUSEKEEPING: "Housekeeping",
 };
 
 // Higher-priority requests should surface first; ties break on how long the
@@ -73,6 +79,7 @@ export function VacancyApprovalsPage() {
   const role = user?.role;
   const queryClient = useQueryClient();
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
+  const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
   // Design-system-foundation step 5: this page's first real toast.tsx
   // consumer (that primitive shipped in step 2 with nothing wired to it
   // yet) -- replaces the old inline `actionError` paragraph entirely, and
@@ -83,6 +90,13 @@ export function VacancyApprovalsPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
+  const [campusFilter, setCampusFilter] = useState<string>("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<StaffRoleCategory | "ALL">("ALL");
+  const [departmentFilter, setDepartmentFilter] = useState<string>("ALL");
+  const [statusFilter, setStatusFilter] = useState<VacancyRequestStatus | "ALL">("ALL");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
   // Bug fix: unioned with statuses unlocked by an individually-granted
   // REJECT_VACANCY/PUBLISH_VACANCY permission -- vacancy_requests.py's
   // reject/publish endpoints are gated by require_permission, not this role
@@ -91,12 +105,20 @@ export function VacancyApprovalsPage() {
   // the matching queue rows to act on, same pattern as UsersListPage's
   // canManage. REJECT_VACANCY covers SUBMITTED/DEAN_APPROVED (matches
   // canReject below); PUBLISH_VACANCY covers APPROVED (matches canPublish).
+  //
+  // APPROVE_VACANCY (2026-09-01) unlocks SUBMITTED and SUBMITTED only. That
+  // is not an oversight: `6c010d4` deliberately left hr-approve on the
+  // coordinator-capability scheme rather than honouring APPROVE_VACANCY,
+  // because the Dean holds APPROVE_VACANCY by default and honouring it at
+  // both stages would let a Dean carry a request through HR's stage too.
   const roleStatuses = (user && ACTIONABLE_STATUSES_BY_ROLE[user.role as UserRole]) ?? [];
   const permissionStatuses: VacancyRequestStatus[] = [
+    ...(hasPermission?.("APPROVE_VACANCY") ? (["SUBMITTED"] as VacancyRequestStatus[]) : []),
     ...(hasPermission?.("REJECT_VACANCY") ? (["SUBMITTED", "DEAN_APPROVED"] as VacancyRequestStatus[]) : []),
     ...(hasPermission?.("PUBLISH_VACANCY") ? (["APPROVED"] as VacancyRequestStatus[]) : []),
   ];
   const statuses = Array.from(new Set([...roleStatuses, ...permissionStatuses]));
+  const takesPartInChain = statuses.length > 0;
 
   // Unrolled per-status queries (not `.map(() => useQuery(...))`) so hook
   // calls stay static -- same pattern as the Dashboard's category split.
@@ -110,19 +132,83 @@ export function VacancyApprovalsPage() {
     queryFn: () => listVacancyRequests("DEAN_APPROVED"),
     enabled: statuses.includes("DEAN_APPROVED"),
   });
+  // APPROVED and REJECTED are fetched for anyone in the chain, not just the
+  // roles that can act on them, because they back the "Approved"/"Rejected"
+  // summary tiles -- a Dean should see what became of the requests they
+  // approved. The TABLE below still lists only rows whose status is in
+  // `statuses`, so fetching them does not widen what anyone can act on.
   const approvedQuery = useQuery({
     queryKey: ["vacancy-requests", "APPROVED"],
     queryFn: () => listVacancyRequests("APPROVED"),
-    enabled: statuses.includes("APPROVED"),
+    enabled: takesPartInChain,
+  });
+  const rejectedQuery = useQuery({
+    queryKey: ["vacancy-requests", "REJECTED"],
+    queryFn: () => listVacancyRequests("REJECTED"),
+    enabled: takesPartInChain,
   });
 
   const isLoading =
     (statuses.includes("SUBMITTED") && submittedQuery.isLoading) ||
     (statuses.includes("DEAN_APPROVED") && deanApprovedQuery.isLoading) ||
-    (statuses.includes("APPROVED") && approvedQuery.isLoading);
+    (takesPartInChain && (approvedQuery.isLoading || rejectedQuery.isLoading));
 
-  const queue = [...(submittedQuery.data ?? []), ...(deanApprovedQuery.data ?? []), ...(approvedQuery.data ?? [])];
-  const sortedQueue = [...queue].sort((a, b) => {
+  const submitted = submittedQuery.data ?? [];
+  const deanApproved = deanApprovedQuery.data ?? [];
+  const approved = approvedQuery.data ?? [];
+  const rejected = rejectedQuery.data ?? [];
+
+  // Deliberately computed off the UNFILTERED rows, matching
+  // VacancyRequestsListPage's convention that the tile strip describes the
+  // whole picture and the filters narrow only the table beneath it.
+  const kpis = {
+    pending: submitted.length + deanApproved.length,
+    approved: approved.length,
+    rejected: rejected.length,
+    total: submitted.length + deanApproved.length + approved.length + rejected.length,
+  };
+
+  const queue = [
+    ...(statuses.includes("SUBMITTED") ? submitted : []),
+    ...(statuses.includes("DEAN_APPROVED") ? deanApproved : []),
+    ...(statuses.includes("APPROVED") ? approved : []),
+  ];
+
+  const hasAnyFilter =
+    campusFilter !== "ALL" ||
+    categoryFilter !== "ALL" ||
+    departmentFilter !== "ALL" ||
+    statusFilter !== "ALL" ||
+    dateFrom !== "" ||
+    dateTo !== "";
+
+  function clearFilters() {
+    setCampusFilter("ALL");
+    setCategoryFilter("ALL");
+    setDepartmentFilter("ALL");
+    setStatusFilter("ALL");
+    setDateFrom("");
+    setDateTo("");
+  }
+
+  function matchesFilters(vr: VacancyRequestRead): boolean {
+    if (campusFilter !== "ALL" && vr.campus_id !== campusFilter) return false;
+    if (categoryFilter !== "ALL" && vr.role_category !== categoryFilter) return false;
+    if (departmentFilter !== "ALL" && vr.department_id !== departmentFilter) return false;
+    if (statusFilter !== "ALL" && vr.status !== statusFilter) return false;
+    // The Date filter reads `created_at` -- when the request was raised --
+    // rather than `waitingSince`, which moves every time the request changes
+    // stage and so would make a saved range mean something different tomorrow.
+    // Compared as yyyy-mm-dd strings so an inclusive `to` needs no end-of-day
+    // arithmetic and no timezone conversion of the user's typed date.
+    const raisedOn = vr.created_at.slice(0, 10);
+    if (dateFrom && raisedOn < dateFrom) return false;
+    if (dateTo && raisedOn > dateTo) return false;
+    return true;
+  }
+
+  const filteredQueue = queue.filter(matchesFilters);
+  const sortedQueue = [...filteredQueue].sort((a, b) => {
     const rankDiff = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     if (rankDiff !== 0) return rankDiff;
     return new Date(waitingSince(a)).getTime() - new Date(waitingSince(b)).getTime();
@@ -184,16 +270,129 @@ export function VacancyApprovalsPage() {
         <p className="text-sm text-muted-foreground">Vacancy requests waiting on your approval.</p>
       </div>
 
+      {takesPartInChain ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatTile label="Pending" value={kpis.pending} isLoading={isLoading} accent="gold" />
+          <StatTile label="Approved" value={kpis.approved} isLoading={isLoading} accent="green" />
+          <StatTile label="Rejected" value={kpis.rejected} isLoading={isLoading} accent="red" />
+          <StatTile label="Total" value={kpis.total} isLoading={isLoading} accent="blue" />
+        </div>
+      ) : null}
+
+      {takesPartInChain ? (
+        <Card className="flex flex-col gap-3 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="w-40">
+              <Select value={campusFilter} onValueChange={setCampusFilter}>
+                <SelectTrigger aria-label="Campus filter">
+                  <SelectValue className="truncate" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All campuses</SelectItem>
+                  {campuses?.map((campus) => (
+                    <SelectItem key={campus.id} value={campus.id}>
+                      {campus.code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-44">
+              <Select
+                value={categoryFilter}
+                onValueChange={(v) => setCategoryFilter(v as StaffRoleCategory | "ALL")}
+              >
+                <SelectTrigger aria-label="Category filter">
+                  <SelectValue className="truncate" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All categories</SelectItem>
+                  {(Object.keys(CATEGORY_LABELS) as StaffRoleCategory[]).map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {CATEGORY_LABELS[category]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-48">
+              <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                <SelectTrigger aria-label="Department filter">
+                  <SelectValue className="truncate" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All departments</SelectItem>
+                  {departments?.map((department) => (
+                    <SelectItem key={department.id} value={department.id}>
+                      {department.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-44">
+              <Select
+                value={statusFilter}
+                onValueChange={(v) => setStatusFilter(v as VacancyRequestStatus | "ALL")}
+              >
+                <SelectTrigger aria-label="Status filter">
+                  <SelectValue className="truncate" />
+                </SelectTrigger>
+                <SelectContent>
+                  {/* Only the statuses this user's queue can actually contain
+                      -- offering REJECTED here would always filter to nothing,
+                      since the table lists `statuses` rows only. */}
+                  <SelectItem value="ALL">All statuses</SelectItem>
+                  {statuses.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status.replace(/_/g, " ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="approvals_date_from" className="text-xs text-muted-foreground">
+                Raised
+              </Label>
+              <Input
+                id="approvals_date_from"
+                type="date"
+                aria-label="Raised from"
+                className="w-40"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <Input
+                id="approvals_date_to"
+                type="date"
+                aria-label="Raised to"
+                className="w-40"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+            <Button variant="outline" size="sm" disabled={!hasAnyFilter} onClick={clearFilters} className="gap-1.5">
+              <X className="h-3.5 w-3.5" />
+              Clear filters
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
       {/* UI redesign Phase 3 -- one Card boundary shared by every branch
           (no-role / loading / empty / table), not just the loaded table. */}
       <Card>
         <CardContent className="p-0">
-          {statuses.length === 0 ? (
+          {!takesPartInChain ? (
             <p className="p-6 text-sm text-muted-foreground">Your role doesn't take part in the approval chain.</p>
           ) : isLoading ? (
             <p className="p-6 text-sm text-muted-foreground">Loading…</p>
           ) : sortedQueue.length === 0 ? (
-            <p className="p-6 text-sm text-muted-foreground">Nothing is waiting on your approval right now.</p>
+            <p className="p-6 text-sm text-muted-foreground">
+              {queue.length === 0 ? "No pending vacancy approvals" : "No vacancy approvals match these filters."}
+            </p>
           ) : (
             // Design-system-foundation step 5: migrated off a hand-rolled
             // <table> onto the shared Table primitive (components/ui/table.tsx),
@@ -202,25 +401,32 @@ export function VacancyApprovalsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Ref</TableHead>
                   <TableHead>Position</TableHead>
                   <TableHead>Campus</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Priority</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Next action</TableHead>
+                  <TableHead>Raised by</TableHead>
                   <TableHead>Waiting</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sortedQueue.map((vr) => {
                   const campus = campuses?.find((c) => c.id === vr.campus_id);
+                  const department = departments?.find((d) => d.id === vr.department_id);
+                  // Bug fix: OR'd with hasPermission(...) -- see the
+                  // `statuses` computation above for the full explanation.
                   const canDeanApprove =
-                    (role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "SUPER_ADMIN") && vr.status === "SUBMITTED";
+                    (role === "ASSOCIATE_DEAN_RECRUITMENT" ||
+                      role === "SUPER_ADMIN" ||
+                      (hasPermission?.("APPROVE_VACANCY") ?? false)) &&
+                    vr.status === "SUBMITTED";
                   const canHrApprove =
                     (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
                     (vr.status === "DEAN_APPROVED" || (vr.status === "SUBMITTED" && role === "SUPER_ADMIN"));
-                  // Bug fix: OR'd with hasPermission(...) -- see the
-                  // `statuses` computation above for the full explanation.
                   const canPublish =
                     ((role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") ||
                       (hasPermission?.("PUBLISH_VACANCY") ?? false)) &&
@@ -234,6 +440,7 @@ export function VacancyApprovalsPage() {
                     (vr.status === "SUBMITTED" || vr.status === "DEAN_APPROVED");
                   return (
                     <TableRow key={vr.id}>
+                      <TableCell className="font-mono text-xs">{vr.request_ref ?? "—"}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Link to={`/vacancy-requests/${vr.id}`} className="font-medium hover:underline">
@@ -245,12 +452,17 @@ export function VacancyApprovalsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs">{campus?.code ?? "—"}</TableCell>
+                      <TableCell>{department?.name ?? "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{CATEGORY_LABELS[vr.role_category]}</TableCell>
                       <TableCell>{vr.priority}</TableCell>
+                      {/* Server-computed: prefers `requester_name` on a QR row,
+                          where `requested_by_id` is the intake account rather
+                          than the person who asked. */}
+                      <TableCell>{vr.requested_by_name ?? "—"}</TableCell>
+                      <TableCell>{formatWaiting(waitingSince(vr))}</TableCell>
                       <TableCell>
                         <StatusBadge status={vr.status} />
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{STATUS_ACTION_LABEL[vr.status]}</TableCell>
-                      <TableCell>{formatWaiting(waitingSince(vr))}</TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-2">
                           {canDeanApprove ? (

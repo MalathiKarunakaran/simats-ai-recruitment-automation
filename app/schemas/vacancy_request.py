@@ -117,6 +117,11 @@ class VacancyRequestRead(BaseModel):
     requester_email: str | None
     requester_mobile: str | None
     requested_by_id: uuid.UUID
+    # Backs the approvals queue's "Raised by" column, so a reviewer does not
+    # have to resolve `requested_by_id` against an endpoint most approver
+    # roles cannot call. Computed on the model -- prefers `requester_name`
+    # (QR), else the requesting user's name.
+    requested_by_name: str | None
     submitted_at: datetime | None
     dean_reviewed_by_id: uuid.UUID | None
     dean_reviewed_at: datetime | None

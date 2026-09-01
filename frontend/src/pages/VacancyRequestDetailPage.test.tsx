@@ -54,6 +54,7 @@ function baseVr(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
     requester_email: null,
     requester_mobile: null,
     requested_by_id: "u-1",
+    requested_by_name: "Test User",
     submitted_at: null,
     dean_reviewed_by_id: null,
     dean_reviewed_at: null,

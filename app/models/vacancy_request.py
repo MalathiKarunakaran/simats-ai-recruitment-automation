@@ -181,5 +181,22 @@ class VacancyRequest(Base):
     requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_id])
     approved_vacancy: Mapped["ApprovedVacancy"] = relationship(back_populates="vacancy_request", uselist=False)
 
+    @property
+    def requested_by_name(self) -> str | None:
+        """Who to show as having raised this, for a UI "Raised by" column.
+
+        Prefers `requester_name` exactly as the field comments above say to:
+        on a QR row `requested_by` is the intake account, not the person who
+        asked. Falls back to the requesting user's name for MANUAL and
+        BULK_UPLOAD rows (on a bulk row that is the uploader, which is the
+        best answer available unless the file named a requester).
+
+        Read through `VacancyRequestRead`, whose list endpoint eager-loads
+        `requested_by` -- without that this is an N+1 across the page.
+        """
+        if self.requester_name:
+            return self.requester_name
+        return self.requested_by.full_name if self.requested_by else None
+
     def __repr__(self) -> str:
         return f"<VacancyRequest {self.position_title} ({self.status})>"

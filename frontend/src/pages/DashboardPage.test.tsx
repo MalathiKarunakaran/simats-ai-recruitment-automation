@@ -108,6 +108,7 @@ function makeVR(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
     requester_email: null,
     requester_mobile: null,
     requested_by_id: "u-1",
+    requested_by_name: "Test User",
     submitted_at: "2026-07-20T00:00:00Z",
     dean_reviewed_by_id: null,
     dean_reviewed_at: null,
