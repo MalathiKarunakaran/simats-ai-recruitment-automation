@@ -43,7 +43,13 @@ def _reset_limits():
 
 @pytest.fixture()
 def intake_setup(
-    campus_factory, department_factory, designation_factory, sanctioned_strength_factory, user_factory, db_session
+    campus_factory,
+    department_factory,
+    designation_factory,
+    location_factory,
+    sanctioned_strength_factory,
+    user_factory,
+    db_session,
 ):
     """Campus/department/designation plus HEADROOM in Sanctioned Strength.
 
@@ -65,15 +71,23 @@ def intake_setup(
     sanctioned_strength_factory(
         campus=campus, department=department, designation=designation, approved_strength=20, created_by=super_admin
     )
+    # Location is REQUIRED on the public form as of 2026-09-02, so every
+    # payload here needs one. Created with category=None on purpose: a
+    # Location is a physical place and nothing in this flow may narrow it by
+    # staff category -- the tests below submit TEACHING and NON_TEACHING
+    # requests against this same row.
+    location = location_factory("SSE", name="Circular Building", block_building="Circular Building",
+                                floor_venue="Ground Floor")
     db_session.commit()
-    return campus, department, designation, super_admin
+    return campus, department, designation, super_admin, location
 
 
-def _payload(campus, department, designation, **overrides):
+def _payload(campus, department, designation, location, **overrides):
     body = {
         "campus_id": str(campus.id),
         "department_id": str(department.id),
         "designation_id": str(designation.id),
+        "location_id": str(location.id),
         "number_of_positions": 2,
         "priority": "NORMAL",
         "justification": "Two faculty retiring at the end of this term.",
@@ -89,9 +103,9 @@ def _payload(campus, department, designation, **overrides):
 
 
 def test_submits_without_authentication_and_returns_only_a_reference(client, intake_setup, db_session):
-    campus, department, designation, _admin = intake_setup
+    campus, department, designation, _admin, location = intake_setup
 
-    response = client.post(SUBMIT, json=_payload(campus, department, designation))
+    response = client.post(SUBMIT, json=_payload(campus, department, designation, location))
     assert response.status_code == 201, response.text
     body = response.json()
 
@@ -103,9 +117,9 @@ def test_submits_without_authentication_and_returns_only_a_reference(client, int
 
 
 def test_row_is_recorded_as_a_QR_submission_with_the_requester_details(client, intake_setup, db_session):
-    campus, department, designation, _admin = intake_setup
+    campus, department, designation, _admin, location = intake_setup
 
-    ref = client.post(SUBMIT, json=_payload(campus, department, designation)).json()["request_ref"]
+    ref = client.post(SUBMIT, json=_payload(campus, department, designation, location)).json()["request_ref"]
 
     vr = db_session.query(VacancyRequest).filter(VacancyRequest.request_ref == ref).one()
     assert vr.source == VacancyRequestSourceEnum.QR
@@ -121,9 +135,9 @@ def test_enters_the_normal_workflow_rather_than_appearing_pre_approved(client, i
     """The brief's "status = PENDING" maps to SUBMITTED -- raised, awaiting
     Dean review. It must go through vacancy_workflow.submit(), not be written
     straight into the queue."""
-    campus, department, designation, _admin = intake_setup
+    campus, department, designation, _admin, location = intake_setup
 
-    ref = client.post(SUBMIT, json=_payload(campus, department, designation)).json()["request_ref"]
+    ref = client.post(SUBMIT, json=_payload(campus, department, designation, location)).json()["request_ref"]
 
     vr = db_session.query(VacancyRequest).filter(VacancyRequest.request_ref == ref).one()
     assert vr.status == VacancyRequestStatusEnum.SUBMITTED
@@ -133,9 +147,9 @@ def test_enters_the_normal_workflow_rather_than_appearing_pre_approved(client, i
 
 
 def test_derives_position_and_employment_type_from_designation_master(client, intake_setup, db_session):
-    campus, department, designation, _admin = intake_setup
+    campus, department, designation, _admin, location = intake_setup
 
-    ref = client.post(SUBMIT, json=_payload(campus, department, designation)).json()["request_ref"]
+    ref = client.post(SUBMIT, json=_payload(campus, department, designation, location)).json()["request_ref"]
 
     vr = db_session.query(VacancyRequest).filter(VacancyRequest.request_ref == ref).one()
     assert vr.position_title == designation.name
@@ -144,10 +158,10 @@ def test_derives_position_and_employment_type_from_designation_master(client, in
 
 
 def test_request_refs_are_unique_across_submissions(client, intake_setup):
-    campus, department, designation, _admin = intake_setup
+    campus, department, designation, _admin, location = intake_setup
 
-    first = client.post(SUBMIT, json=_payload(campus, department, designation)).json()["request_ref"]
-    second = client.post(SUBMIT, json=_payload(campus, department, designation)).json()["request_ref"]
+    first = client.post(SUBMIT, json=_payload(campus, department, designation, location)).json()["request_ref"]
+    second = client.post(SUBMIT, json=_payload(campus, department, designation, location)).json()["request_ref"]
 
     assert first != second
 
@@ -159,7 +173,7 @@ def test_cannot_set_salary_jd_or_position_title(client, intake_setup, db_session
     """These are absent from the public schema on purpose. Pydantic drops
     unknown keys silently, so the risk is not a 422 -- it is that they would
     land in a record which later becomes a published job ad."""
-    campus, department, designation, _admin = intake_setup
+    campus, department, designation, _admin, location = intake_setup
 
     ref = client.post(
         SUBMIT,
@@ -167,6 +181,7 @@ def test_cannot_set_salary_jd_or_position_title(client, intake_setup, db_session
             campus,
             department,
             designation,
+            location,
             salary_band_min=9_000_000,
             salary_band_max=9_999_999,
             jd_draft="Injected job description.",
@@ -184,14 +199,14 @@ def test_cannot_set_salary_jd_or_position_title(client, intake_setup, db_session
 
 
 def test_rejects_a_department_from_another_campus(client, intake_setup, campus_factory, department_factory, db_session):
-    campus, _department, designation, _admin = intake_setup
+    campus, _department, designation, _admin, location = intake_setup
     other_campus = campus_factory("SCLAS")
     foreign_department = department_factory("SCLAS", name=f"Foreign {uuid.uuid4().hex[:6]}")
     foreign_department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     db_session.commit()
 
     response = client.post(
-        SUBMIT, json=_payload(campus, foreign_department, designation)
+        SUBMIT, json=_payload(campus, foreign_department, designation, location)
     )
     assert response.status_code == 400
     assert "campus" in response.json()["detail"].lower()
@@ -203,11 +218,11 @@ def test_rejects_a_designation_the_department_does_not_support(
     """The same Department.supports membership rule the authenticated path
     enforces -- NOT designation.category == department.category, which was the
     original bug (see CLAUDE.md)."""
-    campus, department, _designation, _admin = intake_setup
+    campus, department, _designation, _admin, location = intake_setup
     housekeeping = designation_factory(StaffRoleCategoryEnum.HOUSEKEEPING, department=department)
     db_session.commit()
 
-    response = client.post(SUBMIT, json=_payload(campus, department, housekeeping))
+    response = client.post(SUBMIT, json=_payload(campus, department, housekeeping, location))
     assert response.status_code == 400
     assert "does not support" in response.json()["detail"].lower()
 
@@ -215,8 +230,8 @@ def test_rejects_a_designation_the_department_does_not_support(
 def test_rejects_an_unknown_campus_with_400_not_404(client, intake_setup):
     """400 rather than 404 throughout: distinct status codes would let an
     anonymous caller probe which ids exist."""
-    campus, department, designation, _admin = intake_setup
-    body = _payload(campus, department, designation, campus_id=str(uuid.uuid4()))
+    campus, department, designation, _admin, location = intake_setup
+    body = _payload(campus, department, designation, location, campus_id=str(uuid.uuid4()))
 
     response = client.post(SUBMIT, json=body)
     assert response.status_code == 400
@@ -226,8 +241,8 @@ def test_requires_a_designation(client, intake_setup):
     """Optional on the authenticated schema, required here: without one there
     is no Sanctioned Strength ceiling to check, so omitting it would be a way
     around the limit."""
-    campus, department, designation, _admin = intake_setup
-    body = _payload(campus, department, designation)
+    campus, department, designation, _admin, location = intake_setup
+    body = _payload(campus, department, designation, location)
     del body["designation_id"]
 
     assert client.post(SUBMIT, json=body).status_code == 422
@@ -237,21 +252,34 @@ def test_requires_a_designation(client, intake_setup):
     "field,value",
     [
         ("number_of_positions", 0),
+        ("number_of_positions", -1),
+        ("number_of_positions", 1.5),
+        ("number_of_positions", "two"),
         ("number_of_positions", 101),
         ("justification", "too short"),
+        # Whitespace-only satisfied Field(min_length=10) before 2026-09-02:
+        # that runs against the RAW string, and ten spaces are ten
+        # characters. The stripping validator is what catches it.
+        ("justification", "            "),
         ("requester_email", "not-an-email"),
         ("requester_name", "X"),
+        ("requester_name", "   "),
         ("requester_mobile", "<script>"),
+        # Indian mobile rules, tightened 2026-09-02.
+        ("requester_mobile", "5876543210"),
+        ("requester_mobile", "98765abcde"),
+        ("requester_mobile", "987654321"),
+        ("requester_mobile", "98765432101"),
     ],
 )
 def test_rejects_malformed_input(client, intake_setup, field, value):
-    campus, department, designation, _admin = intake_setup
-    response = client.post(SUBMIT, json=_payload(campus, department, designation, **{field: value}))
+    campus, department, designation, _admin, location = intake_setup
+    response = client.post(SUBMIT, json=_payload(campus, department, designation, location, **{field: value}))
     assert response.status_code == 422, f"{field}={value!r} should have been rejected"
 
 
 def test_cannot_request_beyond_the_sanctioned_ceiling(
-    client, campus_factory, department_factory, designation_factory, user_factory, db_session
+    client, campus_factory, department_factory, designation_factory, location_factory, user_factory, db_session
 ):
     """The public form is subject to the same Sanctioned Strength ceiling as
     an in-app request, because it goes through vacancy_workflow.submit()
@@ -266,9 +294,10 @@ def test_cannot_request_beyond_the_sanctioned_ceiling(
     department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
     designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
     user_factory(UserRoleEnum.SUPER_ADMIN)
+    location = location_factory("SSE", name="Unsanctioned Block")
     db_session.commit()
 
-    response = client.post(SUBMIT, json=_payload(campus, department, designation))
+    response = client.post(SUBMIT, json=_payload(campus, department, designation, location))
     assert response.status_code == 409
     assert "available to request" in response.json()["detail"].lower()
 
@@ -277,10 +306,10 @@ def test_cannot_request_beyond_the_sanctioned_ceiling(
 
 
 def test_rate_limits_repeated_submissions_from_one_ip(client, intake_setup):
-    campus, department, designation, _admin = intake_setup
+    campus, department, designation, _admin, location = intake_setup
 
     statuses = [
-        client.post(SUBMIT, json=_payload(campus, department, designation)).status_code for _ in range(7)
+        client.post(SUBMIT, json=_payload(campus, department, designation, location)).status_code for _ in range(7)
     ]
 
     assert statuses.count(201) == 5
@@ -291,7 +320,7 @@ def test_rate_limits_repeated_submissions_from_one_ip(client, intake_setup):
 
 
 def test_form_options_are_public_and_minimal(client, intake_setup):
-    campus, department, designation, _admin = intake_setup
+    campus, department, designation, _admin, location = intake_setup
 
     response = client.get(OPTIONS)
     assert response.status_code == 200
@@ -306,7 +335,7 @@ def test_form_options_are_public_and_minimal(client, intake_setup):
 def test_form_options_narrow_departments_to_the_chosen_campus(
     client, intake_setup, campus_factory, department_factory, db_session
 ):
-    campus, department, _designation, _admin = intake_setup
+    campus, department, _designation, _admin, location = intake_setup
     other = campus_factory("SCLAS")
     department_factory("SCLAS", name=f"Other {uuid.uuid4().hex[:6]}")
     db_session.commit()
@@ -322,7 +351,7 @@ def test_form_options_send_block_and_floor_so_locations_are_distinguishable(
 ):
     """`name` repeats across floors, so a picker keyed on it alone shows
     identical options -- the same problem fixed on the authenticated screens."""
-    campus, _department, _designation, _admin = intake_setup
+    campus, _department, _designation, _admin, location = intake_setup
     location_factory("SSE", name="CB Block", block_building="Circular Building", floor_venue="Ground Floor")
     db_session.commit()
 
@@ -333,12 +362,186 @@ def test_form_options_send_block_and_floor_so_locations_are_distinguishable(
 
 
 def test_required_by_is_accepted_and_stored(client, intake_setup, db_session):
-    campus, department, designation, _admin = intake_setup
+    campus, department, designation, _admin, location = intake_setup
     wanted = date.today() + timedelta(days=45)
 
     ref = client.post(
-        SUBMIT, json=_payload(campus, department, designation, required_by=str(wanted))
+        SUBMIT, json=_payload(campus, department, designation, location, required_by=str(wanted))
     ).json()["request_ref"]
 
     vr = db_session.query(VacancyRequest).filter(VacancyRequest.request_ref == ref).one()
     assert vr.required_by == wanted
+
+
+# --- rules tightened 2026-09-02 -----------------------------------------------
+
+
+def test_location_is_required(client, intake_setup):
+    """Location became mandatory on the public form 2026-09-02.
+
+    The DB column stays nullable -- rows created before this, and every in-app
+    request, must remain valid -- so the rule lives in the public schema
+    alone, which is exactly the surface it applies to.
+    """
+    campus, department, designation, _admin, location = intake_setup
+    body = _payload(campus, department, designation, location)
+    del body["location_id"]
+
+    assert client.post(SUBMIT, json=body).status_code == 422
+
+
+def test_location_must_belong_to_the_chosen_campus(client, intake_setup, location_factory, db_session):
+    campus, department, designation, _admin, _location = intake_setup
+    foreign = location_factory("SCAD", name="Other Campus Block")
+    db_session.commit()
+
+    response = client.post(SUBMIT, json=_payload(campus, department, designation, foreign))
+
+    assert response.status_code == 400
+    assert "does not belong to the selected campus" in response.json()["detail"].lower()
+
+
+@pytest.mark.parametrize("category", [StaffRoleCategoryEnum.TEACHING, StaffRoleCategoryEnum.NON_TEACHING])
+def test_the_same_location_is_accepted_for_teaching_and_non_teaching(
+    client,
+    campus_factory,
+    department_factory,
+    designation_factory,
+    location_factory,
+    sanctioned_strength_factory,
+    user_factory,
+    db_session,
+    category,
+):
+    """A Location is a physical place, so the SAME one must be usable by a
+    Teaching and a Non-Teaching request alike.
+
+    Regression guard for the class of bug fixed in `d28d72c`, where a category
+    filter on a location picker left every NON_TEACHING row with an empty
+    dropdown. The location here is categorised TEACHING on purpose -- the
+    worst case, and the shape of all 23 rows in production -- and a
+    NON_TEACHING request must still be accepted against it.
+    """
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Both Cats {uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING, StaffRoleCategoryEnum.NON_TEACHING]
+    designation = designation_factory(category, department=department)
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation, approved_strength=5, created_by=admin
+    )
+    location = location_factory("SSE", name="Shared Block", category=StaffRoleCategoryEnum.TEACHING)
+    db_session.commit()
+
+    response = client.post(SUBMIT, json=_payload(campus, department, designation, location))
+
+    assert response.status_code == 201, response.text
+    vr = (
+        db_session.query(VacancyRequest)
+        .filter(VacancyRequest.request_ref == response.json()["request_ref"])
+        .one()
+    )
+    assert vr.location_id == location.id
+    assert vr.role_category is category
+
+
+def test_rejects_a_required_by_date_in_the_past(client, intake_setup):
+    campus, department, designation, _admin, location = intake_setup
+    yesterday = date.today() - timedelta(days=1)
+
+    response = client.post(
+        SUBMIT, json=_payload(campus, department, designation, location, required_by=str(yesterday))
+    )
+
+    assert response.status_code == 422
+
+
+def test_accepts_a_required_by_date_of_today(client, intake_setup):
+    """The boundary is inclusive -- needing a post filled today is a real, if
+    optimistic, request, and rejecting it would be an off-by-one."""
+    campus, department, designation, _admin, location = intake_setup
+
+    response = client.post(
+        SUBMIT, json=_payload(campus, department, designation, location, required_by=str(date.today()))
+    )
+
+    assert response.status_code == 201, response.text
+
+
+@pytest.mark.parametrize(
+    "mobile",
+    ["9876543210", "+91 98765 43210", "0091-98765-43210", "098765 43210", "919876543210"],
+)
+def test_accepts_the_indian_mobile_formats_staff_actually_type(client, intake_setup, db_session, mobile):
+    campus, department, designation, _admin, location = intake_setup
+
+    response = client.post(
+        SUBMIT, json=_payload(campus, department, designation, location, requester_mobile=mobile)
+    )
+
+    assert response.status_code == 201, response.text
+    vr = (
+        db_session.query(VacancyRequest)
+        .filter(VacancyRequest.request_ref == response.json()["request_ref"])
+        .one()
+    )
+    # Stored as typed (trimmed), not reformatted -- a recruiter reads and
+    # dials this, and silently rewriting it would be a surprise.
+    assert vr.requester_mobile == mobile
+
+
+def test_justification_and_name_are_stored_trimmed(client, intake_setup, db_session):
+    campus, department, designation, _admin, location = intake_setup
+
+    response = client.post(
+        SUBMIT,
+        json=_payload(
+            campus,
+            department,
+            designation,
+            location,
+            justification="   Two faculty retiring at the end of term.   ",
+            requester_name="  Priya Raman  ",
+        ),
+    )
+
+    assert response.status_code == 201, response.text
+    vr = (
+        db_session.query(VacancyRequest)
+        .filter(VacancyRequest.request_ref == response.json()["request_ref"])
+        .one()
+    )
+    # remarks is where the public form's justification lands.
+    assert vr.remarks == "Two faculty retiring at the end of term."
+    assert vr.requester_name == "Priya Raman"
+
+
+def test_form_options_say_which_categories_each_department_supports(client, intake_setup):
+    """Sent so the form can offer only the designations a department may
+    actually contain. Without it, picking a Non-Teaching designation on a
+    Teaching-only department looked fine on screen and failed with a 400 at
+    submit, after the whole form had been filled in on a phone."""
+    campus, department, _designation, _admin, _location = intake_setup
+
+    body = client.get(OPTIONS, params={"campus_id": str(campus.id)}).json()
+
+    row = next(d for d in body["departments"] if d["id"] == str(department.id))
+    assert row["supported_categories"] == ["TEACHING"]
+
+
+def test_form_options_do_not_filter_locations_by_category(client, intake_setup, location_factory, db_session):
+    """Every active location on the campus is offered, whatever its category.
+
+    Production holds 23 locations and every one is categorised TEACHING; a
+    category filter here would leave a Non-Teaching requester facing an empty,
+    now-mandatory dropdown -- the exact bug `d28d72c` fixed elsewhere.
+    """
+    campus, _department, _designation, _admin, _location = intake_setup
+    location_factory("SSE", name="Teaching Only Block", category=StaffRoleCategoryEnum.TEACHING)
+    location_factory("SSE", name="Housekeeping Block", category=StaffRoleCategoryEnum.HOUSEKEEPING)
+    db_session.commit()
+
+    body = client.get(OPTIONS, params={"campus_id": str(campus.id)}).json()
+
+    names = {loc["name"] for loc in body["locations"]}
+    assert {"Teaching Only Block", "Housekeeping Block"} <= names

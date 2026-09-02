@@ -15,6 +15,14 @@ export interface PublicFormDepartment {
   id: string;
   name: string;
   campus_id: string;
+  /** Which staff categories this department may contain -- a MEMBERSHIP list,
+   * never a single category (see CLAUDE.md). Drives which designations the
+   * form offers, so a Non-Teaching designation is not selectable on a
+   * Teaching-only department and then refused with a 400 at submit.
+   *
+   * Optional so an older backend that does not send it degrades to "offer
+   * everything" rather than to an empty designation list. */
+  supported_categories?: string[];
 }
 
 export interface PublicFormDesignation {
@@ -45,7 +53,8 @@ export interface PublicVacancyRequestPayload {
   campus_id: string;
   department_id: string;
   designation_id: string;
-  location_id?: string | null;
+  /** Required since 2026-09-02 -- see PublicVacancyRequestCreate.location_id. */
+  location_id: string;
   number_of_positions: number;
   priority: string;
   required_by?: string | null;

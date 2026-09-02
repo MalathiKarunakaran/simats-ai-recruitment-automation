@@ -1,7 +1,8 @@
+import re
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.enums import (
     EmploymentTypeEnum,
@@ -144,6 +145,14 @@ class VacancyRequestRead(BaseModel):
 
 # --- Public (QR) intake, 2026-08-30 ---------------------------------------
 
+# Mirrored verbatim by the frontend form (PublicVacancyRequestPage.tsx) so it
+# refuses locally exactly what the server refuses, instead of letting someone
+# fill in a long form on a phone and lose it to a 422. The server stays
+# authoritative -- the client copy is a courtesy, never the check.
+MIN_JUSTIFICATION_LENGTH = 10
+MIN_REQUESTER_NAME_LENGTH = 2
+MAX_POSITIONS_PER_REQUEST = 100
+
 
 class PublicVacancyRequestCreate(BaseModel):
     """Body of the public, unauthenticated vacancy-request form.
@@ -165,21 +174,97 @@ class PublicVacancyRequestCreate(BaseModel):
     campus_id: uuid.UUID
     department_id: uuid.UUID
     designation_id: uuid.UUID
-    location_id: uuid.UUID | None = None
+    # REQUIRED as of 2026-09-02. The DB column stays nullable -- rows created
+    # before this (and every in-app request, which still treats location as
+    # optional) must remain valid -- but a public submitter must now say WHERE
+    # the post sits, for every category alike. A Location is a physical place;
+    # nothing here may narrow it by staff category. See CLAUDE.md.
+    location_id: uuid.UUID
     # Bounded rather than merely positive: an unbounded integer from a public
     # form is a denial-of-service on the approval queue, not a vacancy.
-    number_of_positions: int = Field(ge=1, le=100)
+    number_of_positions: int = Field(ge=1, le=MAX_POSITIONS_PER_REQUEST)
     priority: VacancyPriorityEnum = VacancyPriorityEnum.NORMAL
     required_by: date | None = None
     # min_length forces a real reason rather than a single character; the
-    # cap keeps a public text field from becoming unbounded storage.
-    justification: str = Field(min_length=10, max_length=2000)
-    requester_name: str = Field(min_length=2, max_length=150)
+    # cap keeps a public text field from becoming unbounded storage. The
+    # length is re-checked AFTER stripping in the validator below -- Field's
+    # own min_length runs on the raw string, so ten spaces passed it.
+    justification: str = Field(min_length=MIN_JUSTIFICATION_LENGTH, max_length=2000)
+    requester_name: str = Field(min_length=MIN_REQUESTER_NAME_LENGTH, max_length=150)
     requester_email: EmailStr
-    # Kept as a permissive pattern rather than a strict national format --
-    # SIMATS staff enter numbers with and without country codes and spacing,
-    # and rejecting a valid number is worse here than storing an odd one.
-    requester_mobile: str = Field(min_length=6, max_length=20, pattern=r"^[0-9+\-\s()]+$")
+    # Indian mobile format, requested explicitly 2026-09-02 (this replaces the
+    # earlier deliberately-permissive pattern). Accepts the forms staff
+    # actually type -- "9876543210", "+91 98765 43210", "0091-98765-43210",
+    # "098765 43210" -- by stripping separators and then requiring exactly ten
+    # digits beginning 6-9, which is the whole of India's mobile numbering
+    # plan. `max_length=20` still matches the DB column (String(20)), so a
+    # value that validates always fits.
+    requester_mobile: str = Field(min_length=6, max_length=20)
+
+    @field_validator("justification")
+    @classmethod
+    def _meaningful_justification(cls, value: str) -> str:
+        """Trim, then re-apply the minimum against the trimmed value.
+
+        Pydantic's `min_length` runs on the RAW string, so a justification of
+        ten spaces satisfied it and was stored as an empty reason. The
+        stripped value is what gets persisted, so leading/trailing whitespace
+        never reaches the database either.
+        """
+        stripped = value.strip()
+        if len(stripped) < MIN_JUSTIFICATION_LENGTH:
+            raise ValueError(
+                f"Justification must be at least {MIN_JUSTIFICATION_LENGTH} characters."
+            )
+        return stripped
+
+    @field_validator("requester_name")
+    @classmethod
+    def _real_name(cls, value: str) -> str:
+        """Trim, and refuse a blank or whitespace-only name for the same
+        reason as the justification above."""
+        stripped = value.strip()
+        if len(stripped) < MIN_REQUESTER_NAME_LENGTH:
+            raise ValueError("Enter the requester's name.")
+        return stripped
+
+    @field_validator("required_by")
+    @classmethod
+    def _not_in_the_past(cls, value: date | None) -> date | None:
+        """A vacancy cannot be required before it is requested.
+
+        Compared against UTC "today" rather than a local date. India is UTC+5:30,
+        i.e. always AHEAD of UTC, so the UTC date is never later than the Indian
+        one -- this can only ever be a day too LENIENT near midnight, never a
+        day too strict. Rejecting a date the requester can see is today on their
+        own phone would be the worse failure.
+        """
+        if value is not None and value < datetime.now(timezone.utc).date():
+            raise ValueError("Required-by date cannot be in the past.")
+        return value
+
+    @field_validator("requester_mobile")
+    @classmethod
+    def _indian_mobile(cls, value: str) -> str:
+        """Validate as an Indian mobile number; store what was typed, trimmed.
+
+        Deliberately validates without rewriting: the number is contact
+        information a recruiter will read and dial, and silently reformatting
+        someone's input is a surprise with no upside here.
+        """
+        trimmed = value.strip()
+        digits = re.sub(r"[\s()\-]", "", trimmed)
+        if digits.startswith("+91"):
+            digits = digits[3:]
+        elif digits.startswith("0091"):
+            digits = digits[4:]
+        elif digits.startswith("91") and len(digits) == 12:
+            digits = digits[2:]
+        elif digits.startswith("0") and len(digits) == 11:
+            digits = digits[1:]
+        if not re.fullmatch(r"[6-9]\d{9}", digits):
+            raise ValueError("Enter a valid 10-digit Indian mobile number.")
+        return trimmed
 
 
 class PublicVacancyRequestConfirmation(BaseModel):

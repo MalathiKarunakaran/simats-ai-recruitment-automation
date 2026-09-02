@@ -68,3 +68,25 @@ export function combine<T>(...validators: Validator<T>[]): Validator<T> {
     return null;
   };
 }
+
+/** Indian mobile number, mirroring `PublicVacancyRequestCreate._indian_mobile`
+ * on the server so the form refuses exactly what the API refuses.
+ *
+ * Separators and an optional country/trunk prefix are stripped before the
+ * check, so every shape staff actually type is accepted -- "9876543210",
+ * "+91 98765 43210", "0091-98765-43210", "098765 43210" -- and what remains
+ * must be ten digits beginning 6-9, which is the whole of India's mobile
+ * numbering plan. The value itself is never rewritten: it is contact
+ * information someone will read and dial, and silently reformatting it would
+ * be a surprise with no upside. */
+export function indianMobile(message = "Enter a valid 10-digit Indian mobile number"): Validator<string> {
+  return (value) => {
+    if (!value.trim()) return null;
+    let digits = value.replace(/[\s()-]/g, "");
+    if (digits.startsWith("+91")) digits = digits.slice(3);
+    else if (digits.startsWith("0091")) digits = digits.slice(4);
+    else if (digits.startsWith("91") && digits.length === 12) digits = digits.slice(2);
+    else if (digits.startsWith("0") && digits.length === 11) digits = digits.slice(1);
+    return /^[6-9]\d{9}$/.test(digits) ? null : message;
+  };
+}

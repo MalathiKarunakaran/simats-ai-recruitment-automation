@@ -82,8 +82,19 @@ def get_public_form_options(
         department_query = department_query.filter(Department.campus_id == campus_id)
         location_query = location_query.filter(Location.campus_id == campus_id)
 
+    # `supported_categories` is sent so the form can offer only the
+    # designations the chosen department may actually contain. Without it the
+    # form happily let someone pick, say, a NON_TEACHING designation on a
+    # TEACHING-only department and the mismatch only surfaced as a 400 at
+    # submit, after the whole form had been filled in on a phone. It is a
+    # MEMBERSHIP list, never a single category -- see CLAUDE.md.
     departments = [
-        {"id": str(d.id), "name": d.name, "campus_id": str(d.campus_id)}
+        {
+            "id": str(d.id),
+            "name": d.name,
+            "campus_id": str(d.campus_id),
+            "supported_categories": [c.value for c in d.supported_categories],
+        }
         for d in department_query.order_by(Department.name).all()
     ]
     designations = [
@@ -93,6 +104,13 @@ def get_public_form_options(
     # block_building/floor_venue are sent through so the client can render the
     # same "Block - Floor" label the authenticated screens use; `name` alone
     # repeats across floors and is not distinguishable.
+    #
+    # NOTE: this list is narrowed by CAMPUS and by nothing else, and must stay
+    # that way. `Location.category` exists but a location is a physical place
+    # -- a room does not stop existing because the post is non-teaching. The
+    # identical filter on the Sanctioned Strength drawer left every
+    # NON_TEACHING and HOUSEKEEPING row with an EMPTY dropdown in production
+    # (fixed in d28d72c); do not reintroduce it here.
     locations = [
         {
             "id": str(loc.id),
