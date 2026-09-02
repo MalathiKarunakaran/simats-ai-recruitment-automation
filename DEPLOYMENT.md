@@ -32,7 +32,49 @@ Edit `.env` for production:
 - `PUBLIC_APPLY_BASE_URL` — your real careers-page/apply-link domain, once one exists.
 - `CORS_ALLOWED_ORIGINS` — your frontend's real origin(s), comma-separated, once a frontend is deployed. Leave blank if the API has no browser-based frontend calling it cross-origin.
 
-## 2. Build and start the stack
+## 2. Pull the code you intend to deploy
+
+```bash
+cd /opt/simats/app
+git pull --ff-only origin master
+git log --oneline -1          # <- ALWAYS check this
+```
+
+**Check the last line every time.** On 2026-09-02 `git pull` failed here while
+the `docker compose build` that followed still exited 0 -- it rebuilt the
+images from the *previous* commit and reported success. A green build says
+nothing about which code it built.
+
+The failure mode was specific and may recur: anonymous HTTPS fetches from this
+VPS started getting `HTTP/2 401` with `www-authenticate: Basic realm="GitHub"`
+on the `git-upload-pack` **POST**, while the GET ref advertisement still
+returned 200 (so `git ls-remote` worked and `git fetch` did not). The repo is
+public and two pulls had succeeded from the same host hours earlier, so this
+looked like GitHub throttling anonymous fetches from that IP rather than a
+config change.
+
+Fixed by giving the VPS its own credentials instead of relying on anonymous
+access: a **read-only deploy key** (`/root/.ssh/simats_deploy`, registered on
+the repo as "srv1922215 production deploy (read-only)"), selected in
+`/root/.ssh/config` for `Host github.com`, with `origin` switched to
+`git@github.com:...`. It cannot push. If a future deploy ever needs to move to
+a different host, generate a new key there rather than copying this one.
+
+If SSH is ever unavailable too, a git bundle over `scp` is the fallback that
+was used to ship `46b089b` -- it keeps the repo fully consistent, unlike
+copying files over the working tree:
+
+```bash
+# on the machine that has the commits
+git bundle create /tmp/update.bundle <last-deployed-sha>..master
+scp /tmp/update.bundle root@srv1922215.hstgr.cloud:/tmp/
+# on the VPS
+cd /opt/simats/app
+git bundle verify /tmp/update.bundle
+git fetch /tmp/update.bundle master && git merge --ff-only FETCH_HEAD
+```
+
+## 3. Build and start the stack
 
 ```bash
 docker compose build
@@ -61,7 +103,7 @@ per-worker (20 connections each: `pool_size=10, max_overflow=10`), so
 `workers × 20` must stay under Postgres's `max_connections` (100 by
 default in the `postgres:16-alpine` image used here).
 
-## 3. Verify
+## 4. Verify
 
 ```bash
 curl http://localhost:8010/health          # {"status": "ok"}
@@ -73,7 +115,7 @@ curl http://localhost:8011/                # frontend index.html
 (Ports `8010`/`8011` per `docker-compose.yml`'s host mappings -- adjust
 if you changed them.)
 
-## 4. Seed data (optional, first run only)
+## 5. Seed data (optional, first run only)
 
 Seeding is idempotent (safe to re-run) but creates demo/sample data
 (sample users, demo vacancy scenarios) — skip this for a real production
@@ -84,7 +126,7 @@ or run it once and then delete the demo vacancy/candidate rows it created.
 docker compose exec backend python -m app.db.seed
 ```
 
-## 5. Migrating legacy data
+## 6. Migrating legacy data
 
 If migrating vacancy data out of the existing n8n + Airtable pipeline, use
 Phase 6's CSV importer rather than manual entry:
@@ -101,7 +143,7 @@ export format wasn't available when this was built). Every imported row
 lands as a `DRAFT` vacancy request for human review; nothing is
 auto-submitted or auto-published.
 
-## 6. Reverse proxy / TLS
+## 7. Reverse proxy / TLS
 
 This app should sit behind a reverse proxy that terminates TLS and
 forwards to `backend`'s port `8000` (internal) / `8010` (host-mapped) and
@@ -148,7 +190,7 @@ Security` when it sees `X-Forwarded-Proto: https` (or a direct HTTPS
 request) — Caddy sets that header automatically; if using nginx instead,
 add `proxy_set_header X-Forwarded-Proto $scheme;` to your config.
 
-## 7. Backups
+## 8. Backups
 
 The Postgres data lives in the `postgres_data` named volume
 (`docker-compose.yml`). Back it up with:
@@ -160,7 +202,7 @@ docker exec simats_recruitment_postgres pg_dump -U <POSTGRES_USER> <POSTGRES_DB>
 MinIO's `minio_data` volume holds uploaded resumes — back it up the same
 way (volume snapshot, or `mc mirror` to another bucket/host).
 
-## 8. Logs
+## 9. Logs
 
 ```bash
 docker compose logs -f backend
