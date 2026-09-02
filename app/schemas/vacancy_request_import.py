@@ -31,6 +31,10 @@ class VacancyRequestBulkUploadRowPreview(BaseModel):
     requester_name: str | None = None
     requester_email: str | None = None
     requester_mobile: str | None = None
+    # Echoed as the canonical "Block - Floor" label for accepted rows (so the
+    # preview shows which place was actually resolved, whatever was typed) and
+    # verbatim for rejected ones (so the uploader sees what they typed).
+    location_name: str | None = None
 
 
 class VacancyRequestBulkUploadValidationResponse(BaseModel):

@@ -53,6 +53,7 @@ from app.models.bulk_upload_row_log import BulkUploadRowLog
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.designation import Designation
+from app.models.location import Location
 from app.models.enums import (
     CAMPUS_CODES,
     BulkUploadEntityTypeEnum,
@@ -80,6 +81,15 @@ JUSTIFICATION_HEADER = "Justification"
 REQUESTER_NAME_HEADER = "Requester Name"
 REQUESTER_EMAIL_HEADER = "Requester Email"
 REQUESTER_MOBILE_HEADER = "Requester Mobile"
+# Location, appended 2026-09-02 for the same reason and by the same rule as
+# the three requester columns above: `parse_rows` keys cells by header name,
+# so a workbook downloaded from the older ten-column template still parses --
+# the new key is simply absent and reads as blank.
+#
+# Whether a blank is acceptable is decided PER CAMPUS, matching
+# `vacancy_request_rules.validate_location`: required where the campus has
+# locations, optional where it has none. Only 2 of 7 campuses have any.
+LOCATION_HEADER = "Location"
 
 TEMPLATE_HEADERS = (
     CAMPUS_HEADER,
@@ -92,6 +102,7 @@ TEMPLATE_HEADERS = (
     REQUESTER_NAME_HEADER,
     REQUESTER_EMAIL_HEADER,
     REQUESTER_MOBILE_HEADER,
+    LOCATION_HEADER,
 )
 
 # Same functional backstop every other importer uses: "XXX" is never a real
@@ -112,8 +123,9 @@ _EXAMPLE_ROWS = (
         "Example Referrer",
         "referrer@example.com",
         "+91 90000 00000",
+        "Circular Building - Ground Floor",
     ),
-    ("XXX", "EXAMPLE - DELETE THIS ROW", "Lab Assistant", 1, "HIGH", "", "Sample only", "", "", ""),
+    ("XXX", "EXAMPLE - DELETE THIS ROW", "Lab Assistant", 1, "HIGH", "", "Sample only", "", "", "", ""),
 )
 
 _HEADER_FILL = PatternFill(start_color="1B5FAA", end_color="1B5FAA", fill_type="solid")
@@ -144,11 +156,13 @@ class ImportRowResult:
     requester_name: str | None = None
     requester_email: str | None = None
     requester_mobile: str | None = None
+    location_name: str | None = None
     # Resolved only for non-rejected rows -- commit_rows() uses these directly
     # rather than re-running the lookups a second time.
     campus_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None
     designation_id: uuid.UUID | None = None
+    location_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -228,6 +242,90 @@ def _validate_requester(name: str, email: str, mobile: str) -> tuple[str | None,
     return name or None, email or None, mobile or None, None
 
 
+# --- Location matching (2026-09-02) ------------------------------------------
+#
+# A spreadsheet cell cannot carry a UUID, and Location Master stores three
+# separate strings (`name`, `block_building`, `floor_venue`) of which only the
+# COMBINATION is unique in practice -- real data has six rows all named "CB
+# Block", distinguished solely by floor. So a cell is matched against several
+# aliases per location rather than against `name` alone, and dashes are
+# normalised away so "Circular Building - Ground Floor", "Circular Building —
+# Ground Floor" and "Circular Building Ground Floor" all resolve to the same
+# place. Nobody should have to type an em dash into Excel.
+
+
+def _normalize_location(text: str | None) -> str:
+    """`_normalize`, plus every kind of dash flattened to a space.
+
+    The range covers U+2010..U+2015 (hyphen, non-breaking hyphen, figure/en/em
+    dash, horizontal bar) plus the ASCII hyphen, so the em dash the UI renders
+    and the plain "-" someone types in Excel are the same separator here.
+    """
+    return _normalize(re.sub(r"[‐-―-]+", " ", text or ""))
+
+
+def _location_block(location: Location) -> str:
+    """`block_building`, falling back to `name` -- the same precedence the UI's
+    `locationLabel` uses, so an error message names a location the way the
+    dropdowns do."""
+    return (location.block_building or "").strip() or (location.name or "").strip()
+
+
+def _location_label(location: Location) -> str:
+    block, floor = _location_block(location), (location.floor_venue or "").strip()
+    return f"{block} - {floor}" if block and floor else (block or floor or location.name)
+
+
+def _location_place_key(location: Location) -> tuple[str, str]:
+    """Campus is already implied by the index key. Two rows sharing this are
+    the SAME physical place -- duplicate master data, not a genuine choice."""
+    return (_normalize_location(_location_block(location)), _normalize_location(location.floor_venue))
+
+
+def _build_location_index(locations: list[Location]) -> dict[tuple[uuid.UUID, str], list[Location]]:
+    """(campus_id, normalised alias) -> every location that alias could mean.
+
+    Campus is part of the key because two campuses may each legitimately have
+    a "Main Block - Ground Floor", and those must never resolve to each other.
+    """
+    index: dict[tuple[uuid.UUID, str], list[Location]] = {}
+    for location in locations:
+        block = _location_block(location)
+        floor = (location.floor_venue or "").strip()
+        aliases = {block, (location.name or "").strip()}
+        if floor:
+            aliases |= {f"{block} {floor}", f"{location.name} {floor}"}
+        for alias in aliases:
+            key = _normalize_location(alias)
+            if key:
+                index.setdefault((location.campus_id, key), []).append(location)
+    return index
+
+
+def _resolve_location(
+    text: str,
+    campus: Campus,
+    index: dict[tuple[uuid.UUID, str], list[Location]],
+) -> tuple[Location | None, str | None]:
+    """Returns (location, error_reason)."""
+    matches = index.get((campus.id, _normalize_location(text)))
+    if not matches:
+        return None, f"Unknown location '{text}' on campus {campus.code}."
+
+    # Several rows describing ONE place (duplicate master data) is not an
+    # ambiguity to push back on -- the UI's picker silently collapses those
+    # too. Resolve deterministically on the smallest id, the same tie-break
+    # `dedupeLocationsForPicker` uses, so a re-upload always picks the same
+    # row. Genuinely different places DO get rejected, with both named.
+    if len({_location_place_key(m) for m in matches}) > 1:
+        options = ", ".join(sorted({_location_label(m) for m in matches}))
+        return None, (
+            f"'{text}' matches more than one location on campus {campus.code}: {options}. "
+            "Include the floor to say which."
+        )
+    return min(matches, key=lambda m: str(m.id)), None
+
+
 def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
     """Pure preview -- writes nothing. Mirrors the authenticated create
     path's own validation so a row that previews as `created` here would also
@@ -243,6 +341,11 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
     campuses_by_code = {c.code.upper(): c for c in db.query(Campus).filter(Campus.is_active.is_(True)).all()}
     departments = db.query(Department).filter(Department.is_active.is_(True)).all()
     designations = db.query(Designation).filter(Designation.is_active.is_(True)).all()
+    locations = db.query(Location).filter(Location.is_active.is_(True)).all()
+    location_index = _build_location_index(locations)
+    # Which campuses have ANY location -- computed once from the list already
+    # loaded rather than a `campus_has_locations` query per row.
+    campuses_with_locations = {location.campus_id for location in locations}
 
     # Department names are unique per campus, so key on (campus_id, name).
     departments_by_key = {(d.campus_id, _normalize(d.name)): d for d in departments}
@@ -265,6 +368,7 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
         requester_name = _cell(raw, REQUESTER_NAME_HEADER)
         requester_email = _cell(raw, REQUESTER_EMAIL_HEADER)
         requester_mobile = _cell(raw, REQUESTER_MOBILE_HEADER)
+        location_text = _cell(raw, LOCATION_HEADER)
 
         result = ImportRowResult(
             row_number=index,
@@ -279,6 +383,7 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
             requester_name=requester_name or None,
             requester_email=requester_email or None,
             requester_mobile=requester_mobile or None,
+            location_name=location_text or None,
         )
 
         if not campus_code or not department_name or not designation_name:
@@ -314,6 +419,23 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
             result.error_reason = (
                 f"{department.name} does not support {designation.category.value} designations."
             )
+            rows.append(result)
+            continue
+
+        # Same rule as both interactive surfaces
+        # (`vacancy_request_rules.validate_location`): required where the
+        # campus has locations, optional where it has none. Deliberately NO
+        # category condition -- a room does not stop existing because the post
+        # is non-teaching (d28d72c).
+        location = None
+        if location_text:
+            location, location_error = _resolve_location(location_text, campus, location_index)
+            if location_error:
+                result.error_reason = location_error
+                rows.append(result)
+                continue
+        elif campus.id in campuses_with_locations:
+            result.error_reason = f"Location is required on campus {campus_code}."
             rows.append(result)
             continue
 
@@ -356,6 +478,10 @@ def validate_rows(db: Session, raw_rows: list[dict]) -> ValidationResult:
         result.campus_id = campus.id
         result.department_id = department.id
         result.designation_id = designation.id
+        result.location_id = location.id if location is not None else None
+        # Normalised to the canonical label so the preview and the committed
+        # row agree on which place was meant, whatever was typed.
+        result.location_name = _location_label(location) if location is not None else None
         rows.append(result)
 
     created = sum(1 for r in rows if r.status == "created")
@@ -413,6 +539,7 @@ def commit_rows(
             remarks=row.justification,
             priority=VacancyPriorityEnum(row.priority),
             required_by=row.required_by,
+            location_id=row.location_id,
             source=VacancyRequestSourceEnum.BULK_UPLOAD,
             requested_by_id=requested_by_id,
             # The person the row says referred the vacancy, when the sheet
@@ -485,8 +612,43 @@ def build_bulk_upload_template_xlsx(db: Session) -> bytes:
         "Requester Name / Email / Mobile are optional. Fill them in when you are raising the "
         "request on behalf of someone else; leave them blank when the request is your own."
     )
+    reference["D3"] = (
+        "Location is required for campuses that have locations set up (listed below) and may be "
+        "left blank for those that do not. Copy a value from the Locations list exactly; if a "
+        "block has several floors you must include the floor, or the row is rejected as ambiguous."
+    )
     reference.column_dimensions["D"].width = 90
-    reference["D2"].alignment = Alignment(wrap_text=True, vertical="top")
+    for note in ("D2", "D3"):
+        reference[note].alignment = Alignment(wrap_text=True, vertical="top")
+
+    # The valid Location values, per campus. Without this the uploader has no
+    # way to know what to type -- Location Master is not otherwise visible
+    # from a spreadsheet, and the matcher is forgiving about dashes and case
+    # but cannot invent a place that does not exist.
+    locations = (
+        db.query(Location)
+        .filter(Location.is_active.is_(True))
+        .order_by(Location.campus_id, Location.name)
+        .all()
+    )
+    campus_codes = {c.id: c.code for c in db.query(Campus).all()}
+    reference["F1"] = "Campus"
+    reference["G1"] = "Location"
+    reference["F1"].font = Font(bold=True)
+    reference["G1"].font = Font(bold=True)
+    seen: set[tuple[str, str]] = set()
+    offset = 2
+    for location in locations:
+        # One entry per distinct physical place: Location Master holds several
+        # rows for some of them (six named "CB Block"), and listing all six
+        # identically would suggest a choice the uploader does not have.
+        entry = (campus_codes.get(location.campus_id, "?"), _location_label(location))
+        if entry in seen:
+            continue
+        seen.add(entry)
+        reference[f"F{offset}"], reference[f"G{offset}"] = entry
+        offset += 1
+    reference.column_dimensions["G"].width = 42
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -520,6 +682,7 @@ def build_error_report_xlsx(log: BulkUploadLog, rejected_rows: list[ImportRowRes
             row.requester_name,
             row.requester_email,
             row.requester_mobile,
+            row.location_name,
             row.error_reason,
         )
         # strict=True so a future column added to TEMPLATE_HEADERS without a

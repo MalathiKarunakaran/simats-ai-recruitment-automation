@@ -121,6 +121,7 @@ function PreviewTable({
                 <TableHead>Designation</TableHead>
                 <TableHead>Positions</TableHead>
                 <TableHead>Priority</TableHead>
+                <TableHead>Location</TableHead>
                 <TableHead>Requester</TableHead>
               </TableRow>
             </TableHeader>
@@ -141,6 +142,7 @@ function PreviewTable({
                     <TableCell>{row.designation_name ?? "—"}</TableCell>
                     <TableCell>{row.requested_count ?? "—"}</TableCell>
                     <TableCell>{row.priority ?? "—"}</TableCell>
+                    <TableCell>{row.location_name ?? "—"}</TableCell>
                     <TableCell
                       // Full detail on hover: the column shows one of the
                       // three, and which one it is matters when checking a
@@ -156,7 +158,7 @@ function PreviewTable({
                   </TableRow>
                   {row.error_reason ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="pt-0 text-destructive">
+                      <TableCell colSpan={9} className="pt-0 text-destructive">
                         {row.error_reason}
                       </TableCell>
                     </TableRow>

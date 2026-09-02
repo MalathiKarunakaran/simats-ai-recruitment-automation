@@ -690,6 +690,7 @@ def _bulk_row_to_preview(row) -> VacancyRequestBulkUploadRowPreview:
         requester_name=row.requester_name,
         requester_email=row.requester_email,
         requester_mobile=row.requester_mobile,
+        location_name=row.location_name,
     )
 
 

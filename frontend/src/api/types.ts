@@ -2321,6 +2321,10 @@ export interface VacancyRequestBulkUploadRowPreview {
   requester_name: string | null;
   requester_email: string | null;
   requester_mobile: string | null;
+  /** The canonical "Block - Floor" label for an accepted row (so the preview
+   *  shows which place was actually resolved, whatever was typed) and the raw
+   *  cell for a rejected one. */
+  location_name: string | null;
 }
 
 export interface VacancyRequestBulkUploadValidationResponse {

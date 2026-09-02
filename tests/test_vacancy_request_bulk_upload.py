@@ -59,6 +59,11 @@ HEADERS_WITH_REQUESTER = (
     "Requester Mobile",
 )
 
+# The full current template. Kept separate from HEADERS_WITH_REQUESTER above
+# so the tests that upload the OLDER header sets keep proving that a workbook
+# downloaded before a column was appended still parses.
+HEADERS_WITH_LOCATION = (*HEADERS_WITH_REQUESTER, "Location")
+
 
 def _workbook(rows: list[tuple], headers: tuple = HEADERS) -> bytes:
     wb = Workbook()
@@ -351,7 +356,7 @@ def test_template_carries_the_requester_columns(client, bulk_setup):
 
     ws = load_workbook(io.BytesIO(response.content))["Vacancy Requests"]
     header_row = tuple(cell.value for cell in ws[1])
-    assert header_row == HEADERS_WITH_REQUESTER
+    assert header_row == HEADERS_WITH_LOCATION
 
 
 def test_a_seven_column_workbook_still_imports(client, bulk_setup, db_session):
@@ -492,7 +497,7 @@ def test_error_report_for_a_vacancy_request_batch(client, bulk_setup):
     assert response.status_code == 200, response.text
 
     ws = load_workbook(io.BytesIO(response.content)).active
-    assert tuple(cell.value for cell in ws[1]) == ("Row", *HEADERS_WITH_REQUESTER, "Error Reason")
+    assert tuple(cell.value for cell in ws[1]) == ("Row", *HEADERS_WITH_LOCATION, "Error Reason")
     rejected = [row for row in ws.iter_rows(min_row=2, values_only=True) if any(cell is not None for cell in row)]
     assert len(rejected) == 1
     # Requester columns land under their own headings, and the reason stays in
@@ -500,3 +505,189 @@ def test_error_report_for_a_vacancy_request_batch(client, bulk_setup):
     assert rejected[0][1] == "ZZZ"
     assert rejected[0][8] == "Named Referrer"
     assert "campus" in rejected[0][-1].lower()
+
+
+# --- the Location column (2026-09-02) ----------------------------------------
+#
+# Appended last, by the same rule as the referrer columns: an older workbook
+# simply has no "Location" key and reads as blank. Whether blank is ACCEPTABLE
+# is decided per campus, matching `vacancy_request_rules.validate_location` --
+# which is why `bulk_setup` above (an SSE campus with no Location rows) still
+# imports without one, and every pre-existing test in this file still passes.
+
+
+def _location_row(department, designation, location_cell, justification="With location"):
+    return ("SSE", department.name, designation.name, 1, "NORMAL", "", justification, "", "", "", location_cell)
+
+
+@pytest.fixture()
+def bulk_setup_with_location(bulk_setup, location_factory, db_session):
+    campus, department, designation, actor = bulk_setup
+    location = location_factory(
+        "SSE", name="CB Block", block_building="Circular Building", floor_venue="Ground Floor"
+    )
+    db_session.commit()
+    return campus, department, designation, actor, location
+
+
+@pytest.mark.parametrize(
+    "cell",
+    [
+        "Circular Building - Ground Floor",   # as the template's example writes it
+        "Circular Building — Ground Floor",   # as the UI renders it, with an em dash
+        "circular  building   ground floor",  # sloppy casing and spacing, no dash
+        "CB Block Ground Floor",              # by `name` rather than `block_building`
+    ],
+)
+def test_location_is_matched_forgivingly_and_stored(client, bulk_setup_with_location, db_session, cell):
+    """Nobody should have to type an em dash into Excel."""
+    _campus, department, designation, actor, location = bulk_setup_with_location
+
+    body = _upload(
+        client, actor, COMMIT,
+        [_location_row(department, designation, cell, justification=f"Row {cell}")],
+        HEADERS_WITH_LOCATION,
+    ).json()
+
+    assert body["created_count"] == 1, body
+    vr = db_session.query(VacancyRequest).filter(VacancyRequest.remarks == f"Row {cell}").one()
+    assert vr.location_id == location.id
+
+
+def test_preview_echoes_the_canonical_label_not_what_was_typed(client, bulk_setup_with_location):
+    _campus, department, designation, actor, _location = bulk_setup_with_location
+
+    body = _upload(
+        client, actor, VALIDATE,
+        [_location_row(department, designation, "cb block ground floor")],
+        HEADERS_WITH_LOCATION,
+    ).json()
+
+    assert body["rows"][0]["status"] == "created"
+    assert body["rows"][0]["location_name"] == "Circular Building - Ground Floor"
+
+
+def test_location_is_required_when_the_campus_has_locations(client, bulk_setup_with_location):
+    _campus, department, designation, actor, _location = bulk_setup_with_location
+
+    body = _upload(
+        client, actor, VALIDATE,
+        [_location_row(department, designation, "")],
+        HEADERS_WITH_LOCATION,
+    ).json()
+
+    assert body["rejected_count"] == 1
+    assert body["rows"][0]["error_reason"] == "Location is required on campus SSE."
+
+
+def test_location_stays_optional_on_a_campus_with_none(client, bulk_setup, db_session):
+    """`bulk_setup`'s SSE campus has no Location rows. Five of seven
+    production campuses are in exactly this state."""
+    _campus, department, designation, actor = bulk_setup
+
+    body = _upload(
+        client, actor, COMMIT,
+        [_location_row(department, designation, "", justification="No locations here")],
+        HEADERS_WITH_LOCATION,
+    ).json()
+
+    assert body["created_count"] == 1, body
+    vr = db_session.query(VacancyRequest).filter(VacancyRequest.remarks == "No locations here").one()
+    assert vr.location_id is None
+
+
+def test_an_unknown_location_is_rejected_with_the_campus_named(client, bulk_setup_with_location):
+    _campus, department, designation, actor, _location = bulk_setup_with_location
+
+    body = _upload(
+        client, actor, VALIDATE,
+        [_location_row(department, designation, "Nowhere Block")],
+        HEADERS_WITH_LOCATION,
+    ).json()
+
+    assert body["rejected_count"] == 1
+    assert body["rows"][0]["error_reason"] == "Unknown location 'Nowhere Block' on campus SSE."
+
+
+def test_a_location_on_another_campus_does_not_resolve(
+    client, bulk_setup_with_location, location_factory, db_session
+):
+    """The index is keyed on (campus, alias): two campuses may each have a
+    "Main Block - Ground Floor" and those must never resolve to each other."""
+    _campus, department, designation, actor, _location = bulk_setup_with_location
+    location_factory("SCAD", name="Design Wing", block_building="Design Wing", floor_venue="First Floor")
+    db_session.commit()
+
+    body = _upload(
+        client, actor, VALIDATE,
+        [_location_row(department, designation, "Design Wing - First Floor")],
+        HEADERS_WITH_LOCATION,
+    ).json()
+
+    assert body["rejected_count"] == 1
+    assert "Unknown location" in body["rows"][0]["error_reason"]
+
+
+def test_a_block_name_covering_several_floors_is_rejected_as_ambiguous(
+    client, bulk_setup_with_location, location_factory, db_session
+):
+    """Real data has six rows named "CB Block" differing only by floor.
+    Naming the block alone does not say which one is meant."""
+    _campus, department, designation, actor, _location = bulk_setup_with_location
+    location_factory("SSE", name="CB Block", block_building="Circular Building", floor_venue="First Floor")
+    db_session.commit()
+
+    body = _upload(
+        client, actor, VALIDATE,
+        [_location_row(department, designation, "Circular Building")],
+        HEADERS_WITH_LOCATION,
+    ).json()
+
+    assert body["rejected_count"] == 1
+    reason = body["rows"][0]["error_reason"]
+    assert "matches more than one location" in reason
+    assert "Circular Building - Ground Floor" in reason
+    assert "Circular Building - First Floor" in reason
+    assert "Include the floor" in reason
+
+
+def test_duplicate_master_data_for_one_place_resolves_rather_than_rejecting(
+    client, bulk_setup_with_location, location_factory, db_session
+):
+    """Two Location rows describing the SAME physical place is duplicate
+    master data, not a choice -- the UI's picker collapses those too, and
+    rejecting the row would push a data-quality problem onto the uploader."""
+    _campus, department, designation, actor, location = bulk_setup_with_location
+    twin = location_factory(
+        "SSE", name="CB Block", block_building="circular building", floor_venue="ground floor"
+    )
+    db_session.commit()
+
+    body = _upload(
+        client, actor, COMMIT,
+        [_location_row(department, designation, "Circular Building - Ground Floor", justification="Twin")],
+        HEADERS_WITH_LOCATION,
+    ).json()
+
+    assert body["created_count"] == 1, body
+    vr = db_session.query(VacancyRequest).filter(VacancyRequest.remarks == "Twin").one()
+    # Deterministic tie-break on the smallest id, matching
+    # dedupeLocationsForPicker, so a re-upload always picks the same row.
+    assert vr.location_id == min([location.id, twin.id], key=str)
+
+
+def test_template_lists_the_valid_locations_per_campus(client, bulk_setup_with_location):
+    """Location Master is not otherwise visible from a spreadsheet, so without
+    this the uploader has no way to know what to type."""
+    from openpyxl import load_workbook
+
+    _campus, _department, _designation, actor, _location = bulk_setup_with_location
+    response = client.get(TEMPLATE, headers=auth_headers(client, actor))
+
+    reference = load_workbook(io.BytesIO(response.content))["Reference"]
+    listed = {
+        (reference[f"F{r}"].value, reference[f"G{r}"].value)
+        for r in range(2, reference.max_row + 1)
+        if reference[f"G{r}"].value
+    }
+    assert ("SSE", "Circular Building - Ground Floor") in listed
