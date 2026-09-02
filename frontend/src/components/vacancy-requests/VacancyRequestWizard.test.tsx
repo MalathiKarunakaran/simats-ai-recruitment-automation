@@ -276,4 +276,99 @@ describe("VacancyRequestWizard", () => {
     await userEvent.type(countInput, "9");
     expect(countInput).toHaveValue(2); // clamped down to maxCount client-side
   }, 15000);
+
+  // --- Location, required only where the data exists (2026-09-02) -----------
+  //
+  // Every other test in this file mocks listLocations as [] -- i.e. a campus
+  // with no location master data -- which is exactly the "optional" branch,
+  // and is why they still submit without touching the picker. These two cover
+  // the other branch, plus the fact that the wizard's location now actually
+  // reaches the API (it was accepted and silently dropped server-side until
+  // this commit).
+
+  const LOCATIONS = [
+    {
+      id: "loc-1",
+      campus_id: "c-sse",
+      name: "CB Block",
+      block_building: "Circular Building",
+      floor_venue: "Ground Floor",
+      category: "TEACHING" as const,
+      is_active: true,
+      created_at: "",
+      updated_at: "",
+    },
+  ];
+
+  function hodAuth() {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD", campus_id: "c-sse", department_id: "d-1" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListDepartments.mockResolvedValue(DEPARTMENTS);
+    mockedListDesignations.mockResolvedValue(DESIGNATIONS);
+    mockedGetAvailability.mockResolvedValue({
+      approved: 5, working: 3, vacant: 2, already_requested: 1, available_to_request: 1,
+    });
+    mockedCreateVacancyRequest.mockResolvedValue({ id: "vr-new" } as never);
+  }
+
+  async function walkToFinalStep() {
+    await userEvent.click(screen.getByRole("button", { name: /^Teaching/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(await screen.findByRole("button", { name: /Assistant Professor/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  }
+
+  it("requires a Location once the campus has one, and sends it to the API", async () => {
+    hodAuth();
+    mockedListLocations.mockResolvedValue(LOCATIONS);
+
+    renderWizard();
+    await walkToFinalStep();
+
+    const submit = screen.getByRole("button", { name: "Submit vacancy request" });
+    expect(submit).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Location" }));
+    await userEvent.click(await screen.findByRole("option", { name: "Circular Building — Ground Floor" }));
+
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+
+    await waitFor(() =>
+      expect(mockedCreateVacancyRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ location_id: "loc-1" }),
+      ),
+    );
+  }, 20000);
+
+  it("leaves Location optional on a campus that has none", async () => {
+    // Five of seven production campuses have zero locations. A flat
+    // requirement would have made vacancy creation impossible on all five.
+    hodAuth();
+    mockedListLocations.mockResolvedValue([]);
+
+    renderWizard();
+    await walkToFinalStep();
+
+    expect(screen.getByText(/No locations are set up for this campus yet/)).toBeInTheDocument();
+    const submit = screen.getByRole("button", { name: "Submit vacancy request" });
+    expect(submit).toBeEnabled();
+
+    await userEvent.click(submit);
+
+    await waitFor(() =>
+      expect(mockedCreateVacancyRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ location_id: null }),
+      ),
+    );
+  }, 20000);
 });

@@ -59,7 +59,14 @@ from app.schemas.vacancy_request_import import (
     VacancyRequestBulkUploadRowPreview,
     VacancyRequestBulkUploadValidationResponse,
 )
-from app.services import jd_generation, storage, vacancy_request_import, vacancy_request_intake, vacancy_workflow
+from app.services import (
+    jd_generation,
+    storage,
+    vacancy_request_import,
+    vacancy_request_intake,
+    vacancy_request_rules,
+    vacancy_workflow,
+)
 from app.services.storage import get_minio_client
 from app.services.ai_client import get_openai_client
 from app.services.audit import log_create, log_delete, log_event as log_create_event, log_update
@@ -166,6 +173,14 @@ def create_vacancy_request(
             status_code=status.HTTP_400_BAD_REQUEST, detail="department_id must belong to campus_id"
         )
 
+    # Location ownership + the required-when-available rule, shared with the
+    # public QR form so the two creation surfaces cannot drift apart. The
+    # authenticated path previously validated location NOT AT ALL, so a caller
+    # could attach another campus's room to a request.
+    vacancy_request_rules.validate_location(
+        db, campus_id=payload.campus_id, location_id=payload.location_id
+    )
+
     position_title = payload.position_title
     if payload.designation_id is not None:
         designation = db.get(Designation, payload.designation_id)
@@ -192,6 +207,14 @@ def create_vacancy_request(
         remarks=payload.remarks,
         skills=payload.skills,
         priority=payload.priority,
+        # Intake fields. `VacancyRequestCreate` has accepted both since
+        # 2026-08-30 and this constructor SILENTLY DROPPED them -- the wizard
+        # has been sending a location and a required-by date all along and
+        # neither was ever stored, which is why every in-app request has a
+        # NULL location_id. Assigning them is the fix; see the same pair added
+        # to the update field list below.
+        location_id=payload.location_id,
+        required_by=payload.required_by,
         requested_by_id=current_user.id,
     )
     db.add(vr)
@@ -293,6 +316,11 @@ def update_vacancy_request(
             status_code=status.HTTP_409_CONFLICT, detail="Only DRAFT vacancy requests can be edited"
         )
 
+    if payload.location_id is not None:
+        vacancy_request_rules.validate_location(
+            db, campus_id=vr.campus_id, location_id=payload.location_id
+        )
+
     before = _snapshot(vr)
     for field in (
         "position_title",
@@ -306,6 +334,10 @@ def update_vacancy_request(
         "remarks",
         "skills",
         "priority",
+        # Both were in `VacancyRequestUpdate` but absent here, so an edit
+        # accepted them and discarded them -- the same bug as create above.
+        "location_id",
+        "required_by",
     ):
         value = getattr(payload, field)
         if value is not None:

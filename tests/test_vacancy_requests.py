@@ -1418,3 +1418,125 @@ def test_super_admin_department_id_filter_is_global_across_campuses(client, user
     body = response.json()
     assert body["total"] == 1
     assert body["items"][0]["id"] == create.json()["id"]
+
+
+# --- intake fields on the authenticated create/update (2026-09-02) -----------
+#
+# `VacancyRequestCreate` has accepted `location_id` and `required_by` since
+# 2026-08-30, and BOTH were silently dropped: the create endpoint's
+# VacancyRequest(...) constructor never assigned them and the update
+# endpoint's applied-field tuple never listed them. The wizard had been
+# sending both all along, which is why every in-app request carried a NULL
+# location_id. These tests are the regression guard.
+
+
+def test_create_persists_location_and_required_by(
+    client, user_factory, department_factory, location_factory, db_session
+):
+    department = department_factory("SSE")
+    location = location_factory("SSE", name="Circular Building", floor_venue="Ground Floor")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(
+            department.id,
+            campus_id=str(hod.campus_id),
+            location_id=str(location.id),
+            required_by="2026-12-31",
+        ),
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["location_id"] == str(location.id)
+    assert body["required_by"] == "2026-12-31"
+    vr = db_session.get(VacancyRequest, uuid.UUID(body["id"]))
+    db_session.refresh(vr)
+    assert vr.location_id == location.id
+    assert str(vr.required_by) == "2026-12-31"
+
+
+def test_update_persists_a_changed_location(
+    client, user_factory, department_factory, location_factory, db_session
+):
+    department = department_factory("SSE")
+    first = location_factory("SSE", name="Block A")
+    second = location_factory("SSE", name="Block B")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    db_session.commit()
+
+    created = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(hod.campus_id), location_id=str(first.id)),
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/vacancy-requests/{created['id']}",
+        headers=auth_headers(client, hod),
+        json={"location_id": str(second.id)},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["location_id"] == str(second.id)
+
+
+def test_create_requires_a_location_when_the_campus_has_any(
+    client, user_factory, department_factory, location_factory, db_session
+):
+    department = department_factory("SSE")
+    location_factory("SSE", name="Some Block")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(hod.campus_id)),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Location is required for this campus."
+
+
+def test_create_allows_no_location_when_the_campus_has_none(
+    client, user_factory, department_factory, db_session
+):
+    """Five of seven production campuses have zero locations; a flat
+    requirement would have made vacancy creation impossible on all five."""
+    department = department_factory("SCAD")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SCAD")
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(hod.campus_id)),
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["location_id"] is None
+
+
+def test_create_rejects_a_location_from_another_campus(
+    client, user_factory, department_factory, location_factory, db_session
+):
+    """The authenticated path previously validated location NOT AT ALL, so a
+    caller could attach another campus's room to a request."""
+    department = department_factory("SSE")
+    location_factory("SSE", name="Home Block")
+    foreign = location_factory("SCAD", name="Other Campus Block")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(hod.campus_id), location_id=str(foreign.id)),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Location does not belong to the selected campus."

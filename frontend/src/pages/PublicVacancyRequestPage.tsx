@@ -122,6 +122,13 @@ export function PublicVacancyRequestPage() {
   // same list.
   const locations = useMemo(() => dedupePublicLocations(options?.locations ?? []), [options?.locations]);
 
+  // Required, but only where the data exists -- mirrors
+  // `vacancy_request_rules.validate_location` on the server. Only 2 of 7
+  // campuses have any locations at all, and a flat requirement made it
+  // impossible to submit on the other five. Tightens by itself as soon as a
+  // campus gets its first location.
+  const locationRequired = locations.length > 0;
+
   const selectedDepartment = departments.find((d) => d.id === departmentId);
   // Only the designations the chosen department may actually contain. A
   // MEMBERSHIP test against `supported_categories`, never an equality test --
@@ -157,7 +164,8 @@ export function PublicVacancyRequestPage() {
   const isRequiredByValid = requiredBy === "" || requiredBy >= today;
 
   const canSubmit =
-    Boolean(campusId && departmentId && designationId && locationId) &&
+    Boolean(campusId && departmentId && designationId) &&
+    (!locationRequired || Boolean(locationId)) &&
     isPositionsValid &&
     isJustificationValid &&
     isRequiredByValid &&
@@ -386,10 +394,10 @@ export function PublicVacancyRequestPage() {
             <div className="flex flex-col gap-1.5">
               <Label>
                 Location
-                <RequiredMark />
+                {locationRequired ? <RequiredMark /> : <span className="text-muted-foreground"> (optional)</span>}
               </Label>
               <Select value={locationId} onValueChange={setLocationId} disabled={!campusId}>
-                <SelectTrigger aria-label="Location" aria-required="true">
+                <SelectTrigger aria-label="Location" aria-required={locationRequired}>
                   <SelectValue placeholder={campusId ? "Select a location" : "Pick a campus first"} />
                 </SelectTrigger>
                 <SelectContent>
@@ -401,8 +409,11 @@ export function PublicVacancyRequestPage() {
                 </SelectContent>
               </Select>
               {campusId && locations.length === 0 ? (
-                <p className="text-xs text-destructive">
-                  No locations are set up for this campus yet. Please contact HR.
+                // Informational, not an error: this campus simply has no
+                // location master data yet, so the field is not required and
+                // the request can still be raised.
+                <p className="text-xs text-muted-foreground">
+                  No locations are set up for this campus yet, so this is not required.
                 </p>
               ) : null}
             </div>

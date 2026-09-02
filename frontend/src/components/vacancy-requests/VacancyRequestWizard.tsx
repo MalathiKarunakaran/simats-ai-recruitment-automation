@@ -137,6 +137,19 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
     (allLocations ?? []).filter((l) => l.campus_id === campusId && l.is_active),
   );
 
+  // Location is REQUIRED, but only where the data exists -- the same rule the
+  // public QR form applies and the same one the server enforces in
+  // `vacancy_request_rules.validate_location`. Only 2 of 7 campuses have any
+  // locations at all; a flat requirement would have made it impossible to
+  // raise a vacancy request on the other five, which is a far worse failure
+  // than a missing location. It tightens by itself once a campus gets its
+  // first location, with no code change here.
+  //
+  // Note there is deliberately NO category condition: a Location is a
+  // physical place and does not stop existing because the post is
+  // non-teaching (see d28d72c).
+  const locationRequired = campusLocations.length > 0;
+
   // Phase E item 24's availability strip -- fetched (and shown) only once
   // campus+department+designation are all known, since Sanctioned Strength
   // is keyed at designation granularity: a request with no designation_id
@@ -204,7 +217,7 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
     Number(requestedCount) > 0,
     Boolean(employmentType),
     Boolean(priority),
-    true,
+    !locationRequired || Boolean(locationId),
   ];
 
   function goNext() {
@@ -500,17 +513,31 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
           <div className="flex flex-col gap-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
-                <Label>Location (optional)</Label>
+                <Label>
+                  Location
+                  {locationRequired ? (
+                    <span aria-hidden="true" className="ml-0.5 text-destructive">
+                      *
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground"> (optional)</span>
+                  )}
+                </Label>
                 <Select
                   value={locationId || LOCATION_NONE}
                   onValueChange={(value) => setLocationId(value === LOCATION_NONE ? "" : value)}
                   disabled={!campusId}
                 >
-                  <SelectTrigger aria-label="Location">
-                    <SelectValue placeholder="Not specified" />
+                  <SelectTrigger aria-label="Location" aria-required={locationRequired}>
+                    <SelectValue placeholder={locationRequired ? "Select a location" : "Not specified"} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={LOCATION_NONE}>Not specified</SelectItem>
+                    {/* "Not specified" is offered only when the field is
+                        genuinely optional -- otherwise it would be a way to
+                        satisfy a required picker with nothing. */}
+                    {locationRequired ? null : (
+                      <SelectItem value={LOCATION_NONE}>Not specified</SelectItem>
+                    )}
                     {campusLocations.map((location) => (
                       <SelectItem key={location.id} value={location.id}>
                         {locationLabel(location)}
@@ -518,6 +545,11 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
                     ))}
                   </SelectContent>
                 </Select>
+                {campusId && campusLocations.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No locations are set up for this campus yet, so this is not required.
+                  </p>
+                ) : null}
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -572,7 +604,11 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
             Next
           </Button>
         ) : (
-          <Button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button
+            type="button"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending || !stepValid[currentStep]}
+          >
             {mutation.isPending ? "Submitting…" : "Submit vacancy request"}
           </Button>
         )}

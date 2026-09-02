@@ -47,7 +47,7 @@ from app.models.location import Location
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.core.config import settings
-from app.services import vacancy_workflow
+from app.services import vacancy_request_rules, vacancy_workflow
 
 # "VR-2026-000123". The year makes the reference self-dating and restarts the
 # sequence annually, which keeps it short enough to read aloud over a phone.
@@ -190,13 +190,10 @@ def _validated_master_data(
             detail=f"{department.name} does not support {designation.category.value} designations.",
         )
 
-    location = None
-    if location_id is not None:
-        location = db.get(Location, location_id)
-        if location is None or location.campus_id != campus_id or not location.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Location does not belong to the selected campus."
-            )
+    # Ownership AND the required-when-available rule, shared verbatim with the
+    # authenticated create so the two intake surfaces cannot drift apart.
+    vacancy_request_rules.validate_location(db, campus_id=campus_id, location_id=location_id)
+    location = db.get(Location, location_id) if location_id is not None else None
 
     return campus, department, designation, location
 

@@ -26,6 +26,7 @@ from app.models.enums import (
     VacancyRequestSourceEnum,
     VacancyRequestStatusEnum,
 )
+from app.models.location import Location
 from app.models.vacancy_request import VacancyRequest
 
 SUBMIT = "/api/v1/public/vacancy-requests"
@@ -377,17 +378,19 @@ def test_required_by_is_accepted_and_stored(client, intake_setup, db_session):
 
 
 def test_location_is_required(client, intake_setup):
-    """Location became mandatory on the public form 2026-09-02.
-
-    The DB column stays nullable -- rows created before this, and every in-app
-    request, must remain valid -- so the rule lives in the public schema
-    alone, which is exactly the surface it applies to.
+    """Location is mandatory 2026-09-02 -- but only where the campus HAS
+    locations, which is why this is a 400 from the shared rule rather than a
+    422 from the schema. The DB column stays nullable: rows created before
+    this must remain valid. See `vacancy_request_rules.validate_location`.
     """
     campus, department, designation, _admin, location = intake_setup
     body = _payload(campus, department, designation, location)
     del body["location_id"]
 
-    assert client.post(SUBMIT, json=body).status_code == 422
+    response = client.post(SUBMIT, json=body)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Location is required for this campus."
 
 
 def test_location_must_belong_to_the_chosen_campus(client, intake_setup, location_factory, db_session):
@@ -545,3 +548,75 @@ def test_form_options_do_not_filter_locations_by_category(client, intake_setup, 
 
     names = {loc["name"] for loc in body["locations"]}
     assert {"Teaching Only Block", "Housekeeping Block"} <= names
+
+
+def test_location_is_optional_on_a_campus_that_has_none(
+    client, campus_factory, department_factory, designation_factory,
+    sanctioned_strength_factory, user_factory, db_session
+):
+    """The other half of the rule, and the reason it is conditional at all.
+
+    At the time of writing only 2 of 7 production campuses have any locations
+    (SSE 18, SSPE 4; the other five have zero). A flat requirement made it
+    impossible to raise a request on those five -- a far worse failure than a
+    missing location. This campus has no Location rows, so the field is
+    optional and the submission goes through.
+    """
+    campus = campus_factory("SCLAS")
+    department = department_factory("SCLAS", name=f"No Locations {uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation, approved_strength=4, created_by=admin
+    )
+    db_session.commit()
+    assert db_session.query(Location).filter(Location.campus_id == campus.id).count() == 0
+
+    body = {
+        "campus_id": str(campus.id), "department_id": str(department.id),
+        "designation_id": str(designation.id), "number_of_positions": 1, "priority": "NORMAL",
+        "justification": "This campus has no locations set up yet.",
+        "requester_name": "Priya Raman", "requester_email": "priya@example.com",
+        "requester_mobile": "9876543210",
+    }
+    response = client.post(SUBMIT, json=body)
+
+    assert response.status_code == 201, response.text
+    vr = db_session.query(VacancyRequest).filter(
+        VacancyRequest.request_ref == response.json()["request_ref"]
+    ).one()
+    assert vr.location_id is None
+
+
+def test_the_rule_tightens_by_itself_once_a_campus_gets_its_first_location(
+    client, campus_factory, department_factory, designation_factory, location_factory,
+    sanctioned_strength_factory, user_factory, db_session
+):
+    """No code change, no migration: adding location master data is what makes
+    the field mandatory for that campus."""
+    campus = campus_factory("SPIER")
+    department = department_factory("SPIER", name=f"Tightens {uuid.uuid4().hex[:6]}")
+    department.supported_categories = [StaffRoleCategoryEnum.TEACHING]
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    sanctioned_strength_factory(
+        campus=campus, department=department, designation=designation, approved_strength=9, created_by=admin
+    )
+    db_session.commit()
+
+    body = {
+        "campus_id": str(campus.id), "department_id": str(department.id),
+        "designation_id": str(designation.id), "number_of_positions": 1, "priority": "NORMAL",
+        "justification": "Before this campus has any locations at all.",
+        "requester_name": "Priya Raman", "requester_email": "priya@example.com",
+        "requester_mobile": "9876543210",
+    }
+    assert client.post(SUBMIT, json=body).status_code == 201
+
+    location_factory("SPIER", name="First Block")
+    db_session.commit()
+
+    refused = client.post(SUBMIT, json=body)
+    assert refused.status_code == 400
+    assert refused.json()["detail"] == "Location is required for this campus."

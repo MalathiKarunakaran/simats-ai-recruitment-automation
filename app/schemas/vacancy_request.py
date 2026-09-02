@@ -174,12 +174,13 @@ class PublicVacancyRequestCreate(BaseModel):
     campus_id: uuid.UUID
     department_id: uuid.UUID
     designation_id: uuid.UUID
-    # REQUIRED as of 2026-09-02. The DB column stays nullable -- rows created
-    # before this (and every in-app request, which still treats location as
-    # optional) must remain valid -- but a public submitter must now say WHERE
-    # the post sits, for every category alike. A Location is a physical place;
-    # nothing here may narrow it by staff category. See CLAUDE.md.
-    location_id: uuid.UUID
+    # Optional HERE, but not in practice: the real rule is "required when the
+    # campus has any locations", which needs a database query and so lives in
+    # `app/services/vacancy_request_rules.py::validate_location`, shared with
+    # the authenticated create. Keeping the schema permissive is what lets a
+    # requester on one of the five campuses with no location data submit at
+    # all -- see that function for why a flat requirement was wrong.
+    location_id: uuid.UUID | None = None
     # Bounded rather than merely positive: an unbounded integer from a public
     # form is a denial-of-service on the approval queue, not a vacancy.
     number_of_positions: int = Field(ge=1, le=MAX_POSITIONS_PER_REQUEST)

@@ -437,4 +437,32 @@ describe("PublicVacancyRequestPage", () => {
     expect(field("Justification")).toHaveValue("Two faculty are retiring this term.");
     expect(submitButton()).toBeEnabled();
   });
+
+  it("leaves Location optional on a campus that has none, and says so", async () => {
+    // Five of seven production campuses have zero locations. Hard-requiring
+    // Location made it impossible to submit on any of them; the rule is
+    // conditional on the campus actually having location data, and tightens
+    // by itself once it does.
+    mockedGetOptions.mockResolvedValue({ ...OPTIONS, locations: [] } as never);
+    mockedSubmit.mockResolvedValue({ request_ref: "VR-2026-000400", status: "SUBMITTED", submitted_at: null });
+    renderPage();
+    await screen.findByText("Vacancy Request");
+
+    await pickOption("Campus", /SSE/);
+    await pickOption("Department", "CSE");
+    await pickOption("Designation", "Assistant Professor");
+    await userEvent.type(field("Justification"), "Two faculty are retiring this term.");
+    await userEvent.type(field("Name"), "Priya Raman");
+    await userEvent.type(field("Email"), "priya@example.com");
+    await userEvent.type(field("Mobile"), "9876543210");
+
+    expect(screen.getByText(/No locations are set up for this campus yet/)).toBeInTheDocument();
+    expect(submitButton()).toBeEnabled();
+
+    await userEvent.click(submitButton());
+
+    await waitFor(() =>
+      expect(mockedSubmit).toHaveBeenCalledWith(expect.objectContaining({ location_id: "" })),
+    );
+  });
 });
