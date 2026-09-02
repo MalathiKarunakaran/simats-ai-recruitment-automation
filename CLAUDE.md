@@ -117,17 +117,34 @@ position a vacancy hires for). Never conflate them. `app/core/deps.py`'s
 `enforce_campus_match` gate campus-scoped data — cross-campus access to a
 single resource returns **404, not 403**, so an unauthorized caller can't
 even confirm the resource exists. `GLOBAL_SCOPE_ROLES` (SUPER_ADMIN, HR_ADMIN,
-ASSOCIATE_DEAN_RECRUITMENT, MANAGEMENT **and RECRUITMENT_COORDINATOR**) see
-all campuses; everyone else is scoped to `current_user.campus_id`.
+ASSOCIATE_DEAN_RECRUITMENT, MANAGEMENT) see all campuses; everyone in
+`SINGLE_CAMPUS_SCOPE_ROLES` (CAMPUS_HOD, RECRUITMENT_OFFICER,
+INTERVIEW_PANEL_MEMBER, RECRUITMENT_COORDINATOR) is scoped to
+`current_user.campus_id`.
 
-That last member is easy to miss and is user-visible: **a Recruitment
-Coordinator sees every campus, not their assigned one.** The only narrowing
-that reaches them is `get_department_scope` (`user_department_scope` rows, PUT
-`/users/{id}/department-scope`), which by design only restricts users who are
-already globally scoped. Making a coordinator campus-scoped means taking them
-out of `GLOBAL_SCOPE_ROLES`, which changes every module at once — raised with
-the user 2026-08-31 and deliberately NOT done. Don't do it as a side effect of
-some other change.
+**Campus scope and department scope are two independent sets — never re-merge
+them.** RECRUITMENT_COORDINATOR moved from `GLOBAL_SCOPE_ROLES` to
+`SINGLE_CAMPUS_SCOPE_ROLES` on 2026-09-01 (`3db4e55`) so a coordinator sees
+only their home campus. `get_department_scope` used to gate on `SUPER_ADMIN or
+role not in GLOBAL_SCOPE_ROLES`, so the one-line version of that change would
+have fixed the campus half and SILENTLY made every coordinator unrestricted by
+department — no error anywhere. `DEPARTMENT_SCOPABLE_ROLES` in `enums.py` now
+holds exactly who `get_department_scope` (`user_department_scope` rows, PUT
+`/users/{id}/department-scope`) can narrow, independent of who is campus-scoped;
+two tests at the end of `tests/test_department_scope_enforcement.py` guard it.
+
+**`SINGLE_CAMPUS_SCOPE_ROLES` membership is load-bearing, not descriptive**: it
+makes `campus_id` REQUIRED on the user forms and narrows
+`notifications.notify_role` fan-out. A user in that set with a NULL `campus_id`
+resolves to `CampusScope(is_global=False, campus_id=None)` and matches
+**nothing** — check every existing holder of a role has a campus before moving
+another role into it.
+
+Only the campus half shipped: both live coordinators still have zero
+`user_department_scope` rows by the user's explicit decision (2026-09-01, after
+being shown that a CSE scope would leave them 5 of 129 sanctioned-strength rows
+and 0 vacancy requests). **Don't add a department scope without asking again**,
+and check the data distribution first, not just the department name.
 
 **Department categories are a SET, and every check is membership**: a
 department is a place, not a staff category -- CSE employs Assistant
