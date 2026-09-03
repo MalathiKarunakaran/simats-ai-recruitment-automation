@@ -16,7 +16,37 @@ alembic upgrade head
 # before the database does (see LOAD_TEST_RESULTS.md): occasional
 # multi-second stalls appeared under 50 concurrent users with one worker.
 # Override via UVICORN_WORKERS for a specific VPS's CPU count.
+#
+# NOTE: app/core/rate_limit.py's buckets are per process, so every limiter
+# there allows up to WORKERS x its configured count per window. Documented
+# in that module; keep in mind when raising this.
 WORKERS="${UVICORN_WORKERS:-4}"
 
+# Which peer may set X-Forwarded-For / X-Forwarded-Proto. The container's
+# port is published on 127.0.0.1 only, so the ONLY thing that can ever
+# connect is a process on the host (Caddy), and from inside the container
+# that host is the Docker network's default gateway. Derive it rather than
+# hard-code a bridge address that Docker may renumber. An explicit
+# TRUSTED_PROXY_IPS in .env wins (comma-separated IPs/CIDRs). Read from
+# /proc/net/route because python:slim has no `ip`.
+if [ -z "${TRUSTED_PROXY_IPS:-}" ]; then
+  TRUSTED_PROXY_IPS="$(python - <<'PY'
+import socket, struct
+with open("/proc/net/route") as f:
+    for line in f.readlines()[1:]:
+        fields = line.split()
+        if fields[1] == "00000000":  # destination 0.0.0.0 = default route
+            print(socket.inet_ntoa(struct.pack("<L", int(fields[2], 16))))
+            break
+PY
+)"
+fi
+export TRUSTED_PROXY_IPS
+echo "Trusting X-Forwarded-For from: ${TRUSTED_PROXY_IPS:-<none>}"
+
 echo "Starting server with ${WORKERS} worker(s)..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers "$WORKERS"
+# --no-proxy-headers: forwarded headers are interpreted exactly once, by the
+# ProxyHeadersMiddleware app/main.py adds from TRUSTED_PROXY_IPS. Uvicorn's
+# own copy (default on, trusting 127.0.0.1) would be a second, differently
+# configured resolver in front of it.
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers "$WORKERS" --no-proxy-headers

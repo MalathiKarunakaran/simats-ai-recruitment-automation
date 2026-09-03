@@ -7,6 +7,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.client_ip import client_ip as _client_ip
 from app.db.session import get_db
 from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
 from app.models.enums import (
@@ -302,4 +303,6 @@ def enforce_department_match(scope: DepartmentScope, resource_department_id: uui
 
 
 def client_ip(request: Request) -> str | None:
-    return request.client.host if request.client else None
+    # Kept for existing importers; the implementation (and the reasoning
+    # about proxies) lives in app/core/client_ip.py.
+    return _client_ip(request)

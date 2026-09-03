@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.api.v1.api import api_router
 from app.core.config import settings
@@ -28,6 +29,15 @@ if settings.cors_allowed_origins_list:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# Added LAST so it is the OUTERMOST middleware: everything inside -- the
+# security headers' HTTPS check, CORS, the rate limiter, the audit log --
+# then sees the real client address and scheme. Only added when at least
+# one proxy is configured; with the list empty the raw TCP peer is kept,
+# which is right for local dev. See app/core/client_ip.py for why this is
+# the only place forwarded headers are ever interpreted.
+if settings.trusted_proxy_ips_list:
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=settings.trusted_proxy_ips_list)
 
 app.include_router(api_router, prefix="/api/v1")
 

@@ -93,9 +93,25 @@ class Settings(BaseSettings):
     # parsing for list-typed env vars.
     CORS_ALLOWED_ORIGINS: str = ""
 
+    # --- Reverse proxy trust (2026-09-03) ---
+    #
+    # Comma-separated peer addresses (IPs or CIDRs) whose X-Forwarded-For /
+    # X-Forwarded-Proto headers may be believed. Empty means NO proxy is
+    # trusted and request.client.host stays the raw TCP peer -- correct for
+    # local dev where uvicorn faces the browser directly.
+    #
+    # In production the only peer that can reach the container is Caddy on
+    # the VPS host, arriving via the Docker bridge gateway; the entrypoint
+    # derives that address at startup when this is unset. Never set "*".
+    TRUSTED_PROXY_IPS: str = ""
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def trusted_proxy_ips_list(self) -> list[str]:
+        return [ip.strip() for ip in self.TRUSTED_PROXY_IPS.split(",") if ip.strip()]
 
     @property
     def public_app_base_url(self) -> str:

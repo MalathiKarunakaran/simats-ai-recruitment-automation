@@ -145,6 +145,37 @@ auto-submitted or auto-published.
 
 ## 7. Reverse proxy / TLS
 
+### Client IP behind the proxy (2026-09-03)
+
+Caddy connects to the container through the Docker bridge, so from inside
+the container every request's TCP peer is the bridge gateway (172.16.1.1 on
+the current VPS). Until 2026-09-03 that address was what the rate limiter
+keyed on and what every audit row recorded -- 584 of 584 production audit
+rows carried it, and 30 failed logins from anyone throttled everyone.
+
+The backend now resolves the real client from `X-Forwarded-For`, but only
+when the immediate peer is listed in `TRUSTED_PROXY_IPS`
+(`app/main.py` -> uvicorn's `ProxyHeadersMiddleware`; the reasoning is in
+`app/core/client_ip.py`). `scripts/docker-entrypoint.sh` derives that
+address from the container's default route at startup, so nothing needs
+setting unless Caddy ever moves off the host. Check it took effect with:
+
+```bash
+docker logs simats_recruitment_backend 2>&1 | grep "Trusting X-Forwarded-For"
+# and, after a few real logins:
+docker exec simats_recruitment_postgres psql -U <user> -d <db>   -c "select ip_address, count(*) from audit_logs group by 1 order by 2 desc limit 5"
+```
+
+Caddy 2.5+ (the VPS runs 2.11) replaces any client-supplied
+`X-Forwarded-For` with the real remote address unless `trusted_proxies` is
+configured -- it is not, and must stay that way. Even if it were passed
+through, uvicorn takes the right-most address that is not a trusted proxy,
+so a spoofed prefix never wins.
+
+Rate limits remain per uvicorn worker (see `app/core/rate_limit.py`):
+with `UVICORN_WORKERS=4` each limit is effectively 4x its configured value.
+
+
 This app should sit behind a reverse proxy that terminates TLS and
 forwards to `backend`'s port `8000` (internal) / `8010` (host-mapped) and
 `frontend`'s port `80` (internal) / `8011` (host-mapped). On the

@@ -1,12 +1,22 @@
-"""Phase 7: minimal in-memory rate limiter for brute-force/enumeration-prone
-endpoints (login, password-reset-request). No new dependency -- a sliding
-window over a handful of endpoints doesn't need slowapi/Redis.
+"""Minimal in-memory sliding-window rate limiter for brute-force/enumeration-prone
+endpoints (login, OTP, password-reset-request, the public QR form). No new
+dependency -- a sliding window over a handful of endpoints doesn't need
+slowapi/Redis.
 
-Caveat, documented rather than solved this phase: state lives in a plain
-module-level dict, so this only throttles within a single process. A
-multi-worker/multi-instance deployment would need a shared store (e.g.
-Redis) for this to hold across processes -- fine for the single-VPS,
-single-worker deployment target in this phase's scope.
+Keyed on the CLIENT IP as resolved by `app.core.client_ip.client_ip`, i.e.
+the address uvicorn's ProxyHeadersMiddleware put in the scope after
+honouring X-Forwarded-For from a trusted proxy only. Until 2026-09-03 this
+read the raw TCP peer, which behind Caddy was the Docker bridge gateway for
+every request -- so every limiter here was ONE bucket shared by every user
+of the system, and 30 failed logins from anyone locked everyone out.
+
+KNOWN LIMITATION, deliberately not papered over: the buckets are a
+module-level dict, so each uvicorn worker process has its own. With
+`UVICORN_WORKERS=4` (the production default) a client can make up to
+4 x max_requests per window before every worker has refused it, and a
+worker restart forgets everything. The configured values below are the
+per-process ceilings, not a global guarantee. Sharing state (Postgres or
+Redis) is the follow-up if a genuinely global limit is ever required.
 """
 
 import time
@@ -14,11 +24,14 @@ from collections import defaultdict
 
 from fastapi import HTTPException, Request, status
 
+from app.core.client_ip import client_ip
+
 _buckets: dict[tuple[str, str], list[float]] = defaultdict(list)
 
 
 def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+    # Never parse X-Forwarded-For here -- see app/core/client_ip.py.
+    return client_ip(request) or "unknown"
 
 
 class RateLimiter:

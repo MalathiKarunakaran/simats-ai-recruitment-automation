@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.core.client_ip import client_ip
 from app.core import security
 from app.core.deps import get_current_active_user, get_db
 from app.core.rate_limit import RateLimiter
@@ -55,7 +56,7 @@ def _issue_token_pair(db: Session, user: User, request: Request) -> TokenPair:
             user_id=user.id,
             token_hash=security.hash_opaque_token(raw_refresh),
             expires_at=security.refresh_token_expiry(),
-            ip_address=request.client.host if request.client else None,
+            ip_address=client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
     )

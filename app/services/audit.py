@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 from app.models.user import User
+from app.core.client_ip import client_ip
 
 
 def _json_safe(value: Any) -> Any:
@@ -34,7 +35,9 @@ def _request_meta(request: Request | None) -> dict[str, Any]:
     if request is None:
         return {}
     return {
-        "ip_address": request.client.host if request.client else None,
+        # Resolved through the trusted-proxy chain, never the raw peer --
+        # see app/core/client_ip.py.
+        "ip_address": client_ip(request),
         "user_agent": request.headers.get("user-agent"),
         "http_method": request.method,
         "http_path": request.url.path,
