@@ -512,15 +512,15 @@ def test_job_distribution_recruitment_officer_unrestricted_despite_department_sc
     assert ad_b.status_code == 200
 
 
-# --- Recruitment Coordinator campus + department scope (2026-09-01) --------
+# --- Recruitment Coordinator campus + department scope --------------------
 #
-# RECRUITMENT_COORDINATOR moved from GLOBAL_SCOPE_ROLES to
-# SINGLE_CAMPUS_SCOPE_ROLES so a coordinator sees only their own campus, which
-# is what the user asked for. These two pin BOTH halves, because the obvious
-# one-line version of that change fixes the first and breaks the second.
+# RECRUITMENT_COORDINATOR was moved out of GLOBAL_SCOPE_ROLES on 2026-09-01
+# and back in on 2026-09-03, both at the user's request. These two pin BOTH
+# halves -- campus visibility and department narrowing -- because a careless
+# version of either move changes one half and silently regresses the other.
 
 
-def test_coordinator_sees_only_their_own_campus(
+def test_coordinator_sees_every_campus(
     client, db_session, campus_factory, department_factory, user_factory
 ):
     sse = campus_factory("SSE")
@@ -532,28 +532,27 @@ def test_coordinator_sees_only_their_own_campus(
     sse_vr = _make_vr(db_session, sse, sse_dept, sse_hod)
     scad_vr = _make_vr(db_session, scad, scad_dept, scad_hod)
 
+    # A home campus is still recorded on the user; it no longer scopes reads.
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
 
     response = client.get("/api/v1/vacancy-requests", headers=auth_headers(client, coordinator))
     assert response.status_code == 200
     ids = {item["id"] for item in response.json()["items"]}
     assert str(sse_vr.id) in ids
-    assert str(scad_vr.id) not in ids
+    assert str(scad_vr.id) in ids
 
-    # 404, not 403 -- the house rule for cross-campus single-resource access,
-    # so an unauthorized caller cannot even confirm the row exists.
     assert (
         client.get(f"/api/v1/vacancy-requests/{scad_vr.id}", headers=auth_headers(client, coordinator))
-    ).status_code == 404
+    ).status_code == 200
 
 
 def test_coordinator_is_still_department_scopable_within_their_campus(
     client, db_session, campus_factory, department_factory, user_factory, department_scope_factory
 ):
-    # The regression guard. Department narrowing used to be gated on
-    # "in GLOBAL_SCOPE_ROLES"; had that not been split out into
-    # DEPARTMENT_SCOPABLE_ROLES, making the coordinator campus-scoped would
-    # have silently made them see EVERY department in their campus.
+    # The regression guard. Department narrowing is gated on
+    # DEPARTMENT_SCOPABLE_ROLES, not on campus scope; whichever set the
+    # coordinator's campus visibility lives in, a department scope must
+    # still apply.
     campus = campus_factory("SSE")
     dept_a = department_factory("SSE", name=f"Dept A {uuid.uuid4().hex[:6]}")
     dept_b = department_factory("SSE", name=f"Dept B {uuid.uuid4().hex[:6]}")

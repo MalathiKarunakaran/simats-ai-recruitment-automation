@@ -270,7 +270,8 @@ def get_department_scope(
     SUPER_ADMIN". It is now its own set in `enums.py` precisely so that
     changing who is globally campus-scoped cannot silently change who can be
     department-scoped -- see that set's comment; RECRUITMENT_COORDINATOR left
-    GLOBAL_SCOPE_ROLES on 2026-09-01 and must still be narrowable here.
+    GLOBAL_SCOPE_ROLES on 2026-09-01 and rejoined it on 2026-09-03, and must
+    be narrowable here either way.
     """
     if current_user.role not in DEPARTMENT_SCOPABLE_ROLES:
         return DepartmentScope(is_restricted=False, department_ids=None)

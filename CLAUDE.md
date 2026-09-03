@@ -119,16 +119,19 @@ single resource returns **404, not 403**, so an unauthorized caller can't
 even confirm the resource exists. `GLOBAL_SCOPE_ROLES` (SUPER_ADMIN, HR_ADMIN,
 ASSOCIATE_DEAN_RECRUITMENT, MANAGEMENT) see all campuses; everyone in
 `SINGLE_CAMPUS_SCOPE_ROLES` (CAMPUS_HOD, RECRUITMENT_OFFICER,
-INTERVIEW_PANEL_MEMBER, RECRUITMENT_COORDINATOR) is scoped to
-`current_user.campus_id`.
+INTERVIEW_PANEL_MEMBER) is scoped to `current_user.campus_id`.
+RECRUITMENT_COORDINATOR is in `GLOBAL_SCOPE_ROLES` too: it was single-campus
+from 2026-09-01 (`3db4e55`) to 2026-09-03, and moved back at the user's
+request ("it should show again to them"). Its `campus_id` is still recorded
+as a home campus but no longer scopes reads.
 
 **Campus scope and department scope are two independent sets — never re-merge
-them.** RECRUITMENT_COORDINATOR moved from `GLOBAL_SCOPE_ROLES` to
-`SINGLE_CAMPUS_SCOPE_ROLES` on 2026-09-01 (`3db4e55`) so a coordinator sees
-only their home campus. `get_department_scope` used to gate on `SUPER_ADMIN or
-role not in GLOBAL_SCOPE_ROLES`, so the one-line version of that change would
-have fixed the campus half and SILENTLY made every coordinator unrestricted by
-department — no error anywhere. `DEPARTMENT_SCOPABLE_ROLES` in `enums.py` now
+them.** When RECRUITMENT_COORDINATOR was moved out of `GLOBAL_SCOPE_ROLES`
+on 2026-09-01, `get_department_scope` still gated on `SUPER_ADMIN or role not
+in GLOBAL_SCOPE_ROLES`, so the one-line version of that change would have
+changed the campus half and SILENTLY made every coordinator unrestricted by
+department — no error anywhere. The same trap applies in reverse to moving a
+role in. `DEPARTMENT_SCOPABLE_ROLES` in `enums.py` now
 holds exactly who `get_department_scope` (`user_department_scope` rows, PUT
 `/users/{id}/department-scope`) can narrow, independent of who is campus-scoped;
 two tests at the end of `tests/test_department_scope_enforcement.py` guard it.
@@ -140,11 +143,11 @@ resolves to `CampusScope(is_global=False, campus_id=None)` and matches
 **nothing** — check every existing holder of a role has a campus before moving
 another role into it.
 
-Only the campus half shipped: both live coordinators still have zero
-`user_department_scope` rows by the user's explicit decision (2026-09-01, after
-being shown that a CSE scope would leave them 5 of 129 sanctioned-strength rows
-and 0 vacancy requests). **Don't add a department scope without asking again**,
-and check the data distribution first, not just the department name.
+Both live coordinators have zero `user_department_scope` rows by the user's
+explicit decision (2026-09-01, after being shown that a CSE scope would leave
+them 5 of 129 sanctioned-strength rows and 0 vacancy requests). **Don't add a
+department scope without asking again**, and check the data distribution
+first, not just the department name.
 
 **Department categories are a SET, and every check is membership**: a
 department is a place, not a staff category -- CSE employs Assistant

@@ -257,9 +257,9 @@ describe("UserDetailPage access control -- save/cancel", () => {
     expect(screen.getAllByRole("combobox")).toHaveLength(1);
   });
 
-  it("shows a Campus picker for a Recruitment Coordinator, which is now campus-scoped", async () => {
-    // The other side of the change: a coordinator must be pinned to one
-    // campus, so the page offers the picker instead of "All Campuses".
+  it("shows 'All Campuses' for a Recruitment Coordinator, who is global-scope again", async () => {
+    // Campus-scoped from 2026-09-01 to 2026-09-03, then made global again at
+    // the user's request: no campus picker, the same static text as HR_ADMIN.
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(COORDINATOR);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -267,8 +267,8 @@ describe("UserDetailPage access control -- save/cancel", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Campus" })).toBeInTheDocument());
-    expect(screen.queryByText("All Campuses")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("All Campuses")).toBeInTheDocument());
+    expect(screen.queryByRole("combobox", { name: "Campus" })).not.toBeInTheDocument();
   });
 });
 
