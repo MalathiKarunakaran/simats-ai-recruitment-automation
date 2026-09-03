@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { BarChart3, Briefcase, ClipboardList, ShieldCheck } from "lucide-react";
 
 import simatsSeal from "@/assets/simats-seal.png";
+import { getLoginOptions } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -84,7 +85,26 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [mode, setMode] = useState<Mode>("otp-email");
+  // Password first (audit H1, 2026-09-03): production had no email delivery
+  // configured, so the old OTP-first default told users a code was sent
+  // when nothing could be. The code flow is still offered, but only once
+  // the server confirms it can actually deliver.
+  const [mode, setMode] = useState<Mode>("password");
+  const [otpAvailable, setOtpAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getLoginOptions()
+      .then((options) => {
+        if (!cancelled) setOtpAvailable(options.otp_email_login);
+      })
+      .catch(() => {
+        // Unknown means not offered; password login is always there.
+        if (!cancelled) setOtpAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
@@ -366,13 +386,15 @@ export function LoginPage() {
                   <Button type="submit" className={primaryButtonClass} isLoading={isSubmitting}>
                     {isSubmitting ? "Signing in…" : "Sign in"}
                   </Button>
-                  <button
-                    type="button"
-                    onClick={() => switchMode("otp-email")}
-                    className="rounded text-sm font-semibold text-[#1D4ED8] underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-[#2563EB] focus-visible:outline-none"
-                  >
-                    Sign in with a code instead
-                  </button>
+                  {otpAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => switchMode("otp-email")}
+                      className="rounded text-sm font-semibold text-[#1D4ED8] underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-[#2563EB] focus-visible:outline-none"
+                    >
+                      Sign in with a code instead
+                    </button>
+                  ) : null}
                 </form>
               ) : null}
             </div>

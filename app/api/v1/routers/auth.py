@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.core.client_ip import client_ip
+from app.core.config import settings
 from app.core import security
 from app.core.deps import get_current_active_user, get_db
 from app.core.rate_limit import RateLimiter
@@ -14,6 +15,7 @@ from app.models.user import User
 from app.schemas.token import (
     LogoutRequest,
     OtpRequest,
+    LoginOptionsResponse,
     OtpRequestResponse,
     OtpVerify,
     PasswordResetConfirm,
@@ -99,24 +101,69 @@ def login(
     return tokens
 
 
-def _send_otp_code(user: User, code: str) -> None:
-    """Attempts real delivery via the optional n8n integration (same
-    unconfigured-in-dev degradation as notifications.py); falls back to a
-    server-side log line so local dev/testing can still complete the OTP
-    flow without any email infra -- same "Phase 1 stub" precedent as
-    password_reset_request's own print() fallback below. Real email starts
-    working automatically the moment N8N_BASE_URL is ever set, no code
-    change needed here."""
+_EMAIL_LOGIN_UNAVAILABLE = (
+    "Email login is currently unavailable. Please sign in with your password."
+)
+_RESET_EMAIL_UNAVAILABLE = (
+    "Password reset by email is currently unavailable. Please contact an administrator "
+    "to have your password reset."
+)
+
+
+def _require_email_delivery(detail: str) -> None:
+    """Audit H1 (2026-09-03). Outside production a missing mail integration
+    degrades to printing the secret on the server console so the flow can be
+    exercised locally. In production that fallback is forbidden: the request
+    is refused up front with a 503 that says what to do instead, BEFORE any
+    user lookup, so the answer is identical for known and unknown emails."""
+    if settings.is_production and not settings.email_delivery_configured:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)
+
+
+def _deliver_or_stub(webhook: str, payload: dict, *, stub_line: str, unavailable_detail: str) -> None:
+    """Send `payload` through the named n8n webhook. If delivery is not
+    configured or fails: outside production print `stub_line` (the dev
+    console fallback -- the ONLY place a login code or reset token is ever
+    written out, and never in production); in production raise 503 so the
+    caller is never told something was sent when it was not."""
     client = get_n8n_client()
     if client is not None:
         try:
-            client.post_webhook(
-                "send-otp-email", {"to": user.email, "full_name": user.full_name, "code": code}
-            )
+            client.post_webhook(webhook, payload)
             return
         except httpx.HTTPError:
-            pass  # fall through to the dev-visible log below
-    print(f"[otp-login-stub] code for {user.email}: {code}")
+            if settings.is_production:
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=unavailable_detail)
+            # fall through to the dev-visible console line
+    if settings.is_production:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=unavailable_detail)
+    print(stub_line)
+
+
+def _send_otp_code(user: User, code: str) -> None:
+    _deliver_or_stub(
+        "send-otp-email",
+        {"to": user.email, "full_name": user.full_name, "code": code},
+        stub_line=f"[otp-login-stub] code for {user.email}: {code}",
+        unavailable_detail=_EMAIL_LOGIN_UNAVAILABLE,
+    )
+
+
+def _send_password_reset(user: User, raw_token: str) -> None:
+    _deliver_or_stub(
+        "send-password-reset-email",
+        {"to": user.email, "full_name": user.full_name, "token": raw_token},
+        stub_line=f"[password-reset-stub] token for {user.email}: {raw_token}",
+        unavailable_detail=_RESET_EMAIL_UNAVAILABLE,
+    )
+
+
+@router.get("/login-options", response_model=LoginOptionsResponse)
+def login_options() -> LoginOptionsResponse:
+    """Public, cheap, unauthenticated: which sign-in methods the login page
+    may offer. OTP is reported unavailable when production has no email
+    delivery, so the page never shows a button that ends in a 503."""
+    return LoginOptionsResponse(otp_email_login=settings.otp_email_login_available)
 
 
 @router.post(
@@ -129,6 +176,8 @@ def otp_request(
     payload: OtpRequest,
     db: Session = Depends(get_db),
 ) -> OtpRequestResponse:
+    _require_email_delivery(_EMAIL_LOGIN_UNAVAILABLE)
+
     user = db.query(User).filter(User.email == payload.email).one_or_none()
 
     if user is not None and user.is_active:
@@ -251,6 +300,8 @@ def password_reset_request(
     payload: PasswordResetRequest,
     db: Session = Depends(get_db),
 ) -> PasswordResetRequestResponse:
+    _require_email_delivery(_RESET_EMAIL_UNAVAILABLE)
+
     user = db.query(User).filter(User.email == payload.email).one_or_none()
 
     if user is not None and user.is_active:
@@ -262,10 +313,10 @@ def password_reset_request(
                 expires_at=security.password_reset_expiry(),
             )
         )
-        # Phase 1 stub: no email delivery (that's the Notification Agent, a
-        # later phase). The raw token is only ever surfaced here for local
-        # dev/testing -- never persisted in plaintext.
-        print(f"[password-reset-stub] token for {user.email}: {raw_token}")
+        # Emailed via n8n when configured; printed to the dev console
+        # otherwise -- and never printed in production (503 instead). The raw
+        # token is never persisted in plaintext.
+        _send_password_reset(user, raw_token)
         log_auth_event(
             db, actor=user, action="PASSWORD_RESET_REQUESTED", request=request, status_code=200
         )

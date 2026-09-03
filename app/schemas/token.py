@@ -40,3 +40,11 @@ class OtpRequestResponse(BaseModel):
 class OtpVerify(BaseModel):
     email: EmailStr
     code: str = Field(min_length=6, max_length=6)
+
+
+class LoginOptionsResponse(BaseModel):
+    """Which sign-in methods the server can honour right now. Read by the
+    login page before it offers anything (audit H1, 2026-09-03)."""
+
+    password_login: bool = True
+    otp_email_login: bool

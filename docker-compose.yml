@@ -82,6 +82,10 @@ services:
       # DATABASE_URL/MINIO_ENDPOINT/CHROMA_HOST are set to in .env so the
       # container reaches its sibling containers correctly regardless.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # This compose file IS the production deployment. The value gates one
+      # thing: with no email delivery configured, OTP/reset secrets are never
+      # printed and those endpoints answer 503 (app/core/config.py).
+      ENVIRONMENT: production
       MINIO_ENDPOINT: minio:9000
       CHROMA_HOST: chromadb
       CHROMA_PORT: 8000

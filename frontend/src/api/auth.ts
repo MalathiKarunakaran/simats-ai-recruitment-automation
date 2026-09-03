@@ -41,3 +41,15 @@ export async function logout(refreshToken: string): Promise<void> {
 export async function getMe(): Promise<UserRead> {
   return apiFetch<UserRead>("/auth/me");
 }
+
+export interface LoginOptions {
+  password_login: boolean;
+  otp_email_login: boolean;
+}
+
+/** Which sign-in methods the server can actually honour right now. OTP is
+ * reported unavailable when production has no email delivery configured,
+ * so the page never offers a code it cannot send. */
+export async function getLoginOptions(): Promise<LoginOptions> {
+  return publicFetch<LoginOptions>("/auth/login-options", { method: "GET" });
+}

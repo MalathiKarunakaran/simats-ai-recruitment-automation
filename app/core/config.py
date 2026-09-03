@@ -53,6 +53,33 @@ class Settings(BaseSettings):
     N8N_BASE_URL: str = ""
     N8N_TIMEOUT_SECONDS: float = 5.0
 
+    # --- Deployment environment (2026-09-03, audit H1) ---
+    #
+    # "development" (default), "test" or "production". The ONLY thing this
+    # gates is what happens when something that must deliver a secret by
+    # email has no delivery configured: outside production the code/token is
+    # printed to the server console so the flow can be exercised locally;
+    # in production it is never printed and the request fails with 503.
+    # docker-compose.yml sets this to "production" for the backend service.
+    ENVIRONMENT: str = "development"
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.strip().lower() == "production"
+
+    @property
+    def email_delivery_configured(self) -> bool:
+        """Whether OTP login codes and password-reset tokens can actually be
+        emailed. Delivery goes through the n8n webhooks, so this is exactly
+        "is N8N_BASE_URL set"."""
+        return bool(self.N8N_BASE_URL.strip())
+
+    @property
+    def otp_email_login_available(self) -> bool:
+        """What the login page is told. Real delivery, or the dev console
+        fallback -- never the production fallback, which is to refuse."""
+        return self.email_delivery_configured or not self.is_production
+
     # --- Public apply link base (Phase 6: Module 4 job ads / QR codes) ---
     # No candidate portal exists yet (Module 5 deferred) -- this is a
     # documented placeholder base URL used to build the QR-code/apply-link

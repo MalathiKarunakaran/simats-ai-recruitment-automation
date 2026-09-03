@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -18,6 +20,16 @@ app = FastAPI(
     ),
     version="1.0.0",
 )
+
+# Audit H1 (2026-09-03): say so at startup, loudly, when the login page's
+# email flows cannot deliver. In production that state makes /auth/otp-request
+# and /auth/password-reset-request answer 503 rather than pretend.
+if settings.is_production and not settings.email_delivery_configured:
+    logging.getLogger("uvicorn.error").warning(
+        "ENVIRONMENT=production but N8N_BASE_URL is not set: OTP email login and "
+        "password-reset email are UNAVAILABLE. Users must sign in with a password. "
+        "Set N8N_BASE_URL to enable email delivery."
+    )
 
 app.add_middleware(SecurityHeadersMiddleware)
 
