@@ -562,7 +562,12 @@ export function VacancyRequestsListPage() {
         </span>
         <span>
           Departments{" "}
-          <span className="font-semibold text-foreground tabular-nums">{departments?.length ?? 0}</span>
+          {/* Active only -- listDepartments returns inactive rows too, and
+              counting them here read "103" beside every other screen's "77"
+              (found in a browser, 2026-09-03). */}
+          <span className="font-semibold text-foreground tabular-nums">
+            {departments?.filter((d) => d.is_active).length ?? 0}
+          </span>
         </span>
         {canReadAuditLogs ? (
           <span>
@@ -810,10 +815,18 @@ export function VacancyRequestsListPage() {
         // carry over unchanged, only the element names changed.
         <Card>
           <CardContent className="p-0">
-            <Table className="min-w-[1080px] table-fixed">
+            {/* table-fixed: every column's width comes from this colgroup.
+                Position used to be the one unsized <col>, meant to take the
+                remainder -- but the sized columns already add up to 1136px,
+                past the old 1080px minimum, so the remainder was NEGATIVE and
+                Position rendered at exactly 0px wide (measured in a real
+                browser, 2026-09-03): every position title in this list was
+                invisible. It now has a width of its own, and the minimum is
+                the sum of all of them. */}
+            <Table className="min-w-[1400px] table-fixed">
               <colgroup>
                 <col className="w-24" />
-                <col />
+                <col className="w-64" />
                 <col className="w-28" />
                 <col className="w-40" />
                 <col className="w-20" />

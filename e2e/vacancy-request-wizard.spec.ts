@@ -1,5 +1,7 @@
 import { test, expect, type Page, type APIRequestContext, type BrowserContext } from "@playwright/test";
 
+import { apiBase, closeAuthedContext, expectSignedIn, openAuthedContext, tokens } from "./auth";
+
 /**
  * The authenticated vacancy-request wizard (/vacancy-requests/new), driven in
  * a real browser.
@@ -8,19 +10,7 @@ import { test, expect, type Page, type APIRequestContext, type BrowserContext } 
  * button's enabled state, for the same reason as the public-form spec: the
  * default target is production.
  *
- * AUTH. The login page is OTP-first, so a browser cannot log in without a
- * mailbox. Instead `scripts/e2e_mint_tokens.py` issues a real token pair for
- * an existing user and this spec reads it from E2E_TOKENS. The refresh token
- * goes into localStorage exactly where AuthContext looks for one; the access
- * token is used only for fixture discovery. Without E2E_TOKENS the whole
- * file skips rather than failing.
- *
- * ONE BROWSER CONTEXT FOR THE WHOLE FILE, tests run serially. Refresh tokens
- * ROTATE on every use and the old one is revoked, so a fresh context per
- * test (Playwright's default) would replay the original, already-revoked
- * token on the second test and be bounced to /login. Sharing the context
- * lets the rotated token carry forward in localStorage the way it does for
- * a real user.
+ * Auth and the one-context-per-file rule are explained in ./auth.ts.
  *
  * The user must be a SUPER_ADMIN: the wizard only shows the Campus picker to
  * that role (everyone else is locked to their own campus), and these tests
@@ -29,14 +19,6 @@ import { test, expect, type Page, type APIRequestContext, type BrowserContext } 
 
 const EM_DASH = "—";
 const WIZARD = "/vacancy-requests/new";
-const REFRESH_TOKEN_STORAGE_KEY = "simats_refresh_token";
-
-interface Tokens {
-  access_token: string;
-  refresh_token: string;
-  email: string;
-  role: string;
-}
 
 interface Campus {
   id: string;
@@ -77,8 +59,6 @@ interface Fixtures {
   otherCategoryLabel: string | null;
 }
 
-const tokens: Tokens | null = process.env.E2E_TOKENS ? JSON.parse(process.env.E2E_TOKENS) : null;
-
 let fx: Fixtures;
 let context: BrowserContext;
 let page: Page;
@@ -97,15 +77,6 @@ const CATEGORY_LABEL: Record<string, string> = {
   NON_TEACHING: "Non-Teaching",
   HOUSEKEEPING: "Housekeeping",
 };
-
-function apiBase(baseURL: string | undefined): string {
-  return (
-    process.env.E2E_API_URL ??
-    (baseURL?.includes("localhost") || baseURL?.includes("127.0.0.1")
-      ? "http://127.0.0.1:8000"
-      : "https://api.malathi.io")
-  );
-}
 
 async function discover(request: APIRequestContext, baseURL: string | undefined): Promise<Fixtures> {
   const api = apiBase(baseURL);
@@ -175,32 +146,16 @@ async function discover(request: APIRequestContext, baseURL: string | undefined)
 test.beforeAll(async ({ browser, request, baseURL }) => {
   test.skip(tokens === null, "E2E_TOKENS not set -- see scripts/e2e_mint_tokens.py");
   fx = await discover(request, baseURL);
-
-  context = await browser.newContext();
-  // Runs before any page script on every navigation, so the very first
-  // render already finds a session to bootstrap from.
-  await context.addInitScript(
-    ([key, value]) => {
-      if (!localStorage.getItem(key)) localStorage.setItem(key, value);
-    },
-    [REFRESH_TOKEN_STORAGE_KEY, tokens!.refresh_token],
-  );
-  page = await context.newPage();
+  ({ context, page } = await openAuthedContext(browser));
 });
 
-test.afterAll(async ({ request, baseURL }) => {
-  // Revoke the (rotated) refresh token so the e2e session does not outlive
-  // the run -- the same call the Sign out button makes.
-  const current = await page?.evaluate((key) => localStorage.getItem(key), REFRESH_TOKEN_STORAGE_KEY);
-  if (current) {
-    await request.post(`${apiBase(baseURL)}/api/v1/auth/logout`, { data: { refresh_token: current } });
-  }
-  await context?.close();
+test.afterAll(async () => {
+  await closeAuthedContext(context, page);
 });
 
 async function openWizard() {
   await page.goto(WIZARD);
-  await expect(page).not.toHaveURL(/\/login/);
+  await expectSignedIn(page);
   await expect(page.getByText("1. Teaching / Non-Teaching")).toBeVisible();
 }
 

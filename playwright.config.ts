@@ -22,10 +22,17 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: true,
+  // Authenticated specs hand a rotating refresh token from file to file
+  // (see e2e/auth.ts); setup clears any stale one, teardown revokes the
+  // session. That hand-off is only sound with a single worker, and the
+  // whole suite is short enough that parallelism buys nothing worth the
+  // token races it would introduce.
+  globalSetup: "./e2e/global-setup.ts",
+  globalTeardown: "./e2e/global-teardown.ts",
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "https://app.malathi.io",
