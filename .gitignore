@@ -19,3 +19,11 @@ reference/
 # Native (non-Docker) MinIO/ChromaDB data dirs, used since Docker Desktop
 # was uninstalled on this dev machine -- see CLAUDE.md/memory for context.
 .local_data/
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

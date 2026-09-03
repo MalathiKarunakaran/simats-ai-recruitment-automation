@@ -57,10 +57,38 @@ from app.services import pipeline, vacancy_workflow
 GENERIC_DEPARTMENTS = ("Administration", "Human Resources")
 
 
+# The official name behind each code, as carried by the production rows. The
+# seeder used to write `Campus — {code} (TODO: update with official name)` and
+# leave it to a human; what actually happened is that someone edited the TODO
+# half and left the `Campus — {code} - ` prefix in place on all seven rows,
+# which then rendered as "SSE — Campus — SSE - SIMATS Engineering" on the
+# public form. Migration b3c4d5e6f7a8 repairs the existing rows; this stops a
+# fresh environment from starting the cycle over.
+#
+# SCAD's expansion is reproduced exactly as it is stored, missing "of" and
+# all -- these are transcriptions of live data, not a place to correct an
+# institution's own naming.
+CAMPUS_NAMES: dict[str, str] = {
+    "SSE": "SIMATS Engineering",
+    "SCLAS": "Saveetha College of Liberal Arts and Science",
+    "SCAD": "Saveetha College Architecture and Design",
+    "STUDIO": "SIMATS Technological Union of Design Innovation Outreach",
+    "SPIER": "Saveetha Pedagogical Institute of Education and Research",
+    "SSPE": "Saveetha School of Physical Education",
+    "SHIFT": "Saveetha School of Hospitality and Tourism",
+}
+
+
 def _get_or_create_campus(db, code: str) -> Campus:
     campus = db.query(Campus).filter(Campus.code == code).one_or_none()
     if campus is None:
-        campus = Campus(code=code, name=f"Campus — {code} (TODO: update with official name)")
+        # An unknown code still seeds, with a placeholder that says so, rather
+        # than failing -- CAMPUS_CODES can gain a member before anyone has
+        # supplied its official name (SHIFT did exactly that).
+        campus = Campus(
+            code=code,
+            name=CAMPUS_NAMES.get(code, f"{code} (TODO: update with official name)"),
+        )
         db.add(campus)
         db.flush()
     return campus

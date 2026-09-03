@@ -45,7 +45,17 @@ function SelectContent({
         position={position}
         {...props}
       >
-        <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+        {/* Radix publishes `--radix-select-content-available-height` on the
+            content element but does NOT apply it -- without this the list
+            renders at its full natural height, and because the popper is
+            fixed-positioned, anything past the bottom of the window is
+            unreachable: the page cannot scroll it into view and the viewport
+            has nothing to scroll (scrollHeight === clientHeight). Measured on
+            production before the fix: a 53-department list rendered 1757px
+            tall in a 720px window, hiding roughly two thirds of it. */}
+        <SelectPrimitive.Viewport className="max-h-[var(--radix-select-content-available-height)] overflow-y-auto p-1">
+          {children}
+        </SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   );

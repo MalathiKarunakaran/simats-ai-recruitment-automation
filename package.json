@@ -1,0 +1,28 @@
+{
+  "name": "simats-ai-recruitment-auotmation-system",
+  "version": "1.0.0",
+  "description": "A campus-aware recruitment automation platform for SIMATS (Saveetha Institute of Medical and Technical Sciences), covering the full hiring lifecycle: vacancy requisition → multi-stage approval (Dean → HR) → job posting/publishing → candidate application → AI-assisted resume screening/ranking → interview scheduling and feedback → offers → joining → department/room allotment → orientation → hand-over to HOD, plus AI-assisted JD generation, an AI assistant (\"Hermes\"), executive dashboards with charts, and reporting/exports.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "e2e": "playwright test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MalathiKarunakaran/simats-ai-recruitment-automation.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/MalathiKarunakaran/simats-ai-recruitment-automation/issues"
+  },
+  "homepage": "https://github.com/MalathiKarunakaran/simats-ai-recruitment-automation#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.4.1"
+  }
+}
