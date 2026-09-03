@@ -19,13 +19,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from app.services.tracker_template import TEMPLATE_FILENAME, build_workbook  # noqa: E402
+from app.services.xlsx_safety import harden_workbook  # noqa: E402
 
 OUTPUT_PATH = REPO_ROOT / "data" / TEMPLATE_FILENAME
 
 
 def main() -> None:
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    build_workbook().save(OUTPUT_PATH)
+    harden_workbook(build_workbook()).save(OUTPUT_PATH)
     print(f"Wrote {OUTPUT_PATH}")
 
 

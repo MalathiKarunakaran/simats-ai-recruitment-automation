@@ -51,6 +51,7 @@ from app.models.enums import CAMPUS_CODES, SanctionedStrengthChangeSourceEnum, S
 from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengthHistory
 from app.models.user import User
 from app.services.sanctioned_strength import current_effective_row
+from app.services.xlsx_safety import harden_workbook
 
 MAX_ROWS = 5000
 
@@ -446,6 +447,7 @@ def build_bulk_upload_template_xlsx(db: Session) -> bytes:
         master_ws.column_dimensions[get_column_letter(col)].width = 34
 
     buf = io.BytesIO()
+    harden_workbook(wb)
     wb.save(buf)
     return buf.getvalue()
 
@@ -475,5 +477,6 @@ def build_error_report_xlsx(log: BulkUploadLog, rejected_rows: list[ImportRowRes
             ]
         )
     buf = io.BytesIO()
+    harden_workbook(wb)
     wb.save(buf)
     return buf.getvalue()

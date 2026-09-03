@@ -62,6 +62,7 @@ from app.models.enums import (
 )
 from app.models.vacancy_request import VacancyRequest
 from app.services.sanctioned_strength_import import parse_rows  # noqa: F401 -- re-exported, see module docstring
+from app.services.xlsx_safety import harden_workbook
 
 MAX_ROWS = 5000
 
@@ -122,7 +123,7 @@ _EXAMPLE_ROWS = (
         "Sample only",
         "Example Referrer",
         "referrer@example.com",
-        "+91 90000 00000",
+        "90000 00000",
         "Circular Building - Ground Floor",
     ),
     ("XXX", "EXAMPLE - DELETE THIS ROW", "Lab Assistant", 1, "HIGH", "", "Sample only", "", "", "", ""),
@@ -651,6 +652,7 @@ def build_bulk_upload_template_xlsx(db: Session) -> bytes:
     reference.column_dimensions["G"].width = 42
 
     buf = io.BytesIO()
+    harden_workbook(wb)
     wb.save(buf)
     return buf.getvalue()
 
@@ -692,5 +694,6 @@ def build_error_report_xlsx(log: BulkUploadLog, rejected_rows: list[ImportRowRes
             ws.cell(row=offset, column=column_index, value=value)
 
     buf = io.BytesIO()
+    harden_workbook(wb)
     wb.save(buf)
     return buf.getvalue()

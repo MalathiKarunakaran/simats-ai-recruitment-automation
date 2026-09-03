@@ -31,6 +31,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 from app.models.enums import APPLICATION_STATUS_ORDER, CAMPUS_CODES
+from app.services.xlsx_safety import harden_workbook
 
 TEMPLATE_FILENAME = "SIMATS_Recruitment_Tracker_TEMPLATE.xlsx"
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -200,5 +201,5 @@ def build_workbook() -> Workbook:
 def build_workbook_bytes() -> bytes:
     """The template as .xlsx bytes, ready to send as a download."""
     buffer = io.BytesIO()
-    build_workbook().save(buffer)
+    harden_workbook(build_workbook()).save(buffer)
     return buffer.getvalue()

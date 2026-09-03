@@ -1,5 +1,4 @@
 """File-generation helpers for Module 12's Excel/PPT exports.
-
 Pure functions: given already-computed report/summary data, return raw
 bytes. No DB access here -- app/services/reporting.py owns all querying.
 
@@ -18,6 +17,8 @@ from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.util import Inches, Pt
+
+from app.services.xlsx_safety import harden_workbook
 
 # Placeholder brand colors -- TODO: replace with the real SIMATS navy/gold
 # hex codes and logo once the actual AD-meeting PPT template is available.
@@ -62,6 +63,7 @@ def build_report_excel(report_type: str, rows: list[dict], generated_at: datetim
         sheet.append([row.get(field) for field in fields])
 
     buf = io.BytesIO()
+    harden_workbook(workbook)
     workbook.save(buf)
     return buf.getvalue()
 
@@ -115,6 +117,7 @@ def build_department_export_excel(rows: list[dict], generated_at: datetime, scop
         )
 
     buf = io.BytesIO()
+    harden_workbook(workbook)
     workbook.save(buf)
     return buf.getvalue()
 
@@ -195,6 +198,7 @@ def build_eligibility_rule_export_excel(rows: list[dict], generated_at: datetime
         )
 
     buf = io.BytesIO()
+    harden_workbook(workbook)
     workbook.save(buf)
     return buf.getvalue()
 
@@ -251,6 +255,7 @@ def build_designation_export_excel(rows: list[dict], generated_at: datetime, sco
         )
 
     buf = io.BytesIO()
+    harden_workbook(workbook)
     workbook.save(buf)
     return buf.getvalue()
 
@@ -387,6 +392,7 @@ def _build_master_export_excel(
         sheet.append([_excel_safe(value) for value in values])
 
     buf = io.BytesIO()
+    harden_workbook(workbook)
     workbook.save(buf)
     return buf.getvalue()
 

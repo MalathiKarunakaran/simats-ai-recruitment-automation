@@ -826,3 +826,29 @@ def test_undo_forbidden_for_non_write_role_on_designation_batch(client, designat
 
     response = client.post(f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, hod))
     assert response.status_code == 403
+
+
+def test_error_report_escapes_formula_text_from_the_rejected_row(client, location_setup):
+    """Audit H3 (2026-09-03): an uploader's own text is echoed back in the
+    error report, so a rejected row that reads like a formula must come
+    back as text, never as an executable cell."""
+    payload = "=cmd|' /C calc'!A0"
+    bad = _location_row(location_setup, name=payload, block="+Block", floor="-1")
+    bad[0] = "ZZZ"  # unknown campus -> rejected -> lands in the error report
+    commit_response = _commit_location(client, location_setup["hr_admin"], [bad])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+
+    response = client.get(
+        f"{SHARED_ENDPOINT}/bulk-upload/{log_id}/error-report",
+        headers=auth_headers(client, location_setup["hr_admin"]),
+    )
+    assert response.status_code == 200
+
+    from openpyxl import load_workbook
+
+    ws = load_workbook(io.BytesIO(response.content)).active
+    cells = [c for row in ws.iter_rows() for c in row if isinstance(c.value, str)]
+    assert all(c.data_type == "s" for c in cells)
+    assert not any(c.value.startswith(("=", "+", "-", "@", "\t", "\r")) for c in cells)
+    values = {c.value for c in cells}
+    assert "'" + payload in values and "'+Block" in values and "'-1" in values

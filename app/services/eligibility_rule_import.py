@@ -61,6 +61,7 @@ from app.models.enums import (
     StaffRoleCategoryEnum,
 )
 from app.services.sanctioned_strength_import import parse_rows  # noqa: F401 -- re-exported, see module docstring
+from app.services.xlsx_safety import harden_workbook
 
 MAX_ROWS = 5000
 
@@ -719,6 +720,7 @@ def build_bulk_upload_template_xlsx(db: Session) -> bytes:
         master_ws.column_dimensions[get_column_letter(col)].width = 26
 
     buf = io.BytesIO()
+    harden_workbook(wb)
     wb.save(buf)
     return buf.getvalue()
 
@@ -771,6 +773,7 @@ def build_error_report_xlsx(log: BulkUploadLog, rejected_rows: list[ImportRowRes
             ]
         )
     buf = io.BytesIO()
+    harden_workbook(wb)
     wb.save(buf)
     return buf.getvalue()
 
