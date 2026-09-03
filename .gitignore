@@ -28,3 +28,7 @@ node_modules/
 /playwright/.cache/
 /playwright/.auth/
 /e2e-screens/
+
+# Output of scripts/generate_tracker_template.py. The app builds this in
+# memory (app/services/tracker_template.py); a committed copy only goes stale.
+/data/*.xlsx

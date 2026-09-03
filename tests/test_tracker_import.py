@@ -343,7 +343,59 @@ def test_download_tracker_template_happy_path(client, user_factory):
     assert response.headers["content-type"] == (
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+    assert "SIMATS_Recruitment_Tracker_TEMPLATE.xlsx" in response.headers["content-disposition"]
     assert len(response.content) > 0
+
+
+def test_download_tracker_template_is_built_from_the_live_enums(client, user_factory):
+    """The template is generated per request, never read from a file. A
+    file-on-disk version shipped with a Master Lists sheet that still said
+    SHOTS after the campus had become SHIFT, and did not exist at all in the
+    Docker image (2026-09-03). This pins the sheet to CAMPUS_CODES so it
+    cannot drift again, and pins the two sample rows to the IDs
+    tracker_import uses to recognise and skip them."""
+    from openpyxl import load_workbook
+
+    from app.models.enums import CAMPUS_CODES
+    from app.services.tracker_import import SAMPLE_CANDIDATE_ID, SAMPLE_REQUEST_ID
+
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    response = client.get("/api/v1/migration/tracker-template", headers=auth_headers(client, hr_admin))
+    workbook = load_workbook(io.BytesIO(response.content))
+
+    assert workbook.sheetnames == ["Vacancy Tracker", "Candidate Pipeline", "Master Lists"]
+
+    master = workbook["Master Lists"]
+    listed_campuses = tuple(
+        master.cell(row=r, column=1).value for r in range(2, master.max_row + 1) if master.cell(row=r, column=1).value
+    )
+    assert listed_campuses == CAMPUS_CODES
+
+    assert workbook["Vacancy Tracker"].cell(row=2, column=1).value == SAMPLE_REQUEST_ID
+    assert workbook["Candidate Pipeline"].cell(row=2, column=1).value == SAMPLE_CANDIDATE_ID
+
+
+def test_tracker_template_round_trips_through_the_importer(client, user_factory, db_session):
+    """Downloading the template and uploading it back untouched creates
+    nothing -- the sample rows are skipped -- unless include_sample is
+    explicitly set, which is what the Import Data page's checkbox sends."""
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    template = client.get("/api/v1/migration/tracker-template", headers=auth_headers(client, hr_admin)).content
+
+    skipped = _upload(client, hr_admin, template)
+    assert skipped.status_code == 200, skipped.text
+    assert skipped.json()["vacancy_total_rows"] == 0
+    assert skipped.json()["candidate_total_rows"] == 0
+    assert db_session.query(VacancyRequest).filter(VacancyRequest.external_ref == "REQ-2026-001").count() == 0
+
+    # With the checkbox on, the sample rows are PROCESSED like any other
+    # row -- here they flag, because this database has no SSE / Computer
+    # Science to attach them to, which is exactly the importer's normal
+    # validation and not a skip.
+    included = _upload(client, hr_admin, template, include_sample=True).json()
+    assert included["vacancy_total_rows"] == 1
+    assert included["candidate_total_rows"] == 1
+    assert included["vacancy_rows"][0]["status"] in {"imported", "imported_with_warning", "flagged"}
 
 
 def test_download_tracker_template_rbac_denies_recruitment_officer(client, user_factory):

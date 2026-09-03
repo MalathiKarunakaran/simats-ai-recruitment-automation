@@ -1,7 +1,5 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, require_roles
@@ -9,17 +7,13 @@ from app.models.enums import UserRoleEnum
 from app.models.user import User
 from app.schemas.migration import MigrationImportResponse
 from app.schemas.tracker_import import TrackerImportResponse
-from app.services import migration, tracker_import
+from app.services import migration, tracker_import, tracker_template
 
 router = APIRouter(prefix="/migration", tags=["migration"])
 
 _MAX_CSV_BYTES = 5 * 1024 * 1024  # 5 MB
 _MAX_XLSX_BYTES = 10 * 1024 * 1024  # 10 MB
-_XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-# app/api/v1/routers/migration.py -> repo root
-_TRACKER_TEMPLATE_PATH = (
-    Path(__file__).resolve().parents[4] / "data" / "SIMATS_Recruitment_Tracker_TEMPLATE.xlsx"
-)
+_XLSX_MEDIA_TYPE = tracker_template.XLSX_MEDIA_TYPE
 
 
 @router.post("/import-legacy-vacancies", response_model=MigrationImportResponse)
@@ -44,19 +38,17 @@ def import_legacy_vacancies(
 @router.get("/tracker-template")
 def download_tracker_template(
     current_user: User = Depends(require_roles(UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)),
-) -> FileResponse:
-    """Serves the real generated template (scripts/generate_tracker_template.py)
-    -- not a client-side-regenerated stub -- so the Master Lists sheet and
-    its Excel data-validation dropdowns actually make it to the user."""
-    if not _TRACKER_TEMPLATE_PATH.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Template not found on the server -- run scripts/generate_tracker_template.py",
-        )
-    return FileResponse(
-        _TRACKER_TEMPLATE_PATH,
+) -> Response:
+    """Builds the template in memory on every request, so the Master Lists
+    sheet and the Excel dropdowns always reflect the enums the importer
+    validates against. It used to be served from a pre-generated file under
+    data/ that the Docker image never contained (404 in production) and that
+    had gone stale in git (listed SHOTS, not SHIFT) -- see
+    app/services/tracker_template.py."""
+    return Response(
+        content=tracker_template.build_workbook_bytes(),
         media_type=_XLSX_MEDIA_TYPE,
-        filename="SIMATS_Recruitment_Tracker_TEMPLATE.xlsx",
+        headers={"Content-Disposition": f'attachment; filename="{tracker_template.TEMPLATE_FILENAME}"'},
     )
 
 
@@ -69,7 +61,7 @@ def import_tracker_workbook(
     current_user: User = Depends(require_roles(UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)),
 ) -> dict:
     """Imports the real, currently-manual SIMATS recruitment tracker
-    workbook (see scripts/generate_tracker_template.py for the template this
+    workbook (see app/services/tracker_template.py for the template this
     expects) as live data -- Vacancy Tracker rows land as already-published
     vacancies with real hiring slots, not DRAFT placeholders like
     /import-legacy-vacancies above. Safe to re-run: rows are matched by the
