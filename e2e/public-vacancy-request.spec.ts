@@ -166,6 +166,9 @@ test.describe("Every option in a long list is reachable", () => {
   test("the department list scrolls instead of overflowing the window", async ({ page }) => {
     await choose(page, "Campus", fx.campusWithLocations);
     await page.getByRole("combobox", { name: "Department", exact: true }).click();
+    // The listbox is portalled in on the next tick; measuring before it
+    // exists counts zero options and proves nothing.
+    await expect(page.getByRole("option").first()).toBeVisible();
 
     const geometry = await page.evaluate(() => {
       const viewport = document.querySelector("[data-radix-select-viewport]") as HTMLElement | null;
