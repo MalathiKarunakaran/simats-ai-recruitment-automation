@@ -466,3 +466,22 @@ describe("PublicVacancyRequestPage", () => {
     );
   });
 });
+
+// --- Abuse protection (audit L5) -----------------------------------------------
+
+describe("honeypot", () => {
+  it("renders the honeypot off-screen, unfocusable and empty, and never as a visible field", async () => {
+    renderPage();
+    await screen.findByText("Vacancy Request");
+
+    const wrapper = screen.getByTestId("honeypot");
+    expect(wrapper).toHaveAttribute("aria-hidden", "true");
+    const input = wrapper.querySelector('input[name="website"]') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(input.tabIndex).toBe(-1);
+    expect(input.getAttribute("autocomplete")).toBe("off");
+    expect(input.value).toBe("");
+    // Not offered to a person: nothing named "Website" exists in the accessibility tree.
+    expect(screen.queryByRole("textbox", { name: "Website" })).toBeNull();
+  });
+});

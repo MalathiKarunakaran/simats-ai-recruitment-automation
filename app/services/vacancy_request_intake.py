@@ -25,15 +25,18 @@ public form is the least trustworthy caller in the system.
 quote without being handed a key to anything.
 """
 
+import hashlib
 import io
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import qrcode
 from fastapi import HTTPException, Request, status
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+from app.services.audit import log_event
 
 from app.models.campus import Campus
 from app.models.department import Department
@@ -198,6 +201,67 @@ def _validated_master_data(
     return campus, department, designation, location
 
 
+# Audit L5 (2026-09-04): one public submission per requester email per
+# window. Layered on the per-IP limiter in the router (which stays exactly as
+# C1 left it), not a replacement for it: the limiter stops one address
+# hammering the endpoint, this stops one requester -- from any number of
+# addresses -- filing the same thing again and again. 15 minutes is long
+# enough to stop a flood and short enough that a genuine second request from
+# the same person (a different department, a corrected count) only waits a
+# little. Authenticated and bulk-uploaded requests never pass through here.
+PUBLIC_SUBMISSION_COOLDOWN = timedelta(minutes=15)
+PUBLIC_SUBMISSION_COOLDOWN_DETAIL = (
+    "A request from this requester was received recently. Please wait a few minutes before submitting again."
+)
+
+
+def normalize_requester_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def enforce_public_submission_cooldown(db: Session, *, requester_email: str, request: Request | None) -> None:
+    """Refuse (429) when a QR submission with the same normalised email was
+    recorded within PUBLIC_SUBMISSION_COOLDOWN.
+
+    Takes a transaction-scoped advisory lock keyed on the normalised email
+    first, so two submissions for one email arriving together are checked one
+    after the other and the second sees the first's row -- the same
+    check-then-act discipline as the sanction ceiling (H4). The lock is
+    released with the caller's commit or rollback.
+
+    The refusal is audited with the reason and the client IP the audit helper
+    records anyway; the email itself is not written into the audit row.
+    """
+    normalized = normalize_requester_email(requester_email)
+    lock_key = int.from_bytes(hashlib.sha256(normalized.encode("utf-8")).digest()[:8], "big", signed=True)
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+
+    since = datetime.now(timezone.utc) - PUBLIC_SUBMISSION_COOLDOWN
+    recent = (
+        db.query(VacancyRequest.id)
+        .filter(
+            VacancyRequest.source == VacancyRequestSourceEnum.QR,
+            func.lower(func.trim(VacancyRequest.requester_email)) == normalized,
+            VacancyRequest.created_at > since,
+        )
+        .first()
+    )
+    if recent is None:
+        return
+
+    log_event(
+        db,
+        actor=None,
+        action="PUBLIC_VACANCY_REQUEST_BLOCKED",
+        entity_type="VacancyRequest",
+        after_state={"reason": "cooldown"},
+        request=request,
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+    db.commit()
+    raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=PUBLIC_SUBMISSION_COOLDOWN_DETAIL)
+
+
 def create_public_vacancy_request(
     db: Session,
     *,
@@ -220,6 +284,7 @@ def create_public_vacancy_request(
     `request_ref` and `status` to the public -- see
     `app/schemas/vacancy_request.py::PublicVacancyRequestConfirmation`.
     """
+    enforce_public_submission_cooldown(db, requester_email=requester_email, request=request)
     campus, department, designation, _location = _validated_master_data(
         db,
         campus_id=campus_id,

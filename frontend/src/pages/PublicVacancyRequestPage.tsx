@@ -98,6 +98,10 @@ export function PublicVacancyRequestPage() {
   const [requesterName, setRequesterName] = useState("");
   const [requesterEmail, setRequesterEmail] = useState("");
   const [requesterMobile, setRequesterMobile] = useState("");
+  // Honeypot (audit L5): a field no person can see or tab to. It is sent
+  // with every submission and must stay empty; the backend discards any
+  // submission where a bot has filled it. Its ordinary name is deliberate.
+  const [website, setWebsite] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<PublicVacancyRequestConfirmation | null>(null);
   const [copied, setCopied] = useState(false);
@@ -187,6 +191,7 @@ export function PublicVacancyRequestPage() {
         requester_name: requesterName.trim(),
         requester_email: requesterEmail.trim(),
         requester_mobile: requesterMobile.trim(),
+        website,
       }),
     onSuccess: (data) => setConfirmation(data),
     // The server's message is shown verbatim rather than replaced with a
@@ -552,6 +557,26 @@ export function PublicVacancyRequestPage() {
                 {requesterMobile.trim() !== "" && !isMobileValid ? (
                   <p className="text-xs text-destructive">Enter a valid 10-digit Indian mobile number.</p>
                 ) : null}
+              </div>
+              {/* Honeypot (audit L5). Off-screen, out of the tab order, hidden
+                  from assistive technology, autocomplete off -- a person never
+                  reaches it, a form-filling bot does. Not display:none, which
+                  many bots skip. */}
+              <div
+                aria-hidden="true"
+                className="absolute -left-[10000px] top-auto h-px w-px overflow-hidden"
+                data-testid="honeypot"
+              >
+                <label htmlFor="website">Website</label>
+                <input
+                  id="website"
+                  name="website"
+                  type="text"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                />
               </div>
             </fieldset>
 

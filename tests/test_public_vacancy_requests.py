@@ -29,6 +29,8 @@ from app.models.enums import (
 from app.models.location import Location
 from app.models.vacancy_request import VacancyRequest
 
+from tests.conftest import auth_headers
+
 SUBMIT = "/api/v1/public/vacancy-requests"
 OPTIONS = "/api/v1/public/vacancy-requests/form-options"
 
@@ -162,7 +164,9 @@ def test_request_refs_are_unique_across_submissions(client, intake_setup):
     campus, department, designation, _admin, location = intake_setup
 
     first = client.post(SUBMIT, json=_payload(campus, department, designation, location)).json()["request_ref"]
-    second = client.post(SUBMIT, json=_payload(campus, department, designation, location)).json()["request_ref"]
+    # A second requester: the same email inside the cooldown is refused (audit L5).
+    second = client.post(SUBMIT, json=_payload(campus, department, designation, location,
+                                               requester_email="second.person@example.com")).json()["request_ref"]
 
     assert first != second
 
@@ -309,8 +313,12 @@ def test_cannot_request_beyond_the_sanctioned_ceiling(
 def test_rate_limits_repeated_submissions_from_one_ip(client, intake_setup):
     campus, department, designation, _admin, location = intake_setup
 
+    # A fresh email each time, so the per-email cooldown (audit L5) stays out of
+    # the way and only the per-IP limiter is being measured.
     statuses = [
-        client.post(SUBMIT, json=_payload(campus, department, designation, location)).status_code for _ in range(7)
+        client.post(SUBMIT, json=_payload(campus, department, designation, location,
+                                          requester_email=f"person{i}@example.com")).status_code
+        for i in range(7)
     ]
 
     assert statuses.count(201) == 5
@@ -617,6 +625,125 @@ def test_the_rule_tightens_by_itself_once_a_campus_gets_its_first_location(
     location_factory("SPIER", name="First Block")
     db_session.commit()
 
+    body["requester_email"] = "another.person@example.com"  # not the cooldown (audit L5), the location rule
     refused = client.post(SUBMIT, json=body)
     assert refused.status_code == 400
     assert refused.json()["detail"] == "Location is required for this campus."
+
+
+# --- Audit L5: honeypot + per-email cooldown, on top of the per-IP limiter ------
+
+
+def _blocked_events(db_session):
+    from app.models.audit_log import AuditLog
+
+    return db_session.query(AuditLog).filter(AuditLog.action == "PUBLIC_VACANCY_REQUEST_BLOCKED").all()
+
+
+def _qr_rows(db_session):
+    from app.models.vacancy_request import VacancyRequest
+
+    return db_session.query(VacancyRequest).filter(VacancyRequest.source == VacancyRequestSourceEnum.QR).count()
+
+
+def test_legitimate_submission_sends_an_empty_honeypot_and_succeeds(client, intake_setup, db_session):
+    # A: the form always sends the field, empty.
+    campus, department, designation, _admin, location = intake_setup
+    response = client.post(SUBMIT, json=_payload(campus, department, designation, location, website=""))
+    assert response.status_code == 201, response.text
+    assert _blocked_events(db_session) == []
+
+
+def test_filled_honeypot_is_refused_generically_creates_nothing_and_is_audited(client, intake_setup, db_session):
+    # B + J + K
+    campus, department, designation, _admin, location = intake_setup
+    before = _qr_rows(db_session)
+    response = client.post(SUBMIT, json=_payload(campus, department, designation, location, website="http://spam.example"))
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "website" not in detail.lower() and "honeypot" not in detail.lower()
+    assert "priya" not in detail.lower() and "VR-" not in detail
+    assert _qr_rows(db_session) == before
+    events = _blocked_events(db_session)
+    assert len(events) == 1 and events[0].after_state == {"reason": "honeypot"}
+    assert "priya" not in str(events[0].after_state).lower()  # nothing from the payload is stored
+
+
+def test_second_submission_from_the_same_email_inside_the_cooldown_is_refused(client, intake_setup, db_session):
+    # C + J + K
+    campus, department, designation, _admin, location = intake_setup
+    first = client.post(SUBMIT, json=_payload(campus, department, designation, location))
+    assert first.status_code == 201, first.text
+    rows_after_first = _qr_rows(db_session)
+
+    second = client.post(SUBMIT, json=_payload(campus, department, designation, location))
+    assert second.status_code == 429
+    detail = second.json()["detail"]
+    assert "priya" not in detail.lower() and "VR-" not in detail and "@" not in detail
+    assert _qr_rows(db_session) == rows_after_first
+    events = _blocked_events(db_session)
+    assert len(events) == 1 and events[0].after_state == {"reason": "cooldown"}
+
+
+def test_the_cooldown_compares_normalised_emails(client, intake_setup):
+    campus, department, designation, _admin, location = intake_setup
+    assert client.post(SUBMIT, json=_payload(campus, department, designation, location,
+                                             requester_email="Priya.Raman@Example.com")).status_code == 201
+    assert client.post(SUBMIT, json=_payload(campus, department, designation, location,
+                                             requester_email="  priya.raman@example.com ")).status_code == 429
+
+
+def test_submission_after_the_cooldown_is_allowed(client, intake_setup, db_session):
+    # D: age the first row past the window.
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.vacancy_request import VacancyRequest
+    from app.services.vacancy_request_intake import PUBLIC_SUBMISSION_COOLDOWN
+
+    campus, department, designation, _admin, location = intake_setup
+    first = client.post(SUBMIT, json=_payload(campus, department, designation, location))
+    assert first.status_code == 201
+    row = db_session.query(VacancyRequest).filter(VacancyRequest.request_ref == first.json()["request_ref"]).one()
+    row.created_at = datetime.now(timezone.utc) - PUBLIC_SUBMISSION_COOLDOWN - timedelta(seconds=1)
+    db_session.flush()
+
+    second = client.post(SUBMIT, json=_payload(campus, department, designation, location))
+    assert second.status_code == 201, second.text
+
+
+def test_a_different_requester_is_not_blocked_by_someone_elses_cooldown(client, intake_setup):
+    # E
+    campus, department, designation, _admin, location = intake_setup
+    assert client.post(SUBMIT, json=_payload(campus, department, designation, location)).status_code == 201
+    other = _payload(campus, department, designation, location, requester_email="arun.k@example.com",
+                     requester_name="Arun Kumar")
+    assert client.post(SUBMIT, json=other).status_code == 201
+
+
+def test_the_per_ip_limiter_is_still_in_front_of_the_cooldown(client, intake_setup):
+    # F: C1's limiter is untouched -- 5 submissions per 5 minutes per IP,
+    # counted whatever the outcome, so the sixth is a limiter 429 even with
+    # a fresh email each time.
+    campus, department, designation, _admin, location = intake_setup
+    for i in range(5):
+        client.post(SUBMIT, json=_payload(campus, department, designation, location,
+                                          requester_email=f"person{i}@example.com"))
+    sixth = client.post(SUBMIT, json=_payload(campus, department, designation, location,
+                                              requester_email="person99@example.com"))
+    assert sixth.status_code == 429
+    assert "recently" not in sixth.json()["detail"]  # the limiter's message, not the cooldown's
+
+
+def test_authenticated_creation_is_not_subject_to_the_public_cooldown(client, intake_setup, user_factory):
+    # G: an in-app user filing two requests back to back is normal.
+    campus, department, designation, _admin, location = intake_setup
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    body = {
+        "campus_id": str(campus.id), "department_id": str(department.id), "designation_id": str(designation.id),
+        "location_id": str(location.id), "role_category": "TEACHING", "position_title": designation.name,
+        "employment_type": "FULL_TIME", "requested_count": 1, "qualification": "PhD",
+        "experience_required": "3+ years", "priority": "NORMAL",
+    }
+    for _ in range(2):
+        response = client.post("/api/v1/vacancy-requests", headers=auth_headers(client, hod), json=body)
+        assert response.status_code == 201, response.text

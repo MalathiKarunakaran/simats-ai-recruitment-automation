@@ -193,6 +193,14 @@ class PublicVacancyRequestCreate(BaseModel):
     justification: str = Field(min_length=MIN_JUSTIFICATION_LENGTH, max_length=2000)
     requester_name: str = Field(min_length=MIN_REQUESTER_NAME_LENGTH, max_length=150)
     requester_email: EmailStr
+    # Audit L5 (2026-09-04): honeypot. The public form renders this field
+    # off-screen, out of the tab order and hidden from assistive technology,
+    # so a person never fills it; form-filling bots, which key off field
+    # names and labels, do. Any non-blank value means the submission is
+    # discarded with a generic refusal (routers/public_vacancy_requests.py).
+    # Never stored. The plain, plausible name is the point -- do not rename
+    # it to anything that says what it is.
+    website: str | None = Field(default=None, max_length=500)
     # Indian mobile format, requested explicitly 2026-09-02 (this replaces the
     # earlier deliberately-permissive pattern). Accepts the forms staff
     # actually type -- "9876543210", "+91 98765 43210", "0091-98765-43210",

@@ -62,6 +62,9 @@ export interface PublicVacancyRequestPayload {
   requester_name: string;
   requester_email: string;
   requester_mobile: string;
+  /** Honeypot (audit L5): rendered off-screen and always sent empty by the
+   * page; the backend discards any submission that fills it. */
+  website?: string;
 }
 
 /** Deliberately only three fields -- the backend exposes no internal ids to a

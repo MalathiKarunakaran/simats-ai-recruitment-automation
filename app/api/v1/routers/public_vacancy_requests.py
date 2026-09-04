@@ -26,10 +26,11 @@ institution's website), and the form cannot be filled in without it.
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db
+from app.services.audit import log_event
 from app.core.rate_limit import RateLimiter
 from app.models.campus import Campus
 from app.models.department import Department
@@ -142,7 +143,31 @@ def submit_public_vacancy_request(
 
     Returns only the request reference and status -- see
     `PublicVacancyRequestConfirmation` for why nothing else is exposed.
+
+    Abuse protection (audit L5), layered on top of the per-IP limiter above:
+    the honeypot check here discards bot submissions before anything is
+    validated or created; the per-email cooldown lives in the intake service
+    so it is checked under the same lock that guards the insert.
     """
+    if payload.website and payload.website.strip():
+        # A person cannot see this field; only a bot fills it. Refuse with a
+        # generic message that does not say why, audit it (IP is recorded by
+        # the audit helper; nothing from the payload is), create nothing.
+        log_event(
+            db,
+            actor=None,
+            action="PUBLIC_VACANCY_REQUEST_BLOCKED",
+            entity_type="VacancyRequest",
+            after_state={"reason": "honeypot"},
+            request=request,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The submission could not be processed. Please check the form and try again.",
+        )
+
     vr = vacancy_request_intake.create_public_vacancy_request(
         db,
         campus_id=payload.campus_id,

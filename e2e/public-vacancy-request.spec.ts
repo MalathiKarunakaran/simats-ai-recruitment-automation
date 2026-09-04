@@ -380,3 +380,22 @@ test.describe("Field validation", () => {
     await expect(submitButton(page)).toBeDisabled();
   });
 });
+
+test.describe("Abuse protection (audit L5)", () => {
+  test("the honeypot field is present for bots but unreachable for people", async ({ page }) => {
+    const honeypot = page.locator('input[name="website"]');
+    await expect(honeypot).toHaveCount(1);
+    await expect(honeypot).toBeHidden(); // off-screen: not visible, not in the layout a person sees
+    await expect(honeypot).toHaveAttribute("tabindex", "-1");
+    await expect(honeypot).toHaveAttribute("autocomplete", "off");
+    await expect(honeypot).toHaveValue("");
+    await expect(page.getByTestId("honeypot")).toHaveAttribute("aria-hidden", "true");
+    // Tabbing through the whole form never lands on it.
+    await page.getByLabel(/name/i).first().focus();
+    for (let i = 0; i < 25; i += 1) {
+      await page.keyboard.press("Tab");
+      const focusedName = await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.name ?? "");
+      expect(focusedName).not.toBe("website");
+    }
+  });
+});
