@@ -67,6 +67,18 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.ENVIRONMENT.strip().lower() == "production"
 
+    # Audit M5 (2026-09-04): the interactive API docs (/docs, /redoc,
+    # /openapi.json) hand out the full endpoint and schema map. Unset, they
+    # are served everywhere EXCEPT production; set true/false to override
+    # either way (e.g. true to debug against production for an hour).
+    EXPOSE_API_DOCS: bool | None = None
+
+    @property
+    def api_docs_enabled(self) -> bool:
+        if self.EXPOSE_API_DOCS is not None:
+            return self.EXPOSE_API_DOCS
+        return not self.is_production
+
     @property
     def email_delivery_configured(self) -> bool:
         """Whether OTP login codes and password-reset tokens can actually be

@@ -126,3 +126,90 @@ def test_complete_onboarding_writes_joining_record_audit_row(
     onboarding_row = next(r for r in rows if "onboarding_completed_at" in r.after_state)
     assert onboarding_row.after_state["onboarding_completed_at"] is not None
     assert onboarding_row.after_state["onboarding_completed_by_id"] == str(vacancy.hr_admin.id)
+
+
+# --- M5: interactive API docs are off in production unless overridden -----------
+
+
+def test_api_docs_default_off_in_production_and_on_elsewhere(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "EXPOSE_API_DOCS", None)
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+    assert settings.api_docs_enabled is True
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    assert settings.api_docs_enabled is False
+    monkeypatch.setattr(settings, "EXPOSE_API_DOCS", True)
+    assert settings.api_docs_enabled is True
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+    monkeypatch.setattr(settings, "EXPOSE_API_DOCS", False)
+    assert settings.api_docs_enabled is False
+
+
+def test_api_docs_are_served_outside_production(client, user_factory):
+    # E + D: the development-shaped app (what the test suite runs) keeps all
+    # three routes, and ordinary authenticated calls are unaffected.
+    assert client.get("/docs").status_code == 200
+    assert client.get("/redoc").status_code == 200
+    assert client.get("/openapi.json").status_code == 200
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    assert client.get("/api/v1/auth/me", headers=auth_headers(client, user)).status_code == 200
+
+
+@pytest.fixture()
+def production_shaped_app(monkeypatch):
+    """The FastAPI object is built once at import from the settings of the
+    moment, so the production shape needs a fresh build: flip the setting,
+    reload app.main, hand back its app, then reload again to restore the
+    development-shaped object every other test uses."""
+    import importlib
+
+    import app.main as main_module
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(settings, "EXPOSE_API_DOCS", None)
+    importlib.reload(main_module)
+    try:
+        yield main_module.app
+    finally:
+        monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+        importlib.reload(main_module)
+
+
+def test_production_serves_no_api_documentation_at_all(production_shaped_app):
+    # A + B + C + F: every documentation route FastAPI can mount is gone,
+    # including the OAuth2 redirect helper Swagger registers, while the API
+    # itself is up. No auth-gated variant exists, so there is nothing an
+    # ordinary user could reach either.
+    from fastapi.testclient import TestClient
+
+    with TestClient(production_shaped_app) as prod:
+        assert prod.get("/health").status_code == 200
+        for path in ("/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"):
+            response = prod.get(path)
+            assert response.status_code == 404, path
+            assert "swagger" not in response.text.lower() and "redoc" not in response.text.lower(), path
+        # Nothing else in the route table serves a schema or a docs page.
+        paths = [getattr(r, "path", "") for r in production_shaped_app.routes]
+        assert not [p for p in paths if "docs" in p or "openapi" in p]
+
+
+def test_production_docs_can_be_re_enabled_explicitly(monkeypatch):
+    # The override exists for a deliberate, temporary debugging session only.
+    import importlib
+
+    import app.main as main_module
+    from app.core.config import settings
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(settings, "EXPOSE_API_DOCS", True)
+    importlib.reload(main_module)
+    try:
+        with TestClient(main_module.app) as prod:
+            assert prod.get("/openapi.json").status_code == 200
+    finally:
+        monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+        monkeypatch.setattr(settings, "EXPOSE_API_DOCS", None)
+        importlib.reload(main_module)

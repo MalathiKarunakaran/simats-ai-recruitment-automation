@@ -108,8 +108,11 @@ default in the `postgres:16-alpine` image used here).
 
 ```bash
 curl http://localhost:8010/health          # {"status": "ok"}
-curl http://localhost:8010/docs            # Swagger UI
-curl http://localhost:8010/openapi.json -o openapi.json   # static snapshot, if wanted
+curl -I http://localhost:8010/docs         # 404 in production: the interactive docs, ReDoc and
+                                           # /openapi.json are OFF when ENVIRONMENT=production
+                                           # (audit M5). For a deliberate debugging session set
+                                           # EXPOSE_API_DOCS=true on the backend service, restart,
+                                           # and unset it again afterwards.
 curl http://localhost:8011/                # frontend index.html
 ```
 

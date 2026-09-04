@@ -49,4 +49,5 @@ echo "Starting server with ${WORKERS} worker(s)..."
 # ProxyHeadersMiddleware app/main.py adds from TRUSTED_PROXY_IPS. Uvicorn's
 # own copy (default on, trusting 127.0.0.1) would be a second, differently
 # configured resolver in front of it.
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers "$WORKERS" --no-proxy-headers
+# --no-server-header: audit M5, do not advertise "Server: uvicorn".
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers "$WORKERS" --no-proxy-headers --no-server-header

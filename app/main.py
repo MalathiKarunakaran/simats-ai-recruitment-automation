@@ -19,6 +19,11 @@ app = FastAPI(
         "build history and DEPLOYMENT.md for the deployment runbook."
     ),
     version="1.0.0",
+    # Audit M5: no interactive docs or schema in production unless
+    # EXPOSE_API_DOCS overrides it -- see app/core/config.py.
+    docs_url="/docs" if settings.api_docs_enabled else None,
+    redoc_url="/redoc" if settings.api_docs_enabled else None,
+    openapi_url="/openapi.json" if settings.api_docs_enabled else None,
 )
 
 # Audit H1 (2026-09-03): say so at startup, loudly, when the login page's
