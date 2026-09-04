@@ -117,6 +117,49 @@ def current_effective_row(
     return rows[0] if rows else None
 
 
+def lock_key_for_update(
+    db: Session,
+    *,
+    campus_id: uuid.UUID,
+    department_id: uuid.UUID,
+    designation_id: uuid.UUID,
+) -> int:
+    """Take a Postgres row lock (`SELECT ... FOR UPDATE`) on every
+    SanctionedStrength row for one (campus, department, designation) key,
+    held until the caller's transaction commits or rolls back. Returns the
+    number of rows locked.
+
+    Why: `compute_availability_to_request` is a read-then-write check
+    (`approved - working - already_requested`, then INSERT/UPDATE a
+    VacancyRequest to SUBMITTED). Two submits for the same key running at
+    the same moment both read the same `already_requested`, both pass, and
+    together exceed the sanction -- a lost-update race the ceiling exists to
+    prevent. Serialising on the key's own rows means the second submit
+    blocks here until the first commits, and its subsequent SUM over
+    in-flight requests (READ COMMITTED: a fresh snapshot per statement)
+    then sees the first request and is refused.
+
+    Locks every version of the key (active or not, any effective_from)
+    rather than only the current-effective row, deliberately: it is one
+    plain WHERE with no DISTINCT ON (Postgres forbids FOR UPDATE with
+    DISTINCT), and a key's versions are only ever touched together.
+
+    A key with no rows at all locks nothing -- and has nothing to race over:
+    `approved` is 0, so every concurrent submit is refused unless a
+    SUPER_ADMIN overrides, and an override bypasses the ceiling regardless.
+    """
+    stmt = (
+        select(SanctionedStrength.id)
+        .where(
+            SanctionedStrength.campus_id == campus_id,
+            SanctionedStrength.department_id == department_id,
+            SanctionedStrength.designation_id == designation_id,
+        )
+        .with_for_update()
+    )
+    return len(db.execute(stmt).scalars().all())
+
+
 def list_department_designation_breakdown(db: Session, department_id: uuid.UUID) -> list[dict]:
     """One row per Designation relevant to `department_id` -- the Vacancy
     Register's expandable-row breakdown (Phase B/C). `approved` comes from

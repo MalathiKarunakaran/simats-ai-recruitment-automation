@@ -17,6 +17,7 @@
 """
 
 import uuid
+from datetime import date, timedelta
 
 from app.models.audit_log import AuditLog
 from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, UserRoleEnum
@@ -410,3 +411,74 @@ def test_full_lifecycle_never_mutates_sanctioned_strength(
     assert len(rows) == 1
     assert rows[0].id == sanctioned_id
     assert rows[0].approved_strength == 5
+
+
+# --- H4: the ceiling check is a check-then-act, so submit() must hold a row
+# lock on the key's sanctioned rows from BEFORE the availability read until
+# the transaction ends. A true two-connection race cannot be staged inside
+# the rollback-isolated db_session fixture (the other connection never sees
+# this test's uncommitted rows), so the guard is on the statements emitted:
+# a FOR UPDATE on sanctioned_strength must precede the in-flight SUM.
+
+
+def _captured_statements(engine_, action):
+    from sqlalchemy import event
+
+    statements: list[str] = []
+
+    def _capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine_, "before_cursor_execute", _capture)
+    try:
+        result = action()
+    finally:
+        event.remove(engine_, "before_cursor_execute", _capture)
+    return result, statements
+
+
+def test_submit_locks_the_key_rows_before_reading_availability(
+    client, campus_factory, department_factory, designation_factory, user_factory, sanctioned_strength_factory
+):
+    from tests.conftest import engine
+
+    campus, department, designation, hod, _ = _setup(
+        client, campus_factory, department_factory, designation_factory, user_factory, sanctioned_strength_factory,
+        approved_strength=5,
+    )
+    vr_id = _create_vr(client, hod, department, campus, designation.id, requested_count=1)
+
+    response, statements = _captured_statements(
+        engine, lambda: client.post(f"{VR_ENDPOINT}/{vr_id}/submit", headers=auth_headers(client, hod))
+    )
+    assert response.status_code == 200, response.text
+
+    lock_indexes = [
+        i for i, s in enumerate(statements) if "FROM sanctioned_strength" in s and "FOR UPDATE" in s
+    ]
+    assert lock_indexes, "submit() emitted no SELECT ... FOR UPDATE on sanctioned_strength"
+    sum_indexes = [i for i, s in enumerate(statements) if "sum(vacancy_requests.requested_count)" in s]
+    assert sum_indexes, "submit() never read the in-flight SUM (test assumption broken)"
+    assert lock_indexes[0] < sum_indexes[0], "the lock must be taken BEFORE the availability read"
+
+
+def test_lock_key_for_update_counts_every_version_of_the_key(
+    db_session, campus_factory, department_factory, designation_factory, user_factory, sanctioned_strength_factory
+):
+    from app.services.sanctioned_strength import lock_key_for_update
+
+    campus = campus_factory("SSE")
+    department = department_factory("SSE", name=f"Dept {uuid.uuid4().hex[:6]}")
+    designation = designation_factory(StaffRoleCategoryEnum.TEACHING, department=department)
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    key = dict(campus_id=campus.id, department_id=department.id, designation_id=designation.id)
+    assert lock_key_for_update(db_session, **key) == 0
+
+    common = dict(campus=campus, department=department, designation=designation, created_by=admin)
+    sanctioned_strength_factory(approved_strength=3, **common)
+    sanctioned_strength_factory(
+        approved_strength=1, is_active=False, effective_from=date.today() - timedelta(days=30), **common
+    )
+
+    assert lock_key_for_update(db_session, **key) == 2

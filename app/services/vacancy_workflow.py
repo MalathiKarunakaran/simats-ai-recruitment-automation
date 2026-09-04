@@ -23,7 +23,7 @@ from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.services import notifications
 from app.services.audit import log_event
-from app.services.sanctioned_strength import compute_availability_to_request
+from app.services.sanctioned_strength import compute_availability_to_request, lock_key_for_update
 
 
 def _snapshot(vacancy_request: VacancyRequest) -> dict:
@@ -118,6 +118,18 @@ def submit(
     # against a meaningless zero.
     sanction_override_applied = False
     if vacancy_request.designation_id is not None:
+        # Serialise concurrent submits for the same key BEFORE reading the
+        # availability figure, so the read below and the status write further
+        # down are one atomic check-then-act against the ceiling. Without
+        # this, two simultaneous submits both read the same in-flight total,
+        # both pass, and together exceed the sanction. Held until the
+        # caller's commit/rollback. See lock_key_for_update's docstring.
+        lock_key_for_update(
+            db,
+            campus_id=vacancy_request.campus_id,
+            department_id=vacancy_request.department_id,
+            designation_id=vacancy_request.designation_id,
+        )
         availability = compute_availability_to_request(
             db,
             campus_id=vacancy_request.campus_id,
