@@ -31,6 +31,10 @@ function mockUser(role: UserRead["role"], campusId: string | null = null) {
     isLoading: false,
     login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
     logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    // The page saves through the context (which re-logs-in on a password
+    // change); here it just forwards to the mocked API module so the
+    // assertions below can stay on updateOwnProfile.
+    saveOwnProfile: (payload) => usersApi.updateOwnProfile(payload),
   });
 }
 

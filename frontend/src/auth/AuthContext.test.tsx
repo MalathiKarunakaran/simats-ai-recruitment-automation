@@ -25,8 +25,11 @@ const mockedConfigureAuth = vi.mocked(configureAuth);
 
 const TOKENS = { access_token: "at1", token_type: "bearer", must_change_password: false };
 
+let latestSaveOwnProfile: NonNullable<ReturnType<typeof useAuth>["saveOwnProfile"]> | null = null;
+
 function TestConsumer() {
-  const { user, isLoading, mustChangePassword, login, logout, completePasswordChange } = useAuth();
+  const { user, isLoading, mustChangePassword, login, logout, completePasswordChange, saveOwnProfile } = useAuth();
+  latestSaveOwnProfile = saveOwnProfile ?? null;
   return (
     <div>
       <span data-testid="loading">{String(isLoading)}</span>
@@ -159,6 +162,36 @@ describe("AuthContext", () => {
 
     await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
     expect(screen.getByTestId("user")).toHaveTextContent("none");
+    expectNoSessionInBrowserStorage();
+  });
+
+  it("saveOwnProfile with a password re-logs-in with it, and a concurrent refresh waits for that new session", async () => {
+    mockedAuthApi.refresh.mockResolvedValue(TOKENS);
+    mockedAuthApi.getMe.mockResolvedValue(FAKE_USER);
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("hr.admin@example.com"));
+    const hooks = mockedConfigureAuth.mock.calls.at(-1)![0];
+    const refreshCallsBefore = mockedAuthApi.refresh.mock.calls.length;
+
+    let releasePatch!: (user: typeof FAKE_USER) => void;
+    vi.mocked(usersApi.updateOwnProfile).mockImplementation(
+      () => new Promise<typeof FAKE_USER>((resolve) => { releasePatch = resolve; }),
+    );
+    mockedAuthApi.login.mockResolvedValue({ ...TOKENS, access_token: "at-after-change" });
+
+    // The consumer captured the provider's saveOwnProfile on its last render.
+    const saveOwnProfile = latestSaveOwnProfile!;
+    const saving = saveOwnProfile({ password: "NewPass123!" });
+    // A request that 401s while the PATCH is in flight ends up here -- it must
+    // NOT present the (about to be revoked) cookie; it waits for the re-login.
+    const waiting = hooks.refreshAccessToken();
+    releasePatch(FAKE_USER);
+
+    await expect(saving).resolves.toEqual(FAKE_USER);
+    await expect(waiting).resolves.toBe("at-after-change");
+    expect(mockedAuthApi.login).toHaveBeenCalledWith("hr.admin@example.com", "NewPass123!");
+    expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(refreshCallsBefore);
+    expect(hooks.getAccessToken()).toBe("at-after-change");
     expectNoSessionInBrowserStorage();
   });
 

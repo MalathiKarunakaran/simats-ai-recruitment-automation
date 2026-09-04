@@ -3,7 +3,6 @@ import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
-import { updateOwnProfile } from "@/api/users";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,12 +13,14 @@ import { combine, minLength, required, useFieldValidation } from "@/hooks/useFie
 // Forced-password-change screen -- reached via ProtectedRoute's own
 // mustChangePassword guard, either right after a Super Admin admin-reset
 // login or mid-session (client.ts's 403 PASSWORD_CHANGE_REQUIRED handling).
-// Deliberately calls the self-service updateOwnProfile (PATCH /users/me),
-// not the SUPER_ADMIN-only adminResetPassword -- this is the user changing
-// their own password, which is also the one call the backend's
+// Deliberately goes through the self-service PATCH /users/me (via
+// AuthContext.saveOwnProfile, which also re-establishes the session -- a
+// password change ends every session server-side, audit M3), not the
+// SUPER_ADMIN-only adminResetPassword -- this is the user changing their
+// own password, which is also the one call the backend's
 // PASSWORD_CHANGE_REQUIRED lockout still allows through.
 export function SetNewPasswordPage() {
-  const { completePasswordChange } = useAuth();
+  const { saveOwnProfile, completePasswordChange } = useAuth();
   const navigate = useNavigate();
 
   const newPassword = useFieldValidation(
@@ -44,7 +45,8 @@ export function SetNewPasswordPage() {
 
     setIsSubmitting(true);
     try {
-      const updatedUser = await updateOwnProfile({ password: newPassword.value });
+      if (!saveOwnProfile) throw new Error("Session unavailable");
+      const updatedUser = await saveOwnProfile({ password: newPassword.value });
       completePasswordChange(updatedUser);
       navigate("/dashboard", { replace: true });
     } catch (err) {

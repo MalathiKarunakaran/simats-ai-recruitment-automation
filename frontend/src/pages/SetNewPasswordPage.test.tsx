@@ -48,6 +48,9 @@ function renderPage() {
 describe("SetNewPasswordPage", () => {
   it("submits the new password via the self-service endpoint and lands on the dashboard", async () => {
     const completePasswordChange = vi.fn();
+    // saveOwnProfile (AuthContext) is what PATCHes and then re-establishes
+    // the session -- a password change ends every session server-side.
+    const saveOwnProfile = vi.fn().mockResolvedValue(UPDATED_USER);
     mockedUseAuth.mockReturnValue({
       user: null,
       isLoading: false,
@@ -57,8 +60,8 @@ describe("SetNewPasswordPage", () => {
       logout: vi.fn(),
       mustChangePassword: true,
       completePasswordChange,
+      saveOwnProfile,
     });
-    mockedUpdateOwnProfile.mockResolvedValue(UPDATED_USER);
 
     renderPage();
 
@@ -66,7 +69,8 @@ describe("SetNewPasswordPage", () => {
     await userEvent.type(screen.getByLabelText("Confirm new password"), "newpass123");
     await userEvent.click(screen.getByRole("button", { name: "Set new password" }));
 
-    await waitFor(() => expect(mockedUpdateOwnProfile).toHaveBeenCalledWith({ password: "newpass123" }));
+    await waitFor(() => expect(saveOwnProfile).toHaveBeenCalledWith({ password: "newpass123" }));
+    expect(mockedUpdateOwnProfile).not.toHaveBeenCalled(); // never bypasses the session-aware path
     await waitFor(() => expect(completePasswordChange).toHaveBeenCalledWith(UPDATED_USER));
     expect(await screen.findByText("dashboard page")).toBeInTheDocument();
   });
@@ -98,6 +102,7 @@ describe("SetNewPasswordPage", () => {
   });
 
   it("blocks submission for a password shorter than 8 characters", async () => {
+    const saveOwnProfile = vi.fn();
     mockedUseAuth.mockReturnValue({
       user: null,
       isLoading: false,
@@ -107,8 +112,8 @@ describe("SetNewPasswordPage", () => {
       logout: vi.fn(),
       mustChangePassword: true,
       completePasswordChange: vi.fn(),
+      saveOwnProfile,
     });
-    mockedUpdateOwnProfile.mockClear(); // a prior test in this file already confirmed a successful submit
 
     renderPage();
 
@@ -117,10 +122,11 @@ describe("SetNewPasswordPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Set new password" }));
 
     expect(await screen.findByText("Must be at least 8 characters")).toBeInTheDocument();
-    expect(mockedUpdateOwnProfile).not.toHaveBeenCalled();
+    expect(saveOwnProfile).not.toHaveBeenCalled();
   });
 
   it("blocks submission when the two password fields don't match", async () => {
+    const saveOwnProfile = vi.fn();
     mockedUseAuth.mockReturnValue({
       user: null,
       isLoading: false,
@@ -130,8 +136,8 @@ describe("SetNewPasswordPage", () => {
       logout: vi.fn(),
       mustChangePassword: true,
       completePasswordChange: vi.fn(),
+      saveOwnProfile,
     });
-    mockedUpdateOwnProfile.mockClear(); // a prior test in this file already confirmed a successful submit
 
     renderPage();
 
@@ -140,6 +146,6 @@ describe("SetNewPasswordPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Set new password" }));
 
     expect(await screen.findByText("Passwords do not match")).toBeInTheDocument();
-    expect(mockedUpdateOwnProfile).not.toHaveBeenCalled();
+    expect(saveOwnProfile).not.toHaveBeenCalled();
   });
 });

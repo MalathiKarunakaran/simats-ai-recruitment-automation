@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 
 import * as authApi from "@/api/auth";
 import { configureAuth } from "@/api/client";
-import type { Permission, UserRead } from "@/api/types";
-import { getUserPermissions } from "@/api/users";
+import type { Permission, UserRead, UserSelfUpdatePayload } from "@/api/types";
+import { getUserPermissions, updateOwnProfile } from "@/api/users";
 
 // Audit M1 (2026-09-04): the refresh token is an HttpOnly, SameSite=Strict
 // cookie on the API host, set and rotated by the backend and never visible
@@ -30,6 +30,15 @@ interface AuthContextValue {
   // change (PATCH /users/me) -- updates the cached profile and clears the
   // forced-change flag so ProtectedRoute lets the user through again.
   completePasswordChange: (updatedUser: UserRead) => void;
+  // The one way to PATCH /users/me from the app. A password change ends
+  // EVERY session server-side, this one included (audit M3), so when the
+  // payload carries a password this signs in again with it straight after
+  // -- behind a gate that makes any concurrent silent refresh wait for the
+  // new session instead of failing on the revoked cookie. Returns the
+  // updated profile, which it has also applied to `user`. Optional for the
+  // same reason as hasPermission below (the many test stubs of useAuth);
+  // the real provider always supplies it.
+  saveOwnProfile?: (payload: UserSelfUpdatePayload) => Promise<UserRead>;
   // Bug fix (2026-08-24): nav visibility previously only ever checked
   // user.role against a hardcoded allowlist (AppShell.tsx's
   // visibleForRoles), which meant an individually-granted permission from
@@ -191,6 +200,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMustChangePassword(false);
   }
 
+  async function saveOwnProfile(payload: UserSelfUpdatePayload): Promise<UserRead> {
+    if (!payload.password) {
+      const updated = await updateOwnProfile(payload);
+      setUser(updated);
+      return updated;
+    }
+    // Gate first, then change, then sign in again. From the moment the
+    // server commits the change, every existing token of this user is dead;
+    // any request that 401s meanwhile lands in refreshAccessToken, which
+    // hands back this promise instead of presenting the revoked cookie.
+    let release!: (token: string | null) => void;
+    const gate = new Promise<string | null>((resolve) => {
+      release = resolve;
+    });
+    inFlightRefreshRef.current = gate;
+    try {
+      const updated = await updateOwnProfile(payload);
+      const tokens = await authApi.login(updated.email, payload.password);
+      accessTokenRef.current = tokens.access_token;
+      setMustChangePassword(tokens.must_change_password);
+      setUser(updated);
+      release(tokens.access_token);
+      return updated;
+    } catch (err) {
+      release(accessTokenRef.current);
+      throw err;
+    } finally {
+      inFlightRefreshRef.current = null;
+    }
+  }
+
   function hasPermission(permission: Permission): boolean {
     if (!user) return false;
     if (user.role === "SUPER_ADMIN") return true;
@@ -208,6 +248,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loginWithOtp,
         logout,
         completePasswordChange,
+        saveOwnProfile,
         hasPermission,
       }}
     >

@@ -146,7 +146,12 @@ def test_forced_reset_user_can_change_password_then_use_api_normally(client, use
     assert change.status_code == 200
     assert change.json()["must_change_password"] is False
 
-    # Flag cleared -- the same (still-valid) access token now works on a
-    # non-allowlisted endpoint too.
-    normal_call = client.get("/api/v1/users", headers=headers)
+    # Audit M3: a password change ends every session, this one included --
+    # the token that made the change is refused from here on. The app
+    # signs in again with the new password (AuthContext.saveOwnProfile).
+    assert client.get("/api/v1/users", headers=headers).status_code == 401
+
+    fresh = {"Authorization": f"Bearer {_login_and_get_access_token(client, target, 'FinalPassword123!')}"}
+    # Flag cleared -- a non-allowlisted endpoint now works on the new session.
+    normal_call = client.get("/api/v1/users", headers=fresh)
     assert normal_call.status_code == 200

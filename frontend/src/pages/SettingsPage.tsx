@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { ApiError } from "@/api/client";
-import { getOwnProfile, updateOwnProfile } from "@/api/users";
+import { getOwnProfile } from "@/api/users";
+import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,10 @@ import { useTheme } from "@/theme/ThemeContext";
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const { theme, toggleTheme } = useTheme();
+  // Through the auth context, not the API module directly: a password
+  // change ends every session server-side (audit M3) and saveOwnProfile
+  // signs in again with the new password so this screen keeps working.
+  const { saveOwnProfile } = useAuth();
 
   const { data: profile, isLoading } = useQuery({ queryKey: ["users", "me"], queryFn: getOwnProfile });
 
@@ -36,12 +41,14 @@ export function SettingsPage() {
   const passwordValid = !newPassword || newPassword.length >= 8;
 
   const mutation = useMutation({
-    mutationFn: () =>
-      updateOwnProfile({
+    mutationFn: () => {
+      if (!saveOwnProfile) throw new Error("Session unavailable");
+      return saveOwnProfile({
         full_name: fullName.value,
         phone_number: phoneNumber || null,
         ...(newPassword ? { password: newPassword } : {}),
-      }),
+      });
+    },
     onSuccess: () => {
       setError(null);
       setSuccess(true);

@@ -90,7 +90,7 @@ def test_a_fresh_login_after_force_logout_works_while_the_old_token_stays_dead(c
 # F. password change (self-service, while logged in) -------------------------------------
 
 
-def test_password_change_rejects_access_tokens_of_other_sessions_but_keeps_the_current_one(
+def test_password_change_rejects_every_previously_issued_access_token_including_the_callers(
     client, user_factory
 ):
     user = user_factory(UserRoleEnum.HR_ADMIN)
@@ -104,7 +104,13 @@ def test_password_change_rejects_access_tokens_of_other_sessions_but_keeps_the_c
     assert changed.status_code == 200, changed.text
 
     assert client.get(ME, headers=_bearer(other_session_access)).status_code == 401
-    assert client.get(ME, headers=_bearer(current_access)).status_code == 200
+    assert client.get(ME, headers=_bearer(current_access)).status_code == 401
+
+    # The caller re-establishes its session with the new password (what the
+    # frontend does right after the change) and carries on.
+    relogin = client.post("/api/v1/auth/login", data={"username": user.email, "password": "BrandNewPass456!"})
+    assert relogin.status_code == 200
+    assert client.get(ME, headers=_bearer(relogin.json()["access_token"])).status_code == 200
 
 
 # G. admin password reset ------------------------------------------------------------------
