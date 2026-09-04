@@ -151,6 +151,23 @@ def update_own_profile(
     if payload.password is not None:
         current_user.password_hash = security.hash_password(payload.password)
         current_user.must_change_password = False
+        # Audit M3: a password change ends every OTHER session of this user
+        # -- their access tokens stop authorising on the next request, since
+        # get_current_user requires a live session family -- while the
+        # session that just proved the old password carries on. Same
+        # "credential change ends sessions" rule as the reset flows, minus
+        # logging the user out of the very screen they are on.
+        others = (
+            db.query(RefreshToken)
+            .filter(
+                RefreshToken.user_id == current_user.id,
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.session_id != request.state.session_id,
+            )
+            .all()
+        )
+        for t in others:
+            t.revoked_at = datetime.now(timezone.utc)
 
     log_update(
         db,

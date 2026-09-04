@@ -24,12 +24,18 @@ def verify_password(raw_password: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(*, user_id: UUID, role: str, campus_id: UUID | None) -> str:
+def create_access_token(*, user_id: UUID, role: str, campus_id: UUID | None, session_id: UUID) -> str:
+    """`session_id` (claim `sid`, audit M3) binds the token to the refresh-
+    token family it was issued with. `get_current_user` accepts the token
+    only while that family still has an unrevoked row, so logout, force
+    logout and every password reset -- all of which revoke the family's
+    rows -- stop the token authorising at once, not at its 30-minute exp."""
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
         "sub": str(user_id),
         "role": role,
         "campus_id": str(campus_id) if campus_id else None,
+        "sid": str(session_id),
         "type": "access",
         # Unique per issuance so two tokens minted in the same second (e.g.
         # login immediately followed by refresh) never collide byte-for-byte.

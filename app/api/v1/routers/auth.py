@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 import httpx
@@ -52,17 +53,22 @@ _otp_request_rate_limit = RateLimiter(max_requests=5, window_seconds=60, name="o
 _otp_verify_rate_limit = RateLimiter(max_requests=10, window_seconds=60, name="otp-verify")
 
 
-def _issue_token_pair(db: Session, user: User, request: Request, response: Response) -> TokenPair:
+def _issue_token_pair(
+    db: Session, user: User, request: Request, response: Response, *, session_id: uuid.UUID
+) -> TokenPair:
     """Mint an access JWT for the body and a rotating refresh token for the
     HttpOnly cookie (audit M1). The raw refresh token goes into the cookie
-    on `response` and nowhere else -- only its hash is stored."""
+    on `response` and nowhere else -- only its hash is stored. `session_id`
+    is the family both tokens belong to (audit M3): a fresh id at login, the
+    presented row's id at rotation."""
     access_token = security.create_access_token(
-        user_id=user.id, role=user.role.value, campus_id=user.campus_id
+        user_id=user.id, role=user.role.value, campus_id=user.campus_id, session_id=session_id
     )
     raw_refresh = security.generate_opaque_token()
     db.add(
         RefreshToken(
             user_id=user.id,
+            session_id=session_id,
             token_hash=security.hash_opaque_token(raw_refresh),
             expires_at=security.refresh_token_expiry(),
             ip_address=client_ip(request),
@@ -103,7 +109,7 @@ def login(
         raise generic_error
 
     user.last_login_at = datetime.now(timezone.utc)
-    tokens = _issue_token_pair(db, user, request, response)
+    tokens = _issue_token_pair(db, user, request, response, session_id=uuid.uuid4())
     log_auth_event(db, actor=user, action="LOGIN_SUCCESS", request=request, status_code=200)
     db.commit()
     return tokens
@@ -246,7 +252,7 @@ def otp_verify(
 
     matched.used_at = datetime.now(timezone.utc)
     user.last_login_at = datetime.now(timezone.utc)
-    tokens = _issue_token_pair(db, user, request, response)
+    tokens = _issue_token_pair(db, user, request, response, session_id=uuid.uuid4())
     log_auth_event(db, actor=user, action="LOGIN_SUCCESS", request=request, status_code=200)
     db.commit()
     return tokens
@@ -286,9 +292,11 @@ def refresh(
     if user is None or not user.is_active:
         raise invalid()
 
-    # Rotate: revoke the presented refresh token and issue a brand-new pair.
+    # Rotate: revoke the presented refresh token and issue a brand-new pair
+    # in the SAME session family, so access tokens already held by other
+    # tabs of this browser stay valid (audit M3).
     row.revoked_at = datetime.now(timezone.utc)
-    tokens = _issue_token_pair(db, user, request, response)
+    tokens = _issue_token_pair(db, user, request, response, session_id=row.session_id)
     log_auth_event(db, actor=user, action="TOKEN_REFRESHED", request=request, status_code=200)
     db.commit()
     return tokens

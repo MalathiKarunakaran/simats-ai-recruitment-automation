@@ -25,6 +25,7 @@ admin can revoke like any other.
 
 import json
 import sys
+import uuid
 from pathlib import Path
 
 # Runnable from anywhere, same as generate_tracker_template.py.
@@ -53,9 +54,14 @@ def main(email: str | None) -> None:
             sys.exit(f"no active user matching {email or 'SUPER_ADMIN'!r}")
 
         raw_refresh = security.generate_opaque_token()
+        # One session family for both halves, exactly as a login issues them
+        # (audit M3: the access token is only honoured while this family
+        # has an unrevoked row).
+        session_id = uuid.uuid4()
         db.add(
             RefreshToken(
                 user_id=user.id,
+                session_id=session_id,
                 token_hash=security.hash_opaque_token(raw_refresh),
                 expires_at=security.refresh_token_expiry(),
                 ip_address=None,
@@ -68,7 +74,7 @@ def main(email: str | None) -> None:
             json.dumps(
                 {
                     "access_token": security.create_access_token(
-                        user_id=user.id, role=user.role.value, campus_id=user.campus_id
+                        user_id=user.id, role=user.role.value, campus_id=user.campus_id, session_id=session_id
                     ),
                     "refresh_token": raw_refresh,
                     "email": user.email,

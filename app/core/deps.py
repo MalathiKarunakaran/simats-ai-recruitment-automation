@@ -26,9 +26,21 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
+    """Signature, expiry and type as before, plus (audit M3) the token's
+    session family must still be alive: its `sid` claim names the
+    refresh-token family it was issued with, and the user is loaded through
+    a join on that family's unrevoked row. Logout, force logout and every
+    password reset revoke those rows, so the tokens they issued stop
+    authorising on the very next request instead of at their own expiry.
+
+    Cost: the same single round trip as the previous primary-key lookup --
+    the join replaces it rather than adding to it, on indexed columns
+    (users.id, refresh_tokens.session_id).
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -36,6 +48,7 @@ def get_current_user(
     )
 
     from app.core.security import decode_token  # local import avoids a module cycle at import time
+    from app.models.auth_token import RefreshToken
 
     try:
         payload = decode_token(token)
@@ -46,13 +59,31 @@ def get_current_user(
         raise credentials_exception
 
     user_id = payload.get("sub")
-    if user_id is None:
+    session_id = payload.get("sid")
+    if user_id is None or session_id is None:
+        raise credentials_exception
+    try:
+        user_uuid, session_uuid = uuid.UUID(user_id), uuid.UUID(session_id)
+    except ValueError:
         raise credentials_exception
 
-    user = db.get(User, uuid.UUID(user_id))
+    user = db.execute(
+        select(User)
+        .join(RefreshToken, RefreshToken.user_id == User.id)
+        .where(
+            User.id == user_uuid,
+            RefreshToken.session_id == session_uuid,
+            RefreshToken.revoked_at.is_(None),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
     if user is None:
         raise credentials_exception
 
+    # For endpoints that must act on "this session" specifically (a
+    # password change keeps the session that proved the password and ends
+    # every other one).
+    request.state.session_id = session_uuid
     return user
 
 

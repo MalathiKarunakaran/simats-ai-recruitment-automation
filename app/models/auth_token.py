@@ -18,6 +18,16 @@ class RefreshToken(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    # Audit M3: the session FAMILY this row belongs to. A login starts a new
+    # family; every rotation copies the id onto the replacement row, so one
+    # browser keeps one session_id for its whole life while its raw token
+    # changes on every refresh. Access tokens carry it as `sid`, and
+    # app/core/deps.py accepts a token only while its family still has an
+    # unrevoked row -- that is what makes logout/force-logout/password reset
+    # take effect immediately instead of at the JWT's own expiry.
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True, default=uuid.uuid4
+    )
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
