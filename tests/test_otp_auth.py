@@ -220,3 +220,49 @@ def test_login_options_reflect_delivery_state(client, monkeypatch):
     monkeypatch.setattr(settings, "ENVIRONMENT", "development")
     monkeypatch.setattr(settings, "N8N_BASE_URL", "")
     assert client.get("/api/v1/auth/login-options").json()["otp_email_login"] is True
+
+
+# --- M2: per-code attempt cap, one live code per user ---------------------------
+
+
+def test_otp_code_is_retired_after_five_wrong_guesses(client, user_factory, login_otp_factory, db_session):
+    from app.models.auth_token import LoginOtp
+
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    code = login_otp_factory(user, code="123456")
+
+    for _ in range(5):
+        wrong = client.post("/api/v1/auth/otp-verify", json={"email": user.email, "code": "000000"})
+        assert wrong.status_code == 401
+
+    row = db_session.query(LoginOtp).filter(LoginOtp.user_id == user.id).one()
+    assert row.attempt_count == 5
+    assert row.used_at is not None
+
+    # The right code no longer works: the code was burned by the guesses.
+    right = client.post("/api/v1/auth/otp-verify", json={"email": user.email, "code": code})
+    assert right.status_code == 401
+
+
+def test_otp_code_survives_four_wrong_guesses(client, user_factory, login_otp_factory):
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    code = login_otp_factory(user, code="123456")
+
+    for _ in range(4):
+        assert client.post("/api/v1/auth/otp-verify", json={"email": user.email, "code": "000000"}).status_code == 401
+
+    right = client.post("/api/v1/auth/otp-verify", json={"email": user.email, "code": code})
+    assert right.status_code == 200, right.text
+
+
+def test_requesting_a_new_code_retires_the_previous_one(client, user_factory, login_otp_factory, db_session):
+    from app.models.auth_token import LoginOtp
+
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    old_code = login_otp_factory(user, code="111111")
+
+    assert client.post("/api/v1/auth/otp-request", json={"email": user.email}).status_code == 200
+
+    live = db_session.query(LoginOtp).filter(LoginOtp.user_id == user.id, LoginOtp.used_at.is_(None)).all()
+    assert len(live) == 1  # only the newly issued code
+    assert client.post("/api/v1/auth/otp-verify", json={"email": user.email, "code": old_code}).status_code == 401

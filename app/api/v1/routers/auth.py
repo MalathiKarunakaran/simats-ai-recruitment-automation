@@ -55,6 +55,10 @@ _otp_verify_rate_limit = RateLimiter(max_requests=10, window_seconds=60, name="o
 # Audit M6: how long after a refresh token was rotated out a second
 # presentation of it is still treated as a benign race rather than a replay.
 REFRESH_REUSE_LEEWAY_SECONDS = 10
+# Audit M2: wrong guesses a login code survives before it is retired. The
+# per-IP verify limiter already made guessing slow from one address; the cap
+# makes a single code unguessable no matter how many addresses try.
+OTP_MAX_ATTEMPTS = 5
 
 
 def _issue_token_pair(
@@ -199,6 +203,11 @@ def otp_request(
     user = db.query(User).filter(User.email == payload.email).one_or_none()
 
     if user is not None and user.is_active:
+        # Audit M2: one live code per user. Issuing a new one retires every
+        # earlier unconsumed code, so codes cannot pile up and each request
+        # narrows a guesser's target to a single 6-digit value.
+        for stale in db.query(LoginOtp).filter(LoginOtp.user_id == user.id, LoginOtp.used_at.is_(None)).all():
+            stale.used_at = datetime.now(timezone.utc)
         code = security.generate_otp_code()
         db.add(
             LoginOtp(
@@ -250,6 +259,15 @@ def otp_verify(
     )
 
     if matched is None:
+        # Audit M2: a wrong guess counts against every code still live for
+        # this user (the guess was made against all of them), and a code
+        # that has absorbed OTP_MAX_ATTEMPTS wrong guesses is retired.
+        for row in candidates:
+            if not row.is_valid:
+                continue
+            row.attempt_count += 1
+            if row.attempt_count >= OTP_MAX_ATTEMPTS:
+                row.used_at = datetime.now(timezone.utc)
         log_auth_event(db, actor=user, action="LOGIN_FAILED", request=request, status_code=401)
         db.commit()
         raise generic_error
