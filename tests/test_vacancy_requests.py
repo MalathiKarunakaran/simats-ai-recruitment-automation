@@ -1540,3 +1540,119 @@ def test_create_rejects_a_location_from_another_campus(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Location does not belong to the selected campus."
+
+
+def test_requester_cannot_reject_own_request(client, user_factory, department_factory, grant_permission):
+    # Audit L1: the guard covered both approve stages but not reject.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    grant_permission(hod, PermissionEnum.REJECT_VACANCY)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/reject",
+        headers=auth_headers(client, hod),
+        json={"reason": "changed my mind"},
+    )
+    assert response.status_code == 403
+    assert "cannot reject it yourself" in response.json()["detail"]
+
+
+def test_someone_else_can_still_reject(client, user_factory, department_factory, grant_permission):
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/reject",
+        headers=auth_headers(client, dean),
+        json={"reason": "not sanctioned this year"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "REJECTED"
+
+
+def test_user_without_reject_permission_still_cannot_reject(client, user_factory, department_factory):
+    # D: the self-action guard sits BEHIND the permission gate, which is unchanged.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    other_hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")  # no REJECT_VACANCY grant
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/reject",
+        headers=auth_headers(client, other_hod),
+        json={"reason": "not mine to reject"},
+    )
+    assert response.status_code == 403
+    assert "cannot reject it yourself" not in response.json()["detail"]
+
+
+def test_super_admin_may_reject_own_request(client, user_factory, department_factory):
+    # E: the break-glass exemption is the same for reject as for the approve stages.
+    department = department_factory("SSE")
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, admin),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, admin))
+
+    response = client.post(
+        f"/api/v1/vacancy-requests/{vr_id}/reject",
+        headers=auth_headers(client, admin),
+        json={"reason": "withdrawn by admin"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "REJECTED"
+
+
+def test_self_reject_guard_does_not_bypass_the_reason_requirement(
+    client, user_factory, department_factory, grant_permission
+):
+    # F: an empty reason is still refused as a validation error (the rule is
+    # unchanged: min_length=1), and it is refused BEFORE the self-action guard
+    # runs -- the requester gets the same 422 as anyone else, never a 403.
+    department = department_factory("SSE")
+    hod = user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE")
+    grant_permission(hod, PermissionEnum.REJECT_VACANCY)
+    dean = user_factory(UserRoleEnum.ASSOCIATE_DEAN_RECRUITMENT)
+
+    create = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, hod),
+        json=_create_payload(department.id, campus_id=str(department.campus_id)),
+    )
+    vr_id = create.json()["id"]
+    client.post(f"/api/v1/vacancy-requests/{vr_id}/submit", headers=auth_headers(client, hod))
+
+    for actor in (dean, hod):
+        response = client.post(
+            f"/api/v1/vacancy-requests/{vr_id}/reject", headers=auth_headers(client, actor), json={"reason": ""}
+        )
+        assert response.status_code == 422, actor.role

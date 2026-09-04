@@ -56,8 +56,11 @@ _SELF_APPROVAL_EXEMPT_SOURCES = frozenset(
 )
 
 
-def _reject_self_approval(vacancy_request: VacancyRequest, actor: User, stage: str) -> None:
+def _reject_self_approval(vacancy_request: VacancyRequest, actor: User, action: str) -> None:
     """Refuse when `actor` is the person who raised `vacancy_request`.
+    `action` is the verb for the message ("Dean-approve", "HR-approve",
+    "reject" -- audit L1 added reject, so a requester cannot close their own
+    request either way while it is under review).
 
     Called AFTER each stage's own status check, so a wrong-status transition
     keeps answering 409 rather than flipping to 403 for the requester alone.
@@ -70,7 +73,7 @@ def _reject_self_approval(vacancy_request: VacancyRequest, actor: User, stage: s
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail=f"You raised this vacancy request and cannot {stage}-approve it yourself",
+        detail=f"You raised this vacancy request and cannot {action} it yourself",
     )
 
 
@@ -204,7 +207,7 @@ def dean_approve(
             detail=f"Cannot Dean-approve from status {vacancy_request.status.value}",
         )
 
-    _reject_self_approval(vacancy_request, actor, "Dean")
+    _reject_self_approval(vacancy_request, actor, "Dean-approve")
 
     before = _snapshot(vacancy_request)
     vacancy_request.status = VacancyRequestStatusEnum.DEAN_APPROVED
@@ -258,6 +261,8 @@ def reject(
             detail=f"Cannot reject from status {vacancy_request.status.value}",
         )
 
+    _reject_self_approval(vacancy_request, actor, "reject")
+
     before = _snapshot(vacancy_request)
     vacancy_request.status = VacancyRequestStatusEnum.REJECTED
     vacancy_request.rejected_by_id = actor.id
@@ -303,7 +308,7 @@ def hr_approve(
             detail=f"Cannot HR-approve from status {vacancy_request.status.value}",
         )
 
-    _reject_self_approval(vacancy_request, actor, "HR")
+    _reject_self_approval(vacancy_request, actor, "HR-approve")
 
     before = _snapshot(vacancy_request)
     now = datetime.now(timezone.utc)
