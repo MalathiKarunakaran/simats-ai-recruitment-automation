@@ -385,7 +385,11 @@ test.describe("Abuse protection (audit L5)", () => {
   test("the honeypot field is present for bots but unreachable for people", async ({ page }) => {
     const honeypot = page.locator('input[name="website"]');
     await expect(honeypot).toHaveCount(1);
-    await expect(honeypot).toBeHidden(); // off-screen: not visible, not in the layout a person sees
+    // Off-screen: Playwright calls anything with a box "visible", so check the
+    // box itself sits entirely outside the viewport (the wrapper is at -10000px).
+    const box = await honeypot.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThan(0);
     await expect(honeypot).toHaveAttribute("tabindex", "-1");
     await expect(honeypot).toHaveAttribute("autocomplete", "off");
     await expect(honeypot).toHaveValue("");
