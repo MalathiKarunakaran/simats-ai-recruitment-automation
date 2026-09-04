@@ -1,6 +1,6 @@
 from app.models.enums import UserRoleEnum
 
-from tests.conftest import DEFAULT_TEST_PASSWORD, auth_headers
+from tests.conftest import CSRF_HEADERS, DEFAULT_TEST_PASSWORD, auth_headers, refresh_session, session_cookie
 
 
 def test_login_success_returns_token_pair(client, user_factory):
@@ -11,7 +11,9 @@ def test_login_success_returns_token_pair(client, user_factory):
     assert response.status_code == 200
     body = response.json()
     assert body["access_token"]
-    assert body["refresh_token"]
+    # Audit M1: the refresh token is an HttpOnly cookie, never in the body.
+    assert "refresh_token" not in body
+    assert session_cookie(client)
     assert body["token_type"] == "bearer"
 
 
@@ -49,7 +51,7 @@ def test_refresh_issues_new_access_token(client, user_factory):
         "/api/v1/auth/login", data={"username": user.email, "password": user.plain_password}
     ).json()
 
-    refreshed = client.post("/api/v1/auth/refresh", json={"refresh_token": login["refresh_token"]})
+    refreshed = refresh_session(client)
     assert refreshed.status_code == 200
     assert refreshed.json()["access_token"] != login["access_token"]
 
@@ -60,14 +62,15 @@ def test_refresh_token_revoked_by_logout_is_rejected(client, user_factory):
         "/api/v1/auth/login", data={"username": user.email, "password": user.plain_password}
     ).json()
 
+    raw_refresh = session_cookie(client)
     logout = client.post(
         "/api/v1/auth/logout",
-        json={"refresh_token": login["refresh_token"]},
-        headers={"Authorization": f"Bearer {login['access_token']}"},
+        headers={**CSRF_HEADERS, "Authorization": f"Bearer {login['access_token']}"},
     )
     assert logout.status_code == 204
 
-    refreshed = client.post("/api/v1/auth/refresh", json={"refresh_token": login["refresh_token"]})
+    # Presenting the revoked token explicitly (the jar was cleared by logout).
+    refreshed = refresh_session(client, raw_refresh)
     assert refreshed.status_code == 401
 
 
@@ -90,7 +93,9 @@ def test_password_reset_confirm_changes_password_and_revokes_all_sessions(
     user = user_factory(UserRoleEnum.HR_ADMIN)
     login = client.post(
         "/api/v1/auth/login", data={"username": user.email, "password": user.plain_password}
-    ).json()
+    )
+    assert login.status_code == 200
+    pre_reset_refresh = session_cookie(client)
 
     raw_token = password_reset_token_factory(user)
     new_password = "BrandNewPass456!"
@@ -110,7 +115,7 @@ def test_password_reset_confirm_changes_password_and_revokes_all_sessions(
     assert new_password_login.status_code == 200
 
     # The refresh token issued before the reset must now be dead.
-    old_refresh = client.post("/api/v1/auth/refresh", json={"refresh_token": login["refresh_token"]})
+    old_refresh = refresh_session(client, pre_reset_refresh)
     assert old_refresh.status_code == 401
 
 

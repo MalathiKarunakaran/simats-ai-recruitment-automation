@@ -6,7 +6,12 @@ import { configureAuth } from "@/api/client";
 import type { Permission, UserRead } from "@/api/types";
 import { getUserPermissions } from "@/api/users";
 
-const REFRESH_TOKEN_STORAGE_KEY = "simats_refresh_token";
+// Audit M1 (2026-09-04): the refresh token is an HttpOnly, SameSite=Strict
+// cookie on the API host, set and rotated by the backend and never visible
+// to script. Nothing about the session is written to localStorage or
+// sessionStorage any more; the only client-side session state is the
+// in-memory access token below. "Is there a session?" is answered by
+// asking the server (one /auth/refresh on load), not by looking in storage.
 
 interface AuthContextValue {
   user: UserRead | null;
@@ -76,29 +81,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // read it from outside React's render cycle and must always see the
   // latest value, not a stale closure over one render's state.
   const accessTokenRef = useRef<string | null>(null);
+  // Refresh tokens rotate server-side on every use: the presented cookie is
+  // revoked and a new one set. Two refreshes in flight at once would
+  // therefore present the same cookie and the second would be refused,
+  // logging the user out -- so concurrent callers (several 401-retries at
+  // once, React StrictMode's double-mounted bootstrap in dev) share ONE
+  // in-flight request.
+  const inFlightRefreshRef = useRef<Promise<string | null> | null>(null);
 
-  async function refreshAccessToken(): Promise<string | null> {
-    const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
-    if (!storedRefreshToken) return null;
-    try {
-      const tokens = await authApi.refresh(storedRefreshToken);
-      accessTokenRef.current = tokens.access_token;
-      // Refresh tokens rotate server-side on every use -- the old one is
-      // revoked, so the latest one must always replace what's stored.
-      localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refresh_token);
-      setMustChangePassword(tokens.must_change_password);
-      return tokens.access_token;
-    } catch {
-      localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
-      accessTokenRef.current = null;
-      setUser(null);
-      return null;
-    }
+  function refreshAccessToken(): Promise<string | null> {
+    if (inFlightRefreshRef.current) return inFlightRefreshRef.current;
+    const attempt = (async () => {
+      try {
+        const tokens = await authApi.refresh();
+        accessTokenRef.current = tokens.access_token;
+        setMustChangePassword(tokens.must_change_password);
+        return tokens.access_token;
+      } catch {
+        // No live session (no cookie, or an expired/revoked one -- the
+        // backend has already cleared it). A normal logged-out state.
+        accessTokenRef.current = null;
+        setUser(null);
+        return null;
+      } finally {
+        inFlightRefreshRef.current = null;
+      }
+    })();
+    inFlightRefreshRef.current = attempt;
+    return attempt;
   }
 
   function clearSession() {
     accessTokenRef.current = null;
-    localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     setUser(null);
     setMustChangePassword(false);
     setPermissions([]);
@@ -115,9 +129,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       onPasswordChangeRequired: () => setMustChangePassword(true),
     });
 
-    // Restore a session on page load from the persisted refresh token, if
-    // any -- a missing/expired one is a normal logged-out state, not an
-    // error to surface.
+    // Restore a session on page load by asking the server: the browser
+    // attaches the HttpOnly refresh cookie if it has one. A 401 (no cookie,
+    // or an expired/revoked one) is a normal logged-out state, not an error
+    // to surface.
     (async () => {
       const token = await refreshAccessToken();
       if (token) {
@@ -135,8 +150,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function applyTokens(tokens: Awaited<ReturnType<typeof authApi.login>>) {
+    // The refresh cookie arrived on the same response; the browser holds it.
     accessTokenRef.current = tokens.access_token;
-    localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refresh_token);
     setMustChangePassword(tokens.must_change_password);
     const loggedInUser = await authApi.getMe();
     setUser(loggedInUser);
@@ -162,13 +177,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
-    const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
-    if (storedRefreshToken) {
-      try {
-        await authApi.logout(storedRefreshToken);
-      } catch {
-        // Best-effort -- still clear local state even if the server call fails.
-      }
+    try {
+      // Revokes the cookie's token server-side and clears the cookie.
+      await authApi.logout();
+    } catch {
+      // Best-effort -- still clear local state even if the server call fails.
     }
     clearSession();
   }

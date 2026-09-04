@@ -35,7 +35,7 @@ def test_otp_verify_correct_code_returns_token_pair(client, user_factory, login_
     assert response.status_code == 200
     body = response.json()
     assert body["access_token"]
-    assert body["refresh_token"]
+    assert "refresh_token" not in body  # audit M1: cookie only
     assert body["token_type"] == "bearer"
 
 

@@ -3,7 +3,7 @@ from app.models.auth_token import RefreshToken
 from app.models.enums import EmploymentTypeEnum, StaffRoleCategoryEnum, UserRoleEnum
 from app.models.vacancy_request import VacancyRequest
 
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, refresh_session, session_cookie
 
 
 def test_delete_fresh_user_succeeds(client, user_factory):
@@ -130,14 +130,14 @@ def test_force_logout_revokes_active_session(client, user_factory):
         "/api/v1/auth/login", data={"username": target.email, "password": target.plain_password}
     )
     assert login.status_code == 200
-    refresh_token = login.json()["refresh_token"]
+    refresh_token = session_cookie(client)
 
     response = client.post(
         f"/api/v1/users/{target.id}/force-logout", headers=auth_headers(client, admin)
     )
     assert response.status_code == 204
 
-    refresh_attempt = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    refresh_attempt = refresh_session(client, refresh_token)
     assert refresh_attempt.status_code == 401
 
 

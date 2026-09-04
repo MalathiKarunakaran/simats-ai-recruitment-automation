@@ -30,7 +30,8 @@ Edit `.env` for production:
 - `ANTHROPIC_API_KEY` — a real key for JD generation/resume screening/Hermes to work; the app runs fine without one (those specific endpoints return a clean `503`).
 - `N8N_BASE_URL` — point at your real n8n instance's webhook base URL for real notification delivery/job-portal distribution; leave blank to run with notifications honestly marked `FAILED` and distribution returning `503`.
 - `PUBLIC_APPLY_BASE_URL` — your real careers-page/apply-link domain, once one exists.
-- `CORS_ALLOWED_ORIGINS` — your frontend's real origin(s), comma-separated, once a frontend is deployed. Leave blank if the API has no browser-based frontend calling it cross-origin.
+- `CORS_ALLOWED_ORIGINS` — your frontend's real origin(s), comma-separated, once a frontend is deployed. Leave blank if the API has no browser-based frontend calling it cross-origin. **This list is also the CSRF allow-list** for the session-cookie endpoints (`/auth/refresh`, `/auth/logout` — see `app/core/session_cookie.py`): a request whose `Origin` is not here is refused.
+- **The frontend and API hosts must be the same site** (one registrable domain — `app.malathi.io` and `api.malathi.io` are; `app.example.com` and `api.other.net` are not). The refresh token is an `HttpOnly; Secure; SameSite=Strict` cookie on the API host (audit M1, 2026-09-04), and a browser only attaches a Strict cookie to requests initiated from the same site. Moving the API to an unrelated domain would silently log every user out on reload. `ENVIRONMENT=production` is what turns the cookie's `Secure` flag on, so the API must be served over HTTPS there. The SPA's Content-Security-Policy lives in `frontend/nginx.conf` and names the API origin in `connect-src` — change both together.
 
 ## 2. Pull the code you intend to deploy
 

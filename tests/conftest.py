@@ -588,6 +588,33 @@ def auth_headers(client: TestClient, user: User) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
+# Audit M1: the refresh token is an HttpOnly cookie (app/core/session_cookie.py)
+# that the TestClient's cookie jar carries automatically after a login; the
+# endpoints that consume it also require this anti-CSRF header, exactly as
+# the browser client sends it.
+CSRF_HEADERS = {"X-Requested-With": "XMLHttpRequest"}
+
+
+def session_cookie(client: TestClient) -> str | None:
+    """The raw refresh token currently in the client's cookie jar."""
+    from app.core.session_cookie import REFRESH_COOKIE_NAME
+
+    return client.cookies.get(REFRESH_COOKIE_NAME)
+
+
+def refresh_session(client: TestClient, raw_refresh_token: str | None = None):
+    """POST /auth/refresh the way the SPA does: cookie + CSRF header. Pass a
+    token to present THAT one (e.g. one captured before a later login
+    replaced the jar's cookie); the jar is cleared so only it is sent."""
+    from app.core.session_cookie import REFRESH_COOKIE_NAME
+
+    headers = dict(CSRF_HEADERS)
+    if raw_refresh_token is not None:
+        client.cookies.clear()
+        headers["Cookie"] = f"{REFRESH_COOKIE_NAME}={raw_refresh_token}"
+    return client.post("/api/v1/auth/refresh", headers=headers)
+
+
 @pytest.fixture()
 def password_reset_token_factory(db_session):
     def _make(user: User) -> str:

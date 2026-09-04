@@ -2,18 +2,13 @@ from pydantic import BaseModel, EmailStr, Field
 
 
 class TokenPair(BaseModel):
+    """The access half of a session. The refresh token travels ONLY in the
+    HttpOnly cookie set alongside this body (app/core/session_cookie.py,
+    audit M1) -- it is never in a response body, so script never sees it."""
+
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     must_change_password: bool = False
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class LogoutRequest(BaseModel):
-    refresh_token: str
 
 
 class PasswordResetRequest(BaseModel):

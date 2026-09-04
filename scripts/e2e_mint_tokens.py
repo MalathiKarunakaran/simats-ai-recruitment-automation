@@ -4,9 +4,10 @@ The login page is OTP-first (email -> code sent by mail), so a browser test
 cannot log in the way a person does without a mailbox. This issues exactly
 what a successful login issues -- an access JWT plus an opaque, rotating
 refresh token row -- through the same helpers `routers/auth.py` uses, and
-prints them as JSON. The spec puts the refresh token in localStorage under
-`simats_refresh_token`, which is all AuthContext needs to bootstrap a
-session, and uses the access token for fixture discovery.
+prints them as JSON. The spec places the refresh token in the browser's
+cookie jar as the `simats_refresh_token` HttpOnly cookie for the API host
+(audit M1: it is never in localStorage), which is all AuthContext needs to
+bootstrap a session, and uses the access token for fixture discovery.
 
     # local dev
     venv/Scripts/python.exe scripts/e2e_mint_tokens.py superadmin@example.com

@@ -7,7 +7,7 @@ from app.core.rate_limit import RateLimiter
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRoleEnum
 
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, refresh_session, session_cookie
 from tests.test_joining_onboarding import _drive_to_joining_confirmed, _mark_all_documents_received
 
 
@@ -70,9 +70,9 @@ def test_resume_upload_rejects_spoofed_content_type(client, user_factory, candid
 def test_refresh_writes_token_refreshed_audit_row(client, user_factory, db_session):
     user = user_factory(UserRoleEnum.HR_ADMIN)
     login = client.post("/api/v1/auth/login", data={"username": user.email, "password": user.plain_password})
-    refresh_token = login.json()["refresh_token"]
+    assert login.status_code == 200
 
-    response = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    response = refresh_session(client)
     assert response.status_code == 200
 
     row = db_session.query(AuditLog).filter(AuditLog.action == "TOKEN_REFRESHED").one()

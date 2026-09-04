@@ -67,9 +67,11 @@ export type CampusCode = (typeof CAMPUS_CODES)[number];
 // Mirrors app/schemas/token.py::TokenPair. must_change_password (Admin
 // password reset rollout) drives the forced-password-change route guard --
 // see AuthContext.tsx.
+// The refresh token is NOT here: it travels only in an HttpOnly cookie the
+// backend sets on the same response (audit M1, 2026-09-04), so script --
+// including any XSS payload -- never sees it.
 export interface TokenPair {
   access_token: string;
-  refresh_token: string;
   token_type: string;
   must_change_password: boolean;
 }

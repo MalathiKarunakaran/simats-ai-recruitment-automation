@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -10,10 +10,15 @@ from app.core.config import settings
 from app.core import security
 from app.core.deps import get_current_active_user, get_db
 from app.core.rate_limit import RateLimiter
+from app.core.session_cookie import (
+    clear_refresh_cookie,
+    read_refresh_cookie,
+    require_csrf_protection,
+    set_refresh_cookie,
+)
 from app.models.auth_token import LoginOtp, PasswordResetToken, RefreshToken
 from app.models.user import User
 from app.schemas.token import (
-    LogoutRequest,
     OtpRequest,
     LoginOptionsResponse,
     OtpRequestResponse,
@@ -21,7 +26,6 @@ from app.schemas.token import (
     PasswordResetConfirm,
     PasswordResetRequest,
     PasswordResetRequestResponse,
-    RefreshRequest,
     TokenPair,
 )
 from app.schemas.user import UserRead
@@ -48,7 +52,10 @@ _otp_request_rate_limit = RateLimiter(max_requests=5, window_seconds=60, name="o
 _otp_verify_rate_limit = RateLimiter(max_requests=10, window_seconds=60, name="otp-verify")
 
 
-def _issue_token_pair(db: Session, user: User, request: Request) -> TokenPair:
+def _issue_token_pair(db: Session, user: User, request: Request, response: Response) -> TokenPair:
+    """Mint an access JWT for the body and a rotating refresh token for the
+    HttpOnly cookie (audit M1). The raw refresh token goes into the cookie
+    on `response` and nowhere else -- only its hash is stored."""
     access_token = security.create_access_token(
         user_id=user.id, role=user.role.value, campus_id=user.campus_id
     )
@@ -62,9 +69,9 @@ def _issue_token_pair(db: Session, user: User, request: Request) -> TokenPair:
             user_agent=request.headers.get("user-agent"),
         )
     )
+    set_refresh_cookie(response, raw_refresh)
     return TokenPair(
         access_token=access_token,
-        refresh_token=raw_refresh,
         must_change_password=user.must_change_password,
     )
 
@@ -72,6 +79,7 @@ def _issue_token_pair(db: Session, user: User, request: Request) -> TokenPair:
 @router.post("/login", response_model=TokenPair, dependencies=[Depends(_login_rate_limit)])
 def login(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ) -> TokenPair:
@@ -95,7 +103,7 @@ def login(
         raise generic_error
 
     user.last_login_at = datetime.now(timezone.utc)
-    tokens = _issue_token_pair(db, user, request)
+    tokens = _issue_token_pair(db, user, request, response)
     log_auth_event(db, actor=user, action="LOGIN_SUCCESS", request=request, status_code=200)
     db.commit()
     return tokens
@@ -206,6 +214,7 @@ def otp_request(
 )
 def otp_verify(
     request: Request,
+    response: Response,
     payload: OtpVerify,
     db: Session = Depends(get_db),
 ) -> TokenPair:
@@ -237,55 +246,79 @@ def otp_verify(
 
     matched.used_at = datetime.now(timezone.utc)
     user.last_login_at = datetime.now(timezone.utc)
-    tokens = _issue_token_pair(db, user, request)
+    tokens = _issue_token_pair(db, user, request, response)
     log_auth_event(db, actor=user, action="LOGIN_SUCCESS", request=request, status_code=200)
     db.commit()
     return tokens
 
 
-@router.post("/refresh", response_model=TokenPair)
+@router.post("/refresh", response_model=TokenPair, dependencies=[Depends(require_csrf_protection)])
 def refresh(
     request: Request,
-    payload: RefreshRequest,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> TokenPair:
-    token_hash = security.hash_opaque_token(payload.refresh_token)
+    """Rotate the session. The refresh token is read from the HttpOnly
+    cookie only (audit M1) -- there is no request body. An invalid, expired,
+    revoked or missing cookie is a plain logged-out state: 401, and the
+    stale cookie is cleared so the browser stops presenting it."""
+    def invalid() -> HTTPException:
+        # An HTTPException builds its own response, so the cookie-clearing
+        # header is handed to it explicitly rather than set on `response`.
+        clear_refresh_cookie(response)
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"set-cookie": response.headers["set-cookie"]},
+        )
+
+    raw_refresh = read_refresh_cookie(request)
+    if raw_refresh is None:
+        raise invalid()
+
+    token_hash = security.hash_opaque_token(raw_refresh)
     row = db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).one_or_none()
 
-    invalid = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token"
-    )
-
     if row is None or not row.is_active or row.expires_at < datetime.now(timezone.utc):
-        raise invalid
+        raise invalid()
 
     user = db.get(User, row.user_id)
     if user is None or not user.is_active:
-        raise invalid
+        raise invalid()
 
     # Rotate: revoke the presented refresh token and issue a brand-new pair.
     row.revoked_at = datetime.now(timezone.utc)
-    tokens = _issue_token_pair(db, user, request)
+    tokens = _issue_token_pair(db, user, request, response)
     log_auth_event(db, actor=user, action="TOKEN_REFRESHED", request=request, status_code=200)
     db.commit()
     return tokens
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_csrf_protection)],
+)
 def logout(
     request: Request,
-    payload: LogoutRequest,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> None:
-    token_hash = security.hash_opaque_token(payload.refresh_token)
-    row = (
-        db.query(RefreshToken)
-        .filter(RefreshToken.token_hash == token_hash, RefreshToken.user_id == current_user.id)
-        .one_or_none()
-    )
-    if row is not None:
-        row.revoked_at = datetime.now(timezone.utc)
+    """Revoke the refresh token presented in the cookie (if it is this
+    user's) and clear the cookie. Idempotent: a missing or foreign cookie
+    still clears and still answers 204."""
+    raw_refresh = read_refresh_cookie(request)
+    if raw_refresh is not None:
+        token_hash = security.hash_opaque_token(raw_refresh)
+        row = (
+            db.query(RefreshToken)
+            .filter(RefreshToken.token_hash == token_hash, RefreshToken.user_id == current_user.id)
+            .one_or_none()
+        )
+        if row is not None:
+            row.revoked_at = datetime.now(timezone.utc)
+    clear_refresh_cookie(response)
     log_auth_event(db, actor=current_user, action="LOGOUT", request=request, status_code=204)
     db.commit()
 

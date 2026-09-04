@@ -1,6 +1,6 @@
 from app.models.enums import UserRoleEnum
 
-from tests.conftest import auth_headers
+from tests.conftest import auth_headers, refresh_session, session_cookie
 
 
 def test_super_admin_resets_another_users_password(client, user_factory):
@@ -58,7 +58,9 @@ def test_reset_password_revokes_existing_refresh_token(client, user_factory):
 
     login = client.post(
         "/api/v1/auth/login", data={"username": target.email, "password": target.plain_password}
-    ).json()
+    )
+    assert login.status_code == 200
+    target_refresh = session_cookie(client)
 
     reset_response = client.post(
         f"/api/v1/users/{target.id}/reset-password",
@@ -67,9 +69,7 @@ def test_reset_password_revokes_existing_refresh_token(client, user_factory):
     )
     assert reset_response.status_code == 200
 
-    refresh_attempt = client.post(
-        "/api/v1/auth/refresh", json={"refresh_token": login["refresh_token"]}
-    )
+    refresh_attempt = refresh_session(client, target_refresh)
     assert refresh_attempt.status_code == 401
 
 

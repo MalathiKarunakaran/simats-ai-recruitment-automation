@@ -63,14 +63,26 @@ function extractErrorMessage(body: unknown): string {
   return "Request failed";
 }
 
+// Audit M1 (2026-09-04): the refresh token is an HttpOnly cookie scoped to
+// the API's /auth path, so every request goes out with credentials (the
+// browser only attaches the cookie where its path matches -- refresh and
+// logout) and with the anti-CSRF header those two endpoints require. The
+// header is a custom one on purpose: an HTML form cannot send it, and a
+// cross-origin script can only send it after a CORS preflight, which the
+// backend's origin allow-list refuses for anyone but this app.
+export const CSRF_HEADER_NAME = "X-Requested-With";
+export const CSRF_HEADER_VALUE = "XMLHttpRequest";
+
 async function rawRequest(path: string, options: RequestInit): Promise<Response> {
   // Skip the default JSON content-type for FormData bodies -- the browser
   // must set its own multipart boundary, which a fixed header would clobber.
   const isFormData = options.body instanceof FormData;
   return fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    credentials: "include",
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      [CSRF_HEADER_NAME]: CSRF_HEADER_VALUE,
       ...options.headers,
     },
   });

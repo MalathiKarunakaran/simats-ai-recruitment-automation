@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiFetch, configureAuth } from "@/api/client";
+import { ApiError, apiFetch, configureAuth, publicFetch } from "@/api/client";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -9,6 +9,38 @@ function jsonResponse(status: number, body: unknown): Response {
 describe("apiFetch", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // Audit M1: the refresh token is an HttpOnly cookie on the API host, so
+  // every request must go out with credentials (the browser attaches the
+  // cookie only on the /auth path) and with the anti-CSRF header the
+  // cookie-consuming endpoints require. Both wrappers, authenticated or not.
+  it("sends credentials and the anti-CSRF header on authenticated requests", async () => {
+    configureAuth({
+      getAccessToken: () => "token-123",
+      setAccessToken: vi.fn(),
+      refreshAccessToken: vi.fn(),
+      onAuthFailure: vi.fn(),
+      onPasswordChangeRequired: vi.fn(),
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(200, { ok: true }));
+
+    await apiFetch("/some-path");
+
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init?.credentials).toBe("include");
+    expect(((init?.headers ?? {}) as Record<string, string>)["X-Requested-With"]).toBe("XMLHttpRequest");
+  });
+
+  it("sends credentials and the anti-CSRF header on public requests too (refresh is one)", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(200, { ok: true }));
+
+    await publicFetch("/auth/refresh", { method: "POST" });
+
+    const [, init] = fetchSpy.mock.calls[0];
+    expect(init?.credentials).toBe("include");
+    expect(((init?.headers ?? {}) as Record<string, string>)["X-Requested-With"]).toBe("XMLHttpRequest");
+    expect(init?.body).toBeUndefined();
   });
 
   it("attaches the current access token and returns the parsed body on success", async () => {

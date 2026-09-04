@@ -24,18 +24,16 @@ export async function verifyOtp(email: string, code: string): Promise<TokenPair>
   });
 }
 
-export async function refresh(refreshToken: string): Promise<TokenPair> {
-  return publicFetch<TokenPair>("/auth/refresh", {
-    method: "POST",
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
+/** The refresh token is the HttpOnly cookie the browser attaches on its own
+ * (client.ts sends credentials); there is no body. A 401 here is the normal
+ * "no live session" answer, and the backend clears the stale cookie with it. */
+export async function refresh(): Promise<TokenPair> {
+  return publicFetch<TokenPair>("/auth/refresh", { method: "POST" });
 }
 
-export async function logout(refreshToken: string): Promise<void> {
-  await apiFetch<void>("/auth/logout", {
-    method: "POST",
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
+/** Revokes the cookie's refresh token server-side and clears the cookie. */
+export async function logout(): Promise<void> {
+  await apiFetch<void>("/auth/logout", { method: "POST" });
 }
 
 export async function getMe(): Promise<UserRead> {
