@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {  useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, MoreVertical } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
@@ -47,7 +47,8 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PermissionCategoryCards } from "@/components/users/PermissionCategoryCards";
-import { combine, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
+import { combine, required, useFieldValidation } from "@/hooks/useFieldValidation";
+import { PASSWORD_MIN_LENGTH, passwordMinLength } from "@/auth/passwordPolicy";
 
 function getInitials(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
@@ -888,7 +889,7 @@ function ResetPasswordForm({
 }) {
   const newPassword = useFieldValidation(
     "",
-    combine(required("Password is required"), minLength(8, "Must be at least 8 characters")),
+    combine(required("Password is required"), passwordMinLength()),
   );
   const confirmPassword = useFieldValidation("", required("Please confirm the new password"));
   const [mismatchError, setMismatchError] = useState<string | null>(null);
@@ -915,7 +916,7 @@ function ResetPasswordForm({
           id="reset_new_password"
           autoComplete="new-password"
           required
-          minLength={8}
+          minLength={PASSWORD_MIN_LENGTH}
           value={newPassword.value}
           onChange={(e) => newPassword.onChange(e.target.value)}
           onBlur={newPassword.onBlur}
@@ -929,7 +930,7 @@ function ResetPasswordForm({
           id="reset_confirm_password"
           autoComplete="new-password"
           required
-          minLength={8}
+          minLength={PASSWORD_MIN_LENGTH}
           value={confirmPassword.value}
           onChange={(e) => confirmPassword.onChange(e.target.value)}
           onBlur={confirmPassword.onBlur}

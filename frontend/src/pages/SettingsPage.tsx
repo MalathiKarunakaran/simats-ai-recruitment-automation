@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {  useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
@@ -10,8 +10,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
-import { minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
+import { required, useFieldValidation } from "@/hooks/useFieldValidation";
 import { useTheme } from "@/theme/ThemeContext";
+import { PASSWORD_MIN_LENGTH, passwordMinLength } from "@/auth/passwordPolicy";
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -38,7 +39,7 @@ export function SettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile]);
 
-  const passwordValid = !newPassword || newPassword.length >= 8;
+  const passwordValid = !newPassword || newPassword.length >= PASSWORD_MIN_LENGTH;
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -106,13 +107,13 @@ export function SettingsPage() {
               <Label htmlFor="new_password">New password (leave blank to keep current)</Label>
               <PasswordInput
                 id="new_password"
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 aria-invalid={!passwordValid}
               />
               {!passwordValid ? (
-                <p className="text-xs text-destructive">{minLength(8)(newPassword)}</p>
+                <p className="text-xs text-destructive">{passwordMinLength()(newPassword)}</p>
               ) : null}
             </div>
 

@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field
 
+from app.schemas.user import PASSWORD_MIN_LENGTH
+
 
 class TokenPair(BaseModel):
     """The access half of a session. The refresh token travels ONLY in the
@@ -21,7 +23,7 @@ class PasswordResetRequestResponse(BaseModel):
 
 class PasswordResetConfirm(BaseModel):
     token: str
-    new_password: str = Field(min_length=8)
+    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH)
 
 
 class OtpRequest(BaseModel):

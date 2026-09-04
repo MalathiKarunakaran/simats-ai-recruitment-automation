@@ -1,4 +1,4 @@
-import { useState } from "react";
+import {  useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
-import { combine, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
+import { combine, required, useFieldValidation } from "@/hooks/useFieldValidation";
+import { PASSWORD_MIN_LENGTH, passwordMinLength } from "@/auth/passwordPolicy";
 
 // Forced-password-change screen -- reached via ProtectedRoute's own
 // mustChangePassword guard, either right after a Super Admin admin-reset
@@ -25,7 +26,7 @@ export function SetNewPasswordPage() {
 
   const newPassword = useFieldValidation(
     "",
-    combine(required("New password is required"), minLength(8, "Must be at least 8 characters")),
+    combine(required("New password is required"), passwordMinLength()),
   );
   const confirmPassword = useFieldValidation("", required("Please confirm your new password"));
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +74,7 @@ export function SetNewPasswordPage() {
                 id="new_password"
                 autoComplete="new-password"
                 required
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 value={newPassword.value}
                 onChange={(e) => newPassword.onChange(e.target.value)}
                 onBlur={newPassword.onBlur}
@@ -87,7 +88,7 @@ export function SetNewPasswordPage() {
                 id="confirm_password"
                 autoComplete="new-password"
                 required
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 value={confirmPassword.value}
                 onChange={(e) => confirmPassword.onChange(e.target.value)}
                 onBlur={confirmPassword.onBlur}

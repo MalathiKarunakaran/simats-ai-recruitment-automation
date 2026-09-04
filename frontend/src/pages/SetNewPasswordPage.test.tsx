@@ -65,11 +65,11 @@ describe("SetNewPasswordPage", () => {
 
     renderPage();
 
-    await userEvent.type(screen.getByLabelText("New password"), "newpass123");
-    await userEvent.type(screen.getByLabelText("Confirm new password"), "newpass123");
+    await userEvent.type(screen.getByLabelText("New password"), "newpassword12");
+    await userEvent.type(screen.getByLabelText("Confirm new password"), "newpassword12");
     await userEvent.click(screen.getByRole("button", { name: "Set new password" }));
 
-    await waitFor(() => expect(saveOwnProfile).toHaveBeenCalledWith({ password: "newpass123" }));
+    await waitFor(() => expect(saveOwnProfile).toHaveBeenCalledWith({ password: "newpassword12" }));
     expect(mockedUpdateOwnProfile).not.toHaveBeenCalled(); // never bypasses the session-aware path
     await waitFor(() => expect(completePasswordChange).toHaveBeenCalledWith(UPDATED_USER));
     expect(await screen.findByText("dashboard page")).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe("SetNewPasswordPage", () => {
     expect(confirmPasswordInput).toHaveAttribute("type", "text");
   });
 
-  it("blocks submission for a password shorter than 8 characters", async () => {
+  it("blocks submission for a password shorter than 12 characters", async () => {
     const saveOwnProfile = vi.fn();
     mockedUseAuth.mockReturnValue({
       user: null,
@@ -117,11 +117,11 @@ describe("SetNewPasswordPage", () => {
 
     renderPage();
 
-    await userEvent.type(screen.getByLabelText("New password"), "short1");
-    await userEvent.type(screen.getByLabelText("Confirm new password"), "short1");
+    await userEvent.type(screen.getByLabelText("New password"), "elevenchars");
+    await userEvent.type(screen.getByLabelText("Confirm new password"), "elevenchars");
     await userEvent.click(screen.getByRole("button", { name: "Set new password" }));
 
-    expect(await screen.findByText("Must be at least 8 characters")).toBeInTheDocument();
+    expect(await screen.findByText("Must be at least 12 characters")).toBeInTheDocument();
     expect(saveOwnProfile).not.toHaveBeenCalled();
   });
 
@@ -141,8 +141,8 @@ describe("SetNewPasswordPage", () => {
 
     renderPage();
 
-    await userEvent.type(screen.getByLabelText("New password"), "newpass123");
-    await userEvent.type(screen.getByLabelText("Confirm new password"), "different123");
+    await userEvent.type(screen.getByLabelText("New password"), "newpassword12");
+    await userEvent.type(screen.getByLabelText("Confirm new password"), "differentone12");
     await userEvent.click(screen.getByRole("button", { name: "Set new password" }));
 
     expect(await screen.findByText("Passwords do not match")).toBeInTheDocument();

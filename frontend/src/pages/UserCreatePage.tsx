@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import {  useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
@@ -14,7 +14,8 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { combine, email as emailValidator, minLength, required, useFieldValidation } from "@/hooks/useFieldValidation";
+import { combine, email as emailValidator, required, useFieldValidation } from "@/hooks/useFieldValidation";
+import { PASSWORD_MIN_LENGTH, passwordMinLength } from "@/auth/passwordPolicy";
 
 export function UserCreatePage() {
   const { user, hasPermission } = useAuth();
@@ -27,7 +28,7 @@ export function UserCreatePage() {
   const email = useFieldValidation("", combine(required("Email is required"), emailValidator()));
   const password = useFieldValidation(
     "",
-    combine(required("Password is required"), minLength(8, "Must be at least 8 characters")),
+    combine(required("Password is required"), passwordMinLength()),
   );
   const [role, setRole] = useState<UserRole>("RECRUITMENT_OFFICER");
   const [campusId, setCampusId] = useState("");
@@ -117,7 +118,7 @@ export function UserCreatePage() {
           <PasswordInput
             id="password"
             required
-            minLength={8}
+            minLength={PASSWORD_MIN_LENGTH}
             value={password.value}
             onChange={(e) => password.onChange(e.target.value)}
             onBlur={password.onBlur}

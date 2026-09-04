@@ -5,10 +5,15 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.enums import CoordinatorCapabilityEnum, PermissionEnum, UserRoleEnum
 
+# Audit L2 (2026-09-04): the one password-length rule, applied to every path
+# that sets a password -- user creation, self-service change, admin reset and
+# the emailed reset. Mirrored in frontend/src/auth/passwordPolicy.ts.
+PASSWORD_MIN_LENGTH = 12
+
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH)
     full_name: str
     role: UserRoleEnum
     campus_id: uuid.UUID | None = None
@@ -28,11 +33,11 @@ class UserUpdate(BaseModel):
 class UserSelfUpdate(BaseModel):
     full_name: str | None = None
     phone_number: str | None = None
-    password: str | None = Field(default=None, min_length=8)
+    password: str | None = Field(default=None, min_length=PASSWORD_MIN_LENGTH)
 
 
 class AdminPasswordReset(BaseModel):
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=PASSWORD_MIN_LENGTH)
 
 
 class UserRead(BaseModel):

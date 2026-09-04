@@ -1073,15 +1073,15 @@ describe("UserDetailPage reset password", () => {
     await userEvent.click(screen.getByRole("button", { name: "Reset password" }));
 
     const dialog = await screen.findByRole("dialog");
-    await userEvent.type(within(dialog).getByLabelText("New password"), "newpass123");
-    await userEvent.type(within(dialog).getByLabelText("Confirm password"), "newpass123");
+    await userEvent.type(within(dialog).getByLabelText("New password"), "newpassword12");
+    await userEvent.type(within(dialog).getByLabelText("Confirm password"), "newpassword12");
     await userEvent.click(within(dialog).getByRole("button", { name: "Reset password" }));
 
-    await waitFor(() => expect(mockedAdminResetPassword).toHaveBeenCalledWith(COORDINATOR.id, "newpass123"));
+    await waitFor(() => expect(mockedAdminResetPassword).toHaveBeenCalledWith(COORDINATOR.id, "newpassword12"));
     expect(
       await within(dialog).findByText("Password reset. This user must set a new password on next login."),
     ).toBeInTheDocument();
-    expect(screen.queryByText("newpass123")).not.toBeInTheDocument();
+    expect(screen.queryByText("newpassword12")).not.toBeInTheDocument();
   });
 
   it("toggles the reset-password dialog's two password fields independently", async () => {
@@ -1107,7 +1107,7 @@ describe("UserDetailPage reset password", () => {
     expect(confirmPasswordInput).toHaveAttribute("type", "text");
   });
 
-  it("blocks submission and never calls the API for a password shorter than 8 characters", async () => {
+  it("blocks submission and never calls the API for a password shorter than 12 characters", async () => {
     mockCurrentUser("SUPER_ADMIN");
     mockedGetUser.mockResolvedValue(COORDINATOR);
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
@@ -1123,7 +1123,7 @@ describe("UserDetailPage reset password", () => {
     await userEvent.type(within(dialog).getByLabelText("Confirm password"), "short1");
     await userEvent.click(within(dialog).getByRole("button", { name: "Reset password" }));
 
-    expect(await within(dialog).findByText("Must be at least 8 characters")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Must be at least 12 characters")).toBeInTheDocument();
     expect(mockedAdminResetPassword).not.toHaveBeenCalled();
   });
 
@@ -1139,7 +1139,7 @@ describe("UserDetailPage reset password", () => {
     await userEvent.click(screen.getByRole("button", { name: "Reset password" }));
 
     const dialog = await screen.findByRole("dialog");
-    await userEvent.type(within(dialog).getByLabelText("New password"), "newpass123");
+    await userEvent.type(within(dialog).getByLabelText("New password"), "newpassword12");
     await userEvent.type(within(dialog).getByLabelText("Confirm password"), "different123");
     await userEvent.click(within(dialog).getByRole("button", { name: "Reset password" }));
 
