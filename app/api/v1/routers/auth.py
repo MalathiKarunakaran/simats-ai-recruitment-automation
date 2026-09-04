@@ -52,6 +52,10 @@ _password_reset_rate_limit = RateLimiter(max_requests=5, window_seconds=60, name
 _otp_request_rate_limit = RateLimiter(max_requests=5, window_seconds=60, name="otp-request")
 _otp_verify_rate_limit = RateLimiter(max_requests=10, window_seconds=60, name="otp-verify")
 
+# Audit M6: how long after a refresh token was rotated out a second
+# presentation of it is still treated as a benign race rather than a replay.
+REFRESH_REUSE_LEEWAY_SECONDS = 10
+
 
 def _issue_token_pair(
     db: Session, user: User, request: Request, response: Response, *, session_id: uuid.UUID
@@ -283,9 +287,51 @@ def refresh(
         raise invalid()
 
     token_hash = security.hash_opaque_token(raw_refresh)
-    row = db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).one_or_none()
+    # Locked for the rest of this transaction (audit M6): two refreshes
+    # presenting the same token at the same moment serialise here, so the
+    # second one sees the first's revoked_at instead of both rotating and
+    # producing two live descendant chains from one token.
+    row = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token_hash == token_hash)
+        .with_for_update()
+        .one_or_none()
+    )
+    now = datetime.now(timezone.utc)
 
-    if row is None or not row.is_active or row.expires_at < datetime.now(timezone.utc):
+    if row is None or row.expires_at < now:
+        raise invalid()
+
+    if row.revoked_at is not None:
+        # Audit M6: a token that was already rotated (or revoked) is being
+        # presented again. Rotation hands the browser a new token on every
+        # use, so a second presentation of an old one means either a stolen
+        # copy is being replayed or a benign race (two tabs bootstrapping on
+        # the same cookie at once). The race resolves within seconds, so a
+        # reuse inside REFRESH_REUSE_LEEWAY_SECONDS is answered with a plain
+        # 401; beyond it the token's SESSION FAMILY (this browser's chain --
+        # see RefreshToken.session_id) is revoked: the thief's descendant and
+        # the legitimate holder's both stop working, and with M3 so do that
+        # family's access tokens. Other sessions of the same user (another
+        # device, another browser) are separate families and are untouched.
+        # The event is written to the audit log under its own action.
+        if (now - row.revoked_at).total_seconds() > REFRESH_REUSE_LEEWAY_SECONDS:
+            family = (
+                db.query(RefreshToken)
+                .filter(RefreshToken.session_id == row.session_id, RefreshToken.revoked_at.is_(None))
+                .with_for_update()
+                .all()
+            )
+            for token in family:
+                token.revoked_at = now
+            log_auth_event(
+                db,
+                actor=db.get(User, row.user_id),
+                action="TOKEN_REUSE_DETECTED",
+                request=request,
+                status_code=401,
+            )
+            db.commit()
         raise invalid()
 
     user = db.get(User, row.user_id)

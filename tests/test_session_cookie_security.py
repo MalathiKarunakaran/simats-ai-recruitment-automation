@@ -233,3 +233,180 @@ def test_interactive_docs_are_the_only_paths_without_the_api_csp(client):
         response = client.get(path)
         assert response.status_code == 200, path
         assert "content-security-policy" not in response.headers, path
+
+
+# --- M6: reuse of a rotated-out refresh token -------------------------------
+#
+# Families: RefreshToken.session_id (M3) -- a login starts one, each rotation
+# copies it onto the replacement row. Reuse of a rotated-out token after the
+# leeway revokes THAT family only; other logins of the same user stay alive.
+
+
+def _refresh_row(db_session, raw_refresh):
+    from app.core import security
+    from app.models.auth_token import RefreshToken
+
+    return db_session.query(RefreshToken).filter(
+        RefreshToken.token_hash == security.hash_opaque_token(raw_refresh)
+    ).one()
+
+
+def _age_rotation(db_session, raw_refresh, minutes=5):
+    """Pretend the rotation happened a while ago, i.e. this is no race."""
+    from datetime import timedelta
+
+    row = _refresh_row(db_session, raw_refresh)
+    row.revoked_at = row.revoked_at - timedelta(minutes=minutes)
+    db_session.flush()
+
+
+def _reuse_events(db_session):
+    from app.models.audit_log import AuditLog
+
+    return db_session.query(AuditLog).filter(AuditLog.action == "TOKEN_REUSE_DETECTED").count()
+
+
+def _me(client, access_token):
+    return client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access_token}"}).status_code
+
+
+def test_normal_refresh_rotates_and_the_old_token_is_rejected(client, user_factory):
+    # A + B
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    _login(client, user)
+    first = session_cookie(client)
+    refreshed = refresh_session(client)
+    assert refreshed.status_code == 200
+    second = _refresh_cookie_from(refreshed)[REFRESH_COOKIE_NAME].value
+    assert second != first
+    assert refresh_session(client, first).status_code == 401
+    assert refresh_session(client, second).status_code == 200
+
+
+def test_reuse_after_the_leeway_revokes_that_family_and_clears_the_cookie(client, user_factory, db_session):
+    # C + D + I, plus M3: the family's access token dies with it
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    _login(client, user)
+    first = session_cookie(client)
+    refreshed = refresh_session(client)
+    second = _refresh_cookie_from(refreshed)[REFRESH_COOKIE_NAME].value
+    access_of_family = refreshed.json()["access_token"]
+    assert _me(client, access_of_family) == 200
+    _age_rotation(db_session, first)
+
+    replay = refresh_session(client, first)
+    assert replay.status_code == 401
+    cleared = _refresh_cookie_from(replay)[REFRESH_COOKIE_NAME]
+    assert cleared.value == "" or int(cleared.get("max-age", "0") or 0) == 0
+
+    # The descendant the legitimate holder had is dead, and so is the
+    # family's access token; the event is audited once.
+    assert refresh_session(client, second).status_code == 401
+    assert _me(client, access_of_family) == 401
+    assert _reuse_events(db_session) == 1
+
+
+def test_reuse_revokes_only_the_compromised_family_not_the_users_other_sessions(client, user_factory, db_session):
+    # E
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    _login(client, user)  # device 1: the phone
+    phone = session_cookie(client)
+    laptop_login = _login(client, user)  # device 2: a separate family
+    laptop_first = session_cookie(client)
+    laptop_access = laptop_login.json()["access_token"]
+    refreshed = refresh_session(client, laptop_first)
+    laptop_second = _refresh_cookie_from(refreshed)[REFRESH_COOKIE_NAME].value
+    _age_rotation(db_session, laptop_first)
+
+    assert refresh_session(client, laptop_first).status_code == 401  # reuse on the laptop family
+    assert refresh_session(client, laptop_second).status_code == 401  # laptop family gone
+    assert _me(client, laptop_access) == 401
+    # The phone's family (an independent login) is untouched.
+    assert refresh_session(client, phone).status_code == 200
+
+
+def test_reuse_within_the_leeway_is_a_plain_401_and_the_family_survives(client, user_factory, db_session):
+    # Race: two tabs bootstrapping on the same cookie at once. The loser
+    # gets 401, the winner's descendant keeps working, nothing is revoked.
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    _login(client, user)
+    first = session_cookie(client)
+    refreshed = refresh_session(client)
+    second = _refresh_cookie_from(refreshed)[REFRESH_COOKIE_NAME].value
+
+    assert refresh_session(client, first).status_code == 401
+    assert refresh_session(client, second).status_code == 200
+    assert _reuse_events(db_session) == 0
+
+
+def test_the_presented_token_row_is_locked_so_concurrent_refreshes_cannot_both_rotate(
+    client, user_factory, db_session
+):
+    # H. A true two-connection race cannot be staged inside the rollback-
+    # isolated fixture, so: (1) the lookup must be SELECT ... FOR UPDATE, and
+    # (2) two presentations of one token, one after the other (what the lock
+    # turns a simultaneous pair into), leave exactly ONE live row in the family.
+    from sqlalchemy import event
+
+    from app.models.auth_token import RefreshToken
+
+    from tests.conftest import engine
+
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    _login(client, user)
+    first = session_cookie(client)
+
+    statements: list[str] = []
+
+    def _capture(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        winner = refresh_session(client, first)
+        loser = refresh_session(client, first)
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    assert winner.status_code == 200
+    assert loser.status_code == 401
+    assert any("FROM refresh_tokens" in s and "FOR UPDATE" in s for s in statements)
+    family_id = _refresh_row(db_session, first).session_id
+    live = db_session.query(RefreshToken).filter(
+        RefreshToken.session_id == family_id, RefreshToken.revoked_at.is_(None)
+    ).count()
+    assert live == 1
+
+
+def test_logout_and_password_reset_still_end_sessions_after_the_reuse_change(
+    client, user_factory, password_reset_token_factory
+):
+    # F + G
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    login = _login(client, user)
+    raw = session_cookie(client)
+    assert client.post(
+        "/api/v1/auth/logout",
+        headers={**CSRF_HEADERS, "Authorization": f"Bearer {login.json()['access_token']}"},
+    ).status_code == 204
+    assert refresh_session(client, raw).status_code == 401
+
+    _login(client, user)
+    before_reset = session_cookie(client)
+    token = password_reset_token_factory(user)
+    assert client.post(
+        "/api/v1/auth/password-reset-confirm", json={"token": token, "new_password": "BrandNewPass456!"}
+    ).status_code == 204
+    assert refresh_session(client, before_reset).status_code == 401
+
+
+def test_cookie_attributes_are_unchanged_by_the_reuse_change(client, user_factory, monkeypatch):
+    # J
+    user = user_factory(UserRoleEnum.HR_ADMIN)
+    monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+    _login(client, user)
+    refreshed = refresh_session(client)
+    morsel = _refresh_cookie_from(refreshed)[REFRESH_COOKIE_NAME]
+    assert morsel["httponly"] and morsel["secure"]
+    assert morsel["samesite"].lower() == "strict"
+    assert morsel["path"] == REFRESH_COOKIE_PATH
