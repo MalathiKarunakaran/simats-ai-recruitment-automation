@@ -144,8 +144,8 @@ venv/Scripts/python.exe -m scripts.e2e_seed          # fixture master data the s
 E2E_TOKENS="$(venv/Scripts/python.exe scripts/e2e_mint_tokens.py)"   E2E_BASE_URL=http://localhost:5173 npx playwright test
 ```
 
-243 backend tests, 181 frontend tests (32 files), all passing as of this
-README. Backend tests never make a live call to Anthropic/OpenAI/
+1222 backend tests, 812 frontend tests and 66 browser tests, all passing
+in CI as of 2026-09-05. Backend tests never make a live call to Anthropic/OpenAI/
 MinIO/ChromaDB — all four are FastAPI-injectable dependencies overridden
 with in-memory fakes in `tests/conftest.py`.
 
@@ -164,11 +164,11 @@ from inside `frontend/`.
 - CI (`.github/workflows/ci.yml`) runs pytest, the frontend checks, the
   migration chain and the Playwright suite on every push; it does not
   deploy — see `DEPLOYMENT.md` for the manual deploy steps.
-- `DEPLOYMENT.md`'s Docker runbook was verified locally; it has not been
-  run against a real remote VPS.
-- The original spec mentions 8 campuses but only names 7 — the system
-  implements exactly those 7 (`app/models/enums.py::CAMPUS_CODES`). This
-  is an intentional, documented spec-vs-build gap, not a bug.
+- `DEPLOYMENT.md`'s runbook is the one used for the live production VPS;
+  only a from-scratch reverse-proxy setup has never been exercised.
+- The original spec mentions 8 campuses but names 7; the eighth was
+  confirmed as SHIFT, and `app/models/enums.py::CAMPUS_CODES` holds the
+  seven the institution actually uses (SHOTS was never one).
 
 See `CLAUDE.md` for the full set of repo conventions (RBAC, state-machine
 choke points, AI-client degradation pattern) if you're extending this

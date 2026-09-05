@@ -27,7 +27,7 @@ Edit `.env` for production:
 - `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`/`MINIO_SECRET_KEY` — real, unique passwords, not `change_me_locally`.
 - `SEED_SUPER_ADMIN_EMAIL`/`SEED_SUPER_ADMIN_PASSWORD` — set a real admin email; leave the password blank to have one auto-generated and printed once at seed time (never persisted in plaintext).
 - `SEED_SAMPLE_USER_PASSWORD` — only relevant if you intend to seed demo data in production, which you normally would not; leave as-is or ignore.
-- `ANTHROPIC_API_KEY` — a real key for JD generation/resume screening/Hermes to work; the app runs fine without one (those specific endpoints return a clean `503`).
+- `OPENAI_API_KEY` — a real key for JD generation, resume screening, interview questions and Hermes to work; the app runs fine without one (those specific endpoints return a clean `503`). `ANTHROPIC_API_KEY` is unused since Hermes moved to OpenAI (2026-08-24).
 - `N8N_BASE_URL` — point at your real n8n instance's webhook base URL for real notification delivery/job-portal distribution; leave blank to run with notifications honestly marked `FAILED` and distribution returning `503`.
 - `PUBLIC_APPLY_BASE_URL` — your real careers-page/apply-link domain, once one exists.
 - `CORS_ALLOWED_ORIGINS` — your frontend's real origin(s), comma-separated, once a frontend is deployed. Leave blank if the API has no browser-based frontend calling it cross-origin. **This list is also the CSRF allow-list** for the session-cookie endpoints (`/auth/refresh`, `/auth/logout` — see `app/core/session_cookie.py`): a request whose `Origin` is not here is refused.
