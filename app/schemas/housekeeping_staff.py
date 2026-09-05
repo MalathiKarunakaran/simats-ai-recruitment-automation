@@ -39,6 +39,7 @@ class HousekeepingStaffRead(HousekeepingStaffBase):
 
     id: uuid.UUID
     campus_id: uuid.UUID
+    employee_id: uuid.UUID | None = None
     created_by_id: uuid.UUID
     updated_by_id: uuid.UUID | None
     created_at: datetime

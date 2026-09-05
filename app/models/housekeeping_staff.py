@@ -65,6 +65,15 @@ class HousekeepingStaff(Base):
     # Free text -- no self-referential-FK precedent anywhere in this codebase
     # (see the plan's "Lower-stakes design defaults" section).
     supervisor: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # Set when the roster row was created by the recruitment pipeline at
+    # hand-over to HOD (app/services/joining.py) rather than entered by hand:
+    # links the row to the Employee record so offboarding that employee
+    # deactivates the roster row too, and the Housekeeping working count
+    # (sanctioned_strength.working_count_for) moves in both directions.
+    # NULL for legacy / hand-entered staff, who have no pipeline trail.
+    employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, unique=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     created_by_id: Mapped[uuid.UUID] = mapped_column(

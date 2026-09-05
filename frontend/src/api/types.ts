@@ -450,6 +450,8 @@ export interface HousekeepingStaffRead {
   shift: HousekeepingShift;
   supervisor: string | null;
   is_active: boolean;
+  // Set when the row was created by the pipeline at hand-over to HOD.
+  employee_id: string | null;
   created_by_id: string;
   updated_by_id: string | null;
   created_at: string;
@@ -1253,10 +1255,17 @@ export interface OrientationCompletePayload {
   orientation_date?: string | null;
 }
 
-// Mirrors app/schemas/joining.py::HandoverToHodRequest.
+// Mirrors app/schemas/joining.py::HandoverToHodRequest. The last four are
+// Housekeeping only: the hire is put on the housekeeping roster at hand-over
+// (that is what the Housekeeping working count is counted from), which needs
+// the biometric ID and shift; location defaults to the vacancy request's.
 export interface HandoverToHodPayload {
   hod_assigned: string;
   designation?: string | null;
+  bio_id?: string | null;
+  shift?: HousekeepingShift | null;
+  location_id?: string | null;
+  supervisor?: string | null;
 }
 
 // Mirrors app/schemas/resume_score.py::ResumeScoreRead.
@@ -1500,6 +1509,7 @@ export interface EmployeeRead {
   email: string;
   phone_number: string | null;
   designation: string;
+  designation_id: string | null;
   date_of_joining: string;
   user_id: string | null;
   employment_status: EmploymentStatus;

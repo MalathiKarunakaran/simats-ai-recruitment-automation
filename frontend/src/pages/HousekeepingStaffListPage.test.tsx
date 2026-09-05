@@ -84,6 +84,7 @@ const SSE_LOCATION: LocationRead = {
 const KAMALA: HousekeepingStaffRead = {
   id: "hk-1",
   campus_id: "c-sse",
+  employee_id: null,
   bio_id: "BIO-001",
   name: "Kamala Devi",
   designation_id: "d-hk-1",

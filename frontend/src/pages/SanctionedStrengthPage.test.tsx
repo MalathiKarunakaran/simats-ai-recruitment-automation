@@ -330,6 +330,7 @@ function mockNonTeachingFilterData() {
 const EMPLOYEE_1: EmployeeRead = {
   id: "emp-1",
   application_id: "app-1",
+  designation_id: null,
   employee_code: "EMP001",
   campus_id: "c-sse",
   department_id: "d-admin",
@@ -443,6 +444,7 @@ function mockHousekeepingFilterData() {
 const HOUSEKEEPING_STAFF_1: HousekeepingStaffRead = {
   id: "hk-staff-1",
   campus_id: "c-sse",
+  employee_id: null,
   bio_id: "BIO-100",
   name: "Kamala Devi",
   designation_id: "des-hk-1",

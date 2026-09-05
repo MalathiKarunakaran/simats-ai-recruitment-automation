@@ -18,6 +18,7 @@ class EmployeeRead(BaseModel):
     email: str
     phone_number: str | None
     designation: str
+    designation_id: uuid.UUID | None = None
     date_of_joining: date
     user_id: uuid.UUID | None
     employment_status: EmploymentStatusEnum

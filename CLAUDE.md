@@ -176,6 +176,16 @@ final approval) and `JobPosting` rows (at explicit publish).
 slot fills. Routers (applications, offers, joining, interviews) call into
 these — never mutate `.status` directly in a router.
 
+**Working strength is derived, never stored**: `sanctioned_strength.working_count_for`
+counts ACTIVE `Employee` rows by `designation_id` for Teaching/Non-Teaching and
+active `HousekeepingStaff` roster rows for Housekeeping (a `working_override`
+on the sanctioned row wins when set). So anything that creates or separates
+staff must keep those two tables right: `joining.create_employee` sets
+`Employee.designation_id` (vacancy designation, else exact-name match) and
+creates the roster row for a HOUSEKEEPING hire; `employees.offboard_employee`
+deactivates that roster row. Found broken 2026-09-05 (no hire ever moved the
+count); `tests/test_hire_updates_working_strength.py` guards it.
+
 **AI 503-degradation pattern**: `app/services/ai_client.py`'s
 `get_ai_client()`/`get_openai_client()` are FastAPI dependencies that raise
 `HTTPException(503, "AI features are not configured (...API_KEY is not

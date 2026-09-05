@@ -288,6 +288,10 @@ def hand_over_to_hod(
         designation=payload.designation,
         actor=current_user,
         request=request,
+        bio_id=payload.bio_id,
+        shift=payload.shift,
+        location_id=payload.location_id,
+        supervisor=payload.supervisor,
     )
     pipeline.transition_application_status(
         db,

@@ -1,9 +1,9 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import JoiningDocumentStatusEnum
+from app.models.enums import HousekeepingShiftEnum, JoiningDocumentStatusEnum
 
 
 class JoiningRecordRead(BaseModel):
@@ -51,3 +51,12 @@ class OrientationCompleteRequest(BaseModel):
 class HandoverToHodRequest(BaseModel):
     hod_assigned: str
     designation: str | None = None
+    # Housekeeping only (app/services/joining.py::create_employee): the
+    # roster row that makes the hire count as "working" needs the
+    # biometric attendance ID and the shift, which nothing earlier in the
+    # pipeline collects. location_id defaults to the vacancy request's own
+    # location. All ignored for Teaching / Non-Teaching.
+    bio_id: str | None = Field(default=None, max_length=50)
+    shift: HousekeepingShiftEnum | None = None
+    location_id: uuid.UUID | None = None
+    supervisor: str | None = Field(default=None, max_length=150)

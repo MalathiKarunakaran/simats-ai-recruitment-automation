@@ -60,6 +60,7 @@ const DEPARTMENT: DepartmentRead = {
 const EMPLOYEE: EmployeeRead = {
   id: "emp-1",
   application_id: "app-1",
+  designation_id: null,
   employee_code: "SSE-0001",
   campus_id: "c-sse",
   department_id: "d-cse",

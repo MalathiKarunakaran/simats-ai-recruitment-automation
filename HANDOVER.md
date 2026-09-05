@@ -152,7 +152,11 @@ and closes the vacancy automatically when the last slot fills.
 questions and structured feedback. **Offers** are created, sent and
 answered; the pipeline follows. **Onboarding** tracks the joining document
 checklist and ends with an employee record and a generated employee code.
-**Employees** are then listed and can be offboarded.
+**Employees** are then listed and can be offboarded. Hand-over is the
+moment the sanctioned-strength working count moves: the new employee
+carries the vacancy's designation, and a Housekeeping hire is also added
+to the housekeeping roster, for which the hand-over step asks for the
+biometric ID, shift and location. Offboarding reverses both.
 
 **Reports** offers seven report types and an AD Briefing summary, each
 filterable by date range and exportable to Excel or PowerPoint. Every

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ApiError } from "@/api/client";
 import { listDepartments } from "@/api/departments";
 import { listEmployees } from "@/api/employees";
+import { listLocations } from "@/api/locations";
 import {
   allotDepartmentRoom,
   completeOrientation,
@@ -13,7 +14,7 @@ import {
   markJoined,
   updateJoiningDocument,
 } from "@/api/joining";
-import type { ApplicationRead, JoiningDocumentStatus } from "@/api/types";
+import type { ApplicationRead, HousekeepingShift, JoiningDocumentStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,9 +22,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { locationLabel } from "@/lib/locationDisplay";
 
 const READ_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 const HR_ONLY_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
+
+const SHIFT_OPTIONS: { value: HousekeepingShift; label: string }[] = [
+  { value: "MORNING", label: "Morning" },
+  { value: "AFTERNOON", label: "Afternoon" },
+  { value: "EVENING", label: "Evening" },
+  { value: "NIGHT", label: "Night" },
+];
 
 export function JoiningCard({ application }: { application: ApplicationRead }) {
   const { user, hasPermission } = useAuth();
@@ -34,6 +43,14 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
   const [orientationDate, setOrientationDate] = useState("");
   const [hodAssigned, setHodAssigned] = useState("");
   const [designation, setDesignation] = useState("");
+  // Housekeeping only: joining.py puts the hire on the housekeeping roster
+  // at hand-over, which is what that category's working count is counted
+  // from. Nothing earlier in the pipeline collects these.
+  const isHousekeeping = application.role_category === "HOUSEKEEPING";
+  const [bioId, setBioId] = useState("");
+  const [shift, setShift] = useState<HousekeepingShift | "">("");
+  const [locationId, setLocationId] = useState("");
+  const [supervisor, setSupervisor] = useState("");
 
   // Bug fix: both OR'd with hasPermission("ONBOARDING") -- every joining.py
   // endpoint (reads and writes alike) is gated by the same
@@ -63,6 +80,13 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
     enabled: canWrite && application.status === "JOINED",
   });
   const departmentOptions = (departments ?? []).filter((d) => d.campus_id === application.campus_id);
+
+  const { data: locations } = useQuery({
+    queryKey: ["locations"],
+    queryFn: listLocations,
+    enabled: canWrite && isHousekeeping && application.status === "ORIENTATION_COMPLETE",
+  });
+  const locationOptions = (locations ?? []).filter((l) => l.campus_id === application.campus_id && l.is_active);
 
   const { data: employees } = useQuery({
     queryKey: ["employees"],
@@ -119,7 +143,18 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
 
   const handOverToHodMutation = useMutation({
     mutationFn: () =>
-      handOverToHod(application.id, { hod_assigned: hodAssigned, designation: designation || null }),
+      handOverToHod(application.id, {
+        hod_assigned: hodAssigned,
+        designation: designation || null,
+        ...(isHousekeeping
+          ? {
+              bio_id: bioId.trim(),
+              shift: shift || null,
+              location_id: locationId || null,
+              supervisor: supervisor.trim() || null,
+            }
+          : {}),
+      }),
     onSuccess: () => {
       setError(null);
       afterAction();
@@ -273,9 +308,61 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
                 className="max-w-xs"
               />
             </div>
+            {isHousekeeping ? (
+              <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+                <p className="text-xs text-muted-foreground">
+                  Housekeeping: this hand-over also adds the person to the housekeeping roster, which is what
+                  the Housekeeping working strength counts.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="bio_id">Bio ID</Label>
+                    <Input id="bio_id" required value={bioId} onChange={(e) => setBioId(e.target.value)} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="shift">Shift</Label>
+                    <Select value={shift} onValueChange={(value) => setShift(value as HousekeepingShift)}>
+                      <SelectTrigger id="shift" aria-label="Shift">
+                        <SelectValue placeholder="Select a shift" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SHIFT_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="roster_location">Location</Label>
+                    <Select value={locationId} onValueChange={setLocationId}>
+                      <SelectTrigger id="roster_location" aria-label="Location">
+                        <SelectValue placeholder="Select a location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locationOptions.map((location) => (
+                          <SelectItem key={location.id} value={location.id}>
+                            {locationLabel(location)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="supervisor">Supervisor (optional)</Label>
+                    <Input id="supervisor" value={supervisor} onChange={(e) => setSupervisor(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <Button
               className="w-fit"
-              disabled={handOverToHodMutation.isPending || !hodAssigned.trim()}
+              disabled={
+                handOverToHodMutation.isPending ||
+                !hodAssigned.trim() ||
+                (isHousekeeping && (!bioId.trim() || !shift || !locationId))
+              }
               onClick={() => handOverToHodMutation.mutate()}
             >
               {handOverToHodMutation.isPending ? "Handing over…" : "Hand over to HOD"}

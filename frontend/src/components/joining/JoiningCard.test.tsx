@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as departmentsApi from "@/api/departments";
 import * as employeesApi from "@/api/employees";
 import * as joiningApi from "@/api/joining";
+import * as locationsApi from "@/api/locations";
 import type {
   ApplicationRead,
   DepartmentRead,
@@ -19,6 +21,7 @@ import { JoiningCard } from "@/components/joining/JoiningCard";
 vi.mock("@/api/joining");
 vi.mock("@/api/employees");
 vi.mock("@/api/departments");
+vi.mock("@/api/locations");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -29,6 +32,8 @@ const mockedGetJoiningRecord = vi.mocked(joiningApi.getJoiningRecord);
 const mockedListJoiningDocuments = vi.mocked(joiningApi.listJoiningDocuments);
 const mockedListEmployees = vi.mocked(employeesApi.listEmployees);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
+const mockedListLocations = vi.mocked(locationsApi.listLocations);
+const mockedHandOverToHod = vi.mocked(joiningApi.handOverToHod);
 
 function makeApplication(overrides: Partial<ApplicationRead> = {}): ApplicationRead {
   return {
@@ -265,6 +270,7 @@ describe("JoiningCard", () => {
       {
         id: "emp-1",
         application_id: "app-1",
+        designation_id: null,
         employee_code: "SSE-0001",
         campus_id: "c-sse",
         department_id: "dept-1",
@@ -294,5 +300,86 @@ describe("JoiningCard", () => {
     await waitFor(() => expect(screen.getByText("SSE-0001")).toBeInTheDocument());
     expect(screen.getByText("R-305")).toBeInTheDocument();
     expect(screen.getByText("Dr. Test HOD")).toBeInTheDocument();
+  });
+  describe("Housekeeping hand-over adds the hire to the roster", () => {
+    const hrAuth = () =>
+      mockedUseAuth.mockReturnValue({
+        user: { role: "HR_ADMIN" } as UserRead,
+        isLoading: false,
+        login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+        logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      });
+
+    beforeEach(() => {
+      mockedGetJoiningRecord.mockResolvedValue(RECORD);
+      mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
+      mockedListLocations.mockResolvedValue([
+        {
+          id: "loc-1",
+          campus_id: "c-sse",
+          name: "Main Block",
+          block_building: "Main Block",
+          floor_venue: "Ground Floor",
+          category: null,
+          is_active: true,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+        {
+          id: "loc-other",
+          campus_id: "c-scad",
+          name: "Elsewhere",
+          block_building: null,
+          floor_venue: null,
+          category: null,
+          is_active: true,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ]);
+    });
+
+    it("does not ask a Teaching hire for roster details", async () => {
+      hrAuth();
+      renderCard(makeApplication({ status: "ORIENTATION_COMPLETE", role_category: "TEACHING" }));
+
+      await waitFor(() => expect(screen.getByText("Hand over to HOD")).toBeInTheDocument());
+      expect(screen.queryByLabelText("Bio ID")).not.toBeInTheDocument();
+      expect(mockedListLocations).not.toHaveBeenCalled();
+    });
+
+    it("asks a Housekeeping hire for Bio ID, shift and location, and gates the button on them", async () => {
+      hrAuth();
+      const user = userEvent.setup();
+      renderCard(makeApplication({ status: "ORIENTATION_COMPLETE", role_category: "HOUSEKEEPING" }));
+
+      await waitFor(() => expect(screen.getByLabelText("Bio ID")).toBeInTheDocument());
+      await user.type(screen.getByLabelText("HOD assigned"), "Mr. Supervisor");
+      // HOD alone is not enough for Housekeeping.
+      expect(screen.getByText("Hand over to HOD")).toBeDisabled();
+
+      await user.type(screen.getByLabelText("Bio ID"), "BIO-7781");
+      await user.click(screen.getByRole("combobox", { name: "Shift" }));
+      await user.click(await screen.findByRole("option", { name: "Night" }));
+      expect(screen.getByText("Hand over to HOD")).toBeDisabled();
+
+      await user.click(screen.getByRole("combobox", { name: "Location" }));
+      // Only this campus's locations are offered.
+      expect(screen.queryByRole("option", { name: "Elsewhere" })).not.toBeInTheDocument();
+      await user.click(await screen.findByRole("option", { name: "Main Block — Ground Floor" }));
+      expect(screen.getByText("Hand over to HOD")).toBeEnabled();
+
+      mockedHandOverToHod.mockResolvedValue({} as EmployeeRead);
+      await user.click(screen.getByText("Hand over to HOD"));
+      await waitFor(() => expect(mockedHandOverToHod).toHaveBeenCalledTimes(1));
+      expect(mockedHandOverToHod).toHaveBeenCalledWith("app-1", {
+        hod_assigned: "Mr. Supervisor",
+        designation: null,
+        bio_id: "BIO-7781",
+        shift: "NIGHT",
+        location_id: "loc-1",
+        supervisor: null,
+      });
+    });
   });
 });

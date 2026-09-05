@@ -23,6 +23,7 @@ const RECORD: HousekeepingStaffRead = {
   id: "hk-1",
   campus_id: "c-sse",
   bio_id: "BIO-001",
+  employee_id: null,
   name: "Kamala Devi",
   designation_id: "d-hk-1",
   location_id: "l-1",

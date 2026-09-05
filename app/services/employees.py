@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.employee import Employee
 from app.models.enums import EmploymentStatusEnum
+from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.user import User
 from app.services.audit import log_update
 
@@ -64,4 +65,22 @@ def offboard_employee(
         },
         request=request,
     )
+
+    # A Housekeeping hire was put on the housekeeping roster at hand-over
+    # (joining.py) and is counted as working from there; leaving the roster
+    # row active would keep the vacancy closed after the person has gone.
+    roster_row = db.query(HousekeepingStaff).filter(HousekeepingStaff.employee_id == employee.id).first()
+    if roster_row is not None and roster_row.is_active:
+        roster_row.is_active = False
+        roster_row.updated_by_id = actor.id
+        log_update(
+            db,
+            actor=actor,
+            entity_type="HousekeepingStaff",
+            entity=roster_row,
+            campus_context_id=roster_row.campus_id,
+            before_state={"is_active": True},
+            after_state={"is_active": False, "reason": f"employee {employee.employee_code} offboarded"},
+            request=request,
+        )
     return employee

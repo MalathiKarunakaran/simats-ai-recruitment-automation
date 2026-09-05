@@ -11,8 +11,17 @@ from sqlalchemy.orm import Session
 from app.models.application import Application
 from app.models.campus import Campus
 from app.models.employee import Employee
-from app.models.enums import DEFAULT_JOINING_DOCUMENT_TYPES, JoiningDocumentStatusEnum, UserRoleEnum
+from app.models.designation import Designation
+from app.models.enums import (
+    DEFAULT_JOINING_DOCUMENT_TYPES,
+    HousekeepingShiftEnum,
+    JoiningDocumentStatusEnum,
+    StaffRoleCategoryEnum,
+    UserRoleEnum,
+)
+from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.joining import JoiningDocument, JoiningRecord
+from app.models.location import Location
 from app.models.user import User
 from app.services import notifications
 from app.services.audit import log_create, log_update
@@ -182,6 +191,85 @@ def _generate_employee_code(db: Session, campus: Campus) -> str:
     return f"{campus.code}-{existing_count + 1:04d}"
 
 
+def _resolve_designation_id(db: Session, vacancy_request, designation_text: str) -> uuid.UUID | None:
+    """The Designation master row a new employee counts against.
+
+    `sanctioned_strength.working_count_for` counts Teaching / Non-Teaching
+    employees by `Employee.designation_id`; an employee created without one
+    is invisible to every working-strength figure, so a filled vacancy never
+    closed the gap on the tracker (found 2026-09-05: production had a
+    one-time name-match backfill for old rows and nothing for new hires).
+    The vacancy request's own designation wins; failing that, the same
+    case-insensitive exact-name match the backfill migration used.
+    """
+    if vacancy_request.designation_id is not None:
+        return vacancy_request.designation_id
+    match = (
+        db.query(Designation.id)
+        .filter(func.lower(Designation.name) == designation_text.strip().lower(), Designation.is_active.is_(True))
+        .first()
+    )
+    return match[0] if match else None
+
+
+def _validate_housekeeping_roster_input(
+    db: Session,
+    *,
+    application: Application,
+    vacancy_request,
+    designation_id: uuid.UUID | None,
+    bio_id: str | None,
+    shift: HousekeepingShiftEnum | None,
+    location_id: uuid.UUID | None,
+) -> tuple[str, HousekeepingShiftEnum, Location, uuid.UUID]:
+    """Everything a HousekeepingStaff row needs, checked BEFORE the employee
+    row is created so a refused hand-over leaves nothing behind. Mirrors the
+    checks routers/housekeeping_staff.py::create_housekeeping_staff makes
+    for a hand-entered row."""
+    missing = [name for name, value in (("bio_id", bio_id), ("shift", shift)) if not value]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "A Housekeeping hire is added to the housekeeping roster at hand-over, which needs "
+                + " and ".join(missing)
+                + "."
+            ),
+        )
+    if designation_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This vacancy has no designation from the Designation master; set one before handing over.",
+        )
+    designation = db.get(Designation, designation_id)
+    if designation is None or designation.category != StaffRoleCategoryEnum.HOUSEKEEPING:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The vacancy's designation is not a HOUSEKEEPING designation.",
+        )
+    resolved_location_id = location_id or vacancy_request.location_id
+    if resolved_location_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A location is required: the vacancy request has none, so pass location_id.",
+        )
+    location = db.get(Location, resolved_location_id)
+    if location is None or location.campus_id != application.campus_id or not location.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown or inactive location_id for this campus"
+        )
+    duplicate = (
+        db.query(HousekeepingStaff.id)
+        .filter(HousekeepingStaff.campus_id == application.campus_id, HousekeepingStaff.bio_id == bio_id)
+        .first()
+    )
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=f"bio_id '{bio_id}' is already in use on this campus."
+        )
+    return bio_id, shift, location, designation_id
+
+
 def create_employee(
     db: Session,
     *,
@@ -190,10 +278,32 @@ def create_employee(
     designation: str | None,
     actor: User,
     request: Request | None = None,
+    bio_id: str | None = None,
+    shift: HousekeepingShiftEnum | None = None,
+    location_id: uuid.UUID | None = None,
+    supervisor: str | None = None,
 ) -> Employee:
     campus = application.campus
     candidate = application.candidate
     vacancy_request = application.job_posting.approved_vacancy.vacancy_request
+    designation_text = designation or vacancy_request.position_title
+    designation_id = _resolve_designation_id(db, vacancy_request, designation_text)
+
+    # Housekeeping staff are counted from their own roster, not from
+    # Employee (see HousekeepingStaff's docstring), so a Housekeeping hire
+    # must land on that roster or the vacancy it fills never closes. Checked
+    # first: nothing below is written if this refuses.
+    roster_input = None
+    if application.role_category == StaffRoleCategoryEnum.HOUSEKEEPING:
+        roster_input = _validate_housekeeping_roster_input(
+            db,
+            application=application,
+            vacancy_request=vacancy_request,
+            designation_id=designation_id,
+            bio_id=bio_id,
+            shift=shift,
+            location_id=location_id,
+        )
 
     employee = Employee(
         application_id=application.id,
@@ -205,11 +315,48 @@ def create_employee(
         full_name=candidate.full_name,
         email=candidate.email,
         phone_number=candidate.phone_number,
-        designation=designation or vacancy_request.position_title,
+        designation=designation_text,
+        designation_id=designation_id,
         date_of_joining=joining_record.actual_joining_date or joining_record.joining_date,
     )
     db.add(employee)
     db.flush()
+
+    if roster_input is not None:
+        roster_bio_id, roster_shift, location, roster_designation_id = roster_input
+        roster_row = HousekeepingStaff(
+            campus_id=campus.id,
+            bio_id=roster_bio_id,
+            name=candidate.full_name,
+            designation_id=roster_designation_id,
+            location_id=location.id,
+            block=location.block_building,
+            floor_venue=location.floor_venue,
+            shift=roster_shift,
+            supervisor=supervisor,
+            is_active=True,
+            created_by_id=actor.id,
+            employee_id=employee.id,
+        )
+        db.add(roster_row)
+        db.flush()
+        log_create(
+            db,
+            actor=actor,
+            entity_type="HousekeepingStaff",
+            entity=roster_row,
+            campus_context_id=campus.id,
+            after_state={
+                "bio_id": roster_row.bio_id,
+                "name": roster_row.name,
+                "designation_id": str(roster_row.designation_id),
+                "location_id": str(roster_row.location_id),
+                "shift": roster_row.shift.value,
+                "employee_id": str(employee.id),
+                "source": "pipeline hand-over",
+            },
+            request=request,
+        )
 
     log_create(
         db,
@@ -217,7 +364,11 @@ def create_employee(
         entity_type="Employee",
         entity=employee,
         campus_context_id=campus.id,
-        after_state={"employee_code": employee.employee_code, "designation": employee.designation},
+        after_state={
+            "employee_code": employee.employee_code,
+            "designation": employee.designation,
+            "designation_id": str(employee.designation_id) if employee.designation_id else None,
+        },
         request=request,
     )
     notifications.notify(
