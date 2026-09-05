@@ -27,7 +27,7 @@ from app.models.hiring_slot import HiringSlot
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
-from app.services import notifications
+from app.services import eligibility, notifications
 from app.services.audit import log_event
 
 
@@ -200,6 +200,7 @@ def transition_application_status(
     request: Request | None = None,
     reason: str | None = None,
     force: bool = False,
+    eligibility_override_reason: str | None = None,
 ) -> Application:
     current = application.status
 
@@ -236,6 +237,34 @@ def transition_application_status(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Cannot move from {current.value} to {new_status.value} (not a forward transition)",
             )
+
+    # PhD mandate (eligibility.py): a flagged Teaching candidate is not
+    # called for interview -- nor moved past that point -- unless HR Admin
+    # or Super Admin overrides with a reason, which is audited below.
+    # Applies to every path that crosses the interview line, including the
+    # auto-advance interviews.py performs when an interview is scheduled.
+    interview_index = APPLICATION_STATUS_ORDER.index(ApplicationStatusEnum.CALLED_FOR_INTERVIEW)
+    crossing_interview_line = (
+        new_status in APPLICATION_STATUS_ORDER
+        and APPLICATION_STATUS_ORDER.index(new_status) >= interview_index
+        and (current not in APPLICATION_STATUS_ORDER or APPLICATION_STATUS_ORDER.index(current) < interview_index)
+    )
+    override_applied = False
+    if crossing_interview_line and eligibility.is_phd_mandate_flag(application):
+        if not (eligibility_override_reason or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"{application.qualification_mismatch_reason} "
+                    "Pass eligibility_override_reason (HR Admin / Super Admin) to proceed anyway."
+                ),
+            )
+        if actor.role not in (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only HR Admin or Super Admin may override the PhD eligibility rule",
+            )
+        override_applied = True
 
     before = _application_snapshot(application)
     application.status = new_status
@@ -316,7 +345,14 @@ def transition_application_status(
         entity_type="Application",
         entity_id=application.id,
         before_state=before,
-        after_state=_application_snapshot(application),
+        after_state={
+            **_application_snapshot(application),
+            **(
+                {"eligibility_override_reason": eligibility_override_reason.strip(), "overridden_by": str(actor.id)}
+                if override_applied
+                else {}
+            ),
+        },
         request=request,
     )
 

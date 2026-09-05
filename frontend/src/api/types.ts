@@ -1228,6 +1228,9 @@ export interface ApplicationStatusTransitionPayload {
   status: ApplicationStatus;
   reason?: string | null;
   force?: boolean;
+  // HR Admin / Super Admin only: call a candidate for interview although the
+  // resume failed the campus PhD mandate (app/services/eligibility.py).
+  eligibility_override_reason?: string | null;
 }
 
 // Mirrors app/schemas/application.py::ApplicationPipelineDetailsUpdate --

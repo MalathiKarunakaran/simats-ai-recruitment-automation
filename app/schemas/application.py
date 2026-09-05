@@ -15,6 +15,9 @@ class ApplicationStatusTransitionRequest(BaseModel):
     status: ApplicationStatusEnum
     reason: str | None = None
     force: bool = False
+    # HR Admin / Super Admin only: call a candidate for interview although the
+    # resume failed the campus PhD mandate (eligibility.py). Audited.
+    eligibility_override_reason: str | None = None
 
 
 class ApplicationPipelineDetailsUpdate(BaseModel):

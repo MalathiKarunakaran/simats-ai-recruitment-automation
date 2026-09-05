@@ -49,6 +49,10 @@ export function ApplicationDetailPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [advanceTo, setAdvanceTo] = useState("");
+  // Mirrors app/services/eligibility.py::PHD_MANDATE_REASON_PREFIX and the
+  // pipeline gate: a Teaching resume that failed the campus PhD mandate is
+  // not called for interview unless HR Admin / Super Admin gives a reason.
+  const [overrideReason, setOverrideReason] = useState("");
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
@@ -116,7 +120,11 @@ export function ApplicationDetailPage() {
   }
 
   const advanceMutation = useMutation({
-    mutationFn: () => transitionApplicationStatus(id!, { status: advanceTo as ApplicationStatus }),
+    mutationFn: () =>
+      transitionApplicationStatus(id!, {
+        status: advanceTo as ApplicationStatus,
+        ...(overrideReason.trim() ? { eligibility_override_reason: overrideReason.trim() } : {}),
+      }),
     onSuccess: () => {
       setError(null);
       setAdvanceTo("");
@@ -238,6 +246,10 @@ export function ApplicationDetailPage() {
   const label = getLabel(application.job_posting_id);
   const isBusy =
     advanceMutation.isPending || rejectMutation.isPending || withdrawMutation.isPending || forceMutation.isPending;
+  const isPhdMandateFlag = Boolean(
+    application?.qualification_mismatch && application.qualification_mismatch_reason?.startsWith("PhD is mandatory"),
+  );
+  const canOverridePhdMandate = Boolean(user && ["HR_ADMIN", "SUPER_ADMIN"].includes(user.role));
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
@@ -350,6 +362,12 @@ export function ApplicationDetailPage() {
             {application.qualification_mismatch_reason ??
               "This application's declared qualification does not match an active eligibility rule for its campus. This is informational only -- it never auto-rejects a candidate."}
           </p>
+          {isPhdMandateFlag ? (
+            <p className="text-xs text-muted-foreground">
+              This candidate cannot be called for interview until HR Admin or Super Admin records an override reason
+              below, or a resume showing the PhD is screened.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -584,11 +602,23 @@ export function ApplicationDetailPage() {
 
       <div className="flex flex-wrap items-end gap-2">
         {canAdvance ? (
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
+            {isPhdMandateFlag && canOverridePhdMandate ? (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="eligibility_override_reason">PhD rule override reason (HR)</Label>
+                <Input
+                  id="eligibility_override_reason"
+                  className="w-72"
+                  placeholder="Required to call for interview"
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                />
+              </div>
+            ) : null}
             <div className="flex flex-col gap-1.5">
               <Label>Advance to</Label>
               <Select value={advanceTo} onValueChange={setAdvanceTo}>
-                <SelectTrigger className="w-56">
+                <SelectTrigger className="w-56" aria-label="Advance to">
                   <SelectValue placeholder="Select next status" />
                 </SelectTrigger>
                 <SelectContent>

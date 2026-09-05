@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.models.application import Application
 from app.models.resume_score import ResumeScore
 from app.models.user import User
-from app.services import ai_client, storage, vector_store
+from app.services import ai_client, eligibility, storage, vector_store
 from app.services.audit import log_create, log_update
 
 _MIN_RESUME_TEXT_LENGTH = 200
@@ -97,6 +97,42 @@ def run_screening(
     score.extracted_skills = ai_result["extracted_skills"]
     score.extracted_qualification = ai_result["extracted_qualification"]
     score.extracted_experience_years = ai_result["extracted_experience_years"]
+    # Candidate-side PhD mandate (see eligibility.py). Sets or clears the
+    # application's mismatch flag from what the resume actually shows, and
+    # zeroes the eligibility score when unmet so the ranking cannot put an
+    # ineligible resume above an eligible one.
+    phd_unmet, phd_reason = eligibility.check_candidate_phd_requirement(
+        db, application=application, extracted_qualification=score.extracted_qualification
+    )
+    flag_before = {
+        "qualification_mismatch": application.qualification_mismatch,
+        "qualification_mismatch_reason": application.qualification_mismatch_reason,
+    }
+    if phd_unmet:
+        score.eligibility_score = 0.0
+        application.qualification_mismatch = True
+        application.qualification_mismatch_reason = phd_reason
+    elif eligibility.is_phd_mandate_flag(application):
+        # A re-screen (new resume) that now shows the PhD clears the earlier flag.
+        application.qualification_mismatch = False
+        application.qualification_mismatch_reason = None
+    if application.qualification_mismatch != flag_before["qualification_mismatch"] or (
+        application.qualification_mismatch_reason != flag_before["qualification_mismatch_reason"]
+    ):
+        log_update(
+            db,
+            actor=actor,
+            entity_type="Application",
+            entity=application,
+            campus_context_id=application.campus_id,
+            before_state=flag_before,
+            after_state={
+                "qualification_mismatch": application.qualification_mismatch,
+                "qualification_mismatch_reason": application.qualification_mismatch_reason,
+                "source": "resume screening PhD mandate check",
+            },
+            request=request,
+        )
     score.is_duplicate = duplicate_of is not None
     score.duplicate_of_candidate_id = duplicate_of
     score.is_incomplete_profile = bool(incomplete_reasons)

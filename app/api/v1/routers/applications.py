@@ -205,6 +205,7 @@ def transition_application_status(
         request=request,
         reason=payload.reason,
         force=payload.force,
+        eligibility_override_reason=payload.eligibility_override_reason,
     )
     db.commit()
     db.refresh(application)

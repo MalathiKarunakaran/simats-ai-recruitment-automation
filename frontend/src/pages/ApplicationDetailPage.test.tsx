@@ -373,4 +373,58 @@ describe("ApplicationDetailPage", () => {
 
     await waitFor(() => expect(mockedScreenApplication).toHaveBeenCalledWith("app-1"));
   });
+
+  describe("PhD mandate override", () => {
+    const flagged = () =>
+      makeApplication({
+        status: "SCREENING",
+        qualification_mismatch: true,
+        qualification_mismatch_reason:
+          "PhD is mandatory for teaching posts at SSE; the resume shows: M.E. Computer Science. HR can override this with a reason.",
+      });
+
+    it("offers HR Admin an override reason and sends it with the status change", async () => {
+      mockedUseAuth.mockReturnValue({
+        user: { role: "HR_ADMIN" } as UserRead,
+        isLoading: false,
+        login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+        logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      });
+      mockedGetApplication.mockResolvedValue(flagged());
+      const mockedTransition = vi.mocked(applicationsApi.transitionApplicationStatus);
+      mockedTransition.mockClear();
+      mockedTransition.mockResolvedValue(makeApplication({ status: "CALLED_FOR_INTERVIEW" }));
+
+      renderPage();
+
+      await waitFor(() => expect(screen.getByLabelText("PhD rule override reason (HR)")).toBeInTheDocument());
+      expect(screen.getByText(/cannot be called for interview/i)).toBeInTheDocument();
+
+      await userEvent.type(screen.getByLabelText("PhD rule override reason (HR)"), "Director approved");
+      await userEvent.click(screen.getByRole("combobox", { name: "Advance to" }));
+      await userEvent.click(await screen.findByRole("option", { name: "CALLED FOR INTERVIEW" }));
+      await userEvent.click(screen.getByText("Update status"));
+
+      await waitFor(() => expect(mockedTransition).toHaveBeenCalledTimes(1));
+      expect(mockedTransition).toHaveBeenCalledWith("app-1", {
+        status: "CALLED_FOR_INTERVIEW",
+        eligibility_override_reason: "Director approved",
+      });
+    });
+
+    it("does not offer the override to a Recruitment Officer", async () => {
+      mockedUseAuth.mockReturnValue({
+        user: { role: "RECRUITMENT_OFFICER", campus_id: "c-sse" } as UserRead,
+        isLoading: false,
+        login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+        logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      });
+      mockedGetApplication.mockResolvedValue(flagged());
+
+      renderPage();
+
+      await waitFor(() => expect(screen.getAllByText("Qualification Mismatch").length).toBeGreaterThan(0));
+      expect(screen.queryByLabelText("PhD rule override reason (HR)")).not.toBeInTheDocument();
+    });
+  });
 });

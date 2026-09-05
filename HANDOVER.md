@@ -144,7 +144,17 @@ Applied, Screening, Called for interview, Interviewed, Selected, Offer
 sent, Offer accepted, Joining confirmed, Joined, Department and room
 allotted, Orientation complete, Handed over to HOD. Rejected and Withdrawn
 end it from any earlier step. Resume screening, scoring and ranking are
-optional AI assists that never gate a step. Every status change goes
+AI assists that do not gate a step, with one exception: the campus PhD
+rule. A PhD is mandatory for every teaching post at SSE, SCLAS and SSPE.
+Screening reads the qualification from the resume, and a teaching
+candidate without a PhD at one of those colleges is flagged, scored zero
+for eligibility, and cannot be called for interview, or have an interview
+scheduled, until HR Admin or Super Admin records an override reason on the
+application page, which is audited. A later resume that shows the PhD
+clears the flag on re-screen. The rule lives in Eligibility Rules as one
+active Teaching rule per college with the PhD flag set; deactivate a rule
+to lift the mandate at that college, or add a department-specific one to
+narrow it. Every status change goes
 through one service, which also reserves, releases and fills hiring slots
 and closes the vacancy automatically when the last slot fills.
 

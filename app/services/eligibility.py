@@ -144,3 +144,88 @@ def check_qualification_mismatch(
     if check is None:
         return False, None
     return check(db, campus_id=campus_id, position_title=position_title, qualification_text=qualification_text)
+
+
+# --------------------------------------------------------------------------
+# Candidate-side PhD mandate (2026-09-05).
+#
+# Everything above checks the VACANCY's declared text. This checks the
+# CANDIDATE: at SIMATS a PhD is mandatory for every teaching post at some
+# colleges (SSE, SCLAS, SSPE at the time of writing) and not at others. The
+# mandate is data, not code: an ACTIVE TEACHING EligibilityRule at the campus
+# with `phd_required=True` (position_title / department_id NULL = every
+# teaching post there; set either to narrow it). scripts/seed_phd_mandate_rules.py
+# creates the institutional ones; the Eligibility Rules screen edits them.
+#
+# Enforced at resume screening (resume_screening.run_screening): a resume
+# whose extracted qualification names no PhD/doctorate flags the application
+# with a reason starting with PHD_MANDATE_REASON_PREFIX and zeroes its
+# eligibility score. pipeline.transition_application_status then refuses to
+# call that candidate for interview unless HR overrides with a reason.
+
+PHD_MANDATE_REASON_PREFIX = "PhD is mandatory"
+
+
+def phd_mandate_rule_for_vacancy(
+    db: Session, *, campus_id: uuid.UUID, department_id: uuid.UUID | None, position_title: str
+) -> EligibilityRule | None:
+    """The most specific active TEACHING rule with phd_required at this
+    campus that applies to this department + position, or None."""
+    candidates = (
+        db.query(EligibilityRule)
+        .filter(
+            EligibilityRule.campus_id == campus_id,
+            EligibilityRule.staff_category == StaffRoleCategoryEnum.TEACHING,
+            EligibilityRule.is_active.is_(True),
+            EligibilityRule.phd_required.is_(True),
+        )
+        .all()
+    )
+    applicable = [
+        rule
+        for rule in candidates
+        if (rule.department_id is None or rule.department_id == department_id)
+        and (rule.position_title is None or rule.position_title == position_title)
+    ]
+    if not applicable:
+        return None
+    # Most specific first: department + position, then either, then wildcard.
+    applicable.sort(key=lambda r: (r.department_id is None, r.position_title is None))
+    return applicable[0]
+
+
+def candidate_holds_phd(extracted_qualification: str | None) -> bool:
+    text = (extracted_qualification or "").lower()
+    return any(keyword in text for keyword in QUALIFICATION_KEYWORDS)
+
+
+def check_candidate_phd_requirement(
+    db: Session, *, application, extracted_qualification: str | None
+) -> tuple[bool, str | None]:
+    """(mandate_unmet, reason). Only ever True for a TEACHING application at
+    a campus with an active PhD mandate whose resume shows no PhD."""
+    if application.role_category != StaffRoleCategoryEnum.TEACHING:
+        return False, None
+    vacancy_request = application.job_posting.approved_vacancy.vacancy_request
+    rule = phd_mandate_rule_for_vacancy(
+        db,
+        campus_id=application.campus_id,
+        department_id=vacancy_request.department_id,
+        position_title=vacancy_request.position_title,
+    )
+    if rule is None or candidate_holds_phd(extracted_qualification):
+        return False, None
+    shown = (extracted_qualification or "").strip() or "no qualification could be read from the resume"
+    reason = (
+        f"{PHD_MANDATE_REASON_PREFIX} for teaching posts at {_campus_label(db, application.campus_id)}; "
+        f"the resume shows: {shown}. HR can override this with a reason."
+    )
+    return True, reason
+
+
+def is_phd_mandate_flag(application) -> bool:
+    return bool(
+        application.qualification_mismatch
+        and (application.qualification_mismatch_reason or "").startswith(PHD_MANDATE_REASON_PREFIX)
+    )
+

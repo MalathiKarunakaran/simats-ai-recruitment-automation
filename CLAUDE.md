@@ -186,6 +186,18 @@ creates the roster row for a HOUSEKEEPING hire; `employees.offboard_employee`
 deactivates that roster row. Found broken 2026-09-05 (no hire ever moved the
 count); `tests/test_hire_updates_working_strength.py` guards it.
 
+**The PhD mandate is data + two hooks, not a status**: an ACTIVE TEACHING
+`EligibilityRule` with `phd_required` at a campus (wildcard position/department
+= every teaching post there; `scripts/seed_phd_mandate_rules.py` creates SSE,
+SCLAS, SSPE). `eligibility.check_candidate_phd_requirement` runs inside
+`resume_screening.run_screening` and sets `Application.qualification_mismatch`
+with a reason starting `PHD_MANDATE_REASON_PREFIX`; `pipeline.transition_application_status`
+refuses to cross the CALLED_FOR_INTERVIEW line while that flag is set unless
+`eligibility_override_reason` is given by HR_ADMIN/SUPER_ADMIN (audited). The
+older `check_qualification_mismatch` at application creation checks the
+VACANCY's text, not the candidate -- do not confuse the two.
+`tests/test_phd_mandate.py` guards all of it.
+
 **AI 503-degradation pattern**: `app/services/ai_client.py`'s
 `get_ai_client()`/`get_openai_client()` are FastAPI dependencies that raise
 `HTTPException(503, "AI features are not configured (...API_KEY is not
