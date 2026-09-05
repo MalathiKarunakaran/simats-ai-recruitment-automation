@@ -6,12 +6,13 @@
 # as a regression. CI removes both by making "did this actually pass?" a fact
 # rather than a recollection.
 #
-# Three independent jobs, deliberately not chained -- a frontend type error
+# Four independent jobs, deliberately not chained -- a frontend type error
 # should not hide a backend failure, and vice versa:
 #
 #   backend     -- pytest against a real Postgres 16 service
 #   frontend    -- tsc -b --force, oxlint, vitest
 #   migrations  -- alembic upgrade head against an EMPTY database
+#   e2e         -- Playwright against the built bundle + a live backend
 #
 # That third job is not redundant with `backend`. tests/conftest.py builds its
 # schema with `Base.metadata.create_all`, so the migration chain is never
@@ -193,3 +194,129 @@ jobs:
         # script's docstring for the one alembic false positive it filters
         # (and why filtering it does not make the check vacuous).
         run: python -m scripts.check_schema_drift
+
+  e2e:
+    name: E2E (Playwright against a built frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # The suite in e2e/ drives the REAL built bundle in a real browser -- the
+    # only check in this repo that has ever caught what jsdom cannot (a
+    # dropdown running off the bottom of the window, a KPI tile disagreeing
+    # with its API, a CSP violation). Until now it ran only when someone
+    # remembered to run it, and only against production, i.e. after a
+    # deploy. Here it runs on the commit itself: migrations + seed +
+    # e2e fixture seed into an empty Postgres, uvicorn on :8000, the Vite
+    # production build served by `vite preview` on :4173, a token pair
+    # minted by scripts/e2e_mint_tokens.py, then Playwright.
+    #
+    # Same 66 tests as a production run; the one production-only test (the
+    # CSP header on the served document) skips here, because vite preview
+    # sets no headers and the policy is injected by the spec instead.
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: simats_recruitment
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # The refresh cookie is SameSite=Strict on the API host; the bundle at
+      # localhost:4173 calling localhost:8000 is same-site, and /auth/refresh
+      # checks Origin against this list.
+      CORS_ALLOWED_ORIGINS: http://localhost:4173
+      ENVIRONMENT: development
+      # Not a secret: an ephemeral database that exists for one job. Set only
+      # so the seeder does not print an auto-generated password to the log.
+      SEED_SUPER_ADMIN_PASSWORD: ci-only-superadmin-password
+      E2E_BASE_URL: http://localhost:4173
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            package-lock.json
+
+      - name: Install backend dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Install frontend and Playwright dependencies
+        # `npm install`, not `npm ci` -- see the frontend job.
+        run: |
+          (cd frontend && npm install)
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Migrate and seed the database
+        # The same chain production applies, then the app's own seed and the
+        # e2e fixture seed (locations, designations, >10 departments on one
+        # campus -- everything the specs discover; see scripts/e2e_seed.py).
+        run: |
+          alembic upgrade head
+          python -m app.db.seed
+          python -m scripts.e2e_seed
+
+      - name: Start the backend
+        run: |
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/api/v1/auth/login-options > /dev/null; then
+              echo "backend up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::backend did not come up on :8000"; cat backend.log; exit 1
+
+      - name: Build and serve the frontend
+        # The API base URL is baked into the bundle at build time
+        # (frontend/.env.example). `vite preview` serves dist/ as a static
+        # site, which is what nginx does in production.
+        working-directory: frontend
+        run: |
+          VITE_API_BASE_URL=http://localhost:8000/api/v1 npm run build
+          nohup npx vite preview --port 4173 --strictPort > ../preview.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4173/login > /dev/null; then
+              echo "preview up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::vite preview did not come up on :4173"; cat ../preview.log; exit 1
+
+      - name: Run Playwright
+        # The minted pair is for a user in this job's throwaway database and
+        # dies with it; it is passed inline rather than exported so it never
+        # lands in the job log.
+        run: E2E_TOKENS="$(python scripts/e2e_mint_tokens.py)" npx playwright test
+
+      - name: Upload the Playwright report and server logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            playwright-report/
+            test-results/
+            backend.log
+            preview.log
+          retention-days: 7

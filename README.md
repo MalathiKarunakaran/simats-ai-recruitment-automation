@@ -135,6 +135,15 @@ npx tsc -b --force   # NOT `tsc --noEmit` -- see the note below
 npm run test
 ```
 
+End-to-end (Playwright, `e2e/`) runs in CI against the built bundle on
+every push. To run it locally against a dev stack seeded the same way:
+
+```bash
+venv/Scripts/python.exe -m app.db.seed
+venv/Scripts/python.exe -m scripts.e2e_seed          # fixture master data the specs discover
+E2E_TOKENS="$(venv/Scripts/python.exe scripts/e2e_mint_tokens.py)"   E2E_BASE_URL=http://localhost:5173 npx playwright test
+```
+
 243 backend tests, 181 frontend tests (32 files), all passing as of this
 README. Backend tests never make a live call to Anthropic/OpenAI/
 MinIO/ChromaDB — all four are FastAPI-injectable dependencies overridden
@@ -152,7 +161,9 @@ from inside `frontend/`.
   generation / resume screening / interview-question generation / Hermes
   all return a clean `503` until `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` are
   set.
-- No CI (no `.github/workflows/`) — tests are run locally.
+- CI (`.github/workflows/ci.yml`) runs pytest, the frontend checks, the
+  migration chain and the Playwright suite on every push; it does not
+  deploy — see `DEPLOYMENT.md` for the manual deploy steps.
 - `DEPLOYMENT.md`'s Docker runbook was verified locally; it has not been
   run against a real remote VPS.
 - The original spec mentions 8 campuses but only names 7 — the system

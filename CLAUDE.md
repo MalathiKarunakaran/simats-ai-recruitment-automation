@@ -260,12 +260,16 @@ FastAPI-injectable dependencies overridden with in-memory fakes in
   scoring, interview questions, and now Hermes all work live there) but is
   not set in local `.env` — those endpoints return 503 in local dev until
   it's added there too.
-- **Resolved 2026-08-27**: CI now exists — `.github/workflows/ci.yml`, three
+- **Resolved 2026-08-27**: CI now exists — `.github/workflows/ci.yml`, four
   independent jobs on every push/PR to `master`: `backend` (pytest against a
   real Postgres 16 service), `frontend` (`tsc -b --force`, oxlint, Vitest),
-  and `migrations` (`alembic upgrade head` against an empty DB, a
-  single-head check, and `scripts/check_schema_drift.py`). That last job is
-  not redundant with `backend`: `tests/conftest.py` builds its schema with
+  `migrations` (`alembic upgrade head` against an empty DB, a
+  single-head check, and `scripts/check_schema_drift.py`), and, since
+  2026-09-05, `e2e` (the Playwright suite in `e2e/` against the built
+  bundle served by `vite preview` and a live uvicorn, on a database built
+  by migrations + `app.db.seed` + `scripts/e2e_seed.py` — the fixture seed
+  every spec discovers its data from; keep it in step with the specs). The
+  `migrations` job is not redundant with `backend`: `tests/conftest.py` builds its schema with
   `Base.metadata.create_all`, so the migration chain is otherwise never
   exercised even though production applies it on every deploy. The drift
   check filters one known alembic false positive (Postgres implements a

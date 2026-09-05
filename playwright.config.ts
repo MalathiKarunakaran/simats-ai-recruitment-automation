@@ -17,6 +17,11 @@ import { defineConfig, devices } from "@playwright/test";
  *   npx playwright test                                   # against production
  *   E2E_BASE_URL=http://localhost:5173 npx playwright test  # against local dev
  *
+ * CI runs the same suite on every push (the `e2e` job in
+ * .github/workflows/ci.yml) against the built bundle on :4173 and a backend
+ * on :8000, seeded by app.db.seed + scripts/e2e_seed.py -- so it checks the
+ * commit, not what is already deployed.
+ *
  * Nothing in `e2e/` submits a form or writes data -- see the note at the top
  * of public-vacancy-request.spec.ts.
  */
