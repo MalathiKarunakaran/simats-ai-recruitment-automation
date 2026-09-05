@@ -50,10 +50,13 @@ LOCATIONS: list[tuple[str, str, str]] = [
     ("Library Block", "Library Block", "Reading Hall"),
 ]
 
-# 12 teaching departments (> 10, for the scroll test) plus one NON_TEACHING-
-# only and one HOUSEKEEPING-only, all on the campus with locations. The
-# seeder's own "Administration" / "Human Resources" (NON_TEACHING) are left
-# as they are.
+# 28 teaching departments plus one NON_TEACHING-only and one HOUSEKEEPING-
+# only, all on the campus with locations. The dropdown-height test opens
+# the Department list and requires it to be TALLER THAN THE WINDOW so that
+# it must scroll: production has 53 departments on SSE, and 16 turned out
+# to be borderline in CI (it fit a 720px viewport under Linux font
+# metrics and failed). Thirty rows are unambiguous. The seeder's own
+# "Administration" / "Human Resources" (NON_TEACHING) are left as they are.
 DEPARTMENTS: list[tuple[str, list[StaffRoleCategoryEnum]]] = [
     ("Computer Science and Engineering", [T, NT]),
     ("Electronics and Communication Engineering", [T, NT]),
@@ -62,11 +65,27 @@ DEPARTMENTS: list[tuple[str, list[StaffRoleCategoryEnum]]] = [
     ("Civil Engineering", [T, NT]),
     ("Information Technology", [T, NT]),
     ("Artificial Intelligence and Data Science", [T, NT]),
+    ("Artificial Intelligence and Machine Learning", [T, NT]),
     ("Biomedical Engineering", [T, NT]),
+    ("Biotechnology", [T, NT]),
     ("Chemical Engineering", [T, NT]),
+    ("Aerospace Engineering", [T, NT]),
+    ("Automobile Engineering", [T, NT]),
+    ("Robotics and Automation", [T, NT]),
+    ("Cyber Security", [T, NT]),
+    ("Internet of Things", [T, NT]),
+    ("Data Science", [T, NT]),
+    ("Agricultural Engineering", [T, NT]),
+    ("Food Technology", [T, NT]),
+    ("Medical Electronics", [T, NT]),
+    ("Mechatronics", [T, NT]),
+    ("Petroleum Engineering", [T, NT]),
+    ("Textile Technology", [T, NT]),
     ("Mathematics", [T]),
     ("Physics", [T]),
     ("Chemistry", [T]),
+    ("English", [T]),
+    ("Management Studies", [T]),
     ("Library Services", [NT]),
     ("Facilities and Maintenance", [HK]),
 ]
