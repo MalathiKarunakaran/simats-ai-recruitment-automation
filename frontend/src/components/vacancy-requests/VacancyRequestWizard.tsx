@@ -61,13 +61,28 @@ interface Props {
 // employment type -> priority -> remarks/submit. No new routing/form
 // library -- just a numeric currentStep + conditional rendering, matching
 // this codebase's existing no-form-library convention.
+const CAN_PICK_CAMPUS_ROLES = [
+  "SUPER_ADMIN",
+  "HR_ADMIN",
+  "ASSOCIATE_DEAN_RECRUITMENT",
+  "MANAGEMENT",
+  "RECRUITMENT_COORDINATOR",
+];
+
 export function VacancyRequestWizard({ onSuccess }: Props) {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  // Mirrors app/api/v1/routers/vacancy_requests.py::create_vacancy_request,
+  // which pins ONLY a CAMPUS_HOD to their own campus: every global-scope
+  // role (GLOBAL_SCOPE_ROLES in app/models/enums.py -- Super Admin, HR
+  // Admin, Associate Dean, Management, Recruitment Coordinator) may raise a
+  // request for any campus and gets the picker. Until 2026-09-05 only Super
+  // Admin did, so a coordinator granted CREATE_VACANCY_REQUEST could file
+  // for their home campus alone.
+  const canPickCampus = Boolean(user && CAN_PICK_CAMPUS_ROLES.includes(user.role));
   // A CAMPUS_HOD with their own department_id set may only raise requests
-  // for that department (app/api/v1/routers/vacancy_requests.py 403s
-  // otherwise) -- lock Step 2 to it rather than letting them pick.
-  const lockedDepartmentId = !isSuperAdmin ? (user?.department_id ?? null) : null;
+  // for that department (the same router 403s otherwise) -- lock Step 2 to
+  // it rather than letting them pick.
+  const lockedDepartmentId = user?.role === "CAMPUS_HOD" ? (user.department_id ?? null) : null;
 
   // Phase E item 30 ("Raise vacancy request" row action on Sanctioned
   // Strength): ?campus=&department=&designation=&maxCount= deep-links here
@@ -87,7 +102,7 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
     campusParam && departmentParam && designationParam ? 3 : 0,
   );
   const [roleCategory, setRoleCategory] = useState<StaffRoleCategory | null>(null);
-  const [campusId, setCampusId] = useState(campusParam ?? (isSuperAdmin ? "" : (user?.campus_id ?? "")));
+  const [campusId, setCampusId] = useState(campusParam ?? (canPickCampus ? "" : (user?.campus_id ?? "")));
   const [departmentId, setDepartmentId] = useState(lockedDepartmentId ?? departmentParam ?? "");
   const [designationId, setDesignationId] = useState<string | null>(designationParam);
   const [manualPositionTitle, setManualPositionTitle] = useState("");
@@ -277,7 +292,7 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
 
         {currentStep === 1 ? (
           <div className="flex flex-col gap-4">
-            {isSuperAdmin ? (
+            {canPickCampus ? (
               <div className="flex flex-col gap-1.5">
                 <Label>Campus</Label>
                 <Select

@@ -371,4 +371,51 @@ describe("VacancyRequestWizard", () => {
       ),
     );
   }, 20000);
+
+  it("lets a Recruitment Coordinator pick any campus, like the other global-scope roles", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_COORDINATOR", campus_id: "c-sse", department_id: null } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    const twoCampuses = [
+      ...CAMPUSES,
+      { id: "c-scad", code: "SCAD" as const, name: "SCAD Campus", is_active: true, created_at: "", updated_at: "" },
+    ];
+    mockedListCampuses.mockResolvedValue(twoCampuses);
+    mockedListLocations.mockResolvedValue([]);
+    mockedListDepartments.mockResolvedValue(DEPARTMENTS);
+    mockedListDesignations.mockResolvedValue([]);
+    renderWizard();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Teaching/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    // A picker, not the read-only home-campus label, offering the OTHER campus too.
+    await userEvent.click(screen.getAllByRole("combobox")[0]);
+    expect(await screen.findByRole("option", { name: "SCAD" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "SSE" })).toBeInTheDocument();
+  }, 15000);
+
+  it("still pins a Campus HOD to their own campus", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD", campus_id: "c-sse", department_id: null } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListLocations.mockResolvedValue([]);
+    mockedListDepartments.mockResolvedValue(DEPARTMENTS);
+    mockedListDesignations.mockResolvedValue([]);
+    renderWizard();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Teaching/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    // Only the Department combobox exists; the campus is a fixed label.
+    await waitFor(() => expect(screen.getAllByRole("combobox")).toHaveLength(1));
+    expect(screen.getByText("SSE")).toBeInTheDocument();
+  }, 15000);
 });
