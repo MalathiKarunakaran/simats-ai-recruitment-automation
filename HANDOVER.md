@@ -62,8 +62,6 @@ daily use:
   configured" error until then.
 - **A candidate-facing portal.** Candidates and applications are entered by
   staff. A `CANDIDATE` login sees a "not permitted" page.
-- **A screen for Hermes**, the natural-language assistant. Its two API
-  endpoints work and are role-gated; no page calls them yet.
 - **The production master data question.** Production currently holds the
   sanctioned-strength, department, designation and location data entered
   during September 2026 plus a small number of demo rows from the original
@@ -160,6 +158,10 @@ checklist and ends with an employee record and a generated employee code.
 filterable by date range and exportable to Excel or PowerPoint. Every
 spreadsheet the system writes is hardened against formula injection.
 
+**Hermes**, the assistant, is a chat widget on every page. It answers
+read-only questions over the recruitment data in plain language, scoped to
+what the signed-in user may see, and can produce the daily briefing.
+
 ## 5. Administration and configuration
 
 **Users.** Super Admin and HR Admin create users at Users, New user. A
@@ -241,17 +243,14 @@ npx playwright test          # public screens only, no login needed
 For the authenticated screens the suite needs a token pair minted inside
 the backend container; `scripts/e2e_mint_tokens.py` documents the command.
 
-**Backups.** `DEPLOYMENT.md` section 8. Postgres holds everything except
-uploaded resumes and bulk-upload originals, which are in MinIO. The
-database user is the `POSTGRES_USER` from `.env`. To restore a dump into a
-fresh stack:
-
-```bash
-docker exec -i simats_recruitment_postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" < backup.sql
-```
-
-No scheduled backup exists. Setting one up (a nightly `pg_dump` to
-off-server storage) is the first thing a new operator should do.
+**Backups.** Nightly and automatic since 2026-09-05, verified by a real
+restore every Sunday: `DEPLOYMENT.md` section 8 has the schedule, the
+restore commands and the two timestamp files to check. Postgres holds
+everything except uploaded resumes and bulk-upload originals, which are in
+MinIO; both are backed up. What is still missing is a destination outside
+the VPS: the scripts mirror to `BACKUP_REMOTE` as soon as one is
+configured, and until then the Hostinger VPS backup is the only off-server
+copy.
 
 **Logs.** `docker compose logs -f backend` on the server. The backend logs
 one warning line at startup when email delivery is unconfigured, and one
@@ -308,10 +307,11 @@ categories are a set checked by membership, never an equality.
 
 ## 9. Suggested next steps, in order
 
-1. A scheduled off-server backup.
+1. A backup destination outside the VPS, set as `BACKUP_REMOTE` in the
+   cron file. Nightly backups and weekly restore checks already run.
 2. Connect n8n and write the two missing email workflows, then turn on
    code-based login for staff who prefer it.
 3. Decide the launch data: keep what is in production, or replace it from
    an HR feed using the bulk-upload templates.
-4. A Hermes screen, and a candidate portal, if the institution wants
-   candidates to apply directly.
+4. A candidate portal, if the institution wants candidates to apply
+   directly.

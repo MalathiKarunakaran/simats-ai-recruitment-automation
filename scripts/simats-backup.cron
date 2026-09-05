@@ -1,0 +1,24 @@
+# Installed on the production VPS as /etc/cron.d/simats-backup
+# (copy this file there; cron.d files must be owned by root, mode 644,
+# and use the "minute hour dom month dow USER command" form).
+#
+# Times are UTC (the VPS clock). 20:15 UTC is 01:45 IST, the quietest
+# hour for a campus recruitment office. The Sunday restore check runs an
+# hour later so it verifies that night's dump.
+#
+# Both scripts append to /var/log/simats-backup.log and write a timestamp
+# file in /opt/simats/backups/nightly (LAST_SUCCESS / LAST_VERIFIED); an
+# operator can confirm backups are happening with:
+#
+#   cat /opt/simats/backups/nightly/LAST_SUCCESS /opt/simats/backups/nightly/LAST_VERIFIED
+#   tail -20 /var/log/simats-backup.log
+#
+# Off-server copy: set BACKUP_REMOTE below to an rsync destination once one
+# exists (see scripts/backup_production.sh). Until then the Hostinger VPS
+# backup is the only off-server copy, and the script says so in the log.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+#BACKUP_REMOTE=backup@example.host:/srv/simats-backups/
+
+15 20 * * * root /bin/bash /opt/simats/app/scripts/backup_production.sh >> /var/log/simats-backup.log 2>&1
+15 21 * * 0 root /bin/bash /opt/simats/app/scripts/verify_backup_restore.sh >> /var/log/simats-backup.log 2>&1

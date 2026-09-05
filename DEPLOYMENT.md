@@ -227,15 +227,45 @@ add `proxy_set_header X-Forwarded-Proto $scheme;` to your config.
 
 ## 8. Backups
 
-The Postgres data lives in the `postgres_data` named volume
-(`docker-compose.yml`). Back it up with:
+**Nightly, automatic, verified weekly** since 2026-09-05. Installed on the
+VPS as `/etc/cron.d/simats-backup` (the file in the repo is
+`scripts/simats-backup.cron`):
+
+- 20:15 UTC daily: `scripts/backup_production.sh` takes a `pg_dump`
+  (custom format, compressed) of the live database through `docker exec`
+  and a tarball of the MinIO volume (`app_minio_data`: resumes and
+  bulk-upload originals), writes a sha256 for each, checks the archive's
+  table of contents, applies retention (30 days; backups taken on the 1st
+  are kept 400 days) and records `LAST_SUCCESS`.
+- 21:15 UTC on Sundays: `scripts/verify_backup_restore.sh` restores the
+  newest dump into a throwaway `simats_backup_verify` container, compares
+  table count, alembic head and the row counts of the core tables with
+  production, removes the container, and records `LAST_VERIFIED`.
+
+Nothing in either script stops, restarts or recreates a production
+container. Output goes to `/var/log/simats-backup.log`; the files live in
+`/opt/simats/backups/nightly`. Check that backups are happening with:
 
 ```bash
-docker exec simats_recruitment_postgres pg_dump -U <POSTGRES_USER> <POSTGRES_DB> > backup-$(date +%Y%m%d).sql
+cat /opt/simats/backups/nightly/LAST_SUCCESS /opt/simats/backups/nightly/LAST_VERIFIED
+tail -20 /var/log/simats-backup.log
 ```
 
-MinIO's `minio_data` volume holds uploaded resumes — back it up the same
-way (volume snapshot, or `mc mirror` to another bucket/host).
+**Off-server copy.** The scripts mirror the backup directory with `rsync`
+to `BACKUP_REMOTE` when that variable is set in the cron file; it is not
+set yet, so until a destination exists the only off-server copy is the
+Hostinger VPS backup of the whole disk (which includes this directory).
+
+**Restore.** Into a fresh stack, after `docker compose up -d postgres`:
+
+```bash
+docker exec -i simats_recruitment_postgres pg_restore -U <POSTGRES_USER> -d <POSTGRES_DB>   --no-owner --no-privileges --clean --if-exists < /opt/simats/backups/nightly/<file>.dump
+docker run --rm -v app_minio_data:/data -v /opt/simats/backups/nightly:/in alpine:3   sh -c 'cd /data && tar xzf /in/<file>.tar.gz'
+```
+
+The older ad-hoc pre-deploy dumps in `/opt/simats/backups/*.sql` are plain
+SQL (restore with `psql`), taken by hand before risky deploys; they are not
+rotated.
 
 ## 9. Logs
 
