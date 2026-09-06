@@ -21,7 +21,7 @@ from app.models.hiring_slot import HiringSlot
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
-from app.services import job_channels, notifications
+from app.services import job_channels, job_postings, notifications, reference_numbers
 from app.services.audit import log_event
 from app.services.sanctioned_strength import compute_availability_to_request, lock_key_for_update
 
@@ -319,6 +319,7 @@ def hr_approve(
     approved_vacancy = ApprovedVacancy(
         vacancy_request_id=vacancy_request.id,
         campus_id=vacancy_request.campus_id,
+        requisition_number=reference_numbers.next_requisition_number(db),
         total_positions=vacancy_request.requested_count,
         approved_by_id=actor.id,
         approved_at=now,
@@ -406,10 +407,14 @@ def publish(
         campus_id=vacancy_request.campus_id,
         role_category=vacancy_request.role_category,
         public_apply_slug=slug,
+        posting_number=reference_numbers.next_posting_number(db),
         published_at=now,
     )
     db.add(job_posting)
     db.flush()
+    # The ad is a snapshot from here on: later edits to the request never
+    # silently change a live advertisement (2026-09-06).
+    job_postings.snapshot_ad_at_publish(job_posting)
 
     log_event(
         db,
@@ -491,8 +496,7 @@ def close(
         for slot in stale_open_slots:
             db.delete(slot)
     if job_posting is not None:
-        job_posting.closed_at = now
-        job_posting.is_active = False
+        job_posting.close(now)
         job_channels.retire_channels_for_closed_posting(db, job_posting=job_posting, actor=actor, request=request)
 
     log_event(
@@ -568,8 +572,7 @@ def cancel(
     if approved_vacancy is not None:
         approved_vacancy.closed_at = now
     if job_posting is not None:
-        job_posting.closed_at = now
-        job_posting.is_active = False
+        job_posting.close(now)
         job_channels.retire_channels_for_closed_posting(db, job_posting=job_posting, actor=actor, request=request)
 
     log_event(
@@ -699,8 +702,7 @@ def adjust_slot_count(
         select(JobPosting).where(JobPosting.approved_vacancy_id == approved_vacancy.id)
     ).scalar_one_or_none()
     if job_posting is not None:
-        job_posting.closed_at = now
-        job_posting.is_active = False
+        job_posting.close(now)
         job_channels.retire_channels_for_closed_posting(db, job_posting=job_posting, actor=actor, request=request)
 
     log_event(

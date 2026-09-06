@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,6 +25,10 @@ class ApprovedVacancy(Base):
     campus_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("campuses.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    # Human-facing requisition number, RQ-2026-000001 (2026-09-06). This row
+    # IS the recruitment requisition; the number is what people quote.
+    # Nullable only so pre-existing rows could be backfilled by migration.
+    requisition_number: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True, index=True)
     total_positions: Mapped[int] = mapped_column(Integer, nullable=False)
     approved_by_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False

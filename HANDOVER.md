@@ -149,6 +149,16 @@ and closing the vacancy retires every channel row. Channels and rules are
 edited through the API for now (`/recruitment-channels`, `/channel-rules`,
 Super Admin and HR Admin); the screens follow in the next step.
 
+Each requisition and posting now carries a number people can quote
+(RQ-2026-000001, JP-2026-000001). A posting's advertisement is copied
+from the request when it is published and can be edited afterwards
+without touching the request; it can be paused (no longer advertised,
+walk-in applications still recorded) and resumed, and it closes with its
+vacancy. Three permissions govern this: edit job postings, review posting
+channels, and manage recruitment channels. HR Admins hold all three,
+Recruitment Officers the first two, and anyone who already held job
+distribution was given the first two on upgrade.
+
 **Candidates and applications** move through a fixed twelve-step pipeline:
 Applied, Screening, Called for interview, Interviewed, Selected, Offer
 sent, Offer accepted, Joining confirmed, Joined, Department and room

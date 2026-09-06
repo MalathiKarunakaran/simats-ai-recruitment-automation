@@ -162,8 +162,7 @@ def _fill_slot_and_maybe_autoclose(
         select(JobPosting).where(JobPosting.approved_vacancy_id == approved_vacancy.id)
     ).scalar_one_or_none()
     if job_posting is not None:
-        job_posting.closed_at = now
-        job_posting.is_active = False
+        job_posting.close(now)
         job_channels.retire_channels_for_closed_posting(db, job_posting=job_posting, actor=actor, request=request)
 
     vacancy_request = db.get(VacancyRequest, approved_vacancy.vacancy_request_id)

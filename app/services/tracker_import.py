@@ -52,6 +52,7 @@ from app.models.hiring_slot import HiringSlot
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
+from app.services import job_postings, reference_numbers
 from app.services.audit import log_event
 
 VACANCY_SHEET_NAME = "Vacancy Tracker"
@@ -286,6 +287,7 @@ def _import_vacancy_row(db: Session, row: dict, row_number: int, actor: User) ->
     approved_vacancy = ApprovedVacancy(
         vacancy_request_id=vacancy_request.id,
         campus_id=campus.id,
+        requisition_number=reference_numbers.next_requisition_number(db),
         total_positions=requested_count,
         approved_by_id=actor.id,
         approved_at=now,
@@ -302,10 +304,12 @@ def _import_vacancy_row(db: Session, row: dict, row_number: int, actor: User) ->
         campus_id=campus.id,
         role_category=role_category,
         public_apply_slug=slug,
+        posting_number=reference_numbers.next_posting_number(db),
         published_at=now,
     )
     db.add(job_posting)
     db.flush()
+    job_postings.snapshot_ad_at_publish(job_posting)
 
     return vacancy_request, warnings
 
@@ -367,8 +371,7 @@ def _sync_hiring_slot(
         now = datetime.now(timezone.utc)
         approved_vacancy.closed_at = now
         if application.job_posting is not None:
-            application.job_posting.closed_at = now
-            application.job_posting.is_active = False
+            application.job_posting.close(now)
         vacancy_request = db.get(VacancyRequest, approved_vacancy.vacancy_request_id)
         vacancy_request.status = VacancyRequestStatusEnum.CLOSED
     return None

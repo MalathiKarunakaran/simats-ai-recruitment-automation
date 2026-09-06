@@ -195,6 +195,28 @@ commits BEFORE raising 502 so the failure survives (`get_db` never commits
 on an exception). The test DB has no seeded channels: use
 `recruitment_channel_factory`/`channel_rule_factory` from `conftest.py`.
 
+**A posting has content and a lifecycle of its own (2026-09-06, step 2)**:
+`JobPosting.ad_title/ad_body/apply_deadline/contact_email` are a snapshot
+taken by `job_postings.snapshot_ad_at_publish` inside `publish()` (and the
+tracker import) and edited via `PATCH /job-postings/{id}`; the ad builder
+reads the snapshot first. `JobPosting.status` (PUBLISHED / PAUSED / CLOSED,
+new enum type) is the lifecycle and `is_active` is DERIVED from it --
+PAUSED is still active (HR can record walk-ins), CLOSED is not.
+`JobPosting.close(now)` is the only way to CLOSED and every vacancy closer
+calls it; there is no reopen (CLOSED is terminal in vacancy_workflow).
+`POST /job-postings/{id}/close` delegates to `vacancy_workflow.close`.
+Expiry is derived on read (`is_accepting_applications`), no scheduler.
+Numbers: `ApprovedVacancy.requisition_number` RQ-YYYY-NNNNNN and
+`JobPosting.posting_number` JP-YYYY-NNNNNN from
+`services/reference_numbers.py` (same count-this-year pattern as
+`request_ref`; unique constraint is the guarantee). Permissions added:
+EDIT_JOB_POSTING, REVIEW_POSTING_CHANNELS, MANAGE_RECRUITMENT_CHANNELS
+(labels `f0a1b2c3d4e5`, columns + backfill `c4d5e6f7a8b9` -- separate
+revisions because ADD VALUE must commit first; env.py runs one transaction
+per revision). The four plumbing sites moved together: `PermissionEnum`,
+`PERMISSION_CATEGORIES`, `DEFAULT_PERMISSIONS_BY_ROLE`, and the frontend
+`PERMISSIONS`/`PERMISSION_CATEGORIES`/`PERMISSION_LABELS` in `types.ts`.
+
 **Working strength is derived, never stored**: `sanctioned_strength.working_count_for`
 counts ACTIVE `Employee` rows by `designation_id` for Teaching/Non-Teaching and
 active `HousekeepingStaff` roster rows for Housekeeping (a `working_override`

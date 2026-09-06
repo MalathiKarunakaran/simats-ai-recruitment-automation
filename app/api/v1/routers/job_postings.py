@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.deps import (
@@ -12,17 +12,19 @@ from app.core.deps import (
     get_current_active_user,
     get_db,
     get_department_scope,
+    require_permission,
 )
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.application import Application
 from app.models.candidate import Candidate
-from app.models.enums import UserRoleEnum
+from app.models.enums import PermissionEnum, UserRoleEnum
 from app.models.job_posting import JobPosting
 from app.models.resume_score import ResumeScore
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.schemas.common import PaginatedResponse
-from app.schemas.job_posting import JobPostingRead
+from app.schemas.job_posting import JobPostingRead, JobPostingUpdate
+from app.services import job_postings, vacancy_workflow
 from app.schemas.resume_score import RankedApplicationRead
 
 router = APIRouter(prefix="/job-postings", tags=["job-postings"])
@@ -139,3 +141,104 @@ def rank_candidates(
         for application, candidate, score in rows
     ]
     return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+# --- Content and lifecycle (2026-09-06) --------------------------------------
+
+
+def _edit_gate(
+    current_user: User = Depends(require_permission(PermissionEnum.EDIT_JOB_POSTING)),
+) -> User:
+    return current_user
+
+
+def _get_posting_for_write(
+    db: Session, job_posting_id: uuid.UUID, scope: CampusScope, scope_dept: DepartmentScope
+) -> JobPosting:
+    posting = (
+        db.query(JobPosting)
+        .options(*_POSITION_TRACKING_LOADER_OPTIONS)
+        .filter(JobPosting.id == job_posting_id)
+        .one_or_none()
+    )
+    if posting is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    enforce_campus_match(scope, posting.campus_id)
+    enforce_department_match(scope_dept, posting.department_id)
+    return posting
+
+
+@router.patch("/{job_posting_id}", response_model=JobPostingRead)
+def update_job_posting(
+    job_posting_id: uuid.UUID,
+    payload: JobPostingUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.update_content(
+        db, job_posting=posting, changes=payload.model_dump(exclude_unset=True), actor=current_user, request=request
+    )
+    db.commit()
+    db.refresh(posting)
+    return posting
+
+
+@router.post("/{job_posting_id}/pause", response_model=JobPostingRead)
+def pause_job_posting(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.pause(db, job_posting=posting, actor=current_user, request=request)
+    db.commit()
+    db.refresh(posting)
+    return posting
+
+
+@router.post("/{job_posting_id}/resume", response_model=JobPostingRead)
+def resume_job_posting(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.resume(db, job_posting=posting, actor=current_user, request=request)
+    db.commit()
+    db.refresh(posting)
+    return posting
+
+
+@router.post("/{job_posting_id}/close", response_model=JobPostingRead)
+def close_job_posting(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    # Closing a posting closes its vacancy, so it carries the vacancy's own
+    # close gate -- the same one POST /vacancy-requests/{id}/close uses.
+    current_user: User = Depends(require_permission(PermissionEnum.CLOSE_VACANCY)),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    """The posting and its vacancy close together, through
+    vacancy_workflow.close -- slots, request status, posting status and
+    channel rows move in one transaction. There is no separate 'stop this
+    ad but keep hiring': that is pause."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    approved_vacancy = posting.approved_vacancy
+    vacancy_workflow.close(
+        db, approved_vacancy.vacancy_request, approved_vacancy, posting, current_user, request
+    )
+    db.commit()
+    db.refresh(posting)
+    return posting

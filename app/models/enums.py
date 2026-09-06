@@ -515,6 +515,11 @@ class PermissionEnum(str, enum.Enum):
     ACTIVITY_LOG = "ACTIVITY_LOG"
     REPORTS = "REPORTS"
     SETTINGS = "SETTINGS"
+    # Job posting content and channels (2026-09-06, migration f0a1b2c3d4e5
+    # adds the labels, c4d5e6f7a8b9 backfills holders):
+    EDIT_JOB_POSTING = "EDIT_JOB_POSTING"  # ad content, pause, resume
+    REVIEW_POSTING_CHANNELS = "REVIEW_POSTING_CHANNELS"  # select/remove recommendations, record manual refs
+    MANAGE_RECRUITMENT_CHANNELS = "MANAGE_RECRUITMENT_CHANNELS"  # channel + rule admin
 
 
 # Frontend permission-matrix grouping (Phase 3) -- lives here once, centrally,
@@ -545,6 +550,9 @@ PERMISSION_CATEGORIES: dict[str, list[PermissionEnum]] = {
     ],
     "RECRUITMENT": [
         PermissionEnum.JOB_DISTRIBUTION,
+        PermissionEnum.EDIT_JOB_POSTING,
+        PermissionEnum.REVIEW_POSTING_CHANNELS,
+        PermissionEnum.MANAGE_RECRUITMENT_CHANNELS,
         PermissionEnum.RESUME_SCREENING,
         PermissionEnum.OFFERS,
         PermissionEnum.ONBOARDING,
@@ -694,6 +702,19 @@ class PostingAttemptOutcomeEnum(str, enum.Enum):
     FAILED = "FAILED"
     TIMEOUT = "TIMEOUT"
     NOT_CONFIGURED = "NOT_CONFIGURED"
+
+
+class JobPostingStatusEnum(str, enum.Enum):
+    """Lifecycle of the posting itself (2026-09-06). PUBLISHED and PAUSED
+    both keep `is_active` true -- a paused posting is no longer advertised
+    but HR can still record walk-in applications against it. CLOSED is
+    reached only through vacancy_workflow.close/cancel/adjust_slot_count or
+    the pipeline's auto-close, never set directly. Expiry is derived on
+    read from `apply_deadline`, not a stored state."""
+
+    PUBLISHED = "PUBLISHED"
+    PAUSED = "PAUSED"
+    CLOSED = "CLOSED"
 
 
 # Statuses a posting-channel row can still be posted from. RECOMMENDED is

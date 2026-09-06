@@ -586,14 +586,15 @@ export interface CoordinatorCapabilitiesRead {
   capabilities: CoordinatorCapability[];
 }
 
-// Mirrors app/models/enums.py::PermissionEnum -- the 37-permission matrix,
+// Mirrors app/models/enums.py::PermissionEnum -- the 40-permission matrix,
 // generalized beyond RECRUITMENT_COORDINATOR to any staff role.
 export const PERMISSIONS = [
   "VIEW_VACANCY", "CREATE_VACANCY_REQUEST", "EDIT_VACANCY_REQUEST", "APPROVE_VACANCY",
   "REJECT_VACANCY", "PUBLISH_VACANCY", "CLOSE_VACANCY", "CANCEL_VACANCY",
   "VIEW_CANDIDATES", "CREATE_CANDIDATE", "EDIT_CANDIDATE", "DELETE_CANDIDATE", "MANAGE_APPLICATIONS",
   "SCHEDULE_INTERVIEW", "RESCHEDULE_INTERVIEW", "CANCEL_INTERVIEW", "MARK_INTERVIEW_COMPLETED",
-  "JOB_DISTRIBUTION", "RESUME_SCREENING", "OFFERS", "ONBOARDING",
+  "JOB_DISTRIBUTION", "EDIT_JOB_POSTING", "REVIEW_POSTING_CHANNELS", "MANAGE_RECRUITMENT_CHANNELS",
+  "RESUME_SCREENING", "OFFERS", "ONBOARDING",
   "VIEW_EMPLOYEES", "EDIT_EMPLOYEES", "MANAGE_DEPARTMENTS", "MANAGE_DESIGNATIONS",
   "MANAGE_LOCATIONS", "MANAGE_CAMPUSES", "MANAGE_USERS",
   "VIEW_SANCTIONED_STRENGTH", "CREATE_SANCTIONED_STRENGTH", "EDIT_SANCTIONED_STRENGTH",
@@ -633,7 +634,15 @@ export const PERMISSION_CATEGORIES: { key: string; label: string; permissions: P
   {
     key: "RECRUITMENT",
     label: "Recruitment",
-    permissions: ["JOB_DISTRIBUTION", "RESUME_SCREENING", "OFFERS", "ONBOARDING"],
+    permissions: [
+      "JOB_DISTRIBUTION",
+      "EDIT_JOB_POSTING",
+      "REVIEW_POSTING_CHANNELS",
+      "MANAGE_RECRUITMENT_CHANNELS",
+      "RESUME_SCREENING",
+      "OFFERS",
+      "ONBOARDING",
+    ],
   },
   {
     key: "ADMINISTRATION",
@@ -686,6 +695,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   CANCEL_INTERVIEW: "Cancel interviews",
   MARK_INTERVIEW_COMPLETED: "Mark interviews completed",
   JOB_DISTRIBUTION: "Job distribution",
+  EDIT_JOB_POSTING: "Edit job postings",
+  REVIEW_POSTING_CHANNELS: "Review posting channels",
+  MANAGE_RECRUITMENT_CHANNELS: "Manage recruitment channels",
   RESUME_SCREENING: "Resume screening",
   OFFERS: "Manage offers",
   ONBOARDING: "Manage onboarding",

@@ -43,6 +43,17 @@ def _distribute_gate(
     return current_user
 
 
+def _review_gate(
+    # Either permission: JOB_DISTRIBUTION holders were backfilled with
+    # REVIEW_POSTING_CHANNELS (c4d5e6f7a8b9), and a Super Admin may grant the
+    # narrower one alone to someone who reviews but never posts.
+    current_user: User = Depends(
+        require_permission(PermissionEnum.REVIEW_POSTING_CHANNELS, PermissionEnum.JOB_DISTRIBUTION)
+    ),
+) -> User:
+    return current_user
+
+
 def _get_posting_or_404_scoped(
     db: Session,
     job_posting_id: uuid.UUID,
@@ -178,7 +189,7 @@ def attach_posting_channel(
     payload: AttachChannelRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_distribute_gate),
+    current_user: User = Depends(_review_gate),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> JobPostingChannel:
@@ -199,7 +210,7 @@ def review_posting_channel(
     payload: ReviewChannelRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_distribute_gate),
+    current_user: User = Depends(_review_gate),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> JobPostingChannel:
@@ -245,7 +256,7 @@ def record_manual_posting(
     payload: ManualPostingRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(_distribute_gate),
+    current_user: User = Depends(_review_gate),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
 ) -> JobPostingChannel:

@@ -1,12 +1,12 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
-from app.models.enums import HiringSlotStatusEnum, StaffRoleCategoryEnum
+from app.models.enums import HiringSlotStatusEnum, JobPostingStatusEnum, StaffRoleCategoryEnum
 
 
 class JobPosting(Base):
@@ -37,6 +37,28 @@ class JobPosting(Base):
     published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # --- Content and lifecycle (2026-09-06) --------------------------------
+    # Until now a posting had no text of its own (the ad was rebuilt from the
+    # request on every read) and no state beyond is_active. The ad is now
+    # snapshotted at publish and editable; `status` is the lifecycle and
+    # `is_active` stays derived from it so every existing reader keeps
+    # working: PUBLISHED/PAUSED -> True, CLOSED -> False.
+    posting_number: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True, index=True)
+    status: Mapped[JobPostingStatusEnum] = mapped_column(
+        Enum(JobPostingStatusEnum, name="job_posting_status_enum"),
+        nullable=False,
+        default=JobPostingStatusEnum.PUBLISHED,
+        server_default=JobPostingStatusEnum.PUBLISHED.value,
+        index=True,
+    )
+    ad_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    ad_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    apply_deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_edited_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    last_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -86,5 +108,30 @@ class JobPosting(Base):
             1 for slot in self.approved_vacancy.hiring_slots if slot.status == HiringSlotStatusEnum.FILLED
         )
 
+    @property
+    def vacancy_request_id(self) -> uuid.UUID:
+        return self.approved_vacancy.vacancy_request_id
+
+    @property
+    def requisition_number(self) -> str | None:
+        return self.approved_vacancy.requisition_number
+
+    @property
+    def is_accepting_applications(self) -> bool:
+        """Open to the public: live, not paused, and not past its deadline.
+        Derived on read so expiry needs no scheduler."""
+        if self.status != JobPostingStatusEnum.PUBLISHED:
+            return False
+        return self.apply_deadline is None or self.apply_deadline >= date.today()
+
+    def close(self, now: datetime) -> None:
+        """The one way a posting becomes CLOSED. Called by every code path
+        that retires a vacancy (vacancy_workflow.close/cancel/
+        adjust_slot_count, pipeline auto-close, tracker import) so `status`,
+        `closed_at` and the derived `is_active` never disagree."""
+        self.status = JobPostingStatusEnum.CLOSED
+        self.closed_at = now
+        self.is_active = False
+
     def __repr__(self) -> str:
-        return f"<JobPosting {self.public_apply_slug}>"
+        return f"<JobPosting {self.posting_number or self.public_apply_slug}>"

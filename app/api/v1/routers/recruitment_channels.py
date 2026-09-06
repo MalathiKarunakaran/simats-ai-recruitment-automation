@@ -13,11 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_active_user, get_db, require_roles
+from app.core.deps import get_current_active_user, get_db, require_roles_or_permission
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.designation import Designation
-from app.models.enums import RecruitmentChannelModeEnum, StaffRoleCategoryEnum, UserRoleEnum
+from app.models.enums import PermissionEnum, RecruitmentChannelModeEnum, StaffRoleCategoryEnum, UserRoleEnum
 from app.models.recruitment_channel import ChannelRule, RecruitmentChannel
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
@@ -34,7 +34,18 @@ from app.services.audit import log_create, log_update
 router = APIRouter(prefix="/recruitment-channels", tags=["recruitment-channels"])
 rules_router = APIRouter(prefix="/channel-rules", tags=["recruitment-channels"])
 
+# MANAGE_RECRUITMENT_CHANNELS, OR the two roles that historically owned
+# reference tables -- nobody loses access they had before the permission
+# existed (same additive shape as the vacancy workflow's gates).
 _WRITE_ROLES = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN)
+
+
+def _write_gate(
+    current_user: User = Depends(
+        require_roles_or_permission(PermissionEnum.MANAGE_RECRUITMENT_CHANNELS, *_WRITE_ROLES)
+    ),
+) -> User:
+    return current_user
 
 
 def _staff_only(current_user: User = Depends(get_current_active_user)) -> User:
@@ -158,7 +169,7 @@ def create_recruitment_channel(
     payload: RecruitmentChannelCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
 ) -> RecruitmentChannel:
     if db.execute(select(RecruitmentChannel.id).where(RecruitmentChannel.code == payload.code)).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A channel with this code already exists")
@@ -183,7 +194,7 @@ def update_recruitment_channel(
     payload: RecruitmentChannelUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
 ) -> RecruitmentChannel:
     channel = db.get(RecruitmentChannel, channel_id)
     if channel is None:
@@ -233,7 +244,7 @@ def create_channel_rule(
     payload: ChannelRuleCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
 ) -> ChannelRule:
     _validate_rule_targets(db, payload)
     _validate_channel_ids(db, payload.channel_ids)
@@ -255,7 +266,7 @@ def update_channel_rule(
     payload: ChannelRuleUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(*_WRITE_ROLES)),
+    current_user: User = Depends(_write_gate),
 ) -> ChannelRule:
     rule = db.get(ChannelRule, rule_id)
     if rule is None:
