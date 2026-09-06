@@ -28,13 +28,15 @@ const TOKENS = { access_token: "at1", token_type: "bearer", must_change_password
 let latestSaveOwnProfile: NonNullable<ReturnType<typeof useAuth>["saveOwnProfile"]> | null = null;
 
 function TestConsumer() {
-  const { user, isLoading, mustChangePassword, login, logout, completePasswordChange, saveOwnProfile } = useAuth();
+  const { user, isLoading, mustChangePassword, login, logout, completePasswordChange, saveOwnProfile, hasPermission } =
+    useAuth();
   latestSaveOwnProfile = saveOwnProfile ?? null;
   return (
     <div>
       <span data-testid="loading">{String(isLoading)}</span>
       <span data-testid="user">{user ? user.email : "none"}</span>
       <span data-testid="must-change-password">{String(mustChangePassword)}</span>
+      <span data-testid="can-create">{String(hasPermission?.("CREATE_VACANCY_REQUEST") ?? false)}</span>
       <button onClick={() => void login("hr.admin@example.com", "pw")}>login</button>
       <button onClick={() => void logout()}>logout</button>
       <button onClick={() => completePasswordChange({ ...FAKE_USER, must_change_password: false })}>
@@ -193,6 +195,33 @@ describe("AuthContext", () => {
     expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(refreshCallsBefore);
     expect(hooks.getAccessToken()).toBe("at-after-change");
     expectNoSessionInBrowserStorage();
+  });
+
+  // Seen live 2026-09-06: a coordinator granted CREATE_VACANCY_REQUEST had
+  // no "New request" button after an admin reset. Her sign-in under the
+  // forced change got 403 PASSWORD_CHANGE_REQUIRED on the permissions fetch
+  // (only PATCH /users/me is allowed then), and the re-login after she set
+  // the new password never fetched them again.
+  it("re-loads the permission grants after the post-reset re-login, since the forced-change login could not", async () => {
+    mockedAuthApi.login.mockResolvedValueOnce({ ...TOKENS, must_change_password: true });
+    mockedAuthApi.getMe.mockResolvedValue({ ...FAKE_USER, role: "RECRUITMENT_COORDINATOR" as const });
+    vi.mocked(usersApi.getUserPermissions)
+      .mockRejectedValueOnce(new Error("403 PASSWORD_CHANGE_REQUIRED"))
+      .mockResolvedValue({ permissions: ["CREATE_VACANCY_REQUEST"] });
+    renderProvider();
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    await userEvent.click(screen.getByText("login"));
+    await waitFor(() => expect(screen.getByTestId("must-change-password")).toHaveTextContent("true"));
+    expect(screen.getByTestId("can-create")).toHaveTextContent("false");
+
+    vi.mocked(usersApi.updateOwnProfile).mockResolvedValue({ ...FAKE_USER, role: "RECRUITMENT_COORDINATOR" as const });
+    mockedAuthApi.login.mockResolvedValueOnce({ ...TOKENS, access_token: "at-after-change" });
+    await latestSaveOwnProfile!({ password: "NewPass123!" });
+
+    await waitFor(() => expect(screen.getByTestId("can-create")).toHaveTextContent("true"));
+    expect(usersApi.getUserPermissions).toHaveBeenCalledTimes(2);
+    expect(usersApi.getUserPermissions).toHaveBeenLastCalledWith("u1");
   });
 
   it("concurrent refresh calls share one request, so a rotating cookie is never presented twice", async () => {

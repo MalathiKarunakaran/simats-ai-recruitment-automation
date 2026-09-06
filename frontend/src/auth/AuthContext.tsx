@@ -222,6 +222,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setMustChangePassword(tokens.must_change_password);
       setUser(updated);
       release(tokens.access_token);
+      // The permission list loaded at sign-in was refused (403
+      // PASSWORD_CHANGE_REQUIRED) when this user was under a forced reset,
+      // so it is empty until reloaded. Seen live 2026-09-06: a coordinator
+      // holding CREATE_VACANCY_REQUEST had no "New request" button after
+      // setting her new password, because nothing re-fetched her grants.
+      await loadPermissions(updated);
       return updated;
     } catch (err) {
       release(accessTokenRef.current);
