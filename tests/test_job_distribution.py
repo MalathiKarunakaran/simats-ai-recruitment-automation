@@ -43,9 +43,14 @@ def test_distribute_returns_503_when_n8n_unconfigured(client, published_vacancy_
     assert response.status_code == 503
 
 
-def test_distribute_succeeds_when_n8n_configured(client, published_vacancy_factory, db_session):
+def test_distribute_succeeds_when_n8n_configured(
+    client, published_vacancy_factory, recruitment_channel_factory, db_session
+):
     from app.main import app
 
+    # Channels are rows since e7f8a9b0c1d2; the test DB has none seeded.
+    recruitment_channel_factory("LINKEDIN")
+    recruitment_channel_factory("INDEED")
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     fake_client = FakeN8nClient()
     app.dependency_overrides[get_n8n_client_or_503] = lambda: fake_client
@@ -109,9 +114,12 @@ def test_recruitment_coordinator_without_grant_forbidden_to_distribute(
 
 
 def test_recruitment_coordinator_with_grant_can_distribute(
-    client, published_vacancy_factory, user_factory, grant_coordinator_capability, grant_permission
+    client, published_vacancy_factory, user_factory, grant_coordinator_capability, grant_permission,
+    recruitment_channel_factory,
 ):
     from app.main import app
+
+    recruitment_channel_factory("LINKEDIN")
 
     # Both grants inserted directly -- CoordinatorCapabilityGrant (still
     # real) plus the UserPermissionGrant this endpoint actually checks now

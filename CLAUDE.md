@@ -176,6 +176,25 @@ final approval) and `JobPosting` rows (at explicit publish).
 slot fills. Routers (applications, offers, joining, interviews) call into
 these — never mutate `.status` directly in a router.
 
+**Posting channels are a third choke point (2026-09-06)**:
+`app/services/job_channels.py` is the only writer of
+`JobPostingChannel.status` and the only creator of `PostingAttempt` rows.
+Channels are rows in `recruitment_channels` (migration `e7f8a9b0c1d2` seeds
+LINKEDIN, INDEED, NAUKRI, FACULTYPLUS with their old codes, plus
+CAREERS_PAGE, EMAIL, INTERNAL, REFERRAL) and `channel_rules` recommend them
+at `publish()` -- deterministic match on category/campus/department/
+designation/employment type, most specific rule first. RECOMMENDED ->
+SELECTED is the recruiter's review; only SELECTED rows can be posted; each
+post is one `PostingAttempt`, capped at `MAX_POSTING_ATTEMPTS_PER_CHANNEL`.
+Every place that deactivates a posting (`vacancy_workflow.close/cancel/
+adjust_slot_count`, `pipeline` auto-close) calls
+`retire_channels_for_closed_posting` -- keep that when adding another. The
+legacy `POST /job-postings/{id}/distribute` still makes ONE n8n call with a
+`portals` list but now records a row and attempt per portal; its router
+commits BEFORE raising 502 so the failure survives (`get_db` never commits
+on an exception). The test DB has no seeded channels: use
+`recruitment_channel_factory`/`channel_rule_factory` from `conftest.py`.
+
 **Working strength is derived, never stored**: `sanctioned_strength.working_count_for`
 counts ACTIVE `Employee` rows by `designation_id` for Teaching/Non-Teaching and
 active `HousekeepingStaff` roster rows for Housekeeping (a `working_override`

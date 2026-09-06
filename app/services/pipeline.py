@@ -27,7 +27,7 @@ from app.models.hiring_slot import HiringSlot
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
-from app.services import eligibility, notifications
+from app.services import eligibility, job_channels, notifications
 from app.services.audit import log_event
 
 
@@ -164,6 +164,7 @@ def _fill_slot_and_maybe_autoclose(
     if job_posting is not None:
         job_posting.closed_at = now
         job_posting.is_active = False
+        job_channels.retire_channels_for_closed_posting(db, job_posting=job_posting, actor=actor, request=request)
 
     vacancy_request = db.get(VacancyRequest, approved_vacancy.vacancy_request_id)
     vacancy_request.status = VacancyRequestStatusEnum.CLOSED

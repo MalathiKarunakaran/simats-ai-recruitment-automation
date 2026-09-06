@@ -29,6 +29,7 @@ from app.api.v1.routers import (
     users,
     vacancy_register,
     public_vacancy_requests,
+    recruitment_channels,
     vacancy_requests,
 )
 
@@ -38,6 +39,8 @@ api_router.include_router(auth.router)
 # the only router here besides auth with no auth dependency at all. See
 # its module docstring for the boundaries that keeps it safe.
 api_router.include_router(public_vacancy_requests.router)
+api_router.include_router(recruitment_channels.router)
+api_router.include_router(recruitment_channels.rules_router)
 api_router.include_router(users.router)
 api_router.include_router(campuses.router)
 api_router.include_router(departments.router)

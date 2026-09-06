@@ -999,3 +999,63 @@ def hired_employee_factory(db_session, candidate_factory):
         return SimpleNamespace(application=application, offer=offer, joining_record=joining_record, employee=employee)
 
     return _make
+
+
+# --- Recruitment channels (2026-09-06) --------------------------------------
+# The test DB is built by create_all, so migration e7f8a9b0c1d2's seeded
+# channels and rules do not exist here; tests create exactly what they need.
+
+
+@pytest.fixture()
+def recruitment_channel_factory(db_session):
+    from app.models.enums import RecruitmentChannelKindEnum, RecruitmentChannelModeEnum
+    from app.models.recruitment_channel import RecruitmentChannel
+
+    def _make(
+        code: str,
+        *,
+        mode: RecruitmentChannelModeEnum = RecruitmentChannelModeEnum.API,
+        kind: RecruitmentChannelKindEnum = RecruitmentChannelKindEnum.JOB_PORTAL,
+        integration_path: str | None = None,
+        applicable_categories=(),
+        applicable_campus_ids=(),
+        is_active: bool = True,
+        display_order: int = 100,
+    ) -> RecruitmentChannel:
+        channel = RecruitmentChannel(
+            code=code,
+            name=code.title(),
+            kind=kind,
+            mode=mode,
+            integration_path=integration_path
+            if integration_path is not None
+            else ("job-distribution" if mode == RecruitmentChannelModeEnum.API else None),
+            applicable_categories=list(applicable_categories),
+            applicable_campus_ids=list(applicable_campus_ids),
+            is_active=is_active,
+            display_order=display_order,
+        )
+        db_session.add(channel)
+        db_session.flush()
+        return channel
+
+    return _make
+
+
+@pytest.fixture()
+def channel_rule_factory(db_session):
+    from app.models.recruitment_channel import ChannelRule
+
+    def _make(name: str, channels, *, auto_select: bool = False, priority: int = 100, **match) -> ChannelRule:
+        rule = ChannelRule(
+            name=name,
+            priority=priority,
+            channel_ids=[c.id for c in channels],
+            auto_select=auto_select,
+            **match,
+        )
+        db_session.add(rule)
+        db_session.flush()
+        return rule
+
+    return _make

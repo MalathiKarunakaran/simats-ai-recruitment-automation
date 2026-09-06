@@ -616,3 +616,107 @@ class NotificationStatusEnum(str, enum.Enum):
     PENDING = "PENDING"
     SENT = "SENT"
     FAILED = "FAILED"
+
+
+# --- Job posting channels (2026-09-06) ------------------------------------
+# Distribution used to be a constant tuple of four portal codes and one n8n
+# call whose only trace was two audit rows. These enums back the tables that
+# now hold WHERE a posting is, HOW it got there, and every attempt made.
+# All four are new Postgres enum types -- never values added to an existing
+# one (adding a label cannot be undone, see the database skill).
+
+
+class RecruitmentChannelKindEnum(str, enum.Enum):
+    """What the channel is, for reporting and for the recruiter's eye."""
+
+    JOB_PORTAL = "JOB_PORTAL"
+    ACADEMIC_PORTAL = "ACADEMIC_PORTAL"
+    SOCIAL = "SOCIAL"
+    CAREERS_PAGE = "CAREERS_PAGE"
+    EMAIL = "EMAIL"
+    INTERNAL = "INTERNAL"
+    REFERRAL = "REFERRAL"
+    AGENCY = "AGENCY"
+
+
+class RecruitmentChannelModeEnum(str, enum.Enum):
+    """How a posting reaches the channel -- decides what "post" does.
+
+    API: this system calls n8n's webhook (`integration_path`), which owns the
+        portal credentials and does the actual post. LinkedIn/Indeed/Naukri.
+    FEED: the channel pulls a public feed we expose; nothing is sent, the row
+        is POSTED as soon as the posting is live.
+    MANUAL_ASSISTED: the system prepares the pack (ad, QR, apply URL); a
+        person posts it and records the external reference. FacultyPlus,
+        notice boards, WhatsApp groups.
+    INTERNAL: careers page / intranet -- POSTED the moment the posting is.
+    """
+
+    API = "API"
+    FEED = "FEED"
+    MANUAL_ASSISTED = "MANUAL_ASSISTED"
+    INTERNAL = "INTERNAL"
+
+
+class JobPostingChannelStatusEnum(str, enum.Enum):
+    """Lifecycle of one posting on one channel. RECOMMENDED -> SELECTED is
+    the recruiter's review; only SELECTED rows are ever posted. QUEUED is a
+    manual-assisted channel waiting for a person to post and record the
+    reference. Terminal: EXPIRED, REMOVED."""
+
+    RECOMMENDED = "RECOMMENDED"
+    SELECTED = "SELECTED"
+    QUEUED = "QUEUED"
+    POSTED = "POSTED"
+    FAILED = "FAILED"
+    EXPIRED = "EXPIRED"
+    REMOVED = "REMOVED"
+
+
+class ChannelRecommendationSourceEnum(str, enum.Enum):
+    """Who put the channel on the posting. RULE is a ChannelRule match, USER
+    is a person attaching it by hand, AI is reserved for the recommender
+    (step 6 of the plan) -- it may only ever create RECOMMENDED rows."""
+
+    RULE = "RULE"
+    USER = "USER"
+    AI = "AI"
+
+
+class PostingAttemptTriggerEnum(str, enum.Enum):
+    MANUAL = "MANUAL"
+    RETRY = "RETRY"
+    LEGACY_DISTRIBUTE = "LEGACY_DISTRIBUTE"
+
+
+class PostingAttemptOutcomeEnum(str, enum.Enum):
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    TIMEOUT = "TIMEOUT"
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+
+
+# Statuses a posting-channel row can still be posted from. RECOMMENDED is
+# deliberately absent: the recruiter must select first.
+JOB_POSTING_CHANNEL_POSTABLE_STATUSES = frozenset(
+    {
+        JobPostingChannelStatusEnum.SELECTED,
+        JobPostingChannelStatusEnum.QUEUED,
+        JobPostingChannelStatusEnum.FAILED,
+    }
+)
+
+# Live-on-the-channel statuses that a posting close/expiry must retire.
+JOB_POSTING_CHANNEL_LIVE_STATUSES = frozenset(
+    {
+        JobPostingChannelStatusEnum.RECOMMENDED,
+        JobPostingChannelStatusEnum.SELECTED,
+        JobPostingChannelStatusEnum.QUEUED,
+        JobPostingChannelStatusEnum.POSTED,
+        JobPostingChannelStatusEnum.FAILED,
+    }
+)
+
+# Bounded retry: a channel that has failed this many times stays FAILED
+# until a person looks at it (or n8n is fixed); nothing loops forever.
+MAX_POSTING_ATTEMPTS_PER_CHANNEL = 5

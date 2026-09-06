@@ -21,7 +21,7 @@ from app.models.hiring_slot import HiringSlot
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
-from app.services import notifications
+from app.services import job_channels, notifications
 from app.services.audit import log_event
 from app.services.sanctioned_strength import compute_availability_to_request, lock_key_for_update
 
@@ -443,6 +443,9 @@ def publish(
         related_entity_id=job_posting.id,
         request=request,
     )
+    # Channel recommendation (2026-09-06): deterministic rules only, no
+    # external call, so it belongs inside publish() like the posting itself.
+    job_channels.recommend_channels(db, job_posting=job_posting, actor=actor, request=request)
     return job_posting
 
 
@@ -490,6 +493,7 @@ def close(
     if job_posting is not None:
         job_posting.closed_at = now
         job_posting.is_active = False
+        job_channels.retire_channels_for_closed_posting(db, job_posting=job_posting, actor=actor, request=request)
 
     log_event(
         db,
@@ -566,6 +570,7 @@ def cancel(
     if job_posting is not None:
         job_posting.closed_at = now
         job_posting.is_active = False
+        job_channels.retire_channels_for_closed_posting(db, job_posting=job_posting, actor=actor, request=request)
 
     log_event(
         db,
@@ -696,6 +701,7 @@ def adjust_slot_count(
     if job_posting is not None:
         job_posting.closed_at = now
         job_posting.is_active = False
+        job_channels.retire_channels_for_closed_posting(db, job_posting=job_posting, actor=actor, request=request)
 
     log_event(
         db,

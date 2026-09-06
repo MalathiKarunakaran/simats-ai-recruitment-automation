@@ -45,6 +45,9 @@ class JobPosting(Base):
 
     approved_vacancy: Mapped["ApprovedVacancy"] = relationship(back_populates="job_posting")
     campus: Mapped["Campus"] = relationship()
+    # Where this posting is, per channel (2026-09-06). The posting itself
+    # stays 1:1 with its approved vacancy; multiplicity lives here.
+    channels: Mapped[list["JobPostingChannel"]] = relationship(back_populates="job_posting")
 
     # Denormalized read-only conveniences for the position-tracking view
     # (Job Postings list: Job Position / Department / Available / Required).

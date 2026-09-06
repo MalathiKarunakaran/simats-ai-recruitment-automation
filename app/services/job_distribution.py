@@ -6,17 +6,18 @@ integrating an SDK for any of those portals."""
 
 import io
 
-import httpx
 import qrcode
-from fastapi import HTTPException, Request, status
+from fastapi import Request
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.job_posting import JobPosting
 from app.models.user import User
-from app.services.audit import log_event
 from app.services.n8n_client import N8nClient
 
+# The portal codes the legacy distribute endpoint defaults to. Channels are
+# rows in recruitment_channels now (migration e7f8a9b0c1d2 seeds these four
+# with the same codes); this tuple only feeds DistributeRequest's default.
 SUPPORTED_PORTALS: tuple[str, ...] = ("LINKEDIN", "INDEED", "NAUKRI", "FACULTYPLUS")
 
 
@@ -67,41 +68,20 @@ def distribute_to_portals(
     actor: User,
     request: Request | None,
 ) -> dict:
-    invalid = [p for p in portals if p not in SUPPORTED_PORTALS]
-    if invalid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported portal(s): {', '.join(invalid)}. Supported: {', '.join(SUPPORTED_PORTALS)}.",
-        )
+    """The original "post to these portals" call, kept for the existing
+    button and n8n workflow. Since 2026-09-06 it is a thin wrapper over
+    app/services/job_channels.py, which records a channel row per portal
+    and one attempt per row -- see distribute_legacy there. Returns the
+    service's {"ok": ...} dict; the ROUTER commits and then raises 502 on
+    failure, so the attempt rows and the failure audit survive (they did
+    not before: get_db never commits on an exception)."""
+    from app.services import job_channels  # local: job_channels imports generate_job_ad from here
 
-    ad = generate_job_ad(job_posting)
-    payload = {**ad, "job_posting_id": str(ad["job_posting_id"]), "portals": portals}
-
-    try:
-        n8n_response = n8n_client.post_webhook("job-distribution", payload)
-    except httpx.HTTPError as exc:
-        log_event(
-            db,
-            actor=actor,
-            action="JOB_POSTING_DISTRIBUTE_FAILED",
-            campus_context_id=job_posting.campus_id,
-            entity_type="JobPosting",
-            entity_id=job_posting.id,
-            after_state={"portals": portals, "error": str(exc)},
-            request=request,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to reach the job-distribution workflow"
-        ) from exc
-
-    log_event(
+    return job_channels.distribute_legacy(
         db,
+        job_posting=job_posting,
+        portal_codes=portals,
+        n8n_client=n8n_client,
         actor=actor,
-        action="JOB_POSTING_DISTRIBUTED",
-        campus_context_id=job_posting.campus_id,
-        entity_type="JobPosting",
-        entity_id=job_posting.id,
-        after_state={"portals": portals},
         request=request,
     )
-    return {"portals": portals, "n8n_response": n8n_response}

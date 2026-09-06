@@ -137,7 +137,17 @@ excepted, and a Super Admin may approve directly from Submitted. The Vacancy App
 
 **Job postings** carry an AI-drafted job description (editable before
 publishing), a job-ad text and QR code, and a distribute action for the
-external portals.
+external portals. Since 6 September each posting also has a list of
+**channels**: publishing runs the channel rules, which recommend channels
+by staff category (the careers page is selected automatically); a
+recruiter selects or removes each recommendation; a selected channel is
+posted by one attempt at a time, through n8n for portals, immediately for
+internal channels, or by a person who then records the portal's reference
+for manual channels such as FacultyPlus. Every attempt, its payload and
+its outcome are kept, failed channels can be retried up to five times,
+and closing the vacancy retires every channel row. Channels and rules are
+edited through the API for now (`/recruitment-channels`, `/channel-rules`,
+Super Admin and HR Admin); the screens follow in the next step.
 
 **Candidates and applications** move through a fixed twelve-step pipeline:
 Applied, Screening, Called for interview, Interviewed, Selected, Offer
