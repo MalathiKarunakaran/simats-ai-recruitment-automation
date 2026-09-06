@@ -1,36 +1,65 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
-import { distributeJobPosting, getJobAd, getQrCodeBlob } from "@/api/jobDistribution";
-import { getJobPosting, rankCandidates } from "@/api/jobPostings";
-import type { DistributeResponse, JobPortal } from "@/api/types";
+import { getJobAd, getQrCodeBlob } from "@/api/jobDistribution";
+import {
+  closeJobPosting,
+  getJobPosting,
+  pauseJobPosting,
+  rankCandidates,
+  resumeJobPosting,
+  updateJobPosting,
+} from "@/api/jobPostings";
 import { useAuth } from "@/auth/AuthContext";
+import { PostingChannelsPanel } from "@/components/job-postings/PostingChannelsPanel";
+import { PostingStatusBadge } from "@/components/job-postings/PostingStatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/toast";
 
 const RANKED_CANDIDATES_COLUMN_COUNT = 5;
 
-const DISTRIBUTE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
-const SUPPORTED_PORTALS: JobPortal[] = ["LINKEDIN", "INDEED", "NAUKRI", "FACULTYPLUS"];
+// Mirrors app/api/v1/routers/job_distribution.py: list/post/attempts are
+// gated by require_permission(JOB_DISTRIBUTION); these roles hold it by
+// default (app/services/permissions.py), anyone else only by grant.
+const DISTRIBUTE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+// Mirrors app/services/permissions.py defaults for EDIT_JOB_POSTING /
+// CLOSE_VACANCY. Super Admin bypasses every permission check.
+const EDIT_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN"];
+const CLOSE_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
 
 export function JobPostingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user, hasPermission } = useAuth();
-  const { getLabel } = useJobPostingLookup();
-  // Bug fix: OR'd with hasPermission("JOB_DISTRIBUTION") -- distribute_job_posting
-  // is gated by require_permission(JOB_DISTRIBUTION), not this role list
-  // alone (same pattern as UsersListPage's canManage).
-  const canDistribute = Boolean(user && (DISTRIBUTE_ROLES.includes(user.role) || hasPermission?.("JOB_DISTRIBUTION")));
+  const queryClient = useQueryClient();
+  const toast = useToast();
 
-  const [distributionError, setDistributionError] = useState<string | null>(null);
+  const canDistribute = Boolean(user && (DISTRIBUTE_ROLES.includes(user.role) || hasPermission?.("JOB_DISTRIBUTION")));
+  const canReview = Boolean(
+    user &&
+      (DISTRIBUTE_ROLES.includes(user.role) ||
+        hasPermission?.("JOB_DISTRIBUTION") ||
+        hasPermission?.("REVIEW_POSTING_CHANNELS")),
+  );
+  const canEdit = Boolean(user && (EDIT_ROLES.includes(user.role) || hasPermission?.("EDIT_JOB_POSTING")));
+  const canClose = Boolean(user && (CLOSE_ROLES.includes(user.role) || hasPermission?.("CLOSE_VACANCY")));
+
+  const [error, setError] = useState<string | null>(null);
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
-  const [selectedPortals, setSelectedPortals] = useState<JobPortal[]>(SUPPORTED_PORTALS);
-  const [distributeResult, setDistributeResult] = useState<DistributeResponse | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [adTitle, setAdTitle] = useState("");
+  const [adBody, setAdBody] = useState("");
+  const [applyDeadline, setApplyDeadline] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
 
   const { data: jobPosting, isLoading } = useQuery({
     queryKey: ["job-posting", id],
@@ -56,49 +85,133 @@ export function JobPostingDetailPage() {
     };
   }, [qrCodeUrl]);
 
+  function refreshPosting() {
+    setError(null);
+    void queryClient.invalidateQueries({ queryKey: ["job-posting", id] });
+    void queryClient.invalidateQueries({ queryKey: ["job-ad", id] });
+    void queryClient.invalidateQueries({ queryKey: ["job-postings"] });
+  }
+  function fail(fallback: string) {
+    return (err: unknown) => setError(err instanceof ApiError ? err.message : fallback);
+  }
+
   const qrCodeMutation = useMutation({
     mutationFn: () => getQrCodeBlob(id!),
     onSuccess: (blob) => {
-      setDistributionError(null);
+      setError(null);
       setQrCodeUrl(URL.createObjectURL(blob));
     },
-    onError: (err: unknown) => setDistributionError(err instanceof ApiError ? err.message : "QR code generation failed"),
+    onError: fail("QR code generation failed"),
   });
 
-  const distributeMutation = useMutation({
-    mutationFn: (portals: JobPortal[]) => distributeJobPosting(id!, portals),
-    onSuccess: (result) => {
-      setDistributionError(null);
-      setDistributeResult(result);
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      updateJobPosting(id!, {
+        ad_title: adTitle.trim(),
+        ad_body: adBody.trim(),
+        apply_deadline: applyDeadline || null,
+        contact_email: contactEmail.trim() || null,
+      }),
+    onSuccess: () => {
+      refreshPosting();
+      setEditOpen(false);
+      toast.success("Advertisement saved.");
     },
-    onError: (err: unknown) => setDistributionError(err instanceof ApiError ? err.message : "Distribution failed"),
+    onError: fail("Could not save the advertisement"),
+  });
+  const pauseMutation = useMutation({
+    mutationFn: () => pauseJobPosting(id!),
+    onSuccess: () => {
+      refreshPosting();
+      toast.success("Posting paused. Walk-in applications can still be recorded.");
+    },
+    onError: fail("Could not pause the posting"),
+  });
+  const resumeMutation = useMutation({
+    mutationFn: () => resumeJobPosting(id!),
+    onSuccess: () => {
+      refreshPosting();
+      toast.success("Posting resumed.");
+    },
+    onError: fail("Could not resume the posting"),
+  });
+  const closeMutation = useMutation({
+    mutationFn: () => closeJobPosting(id!),
+    onSuccess: () => {
+      refreshPosting();
+      setCloseOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["posting-channels", id] });
+      toast.success("Posting and vacancy closed.");
+    },
+    onError: fail("Could not close the posting"),
   });
 
-  function togglePortal(portal: JobPortal) {
-    setSelectedPortals((prev) => (prev.includes(portal) ? prev.filter((p) => p !== portal) : [...prev, portal]));
+  function openEdit() {
+    if (!jobPosting) return;
+    setAdTitle(jobPosting.ad_title ?? jobPosting.position_title);
+    setAdBody(jobPosting.ad_body ?? jobAd?.body ?? "");
+    setApplyDeadline(jobPosting.apply_deadline ?? "");
+    setContactEmail(jobPosting.contact_email ?? "");
+    setError(null);
+    setEditOpen(true);
   }
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
   if (!jobPosting) {
-    return <Navigate to="/applications" replace />;
+    return <Navigate to="/job-postings" replace />;
   }
 
-  const label = getLabel(jobPosting.id);
+  const closed = jobPosting.status === "CLOSED";
+  const lifecycleBusy = pauseMutation.isPending || resumeMutation.isPending || closeMutation.isPending;
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">{label?.positionTitle ?? "Job Posting"}</h1>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg font-semibold">{jobPosting.ad_title ?? jobPosting.position_title}</h1>
+            <PostingStatusBadge status={jobPosting.status} />
+            {!closed && !jobPosting.is_accepting_applications ? <Badge variant="warning">Deadline passed</Badge> : null}
+          </div>
+          <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+            {jobPosting.posting_number ? <span className="font-mono">{jobPosting.posting_number}</span> : null}
+            {jobPosting.requisition_number ? <span className="font-mono">{jobPosting.requisition_number}</span> : null}
+            <Link to={`/vacancy-requests/${jobPosting.vacancy_request_id}`} className="hover:underline">
+              View vacancy request
+            </Link>
+          </div>
+        </div>
         <Button variant="outline" size="sm" asChild>
-          <Link to="/applications">Back to applications</Link>
+          <Link to="/job-postings">Back to job postings</Link>
         </Button>
       </div>
 
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
           <CardTitle>Posting</CardTitle>
+          {!closed && (canEdit || canClose) ? (
+            <div className="flex flex-wrap gap-2">
+              {canEdit && jobPosting.status === "PUBLISHED" ? (
+                <Button variant="outline" size="sm" disabled={lifecycleBusy} onClick={() => pauseMutation.mutate()}>
+                  Pause
+                </Button>
+              ) : null}
+              {canEdit && jobPosting.status === "PAUSED" ? (
+                <Button variant="outline" size="sm" disabled={lifecycleBusy} onClick={() => resumeMutation.mutate()}>
+                  Resume
+                </Button>
+              ) : null}
+              {canClose ? (
+                <Button variant="destructive" size="sm" disabled={lifecycleBusy} onClick={() => setCloseOpen(true)}>
+                  Close
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 text-sm">
           <div>
@@ -106,29 +219,47 @@ export function JobPostingDetailPage() {
             <div>{new Date(jobPosting.published_at).toLocaleDateString()}</div>
           </div>
           <div>
-            <div className="text-muted-foreground">Status</div>
-            <div>{jobPosting.is_active ? "Active" : "Closed"}</div>
+            <div className="text-muted-foreground">Positions (needed / filled)</div>
+            <div>
+              {jobPosting.requested_count} / {jobPosting.available_count}
+            </div>
           </div>
+          <div>
+            <div className="text-muted-foreground">Apply by</div>
+            <div>{jobPosting.apply_deadline ? new Date(jobPosting.apply_deadline).toLocaleDateString() : "No deadline"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Contact</div>
+            <div>{jobPosting.contact_email ?? "—"}</div>
+          </div>
+          {jobPosting.closed_at ? (
+            <div>
+              <div className="text-muted-foreground">Closed</div>
+              <div>{new Date(jobPosting.closed_at).toLocaleDateString()}</div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
       {canDistribute ? (
         <Card>
-          <CardHeader>
-            <CardTitle>Distribution</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <CardTitle>Advertisement</CardTitle>
+            <div className="flex gap-2">
+              {jobAd ? (
+                <Button variant="outline" size="sm" onClick={() => void navigator.clipboard.writeText(jobAd.body)}>
+                  Copy
+                </Button>
+              ) : null}
+              {canEdit && !closed ? (
+                <Button variant="outline" size="sm" onClick={openEdit}>
+                  Edit
+                </Button>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-5 text-sm">
-            {distributionError ? <p className="text-destructive">{distributionError}</p> : null}
-
             <div>
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-muted-foreground">Job ad text</span>
-                {jobAd ? (
-                  <Button variant="outline" size="sm" onClick={() => void navigator.clipboard.writeText(jobAd.body)}>
-                    Copy
-                  </Button>
-                ) : null}
-              </div>
               {jobAdLoading ? (
                 <p className="text-muted-foreground">Loading…</p>
               ) : jobAd ? (
@@ -138,6 +269,11 @@ export function JobPostingDetailPage() {
               ) : (
                 <p className="text-muted-foreground">No job ad available.</p>
               )}
+              {jobPosting.last_edited_at ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Last edited {new Date(jobPosting.last_edited_at).toLocaleString()}
+                </p>
+              ) : null}
             </div>
 
             <div>
@@ -152,55 +288,21 @@ export function JobPostingDetailPage() {
                   </Button>
                 </div>
               ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={qrCodeMutation.isPending}
-                  onClick={() => qrCodeMutation.mutate()}
-                >
+                <Button variant="outline" size="sm" disabled={qrCodeMutation.isPending} onClick={() => qrCodeMutation.mutate()}>
                   {qrCodeMutation.isPending ? "Generating…" : "Generate QR code"}
                 </Button>
               )}
-            </div>
-
-            <div>
-              <div className="mb-2 text-muted-foreground">Distribute to portals</div>
-              <div className="mb-2 flex flex-wrap gap-2">
-                {SUPPORTED_PORTALS.map((portal) => (
-                  <Button
-                    key={portal}
-                    type="button"
-                    size="sm"
-                    variant={selectedPortals.includes(portal) ? "default" : "outline"}
-                    onClick={() => togglePortal(portal)}
-                  >
-                    {portal}
-                  </Button>
-                ))}
-              </div>
-              <Button
-                size="sm"
-                disabled={selectedPortals.length === 0 || distributeMutation.isPending}
-                onClick={() => distributeMutation.mutate(selectedPortals)}
-              >
-                {distributeMutation.isPending ? "Distributing…" : "Distribute"}
-              </Button>
-              {distributeResult ? (
-                <p className="mt-2 text-xs text-muted-foreground">Sent to: {distributeResult.portals.join(", ")}</p>
-              ) : null}
             </div>
           </CardContent>
         </Card>
       ) : null}
 
+      <PostingChannelsPanel jobPosting={jobPosting} canPost={canDistribute} canReview={canReview} />
+
       <Card>
         <CardHeader>
           <CardTitle>Ranked Candidates</CardTitle>
         </CardHeader>
-        {/* UI redesign Phase 3 -- p-0 + an explicit overflow-x-auto wrapper
-            around the table itself (matching every other page's table
-            region), rather than CardContent's default p-6 padding doubling
-            up with the table's own per-cell padding. */}
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -240,6 +342,63 @@ export function JobPostingDetailPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit advertisement</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ad_title">Title</Label>
+              <Input id="ad_title" value={adTitle} onChange={(e) => setAdTitle(e.target.value)} maxLength={200} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ad_body">Advertisement text</Label>
+              <Textarea id="ad_body" rows={10} value={adBody} onChange={(e) => setAdBody(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="apply_deadline">Apply by (optional)</Label>
+                <Input id="apply_deadline" type="date" value={applyDeadline} onChange={(e) => setApplyDeadline(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="contact_email">Contact email (optional)</Label>
+                <Input id="contact_email" type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
+              </div>
+            </div>
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              Cancel
+            </Button>
+            <Button disabled={saveMutation.isPending || !adTitle.trim() || !adBody.trim()} onClick={() => saveMutation.mutate()}>
+              {saveMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Close this posting?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This closes the vacancy as well: open hiring slots are released, every channel listing is retired, and
+            it cannot be reopened. To stop advertising for a while, use Pause instead.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCloseOpen(false)}>
+              Keep open
+            </Button>
+            <Button variant="destructive" disabled={closeMutation.isPending} onClick={() => closeMutation.mutate()}>
+              {closeMutation.isPending ? "Closing…" : "Close posting and vacancy"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

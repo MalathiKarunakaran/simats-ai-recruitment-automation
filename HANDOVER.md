@@ -147,7 +147,10 @@ for manual channels such as FacultyPlus. Every attempt, its payload and
 its outcome are kept, failed channels can be retried up to five times,
 and closing the vacancy retires every channel row. Channels and rules are
 edited through the API for now (`/recruitment-channels`, `/channel-rules`,
-Super Admin and HR Admin); the screens follow in the next step.
+Super Admin and HR Admin) and, since the same evening, on the
+**Recruitment Channels** page under Administration. The job posting page
+shows the channels with the rule that recommended each one; a recruiter
+selects, posts, retries, records a manual reference, or removes them there.
 
 Each requisition and posting now carries a number people can quote
 (RQ-2026-000001, JP-2026-000001). A posting's advertisement is copied
@@ -211,6 +214,9 @@ Admin, adjust three things:
   candidates and applications, interviews, job distribution and screening.
 - **Department scope**: restricts a user to named departments. Nobody has
   one at handover, by decision; the coordinators see every department.
+  Since 6 September a Super Admin sets it on the user's page (the
+  "Department Scope" card), for HR Admins, Associate Deans, Management and
+  Recruitment Coordinators.
 
 Every one of these edits is audited.
 

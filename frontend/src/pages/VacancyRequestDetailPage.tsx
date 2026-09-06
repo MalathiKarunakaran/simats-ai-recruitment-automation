@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { getApprovedVacancyForRequest, listHiringSlots } from "@/api/approvedVacancies";
+import { listJobPostings } from "@/api/jobPostings";
 import { ApiError } from "@/api/client";
 import {
   cancelVacancyRequest,
@@ -70,6 +71,14 @@ export function VacancyRequestDetailPage() {
     queryFn: () => getApprovedVacancyForRequest(id!),
     enabled: Boolean(id) && canViewPositions,
   });
+
+  // The posting created at publish, for the link on the Positions card.
+  const { data: jobPostings } = useQuery({
+    queryKey: ["job-postings"],
+    queryFn: listJobPostings,
+    enabled: Boolean(approvedVacancy),
+  });
+  const jobPosting = jobPostings?.find((jp) => jp.approved_vacancy_id === approvedVacancy?.id);
 
   const { data: hiringSlots } = useQuery({
     queryKey: ["hiring-slots", approvedVacancy?.id],
@@ -345,6 +354,22 @@ export function VacancyRequestDetailPage() {
             <CardTitle>Positions</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <div className="text-muted-foreground">Requisition</div>
+              <div className="font-mono">{approvedVacancy.requisition_number ?? "—"}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Job posting</div>
+              <div>
+                {jobPosting ? (
+                  <Link to={`/job-postings/${jobPosting.id}`} className="font-mono hover:underline">
+                    {jobPosting.posting_number ?? "View posting"}
+                  </Link>
+                ) : (
+                  "Not published yet"
+                )}
+              </div>
+            </div>
             <div>
               <div className="text-muted-foreground">Total positions</div>
               <div>{approvedVacancy.total_positions}</div>

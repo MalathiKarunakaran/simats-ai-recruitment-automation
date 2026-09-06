@@ -24,6 +24,7 @@ import { InterviewsListPage } from "@/pages/InterviewsListPage";
 import { JobPostingDetailPage } from "@/pages/JobPostingDetailPage";
 import { JobPostingsListPage } from "@/pages/JobPostingsListPage";
 import { LocationsPage } from "@/pages/LocationsPage";
+import { RecruitmentChannelsPage } from "@/pages/RecruitmentChannelsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { OfferCreatePage } from "@/pages/OfferCreatePage";
 import { OfferDetailPage } from "@/pages/OfferDetailPage";
@@ -101,6 +102,7 @@ export function App() {
           <Route path="/campuses" element={<CampusesPage />} />
           <Route path="/departments" element={<DepartmentsPage />} />
           <Route path="/locations" element={<LocationsPage />} />
+          <Route path="/recruitment-channels" element={<RecruitmentChannelsPage />} />
           <Route path="/housekeeping-staff" element={<HousekeepingStaffListPage />} />
         </Route>
       </Route>

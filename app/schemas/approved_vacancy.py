@@ -8,6 +8,7 @@ class ApprovedVacancyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    requisition_number: str | None = None
     vacancy_request_id: uuid.UUID
     campus_id: uuid.UUID
     total_positions: int

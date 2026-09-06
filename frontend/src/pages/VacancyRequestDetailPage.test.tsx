@@ -77,6 +77,7 @@ function baseVr(overrides: Partial<VacancyRequestRead>): VacancyRequestRead {
 function baseApprovedVacancy(overrides: Partial<ApprovedVacancyRead>): ApprovedVacancyRead {
   return {
     id: "av-1",
+    requisition_number: "RQ-2026-000001",
     vacancy_request_id: "vr-1",
     campus_id: "c-sse",
     total_positions: 2,

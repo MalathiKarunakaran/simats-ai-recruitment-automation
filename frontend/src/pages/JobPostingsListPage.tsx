@@ -6,7 +6,7 @@ import { listCampuses } from "@/api/campuses";
 import { listDepartments } from "@/api/departments";
 import { listJobPostings } from "@/api/jobPostings";
 import type { JobPostingRead } from "@/api/types";
-import { Badge } from "@/components/ui/badge";
+import { PostingStatusBadge } from "@/components/job-postings/PostingStatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,9 +14,11 @@ import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableR
 import { CategoryTabs } from "@/components/domain/CategoryTabs";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 
-type ActiveFilter = "ALL" | "ACTIVE" | "CLOSED";
+// ACTIVE = published or paused (is_active on the backend); the three
+// named states mirror app/models/enums.py::JobPostingStatusEnum.
+type ActiveFilter = "ALL" | "ACTIVE" | "PUBLISHED" | "PAUSED" | "CLOSED";
 
-const TOTAL_COLUMN_COUNT = 7;
+const TOTAL_COLUMN_COUNT = 8;
 
 export function JobPostingsListPage() {
   const { data: jobPostings, isLoading } = useQuery({ queryKey: ["job-postings"], queryFn: listJobPostings });
@@ -38,10 +40,14 @@ export function JobPostingsListPage() {
   // whole unfiltered list.
   function matchesNonCategoryFilters(jp: JobPostingRead): boolean {
     if (statusFilter === "ACTIVE" && !jp.is_active) return false;
-    if (statusFilter === "CLOSED" && jp.is_active) return false;
+    if (statusFilter !== "ALL" && statusFilter !== "ACTIVE" && jp.status !== statusFilter) return false;
     if (campusFilter !== "ALL" && jp.campus_id !== campusFilter) return false;
     if (!normalizedSearch) return true;
-    return jp.position_title.toLowerCase().includes(normalizedSearch);
+    return (
+      jp.position_title.toLowerCase().includes(normalizedSearch) ||
+      (jp.ad_title ?? "").toLowerCase().includes(normalizedSearch) ||
+      (jp.posting_number ?? "").toLowerCase().includes(normalizedSearch)
+    );
   }
 
   const preCategoryFiltered = (jobPostings ?? []).filter(matchesNonCategoryFilters);
@@ -64,7 +70,7 @@ export function JobPostingsListPage() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-72">
           <Input
-            placeholder="Search by position title"
+            placeholder="Search by title or posting number"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -76,7 +82,9 @@ export function JobPostingsListPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All statuses</SelectItem>
-              <SelectItem value="ACTIVE">Active</SelectItem>
+              <SelectItem value="ACTIVE">Active (published or paused)</SelectItem>
+              <SelectItem value="PUBLISHED">Published</SelectItem>
+              <SelectItem value="PAUSED">Paused</SelectItem>
               <SelectItem value="CLOSED">Closed</SelectItem>
             </SelectContent>
           </Select>
@@ -105,6 +113,7 @@ export function JobPostingsListPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Number</TableHead>
                 <TableHead>Job Position</TableHead>
                 <TableHead>Department</TableHead>
                 <TableHead>Campus</TableHead>
@@ -129,9 +138,10 @@ export function JobPostingsListPage() {
                   const department = departments?.find((d) => d.id === jp.department_id);
                   return (
                     <TableRow key={jp.id}>
+                      <TableCell className="font-mono text-xs">{jp.posting_number ?? "—"}</TableCell>
                       <TableCell>
                         <Link to={`/job-postings/${jp.id}`} className="font-medium hover:underline">
-                          {jp.position_title}
+                          {jp.ad_title ?? jp.position_title}
                         </Link>
                       </TableCell>
                       <TableCell>{department?.name ?? "—"}</TableCell>
@@ -139,9 +149,7 @@ export function JobPostingsListPage() {
                       <TableCell>{jp.requested_count}</TableCell>
                       <TableCell>{jp.available_count}</TableCell>
                       <TableCell>
-                        <Badge variant={jp.is_active ? "success" : "outline"}>
-                          {jp.is_active ? "Active" : "Closed"}
-                        </Badge>
+                        <PostingStatusBadge status={jp.status} />
                       </TableCell>
                       <TableCell>{new Date(jp.published_at).toLocaleDateString()}</TableCell>
                     </TableRow>

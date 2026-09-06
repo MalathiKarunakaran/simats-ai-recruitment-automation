@@ -73,6 +73,17 @@ const ACTIVE_POSTING: JobPostingRead = {
   department_id: "d-cse",
   requested_count: 1,
   available_count: 1,
+  posting_number: null,
+  status: "PUBLISHED",
+  ad_title: null,
+  ad_body: null,
+  apply_deadline: null,
+  contact_email: null,
+  last_edited_by_id: null,
+  last_edited_at: null,
+  is_accepting_applications: true,
+  vacancy_request_id: "vr-1",
+  requisition_number: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -90,6 +101,17 @@ const CLOSED_POSTING: JobPostingRead = {
   department_id: "d-mech",
   requested_count: 0,
   available_count: 1,
+  posting_number: null,
+  status: "CLOSED",
+  ad_title: null,
+  ad_body: null,
+  apply_deadline: null,
+  contact_email: null,
+  last_edited_by_id: null,
+  last_edited_at: null,
+  is_accepting_applications: true,
+  vacancy_request_id: "vr-1",
+  requisition_number: null,
   created_at: "2026-01-02T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
 };
@@ -139,8 +161,8 @@ describe("JobPostingsListPage", () => {
     if (!row) throw new Error("row not found");
     const cells = within(row).getAllByRole("cell");
     // Job Position, Department, Campus, Requested, Available, Status, Published.
-    expect(cells[3]).toHaveTextContent("1");
     expect(cells[4]).toHaveTextContent("1");
+    expect(cells[5]).toHaveTextContent("1");
   });
 
   it("shows the empty-scope message when there are no postings at all", async () => {
@@ -183,7 +205,7 @@ describe("JobPostingsListPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
 
-    await userEvent.type(screen.getByPlaceholderText("Search by position title"), "lab");
+    await userEvent.type(screen.getByPlaceholderText("Search by title or posting number"), "lab");
 
     expect(screen.queryByText("Assistant Professor")).not.toBeInTheDocument();
     expect(screen.getByText("Lab Technician")).toBeInTheDocument();
@@ -195,7 +217,7 @@ describe("JobPostingsListPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
 
-    await userEvent.type(screen.getByPlaceholderText("Search by position title"), "nonexistent");
+    await userEvent.type(screen.getByPlaceholderText("Search by title or posting number"), "nonexistent");
 
     expect(await screen.findByText("No job postings match these filters.")).toBeInTheDocument();
   });

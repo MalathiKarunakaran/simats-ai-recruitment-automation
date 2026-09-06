@@ -46,6 +46,7 @@ import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DepartmentScopeCard } from "@/components/users/DepartmentScopeCard";
 import { PermissionCategoryCards } from "@/components/users/PermissionCategoryCards";
 import { combine, required, useFieldValidation } from "@/hooks/useFieldValidation";
 import { PASSWORD_MIN_LENGTH, passwordMinLength } from "@/auth/passwordPolicy";
@@ -680,6 +681,16 @@ export function UserDetailPage() {
             </div>
           </CardContent>
         </Card>
+
+        {target ? (
+          <DepartmentScopeCard
+            userId={target.id}
+            targetRole={target.role}
+            viewerIsSuperAdmin={currentUser?.role === "SUPER_ADMIN"}
+            campuses={campuses ?? []}
+            departments={departments ?? []}
+          />
+        ) : null}
 
         <Card className="lg:col-span-2">
           <CardHeader>

@@ -6,6 +6,7 @@ import type {
   PaginatedResponse,
   Permission,
   UserCreatePayload,
+  UserDepartmentScopeRead,
   UserPermissionsRead,
   UserRead,
   UserSelfUpdatePayload,
@@ -85,5 +86,19 @@ export async function setUserPermissions(id: string, permissions: Permission[]):
   return apiFetch<UserPermissionsRead>(`/users/${id}/permissions`, {
     method: "PUT",
     body: JSON.stringify({ permissions }),
+  });
+}
+
+// Department scope (app/api/v1/routers/users.py): GET is SUPER_ADMIN-or-self,
+// PUT is SUPER_ADMIN only and a full replace. Only roles in
+// DEPARTMENT_SCOPABLE_ROLES can be narrowed; empty means unrestricted.
+export async function getUserDepartmentScope(id: string): Promise<UserDepartmentScopeRead> {
+  return apiFetch<UserDepartmentScopeRead>(`/users/${id}/department-scope`);
+}
+
+export async function setUserDepartmentScope(id: string, departmentIds: string[]): Promise<UserDepartmentScopeRead> {
+  return apiFetch<UserDepartmentScopeRead>(`/users/${id}/department-scope`, {
+    method: "PUT",
+    body: JSON.stringify({ department_ids: departmentIds }),
   });
 }

@@ -15,6 +15,7 @@ import {
   LayoutGrid,
   ListChecks,
   MapPin,
+  Megaphone,
   Newspaper,
   Plus,
   Settings,
@@ -205,6 +206,14 @@ const NAV_GROUPS: NavGroup[] = [
         // LOCATION_MANAGEMENT_ROLES (SUPER_ADMIN/HR_ADMIN/RECRUITMENT_OFFICER
         // -- broader than Department's own write set, plan decision 4).
         // glowing-zooming-hamming.md Phase B.
+      },
+      {
+        to: "/recruitment-channels",
+        label: "Recruitment Channels",
+        icon: Megaphone,
+        // Mirrors recruitment_channels.py's read gate (_staff_only) -- broad
+        // read; the page's own write controls check _write_gate
+        // (MANAGE_RECRUITMENT_CHANNELS or SUPER_ADMIN/HR_ADMIN).
       },
       {
         to: "/housekeeping-staff",

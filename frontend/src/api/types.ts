@@ -720,6 +720,12 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
 };
 
 // Mirrors app/api/v1/routers/users.py::UserPermissionsRead.
+// Mirrors app/schemas/user.py::UserDepartmentScopeRead. Empty = no
+// restriction (the user sees every department their campus scope allows).
+export interface UserDepartmentScopeRead {
+  department_ids: string[];
+}
+
 export interface UserPermissionsRead {
   permissions: Permission[];
 }
@@ -1059,6 +1065,8 @@ export interface TrackerImportResponse {
 // Mirrors app/schemas/approved_vacancy.py::ApprovedVacancyRead.
 export interface ApprovedVacancyRead {
   id: string;
+  // RQ-2026-000001 (2026-09-06). Null only for rows the backfill missed.
+  requisition_number: string | null;
   vacancy_request_id: string;
   campus_id: string;
   total_positions: number;
@@ -1106,6 +1114,169 @@ export interface JobPostingRead {
   department_id: string;
   requested_count: number;
   available_count: number;
+  // Content and lifecycle (2026-09-06). `status` is the lifecycle and
+  // `is_active` is derived from it on the backend (PUBLISHED/PAUSED are
+  // active, CLOSED is not); `is_accepting_applications` also folds in the
+  // apply deadline.
+  posting_number: string | null;
+  status: JobPostingStatus;
+  ad_title: string | null;
+  ad_body: string | null;
+  apply_deadline: string | null;
+  contact_email: string | null;
+  last_edited_by_id: string | null;
+  last_edited_at: string | null;
+  is_accepting_applications: boolean;
+  vacancy_request_id: string;
+  requisition_number: string | null;
+}
+
+// Mirrors app/models/enums.py::JobPostingStatusEnum.
+export type JobPostingStatus = "PUBLISHED" | "PAUSED" | "CLOSED";
+
+// Mirrors app/schemas/job_posting.py::JobPostingUpdate.
+export interface JobPostingUpdatePayload {
+  ad_title?: string;
+  ad_body?: string;
+  apply_deadline?: string | null;
+  contact_email?: string | null;
+}
+
+// --- Recruitment channels (2026-09-06) ------------------------------------
+// Mirror app/models/enums.py and app/schemas/recruitment_channel.py /
+// job_posting_channel.py exactly.
+export type RecruitmentChannelKind =
+  | "JOB_PORTAL"
+  | "ACADEMIC_PORTAL"
+  | "SOCIAL"
+  | "CAREERS_PAGE"
+  | "EMAIL"
+  | "INTERNAL"
+  | "REFERRAL"
+  | "AGENCY";
+export type RecruitmentChannelMode = "API" | "FEED" | "MANUAL_ASSISTED" | "INTERNAL";
+export type JobPostingChannelStatus =
+  | "RECOMMENDED"
+  | "SELECTED"
+  | "QUEUED"
+  | "POSTED"
+  | "FAILED"
+  | "EXPIRED"
+  | "REMOVED";
+export type ChannelRecommendationSource = "RULE" | "USER" | "AI";
+export type PostingAttemptOutcome = "SUCCEEDED" | "FAILED" | "TIMEOUT" | "NOT_CONFIGURED";
+export type PostingAttemptTrigger = "MANUAL" | "RETRY" | "LEGACY_DISTRIBUTE";
+
+export interface RecruitmentChannelRead {
+  id: string;
+  code: string;
+  name: string;
+  kind: RecruitmentChannelKind;
+  mode: RecruitmentChannelMode;
+  integration_path: string | null;
+  config: Record<string, unknown> | null;
+  applicable_categories: StaffRoleCategory[];
+  applicable_campus_ids: string[];
+  is_active: boolean;
+  display_order: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecruitmentChannelCreatePayload {
+  code: string;
+  name: string;
+  kind: RecruitmentChannelKind;
+  mode: RecruitmentChannelMode;
+  integration_path?: string | null;
+  applicable_categories?: StaffRoleCategory[];
+  applicable_campus_ids?: string[];
+  is_active?: boolean;
+  display_order?: number;
+  notes?: string | null;
+}
+
+export type RecruitmentChannelUpdatePayload = Partial<Omit<RecruitmentChannelCreatePayload, "code">>;
+
+export interface ChannelRuleRead {
+  id: string;
+  name: string;
+  is_active: boolean;
+  priority: number;
+  match_category: StaffRoleCategory | null;
+  match_campus_id: string | null;
+  match_department_id: string | null;
+  match_designation_id: string | null;
+  match_employment_type: string | null;
+  channel_ids: string[];
+  auto_select: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChannelRuleCreatePayload {
+  name: string;
+  is_active?: boolean;
+  priority?: number;
+  match_category?: StaffRoleCategory | null;
+  match_campus_id?: string | null;
+  match_department_id?: string | null;
+  match_designation_id?: string | null;
+  match_employment_type?: string | null;
+  channel_ids: string[];
+  auto_select?: boolean;
+  notes?: string | null;
+}
+
+export type ChannelRuleUpdatePayload = Partial<ChannelRuleCreatePayload>;
+
+export interface JobPostingChannelRead {
+  id: string;
+  job_posting_id: string;
+  channel_id: string;
+  channel_code: string;
+  channel_name: string;
+  channel_mode: RecruitmentChannelMode;
+  campus_id: string;
+  status: JobPostingChannelStatus;
+  recommended_by: ChannelRecommendationSource;
+  recommendation_reason: string | null;
+  reviewed_by_id: string | null;
+  reviewed_at: string | null;
+  external_ref: string | null;
+  external_url: string | null;
+  posted_at: string | null;
+  expires_at: string | null;
+  removed_at: string | null;
+  attempt_count: number;
+  last_error: string | null;
+  last_attempt_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PostingAttemptRead {
+  id: string;
+  job_posting_channel_id: string;
+  attempt_number: number;
+  trigger: PostingAttemptTrigger;
+  outcome: PostingAttemptOutcome;
+  request_payload: Record<string, unknown> | null;
+  response_payload: Record<string, unknown> | null;
+  error_message: string | null;
+  attempted_by_id: string | null;
+  attempted_at: string;
+}
+
+export interface PostChannelResponse {
+  channel: JobPostingChannelRead;
+  attempt: PostingAttemptRead;
+}
+
+export interface RecommendChannelsResponse {
+  created: JobPostingChannelRead[];
 }
 
 // Mirrors app/services/job_distribution.py::SUPPORTED_PORTALS.
