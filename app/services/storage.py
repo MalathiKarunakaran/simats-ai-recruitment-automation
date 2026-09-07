@@ -95,6 +95,49 @@ def download_resume_bytes(client: Minio, storage_key: str) -> bytes:
         ) from exc
 
 
+def upload_joining_document(
+    client: Minio,
+    *,
+    application_id: uuid.UUID,
+    document_type: str,
+    filename: str,
+    data: bytes,
+    content_type: str,
+) -> str:
+    """A joining document IS primary data (the certificate itself), so this
+    hard-fails like `upload_resume` rather than degrading like the bulk
+    archival copy. One object per checklist row; a re-upload overwrites."""
+    _ensure_bucket(client, settings.MINIO_BUCKET_JOINING_DOCUMENTS)
+    storage_key = f"{application_id}/{document_type}/{filename}"
+    try:
+        client.put_object(
+            settings.MINIO_BUCKET_JOINING_DOCUMENTS,
+            storage_key,
+            io.BytesIO(data),
+            length=len(data),
+            content_type=content_type,
+        )
+    except _STORAGE_ERRORS as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to upload the document to object storage"
+        ) from exc
+    return storage_key
+
+
+def download_joining_document_bytes(client: Minio, storage_key: str) -> bytes:
+    try:
+        response = client.get_object(settings.MINIO_BUCKET_JOINING_DOCUMENTS, storage_key)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+    except _STORAGE_ERRORS as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch the document from object storage"
+        ) from exc
+
+
 def try_upload_bulk_upload_file(
     client: Minio,
     *,

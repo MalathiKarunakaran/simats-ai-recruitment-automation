@@ -190,6 +190,51 @@ describe("JoiningCard", () => {
     await waitFor(() => expect(screen.getByText("Mark received")).toBeInTheDocument());
   });
 
+  it("uploads a document file and shows View once one is stored", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    const stored = makeDocument({ status: "RECEIVED", storage_key: "app-1/PAN/pan.pdf" });
+    // Pending on the first read; the refetch after the upload sees the stored file.
+    mockedListJoiningDocuments.mockResolvedValue([stored]);
+    mockedListJoiningDocuments.mockResolvedValueOnce([makeDocument()]);
+    const mockedUpload = vi.mocked(joiningApi.uploadJoiningDocumentFile);
+    mockedUpload.mockResolvedValue(stored);
+
+    renderCard(makeApplication({ status: "JOINING_CONFIRMED" }));
+    await waitFor(() => expect(screen.getByText("Upload")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "View PAN" })).not.toBeInTheDocument();
+
+    const file = new File(["%PDF-1.4"], "pan.pdf", { type: "application/pdf" });
+    await userEvent.upload(screen.getByLabelText("Upload PAN"), file);
+
+    await waitFor(() => expect(mockedUpload).toHaveBeenCalledWith("doc-1", file));
+    await waitFor(() => expect(screen.getByRole("button", { name: "View PAN" })).toBeInTheDocument());
+    expect(screen.getByText("Replace file")).toBeInTheDocument();
+  });
+
+  it("opens the stored file when View is clicked", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_OFFICER" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED", storage_key: "app-1/PAN/pan.pdf" })]);
+    const mockedOpen = vi.mocked(joiningApi.openJoiningDocumentFile);
+    mockedOpen.mockResolvedValue(undefined);
+
+    renderCard(makeApplication({ status: "JOINING_CONFIRMED" }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "View PAN" }));
+    expect(mockedOpen).toHaveBeenCalledWith("doc-1");
+  });
+
   it("disables the department/room allotment confirm button while a document is still pending", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

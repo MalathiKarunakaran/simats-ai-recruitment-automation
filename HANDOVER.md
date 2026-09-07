@@ -206,7 +206,20 @@ checklist and ends with an employee record and a generated employee code.
 moment the sanctioned-strength working count moves: the new employee
 carries the vacancy's designation, and a Housekeeping hire is also added
 to the housekeeping roster, for which the hand-over step asks for the
-biometric ID, shift and location. Offboarding reverses both.
+biometric ID, shift and location. Offboarding reverses both. When
+offboarding, HR can tick "Raise a replacement vacancy request": a
+one-position draft is created for the same post, cloned from the
+requisition the person was hired against, with remarks naming who left
+and why. It is a draft, not a submission; someone reviews and submits it
+through the usual approvals, and the request page links back to the
+employee it replaces.
+
+**Joining documents** are real files since 2026-09-07: on the onboarding
+card each checklist row (degree and experience certificates, PAN,
+Aadhaar, photo, bank details) takes a PDF, JPEG or PNG of up to 10 MB,
+stored in the file store and marking the row received; a stored file can
+be viewed from the same row, and a later upload replaces it. "Mark
+received" remains for a document that was sighted but not scanned.
 
 **Reports** offers seven report types and an AD Briefing summary, each
 filterable by date range and exportable to Excel or PowerPoint. Every

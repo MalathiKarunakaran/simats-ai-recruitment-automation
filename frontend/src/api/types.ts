@@ -890,6 +890,9 @@ export interface VacancyRequestRead {
   // requester_name when it is set.
   source: VacancyRequestSource;
   request_ref: string | null;
+  /** The employee this request replaces, when it was raised from an
+   * offboarding (2026-09-07). Optional so older fixtures still type-check. */
+  replacement_for_employee_id?: string | null;
   location_id: string | null;
   required_by: string | null;
   requester_name: string | null;
@@ -1674,6 +1677,10 @@ export interface JoiningDocumentRead {
 }
 
 // Mirrors app/schemas/joining.py::JoiningDocumentUpdate.
+// Mirrors app/api/v1/routers/joining.py's document-file endpoints
+// (2026-09-07): what a checklist row's file may be.
+export const JOINING_DOCUMENT_ACCEPT = "application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png";
+
 export interface JoiningDocumentUpdatePayload {
   status: JoiningDocumentStatus;
   storage_key?: string | null;
@@ -1712,6 +1719,15 @@ export interface EmployeeOffboardPayload {
   separation_type: Exclude<EmploymentStatus, "ACTIVE">;
   separation_date: string;
   reason: string;
+  /** Also raise a one-position DRAFT vacancy request to replace this person
+   * (2026-09-07). Off by default: not every departure is refilled. */
+  raise_replacement_request?: boolean;
+}
+
+// Mirrors app/schemas/employee.py::EmployeeOffboardResponse -- the employee
+// plus the id of the replacement draft, when one was raised.
+export interface EmployeeOffboardResponse extends EmployeeRead {
+  replacement_vacancy_request_id?: string | null;
 }
 
 // Mirrors app/services/reporting.py::REPORT_BUILDERS keys.

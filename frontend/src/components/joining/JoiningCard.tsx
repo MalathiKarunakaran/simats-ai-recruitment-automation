@@ -12,8 +12,11 @@ import {
   handOverToHod,
   listJoiningDocuments,
   markJoined,
+  openJoiningDocumentFile,
   updateJoiningDocument,
+  uploadJoiningDocumentFile,
 } from "@/api/joining";
+import { JOINING_DOCUMENT_ACCEPT } from "@/api/types";
 import type { ApplicationRead, HousekeepingShift, JoiningDocumentStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { Badge } from "@/components/ui/badge";
@@ -113,6 +116,22 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Update failed"),
   });
 
+  // The file itself (2026-09-07): uploading stores it and marks the row
+  // received in one go; "Mark received" stays for a document sighted but
+  // not scanned.
+  const uploadDocumentMutation = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) => uploadJoiningDocumentFile(id, file),
+    onSuccess: () => {
+      setError(null);
+      afterAction();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Upload failed"),
+  });
+  const openDocumentMutation = useMutation({
+    mutationFn: (id: string) => openJoiningDocumentFile(id),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Could not open the document"),
+  });
+
   const markJoinedMutation = useMutation({
     mutationFn: () => markJoined(application.id),
     onSuccess: () => {
@@ -199,21 +218,53 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
                     {doc.status}
                   </Badge>
                 </div>
-                {canWrite ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={toggleDocumentMutation.isPending}
-                    onClick={() =>
-                      toggleDocumentMutation.mutate({
-                        id: doc.id,
-                        status: doc.status === "RECEIVED" ? "PENDING" : "RECEIVED",
-                      })
-                    }
-                  >
-                    {doc.status === "RECEIVED" ? "Mark pending" : "Mark received"}
-                  </Button>
-                ) : null}
+                <div className="flex items-center gap-2">
+                  {doc.storage_key ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={openDocumentMutation.isPending}
+                      onClick={() => openDocumentMutation.mutate(doc.id)}
+                      aria-label={`View ${doc.document_type.replace(/_/g, " ")}`}
+                    >
+                      View
+                    </Button>
+                  ) : null}
+                  {canWrite ? (
+                    <>
+                      <Button variant="outline" size="sm" asChild disabled={uploadDocumentMutation.isPending}>
+                        <label htmlFor={`upload-${doc.id}`} className="cursor-pointer">
+                          {doc.storage_key ? "Replace file" : "Upload"}
+                        </label>
+                      </Button>
+                      <input
+                        id={`upload-${doc.id}`}
+                        type="file"
+                        accept={JOINING_DOCUMENT_ACCEPT}
+                        className="sr-only"
+                        aria-label={`Upload ${doc.document_type.replace(/_/g, " ")}`}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) uploadDocumentMutation.mutate({ id: doc.id, file });
+                          e.target.value = "";
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={toggleDocumentMutation.isPending}
+                        onClick={() =>
+                          toggleDocumentMutation.mutate({
+                            id: doc.id,
+                            status: doc.status === "RECEIVED" ? "PENDING" : "RECEIVED",
+                          })
+                        }
+                      >
+                        {doc.status === "RECEIVED" ? "Mark pending" : "Mark received"}
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
               </li>
             ))}
           </ul>

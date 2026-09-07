@@ -18,7 +18,7 @@ from app.models.employee import Employee
 from app.models.enums import EmploymentStatusEnum, PermissionEnum, UserRoleEnum
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
-from app.schemas.employee import EmployeeOffboardRequest, EmployeeRead
+from app.schemas.employee import EmployeeOffboardRequest, EmployeeOffboardResponse, EmployeeRead
 from app.services import employees as employees_service
 
 router = APIRouter(prefix="/employees", tags=["employees"])
@@ -83,7 +83,7 @@ def get_employee(
     return employee
 
 
-@router.post("/{employee_id}/offboard", response_model=EmployeeRead)
+@router.post("/{employee_id}/offboard", response_model=EmployeeOffboardResponse)
 def offboard_employee(
     employee_id: uuid.UUID,
     payload: EmployeeOffboardRequest,
@@ -92,7 +92,7 @@ def offboard_employee(
     current_user: User = Depends(require_permission(PermissionEnum.EDIT_EMPLOYEES)),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
-) -> Employee:
+) -> EmployeeOffboardResponse:
     employee = db.get(Employee, employee_id)
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
@@ -108,6 +108,14 @@ def offboard_employee(
         actor=current_user,
         request=request,
     )
+    replacement = None
+    if payload.raise_replacement_request:
+        # Same transaction as the separation: either both land or neither.
+        replacement = employees_service.raise_replacement_vacancy_request(
+            db, employee=employee, actor=current_user, request=request
+        )
     db.commit()
     db.refresh(employee)
-    return employee
+    body = EmployeeOffboardResponse.model_validate(employee)
+    body.replacement_vacancy_request_id = replacement.id if replacement is not None else None
+    return body

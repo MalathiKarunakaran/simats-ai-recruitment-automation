@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # Separate bucket from resumes -- see app/services/storage.py's
     # upload_bulk_upload_file/download_bulk_upload_file_bytes trio.
     MINIO_BUCKET_BULK_UPLOADS: str = "bulk-uploads"
+    # --- MinIO (2026-09-07, RMS step 7): joining-document files ---
+    # Degree/experience certificates, PAN, Aadhaar, photo, bank details --
+    # one object per JoiningDocument row, keys `{application_id}/{type}/{name}`.
+    MINIO_BUCKET_JOINING_DOCUMENTS: str = "joining-documents"
     MINIO_USE_SSL: bool = False
 
     # --- ChromaDB (Phase 3: resume embeddings / semantic JD matching) ---

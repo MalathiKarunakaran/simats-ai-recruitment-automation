@@ -327,6 +327,14 @@ export function VacancyRequestDetailPage() {
               <div>{vr.skills.join(", ")}</div>
             </div>
           ) : null}
+          {vr.replacement_for_employee_id ? (
+            <div className="col-span-2">
+              <div className="text-muted-foreground">Replacement for</div>
+              <Link to={`/employees/${vr.replacement_for_employee_id}`} className="hover:underline">
+                View the employee this request replaces
+              </Link>
+            </div>
+          ) : null}
           {vr.remarks ? (
             <div className="col-span-2">
               <div className="text-muted-foreground">Remarks</div>

@@ -256,6 +256,20 @@ link/QR (`job_distribution.build_public_apply_url`) is
 `public_app_base_url` -- prod's old placeholder line must be removed.
 `tests/test_public_careers.py` guards all of it.
 
+**Replacement vacancies and joining-document files (2026-09-07, step 7)**:
+`employees.raise_replacement_vacancy_request` is the only creator of a
+`VacancyRequest` with `replacement_for_employee_id` set (nullable FK,
+migration `b2c3d4e5f6a7`); it clones the requisition the leaver was hired
+against with `requested_count=1`, lands as DRAFT owned by the offboarding
+actor, source MANUAL, and is invoked ONLY from `POST /employees/{id}/offboard`
+when `raise_replacement_request` is true -- same transaction as the
+separation. Nothing auto-submits. Joining documents: `POST/GET
+/joining-documents/{id}/file` store/serve one object per checklist row in
+`MINIO_BUCKET_JOINING_DOCUMENTS` via `storage.upload_joining_document`
+(hard-fail 502 like resumes, not the bulk-archive degrade); PDF/JPEG/PNG,
+magic bytes checked, 10 MB cap; upload sets RECEIVED. Tests:
+`tests/test_replacement_vacancy.py`, `tests/test_joining_document_files.py`.
+
 **Working strength is derived, never stored**: `sanctioned_strength.working_count_for`
 counts ACTIVE `Employee` rows by `designation_id` for Teaching/Non-Teaching and
 active `HousekeepingStaff` roster rows for Housekeeping (a `working_override`

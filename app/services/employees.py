@@ -12,10 +12,11 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.models.employee import Employee
-from app.models.enums import EmploymentStatusEnum
+from app.models.enums import EmploymentStatusEnum, VacancyPriorityEnum, VacancyRequestSourceEnum
 from app.models.housekeeping_staff import HousekeepingStaff
 from app.models.user import User
-from app.services.audit import log_update
+from app.models.vacancy_request import VacancyRequest
+from app.services.audit import log_create, log_update
 
 
 def offboard_employee(
@@ -84,3 +85,76 @@ def offboard_employee(
             request=request,
         )
     return employee
+
+
+def raise_replacement_vacancy_request(
+    db: Session,
+    *,
+    employee: Employee,
+    actor: User,
+    request: Request | None = None,
+) -> VacancyRequest:
+    """A one-position DRAFT vacancy request to replace a separated employee
+    (2026-09-07, RMS step 7).
+
+    Cloned from the requisition the person was hired against -- the same
+    campus, department, designation, title, employment type, qualification,
+    experience, salary band and skills -- because that is the post that has
+    just fallen vacant, not a guess at one. Count is 1 whatever the original
+    asked for. It lands as a DRAFT owned by the offboarding actor and goes
+    through the normal submit -> Dean -> HR chain; nothing is auto-submitted,
+    since the department may decide not to refill, or to refill differently.
+    `remarks` says who left and why, and `replacement_for_employee_id`
+    keeps the link queryable.
+    """
+    if employee.employment_status == EmploymentStatusEnum.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A replacement request can only be raised for a separated employee",
+        )
+    original = employee.application.job_posting.approved_vacancy.vacancy_request
+    department_id = employee.department_id or original.department_id
+    designation_id = employee.designation_id or original.designation_id
+    separation = employee.employment_status.value.lower()
+    when = employee.separation_date.isoformat() if employee.separation_date else "unknown date"
+    remarks = (
+        f"Replacement for {employee.full_name} ({employee.employee_code}), "
+        f"{separation} {when}. Reason: {employee.separation_reason or 'not recorded'}."
+    )
+
+    vr = VacancyRequest(
+        campus_id=employee.campus_id,
+        department_id=department_id,
+        designation_id=designation_id,
+        role_category=original.role_category,
+        position_title=employee.designation or original.position_title,
+        employment_type=original.employment_type,
+        requested_count=1,
+        qualification=original.qualification,
+        experience_required=original.experience_required,
+        salary_band_min=original.salary_band_min,
+        salary_band_max=original.salary_band_max,
+        skills=list(original.skills) if original.skills else None,
+        priority=VacancyPriorityEnum.NORMAL,
+        remarks=remarks,
+        source=VacancyRequestSourceEnum.MANUAL,
+        location_id=original.location_id,
+        requested_by_id=actor.id,
+        replacement_for_employee_id=employee.id,
+    )
+    db.add(vr)
+    db.flush()
+    log_create(
+        db,
+        actor=actor,
+        entity_type="VacancyRequest",
+        entity=vr,
+        campus_context_id=vr.campus_id,
+        after_state={
+            "status": vr.status.value,
+            "replacement_for_employee_id": str(employee.id),
+            "requested_count": 1,
+        },
+        request=request,
+    )
+    return vr

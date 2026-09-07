@@ -33,3 +33,13 @@ class EmployeeOffboardRequest(BaseModel):
     separation_type: EmploymentStatusEnum
     separation_date: date
     reason: str = Field(min_length=1)
+    # Also raise a one-position DRAFT vacancy request to replace this
+    # person (2026-09-07). Off by default: not every departure is refilled.
+    raise_replacement_request: bool = False
+
+
+class EmployeeOffboardResponse(EmployeeRead):
+    """The offboarded employee plus, when one was raised, the replacement
+    request's id -- so the screen can link straight to the draft."""
+
+    replacement_vacancy_request_id: uuid.UUID | None = None

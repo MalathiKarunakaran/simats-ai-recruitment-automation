@@ -167,6 +167,12 @@ class VacancyRequest(Base):
     # available_to_request block; both stay false/NULL on every ordinary
     # request. Added in Phase A (data-model-only) ahead of Phase E's
     # actual enforcement logic in app/services/vacancy_workflow.py.
+    # The employee this request replaces, when it was raised from an
+    # offboarding (2026-09-07, employees.raise_replacement_vacancy_request).
+    # NULL for every request raised any other way.
+    replacement_for_employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     is_over_sanction: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     over_sanction_justification: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -180,6 +186,7 @@ class VacancyRequest(Base):
     designation: Mapped["Designation"] = relationship()
     requested_by: Mapped["User"] = relationship(foreign_keys=[requested_by_id])
     approved_vacancy: Mapped["ApprovedVacancy"] = relationship(back_populates="vacancy_request", uselist=False)
+    replacement_for_employee: Mapped["Employee | None"] = relationship(foreign_keys=[replacement_for_employee_id])
 
     @property
     def requested_by_name(self) -> str | None:

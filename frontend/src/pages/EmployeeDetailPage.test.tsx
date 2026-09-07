@@ -220,7 +220,43 @@ describe("EmployeeDetailPage", () => {
         separation_type: "RESIGNED",
         separation_date: "2026-06-01",
         reason: "Took a new role elsewhere",
+        raise_replacement_request: false,
       }),
     );
+    expect(screen.queryByText(/replacement vacancy request has been raised/)).not.toBeInTheDocument();
+  });
+
+  it("raises a replacement draft when asked, and links to it afterwards", async () => {
+    mockUser("HR_ADMIN");
+    mockedGetEmployee.mockResolvedValue(EMPLOYEE);
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedListCampuses.mockResolvedValue([CAMPUS]);
+    mockedOffboardEmployee.mockResolvedValue({
+      ...EMPLOYEE,
+      employment_status: "RESIGNED",
+      separation_date: "2026-06-01",
+      separation_reason: "Retiring",
+      replacement_vacancy_request_id: "vr-replacement-1",
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Offboard" })).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Offboard" }));
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(await screen.findByText("Resigned"));
+    await userEvent.type(screen.getByLabelText("Separation date"), "2026-06-01");
+    await userEvent.type(screen.getByLabelText("Reason"), "Retiring");
+    await userEvent.click(screen.getByRole("checkbox", { name: /Raise a replacement vacancy request/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm offboard" }));
+
+    await waitFor(() =>
+      expect(mockedOffboardEmployee).toHaveBeenCalledWith(
+        "emp-1",
+        expect.objectContaining({ raise_replacement_request: true }),
+      ),
+    );
+    const link = await screen.findByRole("link", { name: "Open the draft" });
+    expect(link).toHaveAttribute("href", "/vacancy-requests/vr-replacement-1");
   });
 });

@@ -112,6 +112,8 @@ class VacancyRequestRead(BaseModel):
     # when it is set.
     source: VacancyRequestSourceEnum
     request_ref: str | None
+    # Set only on a request raised from an offboarding (2026-09-07).
+    replacement_for_employee_id: uuid.UUID | None = None
     location_id: uuid.UUID | None
     required_by: date | None
     requester_name: str | None

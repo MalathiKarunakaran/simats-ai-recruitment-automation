@@ -1,4 +1,4 @@
-import { apiFetch } from "@/api/client";
+import { apiFetch, apiFetchBlob } from "@/api/client";
 import type {
   DepartmentRoomAllotmentPayload,
   EmployeeRead,
@@ -29,6 +29,24 @@ export async function updateJoiningDocument(
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+/** Stores the document's file (PDF/JPEG/PNG) and marks the row RECEIVED --
+ * POST /joining-documents/{id}/file (2026-09-07). */
+export async function uploadJoiningDocumentFile(documentId: string, file: File): Promise<JoiningDocumentRead> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<JoiningDocumentRead>(`/joining-documents/${documentId}/file`, { method: "POST", body: formData });
+}
+
+/** Fetches the stored file as a Blob (the request must carry the Bearer
+ * token, so a plain <a href> cannot do it) and opens it in a new tab. */
+export async function openJoiningDocumentFile(documentId: string): Promise<void> {
+  const blob = await apiFetchBlob(`/joining-documents/${documentId}/file`);
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener");
+  // Give the new tab a moment to take the object URL before it is revoked.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export async function markJoined(applicationId: string): Promise<JoiningRecordRead> {

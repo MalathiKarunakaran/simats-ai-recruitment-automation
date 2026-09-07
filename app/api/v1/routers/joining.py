@@ -1,12 +1,16 @@
+import io
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
+from minio import Minio
+from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_permission
 from app.models.application import Application
-from app.models.enums import ApplicationStatusEnum, PermissionEnum
+from app.models.enums import ApplicationStatusEnum, JoiningDocumentStatusEnum, PermissionEnum
 from app.models.joining import JoiningDocument, JoiningRecord
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
@@ -20,8 +24,9 @@ from app.schemas.joining import (
     OrientationCompleteRequest,
 )
 from app.services import joining as joining_service
-from app.services import pipeline
+from app.services import pipeline, storage
 from app.services.audit import log_update
+from app.services.storage import get_minio_client
 
 router = APIRouter(tags=["joining"])
 
@@ -126,6 +131,116 @@ def update_joining_document(
     db.commit()
     db.refresh(document)
     return document
+
+
+# --- Document files (2026-09-07, RMS step 7) --------------------------------
+# Until now a checklist row could only be ticked; the certificate itself
+# lived in a folder somewhere. The file now goes to MinIO and ticking is a
+# consequence of uploading. Marking received by hand still works for a
+# document that was sighted but not scanned.
+
+_MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB, same cap as resumes
+_ACCEPTED_DOCUMENT_TYPES: dict[str, tuple[bytes, ...]] = {
+    "application/pdf": (b"%PDF",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+}
+
+
+def _get_document_or_404_scoped(db: Session, document_id: uuid.UUID, scope: CampusScope) -> JoiningDocument:
+    document = db.get(JoiningDocument, document_id)
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    enforce_campus_match(scope, document.application.campus_id)
+    return document
+
+
+def _validate_document_file(*, content_type: str | None, data: bytes) -> str:
+    """PDF, JPEG or PNG, at most 10 MB, and the bytes must match the declared
+    type -- a Content-Type header is trivially spoofable. Returns the type."""
+    magics = _ACCEPTED_DOCUMENT_TYPES.get(content_type or "")
+    if magics is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF, JPEG or PNG documents are accepted"
+        )
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document file is empty")
+    if len(data) > _MAX_DOCUMENT_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document file exceeds the 10 MB limit")
+    if not any(data.startswith(magic) for magic in magics):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File content does not match its type")
+    if content_type == "application/pdf":
+        try:
+            PdfReader(io.BytesIO(data))
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is not a valid PDF") from exc
+    return content_type
+
+
+@router.post("/joining-documents/{document_id}/file", response_model=JoiningDocumentRead)
+def upload_joining_document_file(
+    document_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
+    scope: CampusScope = Depends(get_campus_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> JoiningDocument:
+    """Store the document's file and mark the row RECEIVED. A later upload
+    replaces the file (the newest scan is the one that counts)."""
+    document = _get_document_or_404_scoped(db, document_id, scope)
+    data = file.file.read()
+    content_type = _validate_document_file(content_type=file.content_type, data=data)
+
+    before = {"status": document.status.value, "storage_key": document.storage_key}
+    document.storage_key = storage.upload_joining_document(
+        minio_client,
+        application_id=document.application_id,
+        document_type=document.document_type,
+        filename=file.filename or "document",
+        data=data,
+        content_type=content_type,
+    )
+    document.status = JoiningDocumentStatusEnum.RECEIVED
+    document.received_at = datetime.now(timezone.utc)
+    log_update(
+        db,
+        actor=current_user,
+        entity_type="JoiningDocument",
+        entity=document,
+        campus_context_id=document.application.campus_id,
+        before_state=before,
+        after_state={"status": document.status.value, "storage_key": document.storage_key},
+        request=request,
+    )
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+@router.get("/joining-documents/{document_id}/file")
+def download_joining_document_file(
+    document_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
+    scope: CampusScope = Depends(get_campus_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> StreamingResponse:
+    document = _get_document_or_404_scoped(db, document_id, scope)
+    if not document.storage_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No file has been uploaded for this document")
+    data = storage.download_joining_document_bytes(minio_client, document.storage_key)
+    filename = document.storage_key.rsplit("/", 1)[-1]
+    media_type = next(
+        (ct for ct, magics in _ACCEPTED_DOCUMENT_TYPES.items() if any(data.startswith(m) for m in magics)),
+        "application/octet-stream",
+    )
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type=media_type,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/applications/{application_id}/joining/mark-joined", response_model=JoiningRecordRead)

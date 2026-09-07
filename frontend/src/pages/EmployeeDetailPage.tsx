@@ -41,6 +41,10 @@ export function EmployeeDetailPage() {
   const [separationType, setSeparationType] = useState<Exclude<EmploymentStatus, "ACTIVE"> | "">("");
   const [separationDate, setSeparationDate] = useState("");
   const reason = useFieldValidation("", required());
+  // Raise a one-position DRAFT vacancy request for this post in the same
+  // act (2026-09-07). Off by default; the link to the draft is shown after.
+  const [raiseReplacement, setRaiseReplacement] = useState(false);
+  const [replacementRequestId, setReplacementRequestId] = useState<string | null>(null);
 
   const { data: employee, isLoading } = useQuery({
     queryKey: ["employee", id],
@@ -57,13 +61,16 @@ export function EmployeeDetailPage() {
         separation_type: separationType as Exclude<EmploymentStatus, "ACTIVE">,
         separation_date: separationDate,
         reason: reason.value,
+        raise_replacement_request: raiseReplacement,
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       setError(null);
       setOffboardDialogOpen(false);
       setSeparationType("");
       setSeparationDate("");
+      setReplacementRequestId(result.replacement_vacancy_request_id ?? null);
       void queryClient.invalidateQueries({ queryKey: ["employee", id] });
+      void queryClient.invalidateQueries({ queryKey: ["vacancy-requests"] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Offboard failed"),
   });
@@ -179,6 +186,16 @@ export function EmployeeDetailPage() {
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
+      {replacementRequestId ? (
+        <p role="status" className="rounded-md bg-brand-success/10 px-3 py-2 text-sm text-foreground">
+          A replacement vacancy request has been raised as a draft.{" "}
+          <Link to={`/vacancy-requests/${replacementRequestId}`} className="font-medium underline">
+            Open the draft
+          </Link>{" "}
+          to review and submit it.
+        </p>
+      ) : null}
+
       {isActive && canOffboard ? (
         <div>
           <Dialog open={offboardDialogOpen} onOpenChange={setOffboardDialogOpen}>
@@ -228,6 +245,21 @@ export function EmployeeDetailPage() {
                   />
                   {reason.error ? <p className="text-sm text-destructive">{reason.error}</p> : null}
                 </div>
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 accent-brand-plum"
+                    checked={raiseReplacement}
+                    onChange={(e) => setRaiseReplacement(e.target.checked)}
+                  />
+                  <span>
+                    Raise a replacement vacancy request
+                    <span className="block text-xs text-muted-foreground">
+                      A one-position draft for this post, cloned from the original requisition, for review and
+                      submission through the usual approvals.
+                    </span>
+                  </span>
+                </label>
               </div>
               <DialogFooter>
                 <Button
