@@ -14,10 +14,15 @@ export function formatEmploymentType(value: string): string {
   return value.replace(/_/g, " ").toLowerCase().replace(/(^|\s)([a-z])/g, (m) => m.toUpperCase());
 }
 
-/** A date-only ISO string ("2026-09-30") rendered in the viewer's locale.
- * Parsed as local time on purpose: `new Date("2026-09-30")` is UTC midnight,
- * which in IST is fine but west of Greenwich shows the previous day. */
+/** A date-only ISO string ("2026-09-30") as "30 Sept 2026".
+ *
+ * Pinned to en-IN rather than the viewer's locale: the audience is Indian
+ * and the day-month-year order is what a printed ad uses -- and CI's en-US
+ * default rendered "Sep 30, 2026", which failed the tests that read the
+ * page as a candidate would. Parsed as local time on purpose: `new
+ * Date("2026-09-30")` is UTC midnight, which west of Greenwich shows the
+ * previous day. */
 export function formatDate(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return new Date(y, m - 1, d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }

@@ -79,7 +79,7 @@ describe("PublicJobPostingPage", () => {
     expect(screen.getByText("Saveetha School of Engineering (SSE) · CSE")).toBeInTheDocument();
     expect(screen.getByText("Ph.D. in Computer Science")).toBeInTheDocument();
     expect(screen.getByText("3+ years · 2 positions")).toBeInTheDocument();
-    expect(screen.getByText("30 Sept 2026")).toBeInTheDocument();
+    expect(screen.getByText(/^30 Sept? 2026$/)).toBeInTheDocument(); // "Sep"/"Sept" differs by ICU version
     expect(screen.getByText(/Teach undergraduate courses/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "hr@example.edu" })).toHaveAttribute("href", "mailto:hr@example.edu");
     expect(mockedGet).toHaveBeenCalledWith(SLUG);

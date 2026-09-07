@@ -83,7 +83,7 @@ describe("PublicCareersPage", () => {
     expect(screen.getByText("Full Time")).toBeInTheDocument();
     expect(screen.getByText("2 positions")).toBeInTheDocument();
     expect(screen.getByText("1 position")).toBeInTheDocument();
-    expect(screen.getByText("Apply by 30 Sept 2026")).toBeInTheDocument();
+    expect(screen.getByText(/^Apply by 30 Sept? 2026$/)).toBeInTheDocument(); // "Sep"/"Sept" differs by ICU version
     expect(screen.getByText("Open until filled")).toBeInTheDocument();
     expect(screen.getByText("Teaching")).toBeInTheDocument();
     expect(screen.getByText("Non-Teaching")).toBeInTheDocument();
