@@ -30,6 +30,8 @@ import { OfferCreatePage } from "@/pages/OfferCreatePage";
 import { OfferDetailPage } from "@/pages/OfferDetailPage";
 import { OffersListPage } from "@/pages/OffersListPage";
 import { OnboardingListPage } from "@/pages/OnboardingListPage";
+import { PublicCareersPage } from "@/pages/PublicCareersPage";
+import { PublicJobPostingPage } from "@/pages/PublicJobPostingPage";
 import { ReportsPage } from "@/pages/ReportsPage";
 import { SanctionedStrengthPage } from "@/pages/SanctionedStrengthPage";
 import { SetNewPasswordPage } from "@/pages/SetNewPasswordPage";
@@ -54,6 +56,11 @@ export function App() {
           into the authenticated app: a visitor who scans the poster
           should not learn the rest of the application exists. */}
       <Route path="/vacancy-request/public" element={<PublicVacancyRequestPage />} />
+      {/* Public careers pages (2026-09-07) -- same footing: no shell, no
+          nav, no way into the staff console. The QR code on a printed ad
+          and the apply link in every portal listing land on /careers/:slug. */}
+      <Route path="/careers" element={<PublicCareersPage />} />
+      <Route path="/careers/:slug" element={<PublicJobPostingPage />} />
       <Route element={<ProtectedRoute />}>
         {/* Deliberately outside AppShell -- reachable while mustChangePassword
             is true, when the AppShell's nav/routes are all blocked by

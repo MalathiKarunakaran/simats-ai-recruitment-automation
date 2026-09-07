@@ -1481,9 +1481,10 @@ export interface ResumeScoreRead {
 }
 
 // Mirrors app/schemas/candidate.py::CandidateSource -- the 4 real sourcing
-// channels; the column itself stays an unconstrained string on the backend,
-// this narrows what the app writes.
-export type CandidateSource = "Reference" | "Job Portal" | "FacultyPlus" | "Walk-in";
+// channels plus "Careers Page", which only the public apply flow writes
+// (the staff forms never offer it); the column itself stays an unconstrained
+// string on the backend, this narrows what the app writes.
+export type CandidateSource = "Reference" | "Job Portal" | "FacultyPlus" | "Walk-in" | "Careers Page";
 
 // Mirrors app/schemas/candidate.py::CandidateRead.
 export interface CandidateRead {

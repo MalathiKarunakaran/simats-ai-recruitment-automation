@@ -133,9 +133,9 @@ wording on anything this summary compresses or omits.
 ## What this is not (yet)
 
 The frontend does not yet have a screen for every module — check
-`frontend/README.md` for current status. There is no self-service candidate-
-facing web portal (Module 5's "candidate portal" concept is data-model/API
-support for applications, not a public-facing apply site with its own UI).
+`frontend/README.md` for current status. Candidates apply through the public
+careers pages (`/careers`, 2026-09-07) but have no account: Module 5's
+"register, login, track status" half remains deferred.
 Employees are read-only once created — no termination/offboarding workflow
 exists. AI features require real Anthropic/OpenAI API keys to function live;
 without them the relevant endpoints return a clean 503 rather than failing

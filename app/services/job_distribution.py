@@ -22,7 +22,10 @@ SUPPORTED_PORTALS: tuple[str, ...] = ("LINKEDIN", "INDEED", "NAUKRI", "FACULTYPL
 
 
 def build_public_apply_url(job_posting: JobPosting) -> str:
-    return f"{settings.PUBLIC_APPLY_BASE_URL.rstrip('/')}/apply/{job_posting.public_apply_slug}"
+    """Where a candidate lands from the ad or the QR code: the posting's own
+    public page, served by this app's frontend (`PublicJobPostingPage`) and
+    read from `GET /public/careers/postings/{slug}`."""
+    return f"{settings.public_apply_base_url}/careers/{job_posting.public_apply_slug}"
 
 
 def generate_job_ad(job_posting: JobPosting) -> dict:

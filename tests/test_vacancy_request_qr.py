@@ -38,14 +38,17 @@ def test_info_returns_the_public_form_url(client, user_factory):
     assert url.startswith("http://") or url.startswith("https://")
 
 
-def test_url_follows_configured_base_not_the_careers_domain(client, user_factory):
-    """PUBLIC_APPLY_BASE_URL is the candidate careers site. Pointing staff
-    there would send them to a different application entirely."""
+def test_url_follows_configured_base_not_the_careers_domain(monkeypatch, client, user_factory):
+    """PUBLIC_APPLY_BASE_URL, when set, is a separate candidate careers site.
+    Pointing staff there would send them to a different application
+    entirely. (Unset, it falls back to this app's own base -- see
+    tests/test_public_careers.py for that side.)"""
+    monkeypatch.setattr(settings, "PUBLIC_APPLY_BASE_URL", "https://careers.example.edu", raising=False)
     hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
 
     url = client.get(INFO, headers=auth_headers(client, hr_admin)).json()["url"]
 
-    assert settings.PUBLIC_APPLY_BASE_URL not in url
+    assert "https://careers.example.edu" not in url
 
 
 def test_url_is_not_hard_coded_to_localhost(monkeypatch, client, user_factory):

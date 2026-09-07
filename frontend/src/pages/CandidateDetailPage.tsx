@@ -28,9 +28,10 @@ import { combine, email as emailValidator, required, useFieldValidation } from "
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 import { CAN_MANAGE_CANDIDATES_ROLES } from "@/pages/CandidatesListPage";
 
-// Mirrors the 4 real sourcing channels (app/schemas/candidate.py::CandidateSource),
-// same list CandidateCreatePage uses.
-const SOURCE_OPTIONS: CandidateSource[] = ["Reference", "Job Portal", "FacultyPlus", "Walk-in"];
+// Mirrors app/schemas/candidate.py::CandidateSource. "Careers Page" is here
+// (unlike CandidateCreatePage) only so a candidate who applied online shows
+// their real source in the edit form instead of a blank -- staff never set it.
+const SOURCE_OPTIONS: CandidateSource[] = ["Reference", "Job Portal", "FacultyPlus", "Walk-in", "Careers Page"];
 
 export function CandidateDetailPage() {
   const { id } = useParams<{ id: string }>();

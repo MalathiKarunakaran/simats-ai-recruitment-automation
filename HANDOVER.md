@@ -30,6 +30,7 @@ SPIER, SSPE and SHIFT.
 |---|---|
 | Application (staff sign-in) | https://app.malathi.io |
 | Public vacancy-request form (QR) | https://app.malathi.io/vacancy-request/public |
+| Public careers pages (candidates apply here) | https://app.malathi.io/careers |
 | API | https://api.malathi.io |
 | Source | https://github.com/MalathiKarunakaran/simats-ai-recruitment-automation |
 | CI | GitHub Actions on the repository, every push to `master` |
@@ -60,8 +61,10 @@ daily use:
   what to connect.
 - **Job-portal distribution** likewise needs n8n and returns a clear "not
   configured" error until then.
-- **A candidate-facing portal.** Candidates and applications are entered by
-  staff. A `CANDIDATE` login sees a "not permitted" page.
+- **A candidate account area.** Candidates apply through the public
+  careers pages (below) and are then handled by staff; there is no
+  candidate login to track an application's progress. A `CANDIDATE` login
+  sees a "not permitted" page.
 - **The production master data question.** Production currently holds the
   sanctioned-strength, department, designation and location data entered
   during September 2026 plus a small number of demo rows from the original
@@ -83,7 +86,7 @@ can be narrowed or widened per user by a Super Admin (section 4).
 | CAMPUS_HOD | Own campus | Raises vacancy requests for their campus |
 | RECRUITMENT_OFFICER | Own campus | Runs the candidate pipeline and onboarding for their campus |
 | INTERVIEW_PANEL_MEMBER | Own campus | Interview feedback |
-| CANDIDATE | Nothing | Reserved for the deferred candidate portal |
+| CANDIDATE | Nothing | Reserved for a future candidate account area; applying needs no account |
 
 Campus scoping is enforced by the API, not just hidden in the interface. A
 campus-scoped user asking for another campus's record gets "not found"
@@ -122,6 +125,20 @@ same queue:
    numbers only, by decision.
 3. Bulk upload on the Vacancy Requests page, from its own template. Rows
    land as drafts for review; nothing auto-submits.
+
+**Candidates apply** on the public careers pages at `/careers`, which need
+no login. The list shows every posting that is published and not past its
+apply-by date; pausing a posting hides it. A candidate gives a name, email
+and mobile and uploads a PDF resume. The system finds or creates the
+candidate by email, stores the resume, records the application at
+"Applied" with source "Careers Page", flags the same qualification
+mismatch the staff form would, and notifies the campus's recruitment
+officers and HR. Resume screening stays a staff action. The QR code and
+apply link on every job advertisement point at the posting's own page,
+`/careers/<slug>`; a closed posting's page says so rather than failing.
+The form is rate-limited per address and carries the same hidden bot
+trap as the vacancy-request form; a second application from the same
+email to the same posting is refused.
 
 Separately, the Import Data page loads the recruitment-tracker workbook as
 live data: its vacancy rows arrive already published and slotted, and its
@@ -248,7 +265,7 @@ actually touches:
 | `OPENAI_API_KEY` | AI features |
 | `N8N_BASE_URL` | Email, notifications and portal distribution |
 | `CORS_ALLOWED_ORIGINS` | The frontend's origin. Also the CSRF allow-list. |
-| `PUBLIC_APPLY_BASE_URL` | The careers-page base used in job ads |
+| `PUBLIC_APPLY_BASE_URL` | Leave blank; the careers pages are this app's own. Set only if they move to another domain |
 | `UVICORN_WORKERS` | Backend workers, four by default |
 | `EXPOSE_API_DOCS` | Set `true` and restart the backend to get `/docs` back for a debugging session; unset it afterwards |
 
@@ -353,5 +370,5 @@ categories are a set checked by membership, never an equality.
    code-based login for staff who prefer it.
 3. Decide the launch data: keep what is in production, or replace it from
    an HR feed using the bulk-upload templates.
-4. A candidate portal, if the institution wants candidates to apply
-   directly.
+4. A candidate account area (track an application, upload certificates),
+   if the institution wants more than the public apply form.

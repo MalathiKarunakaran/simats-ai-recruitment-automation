@@ -233,6 +233,15 @@ describe("JobPostingDetailPage", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(JOB_AD.body);
   });
 
+  it("shows the posting's public page link next to the advertisement", async () => {
+    authAs("HR_ADMIN");
+    renderPage();
+    await waitFor(() => expect(screen.getByText(JOB_AD.body)).toBeInTheDocument());
+    const link = screen.getByRole("link", { name: JOB_AD.apply_url });
+    expect(link).toHaveAttribute("href", JOB_AD.apply_url);
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
   it("generates the QR code and offers a download link", async () => {
     authAs("RECRUITMENT_OFFICER");
     mockedGetQrCodeBlob.mockResolvedValue(new Blob(["fake-png-bytes"], { type: "image/png" }));

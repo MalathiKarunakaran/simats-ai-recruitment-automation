@@ -4,7 +4,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
-CandidateSource = Literal["Reference", "Job Portal", "FacultyPlus", "Walk-in"]
+# "Careers Page" is set by the public apply flow only
+# (app/services/public_careers.py); it is offered here so a staff edit of
+# such a candidate does not fail validation on a value the system itself wrote.
+CandidateSource = Literal["Reference", "Job Portal", "FacultyPlus", "Walk-in", "Careers Page"]
+CAREERS_PAGE_SOURCE = "Careers Page"
 
 
 class CandidateCreate(BaseModel):

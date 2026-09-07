@@ -217,6 +217,25 @@ per revision). The four plumbing sites moved together: `PermissionEnum`,
 `PERMISSION_CATEGORIES`, `DEFAULT_PERMISSIONS_BY_ROLE`, and the frontend
 `PERMISSIONS`/`PERMISSION_CATEGORIES`/`PERMISSION_LABELS` in `types.ts`.
 
+**Public careers pages and apply (2026-09-07, step 5)**: the second
+unauthenticated write surface after the QR vacancy-request intake, and built
+the same way -- `routers/public_careers.py` (per-IP `RateLimiter`, honeypot
+audited as `PUBLIC_APPLICATION_BLOCKED`), `services/public_careers.py`,
+frontend `/careers` + `/careers/:slug` outside `ProtectedRoute`. What is
+LISTED is `JobPosting.is_accepting_applications` (PUBLISHED and not past
+`apply_deadline`) and deliberately NOT the CAREERS_PAGE channel row --
+pausing hides a posting, the channel row is bookkeeping. A public
+application is an ordinary `Application` (same duplicate rule, same
+`check_qualification_mismatch`, same audit) owned by the QR intake account
+(`resolve_intake_user`) with the candidate found-or-created by email
+case-insensitively and `source="Careers Page"`; the PDF resume is REQUIRED
+and replaces any earlier one; screening stays a staff action. The apply
+link/QR (`job_distribution.build_public_apply_url`) is
+`settings.public_apply_base_url + /careers/<slug>`, where
+`PUBLIC_APPLY_BASE_URL` is now EMPTY by default and falls back to
+`public_app_base_url` -- prod's old placeholder line must be removed.
+`tests/test_public_careers.py` guards all of it.
+
 **Working strength is derived, never stored**: `sanctioned_strength.working_count_for`
 counts ACTIVE `Employee` rows by `designation_id` for Teaching/Non-Teaching and
 active `HousekeepingStaff` roster rows for Housekeeping (a `working_override`

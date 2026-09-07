@@ -30,8 +30,17 @@ import uuid
 from fastapi import HTTPException, status
 from minio import Minio
 from minio.error import S3Error
+from urllib3.exceptions import HTTPError as TransportError
 
 from app.core.config import settings
+
+# What "storage is unreachable" looks like from here. S3Error is MinIO's own
+# refusal; urllib3's HTTPError family (MaxRetryError, connection refused,
+# timeouts) is the transport underneath it never answering at all. Both are
+# the same fact to a caller -- the file did not land or could not be read --
+# so both become the 502s below rather than an unhandled 500 (found
+# 2026-09-07 by the public apply form against a stopped local MinIO).
+_STORAGE_ERRORS = (S3Error, TransportError, OSError)
 
 
 def get_minio_client() -> Minio:
@@ -48,7 +57,7 @@ def _ensure_bucket(client: Minio, bucket: str) -> None:
     try:
         if not client.bucket_exists(bucket):
             client.make_bucket(bucket)
-    except S3Error as exc:
+    except _STORAGE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not reach object storage"
         ) from exc
@@ -65,7 +74,7 @@ def upload_resume(client: Minio, *, candidate_id: uuid.UUID, filename: str, data
             length=len(data),
             content_type=content_type,
         )
-    except S3Error as exc:
+    except _STORAGE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to upload resume to object storage"
         ) from exc
@@ -80,7 +89,7 @@ def download_resume_bytes(client: Minio, storage_key: str) -> bytes:
         finally:
             response.close()
             response.release_conn()
-    except S3Error as exc:
+    except _STORAGE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch resume from object storage"
         ) from exc
@@ -151,7 +160,7 @@ def download_bulk_upload_file_bytes(client: Minio, storage_key: str) -> bytes:
         finally:
             response.close()
             response.release_conn()
-    except S3Error as exc:
+    except _STORAGE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch file from object storage"
         ) from exc

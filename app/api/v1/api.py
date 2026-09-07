@@ -23,6 +23,7 @@ from app.api.v1.routers import (
     notifications,
     offers,
     pipeline_stage_configs,
+    public_careers,
     reports,
     resume_screening,
     sanctioned_strength,
@@ -39,6 +40,8 @@ api_router.include_router(auth.router)
 # the only router here besides auth with no auth dependency at all. See
 # its module docstring for the boundaries that keeps it safe.
 api_router.include_router(public_vacancy_requests.router)
+# The careers pages and apply form (2026-09-07): unauthenticated as well.
+api_router.include_router(public_careers.router)
 api_router.include_router(recruitment_channels.router)
 api_router.include_router(recruitment_channels.rules_router)
 api_router.include_router(users.router)

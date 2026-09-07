@@ -92,12 +92,13 @@ class Settings(BaseSettings):
         fallback -- never the production fallback, which is to refuse."""
         return self.email_delivery_configured or not self.is_production
 
-    # --- Public apply link base (Phase 6: Module 4 job ads / QR codes) ---
-    # No candidate portal exists yet (Module 5 deferred) -- this is a
-    # documented placeholder base URL used to build the QR-code/apply-link
-    # target. Swap for the real careers-page domain once Module 5/the
-    # frontend exists.
-    PUBLIC_APPLY_BASE_URL: str = "https://careers.simats.edu"
+    # --- Public apply link base (Module 4 job ads / QR codes) ---
+    # Since 2026-09-07 the careers pages live in THIS app's frontend
+    # (`/careers` and `/careers/<slug>`), so the apply link and QR code point
+    # at `public_app_base_url` by default and this stays EMPTY. Set it only if
+    # the careers pages are ever served from a separate domain; see
+    # `public_apply_base_url` below.
+    PUBLIC_APPLY_BASE_URL: str = ""
 
     # --- Public vacancy-request (QR) intake, 2026-08-30 ---
     # Base URL of the FRONTEND app, used to build the QR code's target
@@ -151,6 +152,16 @@ class Settings(BaseSettings):
     @property
     def trusted_proxy_ips_list(self) -> list[str]:
         return [ip.strip() for ip in self.TRUSTED_PROXY_IPS.split(",") if ip.strip()]
+
+    @property
+    def public_apply_base_url(self) -> str:
+        """Base of the candidate-facing careers pages, without a trailing
+        slash. An explicit PUBLIC_APPLY_BASE_URL wins; otherwise the pages are
+        the frontend's own, so this is `public_app_base_url`."""
+        configured = self.PUBLIC_APPLY_BASE_URL.strip()
+        if configured:
+            return configured.rstrip("/")
+        return self.public_app_base_url
 
     @property
     def public_app_base_url(self) -> str:

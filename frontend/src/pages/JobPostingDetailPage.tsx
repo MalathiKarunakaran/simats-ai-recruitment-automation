@@ -276,6 +276,24 @@ export function JobPostingDetailPage() {
               ) : null}
             </div>
 
+            {jobAd ? (
+              <div>
+                <div className="mb-1 text-muted-foreground">Public page</div>
+                {/* Where the QR code and every portal listing send a
+                    candidate: this app's own careers page for the posting
+                    (2026-09-07). Opens in a new tab so the recruiter keeps
+                    this screen. */}
+                <a
+                  href={jobAd.apply_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-mono text-xs break-all text-brand-plum underline dark:text-brand-plum-bright"
+                >
+                  {jobAd.apply_url}
+                </a>
+              </div>
+            ) : null}
+
             <div>
               <div className="mb-1 text-muted-foreground">QR code (apply link)</div>
               {qrCodeUrl ? (
