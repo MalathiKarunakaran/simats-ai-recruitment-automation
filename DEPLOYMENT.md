@@ -99,9 +99,16 @@ docker exec simats_recruitment_ollama ollama pull bge-m3
 Then set `AI_PROVIDER=ollama` and/or `EMBEDDING_PROVIDER=ollama` in `.env`
 and `docker compose up -d backend` to switch the backend over (the compose
 file already points `OLLAMA_BASE_URL` at the service). Leave both at their
-defaults to keep using OpenAI and Chroma's built-in embeddings. On a
-CPU-only host such as the KVM 2 a resume score takes minutes; the backend
-waits up to `OLLAMA_TIMEOUT_SECONDS` (900 by default).
+defaults to keep using OpenAI and Chroma's built-in embeddings.
+
+Production (2026-09-07) sets only `EMBEDDING_PROVIDER=ollama`. On the KVM 2's
+two CPUs Qwen3 4B scored a resume in 18 s with reasoning off but returned
+all-zero scores, and scored it correctly with reasoning on in 19 minutes --
+so generation stays on OpenAI there. The backend waits up to
+`OLLAMA_TIMEOUT_SECONDS` (900 by default) if generation is ever switched.
+Both models resident take about 4.4 GB; with 8 GB on the host, keep
+`OLLAMA_KEEP_ALIVE` modest and expect the first call after idle to pay the
+load time (about 3 s for BGE-M3, about a minute for Qwen3).
 
 `frontend`'s `VITE_API_BASE_URL` build arg is baked into the static
 bundle at build time (Vite inlines `import.meta.env.*`, it isn't read at

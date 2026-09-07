@@ -269,8 +269,13 @@ the backend: `openai` uses `OPENAI_API_KEY`; `ollama` uses the self-hosted
 `EMBEDDING_PROVIDER=ollama`; models pulled once, see DEPLOYMENT.md). Job
 description drafting, resume scoring, interview questions and Hermes all
 go through the same switch. With neither configured those actions return
-"AI features are not configured". The self-hosted models run on the
-server's CPU, so a resume score takes minutes rather than seconds.
+"AI features are not configured". **Production runs embeddings on the
+container (BGE-M3, under a second) and generation on OpenAI.** Measured on
+the server on 2026-09-07: Qwen3 4B on its two CPUs either answered in 18
+seconds with every score at zero (reasoning off) or answered well in 19
+minutes (reasoning on). Neither suits interactive use, so `AI_PROVIDER`
+stays `openai` until a faster host or a better small model is available;
+the switch is one line in `.env` when that day comes.
 
 **Environment variables** live in `/opt/simats/app/.env` on the server and
 are documented line by line in `.env.example`. The ones an operator
