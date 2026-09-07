@@ -4,8 +4,8 @@ This is a Docker-based deployment guide for the SIMATS AI Recruitment
 Automation System. Written in Phase 7 and verified locally via Docker at
 the time; **since verified for real** against the production VPS
 (`srv1922215.hstgr.cloud`, a Hostinger KVM 2 instance) on 2026-08-23 --
-`backend`, `frontend`, `postgres`, `minio`, and `chromadb` are all live
-there via `docker-compose.yml`, reachable at `https://api.malathi.io` and
+`backend`, `frontend`, `postgres`, `minio`, `chromadb` and, since
+2026-09-07, `ollama` are all live there via `docker-compose.yml`, reachable at `https://api.malathi.io` and
 `https://app.malathi.io` respectively. Every command here is the real one
 used for that deployment.
 
@@ -82,11 +82,26 @@ docker compose build
 docker compose up -d
 ```
 
-This starts `postgres`, `minio`, `chromadb`, `backend` (the FastAPI app),
-and `frontend` (the built React app, served by nginx). `backend`'s
-entrypoint (`scripts/docker-entrypoint.sh`) runs `alembic upgrade head`
-automatically before starting the server — no separate migration step
-needed on first boot or subsequent deploys.
+This starts `postgres`, `minio`, `chromadb`, `ollama`, `backend` (the
+FastAPI app), and `frontend` (the built React app, served by nginx).
+`backend`'s entrypoint (`scripts/docker-entrypoint.sh`) runs `alembic
+upgrade head` automatically before starting the server — no separate
+migration step needed on first boot or subsequent deploys.
+
+**Self-hosted models (once, after `ollama` first starts).** The container
+ships no models; pull the two the backend expects into its volume:
+
+```bash
+docker exec simats_recruitment_ollama ollama pull qwen3:4b
+docker exec simats_recruitment_ollama ollama pull bge-m3
+```
+
+Then set `AI_PROVIDER=ollama` and/or `EMBEDDING_PROVIDER=ollama` in `.env`
+and `docker compose up -d backend` to switch the backend over (the compose
+file already points `OLLAMA_BASE_URL` at the service). Leave both at their
+defaults to keep using OpenAI and Chroma's built-in embeddings. On a
+CPU-only host such as the KVM 2 a resume score takes minutes; the backend
+waits up to `OLLAMA_TIMEOUT_SECONDS` (900 by default).
 
 `frontend`'s `VITE_API_BASE_URL` build arg is baked into the static
 bundle at build time (Vite inlines `import.meta.env.*`, it isn't read at

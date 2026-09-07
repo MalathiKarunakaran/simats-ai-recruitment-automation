@@ -30,6 +30,30 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"
 
+    # --- AI provider switch (2026-09-07, RMS step 6) ---
+    # Which service answers every generation call in app/services/ai_client.py
+    # (JD generation, resume scoring, interview questions, Hermes):
+    #   "openai" -- OpenAI's API with OPENAI_API_KEY / OPENAI_MODEL (the default).
+    #   "ollama" -- a self-hosted Ollama server at OLLAMA_BASE_URL, through its
+    #               OpenAI-compatible endpoint, with OLLAMA_MODEL (Qwen3 by
+    #               default). No key needed. Same client class, same calls.
+    # And which service computes resume embeddings for the vector store
+    # (app/services/vector_store.py):
+    #   "chroma" -- Chroma's built-in all-MiniLM, computed in this process.
+    #   "ollama" -- OLLAMA_EMBEDDING_MODEL (BGE-M3 by default) on the same
+    #               Ollama server. Vectors from the two are not comparable, so
+    #               each provider gets its own Chroma collection and a resume
+    #               is re-embedded on its next screening after a switch.
+    AI_PROVIDER: str = "openai"
+    EMBEDDING_PROVIDER: str = "chroma"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "qwen3:4b"
+    OLLAMA_EMBEDDING_MODEL: str = "bge-m3"
+    # A local model on a small CPU host is slow: a resume score can take
+    # minutes. This is the per-request ceiling handed to the client so a slow
+    # answer is waited for rather than cut off mid-generation.
+    OLLAMA_TIMEOUT_SECONDS: float = 900.0
+
     # --- MinIO (Phase 3: resume object storage) ---
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ACCESS_KEY: str = "simats_minio"
@@ -152,6 +176,23 @@ class Settings(BaseSettings):
     @property
     def trusted_proxy_ips_list(self) -> list[str]:
         return [ip.strip() for ip in self.TRUSTED_PROXY_IPS.split(",") if ip.strip()]
+
+    @property
+    def ai_provider(self) -> str:
+        return self.AI_PROVIDER.strip().lower() or "openai"
+
+    @property
+    def embedding_provider(self) -> str:
+        return self.EMBEDDING_PROVIDER.strip().lower() or "chroma"
+
+    @property
+    def ai_model(self) -> str:
+        """The model name every generation call passes, per provider."""
+        return self.OLLAMA_MODEL if self.ai_provider == "ollama" else self.OPENAI_MODEL
+
+    @property
+    def ollama_openai_base_url(self) -> str:
+        return f"{self.OLLAMA_BASE_URL.rstrip('/')}/v1"
 
     @property
     def public_apply_base_url(self) -> str:

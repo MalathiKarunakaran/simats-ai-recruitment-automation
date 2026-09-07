@@ -34,7 +34,7 @@ SPIER, SSPE and SHIFT.
 | API | https://api.malathi.io |
 | Source | https://github.com/MalathiKarunakaran/simats-ai-recruitment-automation |
 | CI | GitHub Actions on the repository, every push to `master` |
-| Server | Hostinger VPS `srv1922215.hstgr.cloud`, code in `/opt/simats/app`, five Docker containers (backend, frontend, postgres, minio, chromadb) behind a host-level Caddy proxy |
+| Server | Hostinger VPS `srv1922215.hstgr.cloud`, code in `/opt/simats/app`, six Docker containers (backend, frontend, postgres, minio, chromadb, ollama) behind a host-level Caddy proxy |
 
 The API's interactive documentation is switched off in production on
 purpose. Section 5 says how to turn it on for a debugging session.
@@ -250,9 +250,14 @@ message), `job-distribution`, `send-otp-email` and
 Until the variable is set, notifications are recorded as failed with the
 reason, rather than pretending to be sent.
 
-**AI features** need `OPENAI_API_KEY`, which is set in production. Job
+**AI features** run on one of two providers, chosen by `AI_PROVIDER` on
+the backend: `openai` uses `OPENAI_API_KEY`; `ollama` uses the self-hosted
+`ollama` container (Qwen3 for answers, BGE-M3 for resume vectors when
+`EMBEDDING_PROVIDER=ollama`; models pulled once, see DEPLOYMENT.md). Job
 description drafting, resume scoring, interview questions and Hermes all
-use it. Without it those actions return "AI features are not configured".
+go through the same switch. With neither configured those actions return
+"AI features are not configured". The self-hosted models run on the
+server's CPU, so a resume score takes minutes rather than seconds.
 
 **Environment variables** live in `/opt/simats/app/.env` on the server and
 are documented line by line in `.env.example`. The ones an operator
@@ -262,7 +267,8 @@ actually touches:
 |---|---|
 | `JWT_SECRET_KEY` | Signs sessions. Changing it signs everyone out. |
 | `POSTGRES_PASSWORD`, `MINIO_*` | Database and file-store credentials |
-| `OPENAI_API_KEY` | AI features |
+| `OPENAI_API_KEY` | AI features when `AI_PROVIDER=openai` |
+| `AI_PROVIDER`, `EMBEDDING_PROVIDER` | `openai`/`chroma` (hosted) or `ollama` (self-hosted Qwen3 + BGE-M3) |
 | `N8N_BASE_URL` | Email, notifications and portal distribution |
 | `CORS_ALLOWED_ORIGINS` | The frontend's origin. Also the CSRF allow-list. |
 | `PUBLIC_APPLY_BASE_URL` | Leave blank; the careers pages are this app's own. Set only if they move to another domain |
@@ -352,7 +358,7 @@ categories are a set checked by membership, never an equality.
 |---|---|
 | Deploy "done" but the site looks unchanged | `DEPLOYMENT.md` section 7: a stale Caddy `file_server` block, or a `git pull` that failed |
 | Everyone signed out at once | `JWT_SECRET_KEY` changed, or the API moved to another domain (cookie is same-site strict) |
-| "AI features are not configured" | `OPENAI_API_KEY` missing on the backend container |
+| "AI features are not configured" | `OPENAI_API_KEY` missing (or `AI_PROVIDER` misspelt) on the backend container |
 | Notifications show as failed | Expected without `N8N_BASE_URL`; the reason is on each row |
 | Login page has no "email me a code" option | Expected without `N8N_BASE_URL` in production |
 | `/docs` returns 404 in production | By design; set `EXPOSE_API_DOCS=true` temporarily |

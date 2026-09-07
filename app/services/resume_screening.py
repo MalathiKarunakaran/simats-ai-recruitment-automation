@@ -139,7 +139,7 @@ def run_screening(
     score.incomplete_reasons = incomplete_reasons or None
     score.screened_at = now
     score.screened_by_id = actor.id
-    score.model_version = settings.OPENAI_MODEL
+    score.model_version = settings.ai_model
 
     db.flush()
 

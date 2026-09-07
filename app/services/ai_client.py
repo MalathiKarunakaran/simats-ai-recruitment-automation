@@ -26,9 +26,21 @@ way.
 Anthropic has no public embeddings endpoint -- semantic similarity is
 handled by ChromaDB's own default embedding function (see
 app/services/vector_store.py), not an LLM call either way.
+
+Provider switch (2026-09-07, RMS step 6): `settings.AI_PROVIDER` picks who
+answers. "openai" is OpenAI as before; "ollama" is a self-hosted Ollama
+server reached through its OpenAI-compatible endpoint with the SAME
+`openai.OpenAI` client class -- so get_openai_client() is still the one
+dependency, `_call_openai` is still the one error mapper, and every call
+below is unchanged apart from reading `settings.ai_model`. The two things a
+local model needs that OpenAI does not are handled in one place each:
+Qwen3's "thinking" is switched off per request (`_provider_extra`) and a
+<think> preamble is stripped defensively from any content that still
+carries one (`_strip_thinking`).
 """
 
 import json
+import re
 
 import anthropic
 import openai
@@ -165,14 +177,64 @@ def get_ai_client() -> anthropic.Anthropic:
 
 
 def get_openai_client() -> openai.OpenAI:
-    """FastAPI dependency -- overridden with a fake in tests. Backs
-    generate_jd/score_and_extract_resume/generate_interview_questions."""
-    if not settings.OPENAI_API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI features are not configured (OPENAI_API_KEY is not set)",
+    """FastAPI dependency -- overridden with a fake in tests. Backs every
+    generation call in this module, whichever provider is configured.
+
+    With AI_PROVIDER=ollama the same client class talks to the Ollama
+    server's OpenAI-compatible endpoint; Ollama needs no key, so the SDK is
+    given a placeholder (it refuses an empty one). A provider name that is
+    neither is a deployment mistake, reported as the same 503 shape.
+    """
+    provider = settings.ai_provider
+    if provider == "openai":
+        if not settings.OPENAI_API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI features are not configured (OPENAI_API_KEY is not set)",
+            )
+        return openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+    if provider == "ollama":
+        if not settings.OLLAMA_BASE_URL.strip():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI features are not configured (OLLAMA_BASE_URL is not set)",
+            )
+        return openai.OpenAI(
+            base_url=settings.ollama_openai_base_url,
+            api_key="ollama",
+            timeout=settings.OLLAMA_TIMEOUT_SECONDS,
         )
-    return openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=f"AI features are not configured (AI_PROVIDER={settings.AI_PROVIDER!r} is not openai or ollama)",
+    )
+
+
+_THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+
+def _strip_thinking(text: str) -> str:
+    """Some reasoning models served locally prefix an answer with a
+    <think>...</think> block in the content itself. Reasoning is switched
+    off per request in `_provider_extra`, but a model that ignores that must
+    not turn a valid JSON answer into a parse failure, so the block is
+    removed here too."""
+    return _THINK_BLOCK.sub("", text).strip()
+
+
+def _provider_extra() -> dict:
+    """Extra request fields for the configured provider. Ollama's
+    OpenAI-compatible endpoint honours `reasoning_effort: "none"` to switch
+    Qwen3's reasoning off -- a structured-output call has no use for it and
+    it costs minutes on a CPU host. Established empirically 2026-09-07
+    against Ollama 0.33: a top-level `think: false` is IGNORED there and the
+    model spends its whole token budget in a separate `reasoning` field,
+    leaving `content` empty; Qwen3's "/no_think" prompt switch is ignored
+    too. OpenAI's own models would refuse the value, so it is sent to
+    Ollama only."""
+    if settings.ai_provider == "ollama":
+        return {"reasoning_effort": "none"}
+    return {}
 
 
 def _call(fn, *args, **kwargs):
@@ -233,6 +295,7 @@ def _parse_structured_json(response) -> dict:
 
 def _parse_openai_structured_json(response) -> dict:
     content = response.choices[0].message.content if response.choices else None
+    content = _strip_thinking(content) if content else content
     if not content:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"
@@ -270,7 +333,8 @@ def generate_jd(
 ) -> dict:
     response = _call_openai(
         client.chat.completions.create,
-        model=settings.OPENAI_MODEL,
+        model=settings.ai_model,
+        **_provider_extra(),
         max_completion_tokens=4000,
         messages=[
             {"role": "system", "content": _JD_SYSTEM_PROMPT},
@@ -318,7 +382,8 @@ def score_and_extract_resume(
     )
     response = _call_openai(
         client.chat.completions.create,
-        model=settings.OPENAI_MODEL,
+        model=settings.ai_model,
+        **_provider_extra(),
         max_completion_tokens=6000,
         messages=[
             {"role": "system", "content": _SCORING_SYSTEM_PROMPT},
@@ -340,7 +405,8 @@ def generate_interview_questions(
         user_content += f"\n\n# Candidate Resume\n{resume_text}"
     response = _call_openai(
         client.chat.completions.create,
-        model=settings.OPENAI_MODEL,
+        model=settings.ai_model,
+        **_provider_extra(),
         max_completion_tokens=2000,
         messages=[
             {"role": "system", "content": _QUESTION_GEN_SYSTEM_PROMPT},
@@ -408,7 +474,8 @@ def call_with_tools_openai(
     rather than inventing a new convention."""
     return _call_openai(
         client.chat.completions.create,
-        model=settings.OPENAI_MODEL,
+        model=settings.ai_model,
+        **_provider_extra(),
         max_completion_tokens=max_completion_tokens,
         messages=messages,
         tools=tools,
@@ -423,11 +490,13 @@ def generate_narrative_openai(
     daily-briefing narrative summary."""
     response = _call_openai(
         client.chat.completions.create,
-        model=settings.OPENAI_MODEL,
+        model=settings.ai_model,
+        **_provider_extra(),
         max_completion_tokens=max_completion_tokens,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user_content}],
     )
     content = response.choices[0].message.content if response.choices else None
+    content = _strip_thinking(content) if content else content
     if not content:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"

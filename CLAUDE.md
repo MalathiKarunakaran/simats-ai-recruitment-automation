@@ -62,7 +62,9 @@ ported to OpenAI 2026-08-24 (no Anthropic key was available; kept in place
 in case Anthropic is reintroduced later, not deleted),
 `openai` SDK (>=1.55, model `gpt-4o` — JD generation/resume scoring/interview
 questions, **and Module 14 "Hermes" as of 2026-08-24**, including its
-tool-calling reporting chatbot), `pypdf`, `minio`, `chromadb`, `openpyxl`,
+tool-calling reporting chatbot; since 2026-09-07 the same SDK also drives a
+self-hosted Ollama server (Qwen3 + BGE-M3) when `AI_PROVIDER`/
+`EMBEDDING_PROVIDER` say so), `pypdf`, `minio`, `chromadb`, `openpyxl`,
 `python-pptx`, `qrcode`.
 Python 3.14 (see `Dockerfile`). Postgres 16.
 
@@ -216,6 +218,24 @@ revisions because ADD VALUE must commit first; env.py runs one transaction
 per revision). The four plumbing sites moved together: `PermissionEnum`,
 `PERMISSION_CATEGORIES`, `DEFAULT_PERMISSIONS_BY_ROLE`, and the frontend
 `PERMISSIONS`/`PERMISSION_CATEGORIES`/`PERMISSION_LABELS` in `types.ts`.
+
+**AI provider switch (2026-09-07, step 6)**: `settings.AI_PROVIDER`
+(`openai` | `ollama`) decides who answers every generation call and
+`EMBEDDING_PROVIDER` (`chroma` | `ollama`) who computes resume vectors.
+Ollama is reached through its OpenAI-compatible endpoint with the SAME
+`openai.OpenAI` class, so `get_openai_client()` stays the one dependency and
+`_call_openai` the one error mapper; every chat call passes
+`settings.ai_model` and `**_provider_extra()` (which sends
+`reasoning_effort: "none"` to Ollama only -- the ONLY switch its
+OpenAI-compatible endpoint honours; a top-level `think: false` and Qwen3's
+`/no_think` are both ignored there and leave `content` empty, proven live
+2026-09-07; a `<think>` preamble is also stripped defensively by
+`_strip_thinking`). Never write `settings.OPENAI_MODEL` at a call site
+again. The vector store gives each embedding provider its OWN Chroma
+collection (`vector_store.collection_name()`), so a switch never compares
+vectors from two models; resumes re-embed on their next screening.
+`docker-compose.yml` has an `ollama` service (no host port; models pulled
+once into `ollama_data`). `tests/test_ai_provider.py` pins the selection.
 
 **Public careers pages and apply (2026-09-07, step 5)**: the second
 unauthenticated write surface after the QR vacancy-request intake, and built

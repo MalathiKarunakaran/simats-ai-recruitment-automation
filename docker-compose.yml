@@ -70,6 +70,32 @@ services:
       retries: 5
       start_period: 10s
 
+  # Self-hosted models (2026-09-07, RMS step 6): Qwen3 answers every
+  # generation call and BGE-M3 computes resume embeddings when the backend's
+  # AI_PROVIDER / EMBEDDING_PROVIDER are set to "ollama" (see .env.example).
+  # No host port on purpose: only the backend talks to it, by service name.
+  # Models are pulled ONCE after the container first starts and live in the
+  # volume:  docker exec simats_recruitment_ollama ollama pull qwen3:4b
+  #          docker exec simats_recruitment_ollama ollama pull bge-m3
+  # A CPU-only host answers slowly (minutes for a resume score on two
+  # vCPUs); the backend waits up to OLLAMA_TIMEOUT_SECONDS for it.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: simats_recruitment_ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      # Keep a loaded model resident so the second request does not pay the
+      # load time again; both models fit alongside each other.
+      OLLAMA_KEEP_ALIVE: 30m
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   backend:
     build: .
     container_name: simats_recruitment_backend
@@ -89,6 +115,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       CHROMA_HOST: chromadb
       CHROMA_PORT: 8000
+      OLLAMA_BASE_URL: http://ollama:11434
     env_file:
       - .env
     depends_on:
@@ -129,3 +156,4 @@ volumes:
   postgres_data:
   minio_data:
   chromadb_data:
+  ollama_data:
