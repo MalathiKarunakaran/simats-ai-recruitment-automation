@@ -114,7 +114,15 @@ export function UserCreatePage() {
           {email.error ? <p className="text-xs text-destructive">{email.error}</p> : null}
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="password">Password</Label>
+          <Label htmlFor="password">Temporary password</Label>
+          {/* Mirrors the backend, which sets must_change_password on every
+              newly created user (2026-09-08). Named on screen because there
+              is no invite email without N8N_BASE_URL, so the admin hands
+              this over by hand and needs to know it is not permanent. */}
+          <p className="text-xs text-muted-foreground">
+            Share this with them directly. They will be asked to choose their own password the first time
+            they sign in.
+          </p>
           <PasswordInput
             id="password"
             required

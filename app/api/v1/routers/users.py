@@ -113,6 +113,13 @@ def create_user(
         campus_id=payload.campus_id,
         department_id=payload.department_id,
         phone_number=payload.phone_number,
+        # The password an admin types here is a HANDOVER password: with no
+        # N8N_BASE_URL there is no invite email, so it reaches its owner by
+        # message or word of mouth and would otherwise stay their real
+        # password forever. Forcing the change puts it in the same bucket as
+        # an admin reset, which has always set this (see
+        # admin_reset_password) -- creation was the one door that did not.
+        must_change_password=True,
     )
     db.add(user)
     db.flush()  # populate user.id for the audit row before commit

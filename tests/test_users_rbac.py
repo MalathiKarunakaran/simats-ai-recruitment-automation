@@ -85,6 +85,59 @@ def test_super_admin_can_create_users(client, user_factory):
     assert response.json()["email"] == "new.person@example.com"
 
 
+def test_a_newly_created_user_must_change_the_handover_password(client, user_factory, db_session):
+    """The password an admin types when creating an account is a HANDOVER
+    password -- with no N8N_BASE_URL there is no invite email, so it reaches
+    its owner by message or word of mouth. It must not survive as their real
+    password. Creation was the one door into the app that did not set this;
+    admin_reset_password always has.
+    """
+    from app.models.user import User
+
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    response = client.post(
+        "/api/v1/users",
+        headers=auth_headers(client, admin),
+        json={
+            "email": "new.dean@example.com",
+            "password": "Handover123!",
+            "full_name": "New Dean",
+            "role": "ASSOCIATE_DEAN_RECRUITMENT",
+        },
+    )
+    assert response.status_code == 201
+
+    created = db_session.query(User).filter(User.email == "new.dean@example.com").one()
+    assert created.must_change_password is True
+
+    # They can sign in, but the app is closed to them until they comply --
+    # the same 403 the forced-reset path already produced.
+    login = client.post(
+        "/api/v1/auth/login",
+        data={"username": "new.dean@example.com", "password": "Handover123!"},
+    )
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    assert login.json()["must_change_password"] is True
+
+    blocked = client.get("/api/v1/users", headers={"Authorization": f"Bearer {token}"})
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"] == "PASSWORD_CHANGE_REQUIRED"
+
+    # Setting their own password opens the app up.
+    changed = client.patch(
+        "/api/v1/users/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"password": "TheirOwnPass456!"},
+    )
+    assert changed.status_code == 200
+    db_session.expire_all()
+    assert (
+        db_session.query(User).filter(User.email == "new.dean@example.com").one().must_change_password
+        is False
+    )
+
+
 def test_candidate_cannot_list_users(client, user_factory):
     candidate = user_factory(UserRoleEnum.CANDIDATE)
     response = client.get("/api/v1/users", headers=auth_headers(client, candidate))
