@@ -17,6 +17,7 @@ from app.core.deps import (
     get_db,
     get_department_scope,
     require_permission,
+    require_roles,
     require_roles_or_coordinator_capability,
     require_roles_or_permission,
 )
@@ -551,6 +552,63 @@ def close_vacancy_request(
         )
 
     vacancy_workflow.close(db, vr, approved_vacancy, job_posting, current_user, request)
+    db.commit()
+    db.refresh(vr)
+    return vr
+
+
+def _approved_and_posting(
+    db: Session, vr: VacancyRequest
+) -> tuple[ApprovedVacancy | None, JobPosting | None]:
+    """The approved vacancy and its single posting, the pair every late-stage
+    transition needs. `.one_or_none()` on the posting is safe because
+    publish() reuses an existing row rather than minting a second."""
+    approved_vacancy = (
+        db.query(ApprovedVacancy).filter(ApprovedVacancy.vacancy_request_id == vr.id).one_or_none()
+    )
+    job_posting = None
+    if approved_vacancy is not None:
+        job_posting = (
+            db.query(JobPosting).filter(JobPosting.approved_vacancy_id == approved_vacancy.id).one_or_none()
+        )
+    return approved_vacancy, job_posting
+
+
+# Reopen/unpublish are SUPER_ADMIN-only by the user's explicit choice
+# (2026-09-08), deliberately tighter than the CLOSE_VACANCY/PUBLISH_VACANCY
+# permissions that got the request into those states: undoing a decision that
+# has already been announced is a bigger call than making it, and the two
+# live Recruitment Coordinators hold CLOSE_VACANCY. No new PermissionEnum
+# value, and so no enum migration -- see CLAUDE.md on ADD VALUE.
+@router.post("/{vacancy_request_id}/reopen", response_model=VacancyRequestRead)
+def reopen_vacancy_request(
+    vacancy_request_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> VacancyRequest:
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
+    approved_vacancy, job_posting = _approved_and_posting(db, vr)
+    vacancy_workflow.reopen(db, vr, approved_vacancy, job_posting, current_user, request)
+    db.commit()
+    db.refresh(vr)
+    return vr
+
+
+@router.post("/{vacancy_request_id}/unpublish", response_model=VacancyRequestRead)
+def unpublish_vacancy_request(
+    vacancy_request_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRoleEnum.SUPER_ADMIN)),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> VacancyRequest:
+    vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
+    approved_vacancy, job_posting = _approved_and_posting(db, vr)
+    vacancy_workflow.unpublish(db, vr, approved_vacancy, job_posting, current_user, request)
     db.commit()
     db.refresh(vr)
     return vr

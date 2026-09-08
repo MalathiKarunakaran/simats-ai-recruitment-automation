@@ -641,3 +641,46 @@ def retire_channels_for_closed_posting(
             request=request,
         )
     return retired
+
+
+def restore_channels_for_reopened_posting(
+    db: Session,
+    *,
+    job_posting: JobPosting,
+    actor: User | None,
+    request: Request | None,
+) -> int:
+    """The mirror of retire_channels_for_closed_posting(), called only by
+    vacancy_workflow.reopen(). Every row that close() pushed to REMOVED comes
+    back as RECOMMENDED, not as whatever it was before: the pre-close status
+    is not recorded anywhere, and RECOMMENDED is the one status that cannot
+    overstate things -- it puts the channel back in front of the recruiter to
+    re-review rather than silently re-declaring it SELECTED or POSTED.
+
+    EXPIRED rows are deliberately left alone. Those were retired because the
+    posting passed its deadline, not because a person closed it, so reopening
+    the vacancy is not evidence that the deadline moved.
+    """
+    restored = 0
+    for row in db.execute(
+        select(JobPostingChannel).where(
+            JobPostingChannel.job_posting_id == job_posting.id,
+            JobPostingChannel.status == JobPostingChannelStatusEnum.REMOVED,
+        )
+    ).scalars():
+        row.status = JobPostingChannelStatusEnum.RECOMMENDED
+        row.removed_at = None
+        restored += 1
+    if restored:
+        db.flush()
+        log_event(
+            db,
+            actor=actor,
+            action="JOB_POSTING_CHANNELS_RESTORED",
+            campus_context_id=job_posting.campus_id,
+            entity_type="JobPosting",
+            entity_id=job_posting.id,
+            after_state={"status": JobPostingChannelStatusEnum.RECOMMENDED.value, "count": restored},
+            request=request,
+        )
+    return restored

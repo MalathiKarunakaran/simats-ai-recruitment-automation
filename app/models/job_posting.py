@@ -133,5 +133,20 @@ class JobPosting(Base):
         self.closed_at = now
         self.is_active = False
 
+    def reopen(self, now: datetime) -> None:
+        """The mirror of close(), and the one way a posting leaves CLOSED.
+        Added 2026-09-08: closing a vacancy used to be one-way, so a
+        mis-click (AC Helper, closed five seconds after publishing) stranded
+        the requisition with no way back. Only `vacancy_workflow.reopen` and
+        `vacancy_workflow.publish` (re-publishing after an unpublish) call
+        this, so the same three fields that close() sets are the three it
+        clears -- `status`, `closed_at` and the derived `is_active` never
+        disagree. `published_at` is deliberately refreshed: the posting is
+        live again from now, and the audit log holds the original date."""
+        self.status = JobPostingStatusEnum.PUBLISHED
+        self.closed_at = None
+        self.is_active = True
+        self.published_at = now
+
     def __repr__(self) -> str:
         return f"<JobPosting {self.posting_number or self.public_apply_slug}>"

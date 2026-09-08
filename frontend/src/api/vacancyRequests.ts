@@ -94,6 +94,17 @@ export async function closeVacancyRequest(id: string): Promise<VacancyRequestRea
   return apiFetch<VacancyRequestRead>(`/vacancy-requests/${id}/close`, { method: "POST" });
 }
 
+// The undo half of the lifecycle (2026-09-08). Both are SUPER_ADMIN-only on
+// the backend, deliberately tighter than the close/publish that got the
+// request into these states -- the buttons are gated to match.
+export async function reopenVacancyRequest(id: string): Promise<VacancyRequestRead> {
+  return apiFetch<VacancyRequestRead>(`/vacancy-requests/${id}/reopen`, { method: "POST" });
+}
+
+export async function unpublishVacancyRequest(id: string): Promise<VacancyRequestRead> {
+  return apiFetch<VacancyRequestRead>(`/vacancy-requests/${id}/unpublish`, { method: "POST" });
+}
+
 export async function generateJd(
   id: string,
   payload: VacancyRequestGenerateJDPayload,

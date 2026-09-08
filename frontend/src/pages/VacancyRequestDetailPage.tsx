@@ -8,6 +8,8 @@ import { ApiError } from "@/api/client";
 import {
   cancelVacancyRequest,
   closeVacancyRequest,
+  reopenVacancyRequest,
+  unpublishVacancyRequest,
   deanApproveVacancyRequest,
   deleteVacancyRequest,
   generateJd,
@@ -122,6 +124,8 @@ export function VacancyRequestDetailPage() {
   const hrApproveMutation = useMutation(makeMutation(hrApproveVacancyRequest));
   const publishMutation = useMutation(makeMutation(publishVacancyRequest));
   const closeMutation = useMutation(makeMutation(closeVacancyRequest));
+  const reopenMutation = useMutation(makeMutation(reopenVacancyRequest));
+  const unpublishMutation = useMutation(makeMutation(unpublishVacancyRequest));
   const deleteMutation = useMutation({
     mutationFn: () => deleteVacancyRequest(id!),
     onSuccess: () => navigate("/vacancy-requests"),
@@ -225,6 +229,11 @@ export function VacancyRequestDetailPage() {
     ((role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") ||
       (hasPermission?.("CANCEL_VACANCY") ?? false)) &&
     ["SUBMITTED", "DEAN_APPROVED", "APPROVED", "PUBLISHED"].includes(vr.status);
+  // Undo, SUPER_ADMIN only -- mirrors the backend's require_roles gate on
+  // /reopen and /unpublish, which is deliberately tighter than the
+  // CLOSE_VACANCY/PUBLISH_VACANCY permissions that reach these states.
+  const canReopen = role === "SUPER_ADMIN" && vr.status === "CLOSED";
+  const canUnpublish = role === "SUPER_ADMIN" && vr.status === "PUBLISHED";
   const canAdjustSlotCount =
     (role === "HR_ADMIN" || role === "SUPER_ADMIN" || role === "RECRUITMENT_COORDINATOR") &&
     (vr.status === "APPROVED" || vr.status === "PUBLISHED");
@@ -237,6 +246,8 @@ export function VacancyRequestDetailPage() {
     hrApproveMutation.isPending ||
     publishMutation.isPending ||
     closeMutation.isPending ||
+    reopenMutation.isPending ||
+    unpublishMutation.isPending ||
     deleteMutation.isPending ||
     rejectMutation.isPending ||
     generateJdMutation.isPending ||
@@ -496,6 +507,16 @@ export function VacancyRequestDetailPage() {
         {canClose ? (
           <Button variant="outline" disabled={isBusy} onClick={() => closeMutation.mutate()}>
             Close
+          </Button>
+        ) : null}
+        {canUnpublish ? (
+          <Button variant="outline" disabled={isBusy} onClick={() => unpublishMutation.mutate()}>
+            Unpublish
+          </Button>
+        ) : null}
+        {canReopen ? (
+          <Button variant="outline" disabled={isBusy} onClick={() => reopenMutation.mutate()}>
+            Reopen
           </Button>
         ) : null}
         {canAdjustSlotCount ? (

@@ -24,6 +24,8 @@ const mockedGenerateJd = vi.mocked(vacancyRequestsApi.generateJd);
 const mockedCancel = vi.mocked(vacancyRequestsApi.cancelVacancyRequest);
 const mockedDelete = vi.mocked(vacancyRequestsApi.deleteVacancyRequest);
 const mockedUpdateSlotCount = vi.mocked(vacancyRequestsApi.updateSlotCount);
+const mockedReopen = vi.mocked(vacancyRequestsApi.reopenVacancyRequest);
+const mockedUnpublish = vi.mocked(vacancyRequestsApi.unpublishVacancyRequest);
 const mockedGetApprovedVacancyForRequest = vi.mocked(approvedVacanciesApi.getApprovedVacancyForRequest);
 const mockedListHiringSlots = vi.mocked(approvedVacanciesApi.listHiringSlots);
 
@@ -506,5 +508,55 @@ describe("VacancyRequestDetailPage", () => {
     await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
     expect(screen.queryByText("Cancel")).not.toBeInTheDocument();
     expect(screen.queryByText("Adjust count")).not.toBeInTheDocument();
+  });
+  // Undo actions, added 2026-09-08 after a Super Admin closed a live
+  // requisition by mistake and CLOSED turned out to be terminal.
+  it("offers Reopen on a CLOSED request to a SUPER_ADMIN, and calls the API", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "SUPER_ADMIN", campus_id: "c-sse" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "CLOSED" }));
+    mockedReopen.mockResolvedValue(baseVr({ status: "PUBLISHED" }));
+
+    renderDetail();
+
+    const reopen = await screen.findByRole("button", { name: "Reopen" });
+    await userEvent.click(reopen);
+    await waitFor(() => expect(mockedReopen).toHaveBeenCalledWith("vr-1"));
+  });
+
+  it("hides Reopen from everyone but a SUPER_ADMIN", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN", campus_id: "c-sse" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "CLOSED" }));
+
+    renderDetail();
+    await screen.findByText("Assistant Professor");
+    expect(screen.queryByRole("button", { name: "Reopen" })).not.toBeInTheDocument();
+  });
+
+  it("offers Unpublish on a PUBLISHED request to a SUPER_ADMIN only", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "SUPER_ADMIN", campus_id: "c-sse" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "PUBLISHED" }));
+    mockedUnpublish.mockResolvedValue(baseVr({ status: "APPROVED" }));
+
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Unpublish" }));
+    await waitFor(() => expect(mockedUnpublish).toHaveBeenCalledWith("vr-1"));
+    // Reopen belongs to CLOSED, not PUBLISHED.
+    expect(screen.queryByRole("button", { name: "Reopen" })).not.toBeInTheDocument();
   });
 });

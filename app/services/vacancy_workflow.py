@@ -7,9 +7,10 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.application import Application
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.enums import (
     HiringSlotStatusEnum,
@@ -399,6 +400,36 @@ def publish(
     now = datetime.now(timezone.utc)
     vacancy_request.status = VacancyRequestStatusEnum.PUBLISHED
 
+    # Re-publishing after an unpublish reuses the posting that already
+    # exists rather than minting a second one (2026-09-08). Two reasons this
+    # has to be a reuse and not a fresh row: every caller resolves a
+    # vacancy's posting with `.one_or_none()`, which would start raising once
+    # a second row appeared; and JP-YYYY-NNNNNN is quoted externally, so an
+    # advertisement that comes back should come back under its own number.
+    existing_posting = (
+        db.execute(select(JobPosting).where(JobPosting.approved_vacancy_id == approved_vacancy.id))
+        .scalars()
+        .one_or_none()
+    )
+    if existing_posting is not None:
+        existing_posting.reopen(now)
+        log_event(
+            db,
+            actor=actor,
+            action="VACANCY_REQUEST_PUBLISHED",
+            campus_context_id=vacancy_request.campus_id,
+            entity_type="VacancyRequest",
+            entity_id=vacancy_request.id,
+            before_state=before,
+            after_state=_snapshot(vacancy_request),
+            request=request,
+        )
+        job_channels.restore_channels_for_reopened_posting(
+            db, job_posting=existing_posting, actor=actor, request=request
+        )
+        job_channels.recommend_channels(db, job_posting=existing_posting, actor=actor, request=request)
+        return existing_posting
+
     slug_base = f"{vacancy_request.campus.code}-{vacancy_request.position_title}".lower().replace(" ", "-")
     slug = f"{slug_base}-{secrets.token_hex(4)}"
 
@@ -503,6 +534,155 @@ def close(
         db,
         actor=actor,
         action="VACANCY_REQUEST_CLOSED",
+        campus_context_id=vacancy_request.campus_id,
+        entity_type="VacancyRequest",
+        entity_id=vacancy_request.id,
+        before_state=before,
+        after_state=_snapshot(vacancy_request),
+        request=request,
+    )
+    return vacancy_request
+
+
+def _restore_open_slots(db: Session, approved_vacancy: ApprovedVacancy) -> int:
+    """Puts back the OPEN slots that close() deleted, up to the approved
+    total. RESERVED/FILLED slots that survived the close still count against
+    that total, so a vacancy closed with 3 of 12 filled reopens with 9 open
+    slots, not 12. Slot numbers continue past the highest surviving one
+    rather than reusing gaps, matching adjust_slot_count()'s grow branch."""
+    slots = (
+        db.execute(select(HiringSlot).where(HiringSlot.approved_vacancy_id == approved_vacancy.id))
+        .scalars()
+        .all()
+    )
+    missing = approved_vacancy.total_positions - len(slots)
+    if missing <= 0:
+        return 0
+    max_slot_number = max((slot.slot_number for slot in slots), default=0)
+    for offset in range(1, missing + 1):
+        db.add(
+            HiringSlot(
+                approved_vacancy_id=approved_vacancy.id,
+                slot_number=max_slot_number + offset,
+                status=HiringSlotStatusEnum.OPEN,
+            )
+        )
+    return missing
+
+
+def reopen(
+    db: Session,
+    vacancy_request: VacancyRequest,
+    approved_vacancy: ApprovedVacancy | None,
+    job_posting: JobPosting | None,
+    actor: User,
+    request: Request | None,
+) -> VacancyRequest:
+    """Undoes a close: CLOSED -> PUBLISHED. Added 2026-09-08 after a
+    Super Admin closed the AC Helper requisition five seconds after
+    publishing it and found no way back -- CLOSED had been terminal since the
+    workflow was written.
+
+    This is the exact inverse of close(): the approved vacancy's `closed_at`
+    is cleared, the OPEN slots close() deleted are recreated, the posting
+    comes back to PUBLISHED under its own number, and the channel rows close()
+    pushed to REMOVED go back to RECOMMENDED for the recruiter to re-review.
+    REJECTED and CANCELLED are NOT reachable from here: those are decisions
+    about whether to hire at all, not about whether recruitment has finished,
+    and reversing one should be a fresh request with its own approval trail.
+    """
+    if vacancy_request.status != VacancyRequestStatusEnum.CLOSED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot reopen from status {vacancy_request.status.value}",
+        )
+
+    before = _snapshot(vacancy_request)
+    now = datetime.now(timezone.utc)
+    vacancy_request.status = VacancyRequestStatusEnum.PUBLISHED
+    restored_slots = 0
+    if approved_vacancy is not None:
+        approved_vacancy.closed_at = None
+        restored_slots = _restore_open_slots(db, approved_vacancy)
+    if job_posting is not None:
+        job_posting.reopen(now)
+        job_channels.restore_channels_for_reopened_posting(
+            db, job_posting=job_posting, actor=actor, request=request
+        )
+
+    log_event(
+        db,
+        actor=actor,
+        action="VACANCY_REQUEST_REOPENED",
+        campus_context_id=vacancy_request.campus_id,
+        entity_type="VacancyRequest",
+        entity_id=vacancy_request.id,
+        before_state=before,
+        after_state={**_snapshot(vacancy_request), "restored_open_slots": restored_slots},
+        request=request,
+    )
+    notifications.notify(
+        db,
+        recipient_user=vacancy_request.requested_by,
+        notification_type="VACANCY_REQUEST_REOPENED",
+        subject=f"Reopened: {vacancy_request.position_title}",
+        body=f"The vacancy request for {vacancy_request.position_title} at {vacancy_request.campus.code} has been reopened and is published again.",
+        campus_context_id=vacancy_request.campus_id,
+        related_entity_type="VacancyRequest",
+        related_entity_id=vacancy_request.id,
+        request=request,
+    )
+    return vacancy_request
+
+
+def unpublish(
+    db: Session,
+    vacancy_request: VacancyRequest,
+    approved_vacancy: ApprovedVacancy | None,
+    job_posting: JobPosting | None,
+    actor: User,
+    request: Request | None,
+) -> VacancyRequest:
+    """Undoes a publish: PUBLISHED -> APPROVED. Takes the advertisement down
+    and returns the request to "approved, not yet advertised", leaving the
+    approval, its requisition number and its hiring slots untouched.
+
+    The posting row is CLOSED, never deleted, so JP-YYYY-NNNNNN survives and
+    publish() can bring the same posting back (see its reuse branch).
+    Refused once anyone has applied: an application points at this posting,
+    and withdrawing the advertisement from under a live candidate is a
+    decision for close/cancel with their own rules, not a quiet undo."""
+    if vacancy_request.status != VacancyRequestStatusEnum.PUBLISHED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot unpublish from status {vacancy_request.status.value}",
+        )
+    if job_posting is not None:
+        application_count = db.execute(
+            select(func.count()).select_from(Application).where(Application.job_posting_id == job_posting.id)
+        ).scalar_one()
+        if application_count:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Cannot unpublish: {application_count} candidate(s) have already applied to this "
+                    "posting. Close or cancel the vacancy instead."
+                ),
+            )
+
+    before = _snapshot(vacancy_request)
+    now = datetime.now(timezone.utc)
+    vacancy_request.status = VacancyRequestStatusEnum.APPROVED
+    if job_posting is not None:
+        job_posting.close(now)
+        job_channels.retire_channels_for_closed_posting(
+            db, job_posting=job_posting, actor=actor, request=request
+        )
+
+    log_event(
+        db,
+        actor=actor,
+        action="VACANCY_REQUEST_UNPUBLISHED",
         campus_context_id=vacancy_request.campus_id,
         entity_type="VacancyRequest",
         entity_id=vacancy_request.id,

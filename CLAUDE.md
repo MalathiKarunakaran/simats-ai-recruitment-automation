@@ -178,6 +178,26 @@ final approval) and `JobPosting` rows (at explicit publish).
 slot fills. Routers (applications, offers, joining, interviews) call into
 these — never mutate `.status` directly in a router.
 
+**Undoing a late-stage decision (2026-09-08)**: two transitions run
+BACKWARDS, both `require_roles(SUPER_ADMIN)` in the router -- deliberately
+tighter than the CLOSE_VACANCY/PUBLISH_VACANCY permissions that reach those
+states, and so needing NO new `PermissionEnum` value and no enum migration.
+`vacancy_workflow.reopen` (CLOSED → PUBLISHED) is the exact inverse of
+`close`: it clears `ApprovedVacancy.closed_at`, recreates the OPEN
+`HiringSlot` rows close() deleted (up to `total_positions`, so surviving
+RESERVED/FILLED slots still count), calls `JobPosting.reopen`, and
+`job_channels.restore_channels_for_reopened_posting` puts REMOVED channel
+rows back to RECOMMENDED (never to their pre-close status, which is not
+recorded; EXPIRED rows are left alone). `vacancy_workflow.unpublish`
+(PUBLISHED → APPROVED) closes the posting and retires its channels, and is
+refused once any `Application` points at that posting. REJECTED and
+CANCELLED are NOT reversible -- those are decisions about whether to hire at
+all; raise a fresh request instead. **`publish()` now REUSES an existing
+`JobPosting` for the approved vacancy rather than creating a second one** --
+every caller resolves a vacancy's posting with `.one_or_none()`, and
+JP-YYYY-NNNNNN is quoted externally, so a re-published ad keeps its own
+number. `tests/test_vacancy_reopen.py` guards all of it.
+
 **Posting channels are a third choke point (2026-09-06)**:
 `app/services/job_channels.py` is the only writer of
 `JobPostingChannel.status` and the only creator of `PostingAttempt` rows.
@@ -205,7 +225,9 @@ reads the snapshot first. `JobPosting.status` (PUBLISHED / PAUSED / CLOSED,
 new enum type) is the lifecycle and `is_active` is DERIVED from it --
 PAUSED is still active (HR can record walk-ins), CLOSED is not.
 `JobPosting.close(now)` is the only way to CLOSED and every vacancy closer
-calls it; there is no reopen (CLOSED is terminal in vacancy_workflow).
+calls it. `JobPosting.reopen(now)` is its mirror and the only way back
+(2026-09-08), called by `vacancy_workflow.reopen` and by `publish()`'s reuse
+branch -- so CLOSED is no longer terminal, see the undo section below.
 `POST /job-postings/{id}/close` delegates to `vacancy_workflow.close`.
 Expiry is derived on read (`is_accepting_applications`), no scheduler.
 Numbers: `ApprovedVacancy.requisition_number` RQ-YYYY-NNNNNN and
