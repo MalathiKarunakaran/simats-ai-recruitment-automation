@@ -235,6 +235,37 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
     !locationRequired || Boolean(locationId),
   ];
 
+  // Why each step's Next/Submit is disabled, in the requester's own terms.
+  // Reported 2026-09-08: a Recruitment Coordinator was stuck on the
+  // Designation step with a dead Next button and nothing on screen saying
+  // why -- the step needs either a designation card CLICKED (they render as
+  // plain bordered boxes, easy to read as a static list) or, where the
+  // Designation Master has no match for this department+category, all three
+  // manual fields filled. A disabled button with no reason is the actual
+  // defect; it applies to every step, so the reason is computed for all of
+  // them rather than special-casing step 2.
+  const stepBlockedReason: (string | null)[] = [
+    roleCategory === null ? "Choose Teaching, Non-Teaching or Housekeeping to continue." : null,
+    !campusId
+      ? "Choose a campus to continue."
+      : !departmentId
+        ? departmentOptions.length === 0
+          ? "No department at this campus supports this staff category yet. Go back and pick a different category, or ask an HR Admin to add the department."
+          : "Choose a department to continue."
+        : null,
+    designationId !== null
+      ? null
+      : designationsLoading
+        ? "Loading designations…"
+        : hasDesignationOptions
+          ? "Click one of the designations above to select it."
+          : "Fill in the position title, qualification and experience to continue.",
+    Number(requestedCount) > 0 ? null : "Enter how many posts are required (at least 1).",
+    employmentType ? null : "Choose an employment type to continue.",
+    priority ? null : "Choose a priority to continue.",
+    !locationRequired || locationId ? null : "Choose a location to submit this request.",
+  ];
+
   function goNext() {
     if (!stepValid[currentStep]) return;
     setCurrentStep((s) => Math.min(s + 1, STEP_TITLES.length - 1));
@@ -361,22 +392,37 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
               <p className="text-sm text-muted-foreground">Loading designations…</p>
             ) : hasDesignationOptions ? (
               <div className="flex flex-col gap-2">
+                <p className="text-sm text-muted-foreground">Select one designation to continue.</p>
                 {designations!.map((designation) => (
                   <button
                     key={designation.id}
                     type="button"
+                    aria-pressed={designationId === designation.id}
                     onClick={() => selectDesignation(designation)}
                     className={
-                      "flex flex-col gap-0.5 rounded-lg border p-3 text-left transition-colors " +
+                      "flex items-start gap-3 rounded-lg border p-3 text-left transition-colors " +
                       (designationId === designation.id
                         ? "border-primary bg-brand-primary-light"
                         : "border-border hover:border-primary/40")
                     }
                   >
-                    <span className="font-medium text-foreground">{designation.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {designation.qualification} · {designation.min_experience} ·{" "}
-                      {designation.employment_type.replace(/_/g, " ")}
+                    <span
+                      aria-hidden="true"
+                      className={
+                        "mt-1 flex size-4 shrink-0 items-center justify-center rounded-full border " +
+                        (designationId === designation.id ? "border-primary" : "border-muted-foreground/50")
+                      }
+                    >
+                      {designationId === designation.id ? (
+                        <span className="size-2 rounded-full bg-primary" />
+                      ) : null}
+                    </span>
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-medium text-foreground">{designation.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {designation.qualification} · {designation.min_experience} ·{" "}
+                        {designation.employment_type.replace(/_/g, " ")}
+                      </span>
                     </span>
                   </button>
                 ))}
@@ -609,6 +655,12 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
           </div>
         ) : null}
       </Card>
+
+      {stepBlockedReason[currentStep] ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {stepBlockedReason[currentStep]}
+        </p>
+      ) : null}
 
       <div className="flex items-center justify-between">
         <Button type="button" variant="outline" onClick={goBack} disabled={currentStep === 0}>

@@ -418,4 +418,72 @@ describe("VacancyRequestWizard", () => {
     await waitFor(() => expect(screen.getAllByRole("combobox")).toHaveLength(1));
     expect(screen.getByText("SSE")).toBeInTheDocument();
   }, 15000);
+  // Regression, reported 2026-09-08: a Recruitment Coordinator was stranded
+  // on the Designation step -- Next was disabled and NOTHING on screen said
+  // why. Both ways the step can block must now name what is missing.
+  it("says why Next is disabled on the Designation step when no designation is picked", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "SUPER_ADMIN", campus_id: null, department_id: null } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListLocations.mockResolvedValue([]);
+    mockedListDepartments.mockResolvedValue(DEPARTMENTS);
+    mockedListDesignations.mockResolvedValue(DESIGNATIONS);
+
+    renderWizard();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Teaching/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getAllByRole("combobox")[0]);
+    await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
+    await userEvent.click(screen.getAllByRole("combobox")[1]);
+    await userEvent.click(await screen.findByRole("option", { name: "Computer Science" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    // The designation is listed but not yet chosen: Next is disabled AND the
+    // reason is on screen.
+    const designation = await screen.findByRole("button", { name: /Assistant Professor/ });
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByText(/Click one of the designations above/)).toBeInTheDocument();
+
+    await userEvent.click(designation);
+    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+    expect(screen.queryByText(/Click one of the designations above/)).not.toBeInTheDocument();
+  }, 15000);
+
+  it("says which manual fields are missing when the Designation Master has no match", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "SUPER_ADMIN", campus_id: null, department_id: null } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListLocations.mockResolvedValue([]);
+    mockedListDepartments.mockResolvedValue(DEPARTMENTS);
+    mockedListDesignations.mockResolvedValue([]);
+
+    renderWizard();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Teaching/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getAllByRole("combobox")[0]);
+    await userEvent.click(await screen.findByRole("option", { name: "SSE" }));
+    await userEvent.click(screen.getAllByRole("combobox")[1]);
+    await userEvent.click(await screen.findByRole("option", { name: "Computer Science" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByText(/No designations in the Designation Master/)).toBeInTheDocument();
+    // Partially filled is still blocked -- and still explained.
+    await userEvent.type(screen.getByLabelText("Position title"), "Guest Lecturer");
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    expect(screen.getByText(/Fill in the position title, qualification and experience/)).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Qualification"), "MSc");
+    await userEvent.type(screen.getByLabelText("Experience required"), "1+ years");
+    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+  }, 15000);
 });
