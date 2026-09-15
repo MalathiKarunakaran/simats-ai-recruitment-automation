@@ -14,6 +14,7 @@ from app.models.application import Application
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.enums import (
     HiringSlotStatusEnum,
+    JobPostingStatusEnum,
     UserRoleEnum,
     VacancyRequestSourceEnum,
     VacancyRequestStatusEnum,
@@ -433,19 +434,25 @@ def publish(
     slug_base = f"{vacancy_request.campus.code}-{vacancy_request.position_title}".lower().replace(" ", "-")
     slug = f"{slug_base}-{secrets.token_hex(4)}"
 
+    # The posting starts as a DRAFT (2026-09-15): its content is written and
+    # reviewed, and it goes live through job_postings.publish, not here. Not
+    # active and no published_at until then, so it is on no careers page and
+    # takes no application.
     job_posting = JobPosting(
         approved_vacancy_id=approved_vacancy.id,
         campus_id=vacancy_request.campus_id,
         role_category=vacancy_request.role_category,
         public_apply_slug=slug,
         posting_number=reference_numbers.next_posting_number(db),
-        published_at=now,
+        status=JobPostingStatusEnum.DRAFT,
+        is_active=False,
+        created_by_id=actor.id,
     )
     db.add(job_posting)
     db.flush()
-    # The ad is a snapshot from here on: later edits to the request never
-    # silently change a live advertisement (2026-09-06).
-    job_postings.snapshot_ad_at_publish(job_posting)
+    # The content is a snapshot from here on: later edits to the request
+    # never silently change an advertisement (2026-09-06).
+    job_postings.snapshot_content(job_posting)
 
     log_event(
         db,
@@ -465,15 +472,22 @@ def publish(
         campus_context_id=vacancy_request.campus_id,
         entity_type="JobPosting",
         entity_id=job_posting.id,
-        after_state={"public_apply_slug": job_posting.public_apply_slug},
+        after_state={
+            "public_apply_slug": job_posting.public_apply_slug,
+            "posting_number": job_posting.posting_number,
+            "status": job_posting.status.value,
+        },
         request=request,
     )
     notifications.notify(
         db,
         recipient_user=vacancy_request.requested_by,
         notification_type="VACANCY_REQUEST_PUBLISHED",
-        subject=f"Published: {vacancy_request.position_title}",
-        body=f"Your vacancy request for {vacancy_request.position_title} is now published (posting {job_posting.public_apply_slug}).",
+        subject=f"Job posting drafted: {vacancy_request.position_title}",
+        body=(
+            f"Your vacancy request for {vacancy_request.position_title} is approved for advertising: job posting "
+            f"{job_posting.posting_number} has been created as a draft and goes live once it is reviewed and published."
+        ),
         campus_context_id=vacancy_request.campus_id,
         related_entity_type="JobPosting",
         related_entity_id=job_posting.id,
@@ -527,8 +541,20 @@ def close(
         for slot in stale_open_slots:
             db.delete(slot)
     if job_posting is not None:
+        posting_before = job_postings.snapshot(job_posting)
         job_posting.close(now)
         job_channels.retire_channels_for_closed_posting(db, job_posting=job_posting, actor=actor, request=request)
+        log_event(
+            db,
+            actor=actor,
+            action="JOB_POSTING_CLOSED",
+            campus_context_id=job_posting.campus_id,
+            entity_type="JobPosting",
+            entity_id=job_posting.id,
+            before_state=posting_before,
+            after_state=job_postings.snapshot(job_posting),
+            request=request,
+        )
 
     log_event(
         db,

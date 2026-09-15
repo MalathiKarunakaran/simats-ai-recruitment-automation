@@ -1,5 +1,6 @@
 import io
 import uuid
+from datetime import date, datetime, time, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -15,7 +16,7 @@ from app.core.deps import (
     get_department_scope,
     require_permission,
 )
-from app.models.enums import PermissionEnum
+from app.models.enums import JobPostingStatusEnum, PermissionEnum
 from app.models.job_posting import JobPosting
 from app.models.user import User
 from app.models.job_posting_channel import JobPostingChannel, PostingAttempt
@@ -28,6 +29,7 @@ from app.schemas.job_posting_channel import (
     ManualPostingRequest,
     PostChannelResponse,
     PostingAttemptRead,
+    PostingHistoryItem,
     RecommendChannelsResponse,
     ReviewChannelRequest,
 )
@@ -172,7 +174,8 @@ def recommend_posting_channels(
     """Re-runs the channel rules (they already ran at publish). Adds only
     channels not yet on the posting; never touches a reviewed row."""
     posting = _get_posting_or_404_scoped(db, job_posting_id, scope, scope_dept)
-    if not posting.is_active:
+    # Channels are chosen while the posting is drafted; only CLOSED refuses.
+    if posting.status == JobPostingStatusEnum.CLOSED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This job posting is closed")
     created = job_channels.recommend_channels(db, job_posting=posting, actor=current_user, request=request)
     db.commit()
@@ -263,9 +266,12 @@ def record_manual_posting(
     """A person posted it and is recording the portal's reference or URL."""
     posting = _get_posting_or_404_scoped(db, job_posting_id, scope, scope_dept)
     row = _get_channel_row_or_404(db, posting, channel_id)
+    posted_at = None
+    if payload.posted_on is not None and payload.posted_on != date.today():
+        posted_at = datetime.combine(payload.posted_on, time(12, 0), tzinfo=timezone.utc)
     job_channels.record_manual_posting(
         db, row=row, actor=current_user, request=request,
-        external_ref=payload.external_ref, external_url=payload.external_url,
+        external_ref=payload.external_ref, external_url=payload.external_url, posted_at=posted_at,
     )
     db.commit()
     db.refresh(row)
@@ -290,3 +296,34 @@ def list_posting_attempts(
         .all()
     )
     return PaginatedResponse(items=attempts, total=len(attempts), limit=max(len(attempts), 1), offset=0)
+
+
+@router.get("/{job_posting_id}/posting-history", response_model=PaginatedResponse[PostingHistoryItem])
+def list_posting_history(
+    job_posting_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_distribute_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> PaginatedResponse[PostingHistoryItem]:
+    """Every attempt on every channel of the posting, newest first -- the
+    posting-level view of what the per-channel attempts list shows."""
+    posting = _get_posting_or_404_scoped(db, job_posting_id, scope, scope_dept)
+    rows = (
+        db.query(PostingAttempt, RecruitmentChannel)
+        .join(JobPostingChannel, JobPostingChannel.id == PostingAttempt.job_posting_channel_id)
+        .join(RecruitmentChannel, RecruitmentChannel.id == JobPostingChannel.channel_id)
+        .filter(JobPostingChannel.job_posting_id == posting.id)
+        .order_by(PostingAttempt.attempted_at.desc(), PostingAttempt.attempt_number.desc())
+        .all()
+    )
+    items = [
+        PostingHistoryItem(
+            **PostingAttemptRead.model_validate(attempt).model_dump(),
+            channel_id=channel.id,
+            channel_code=channel.code,
+            channel_name=channel.name,
+        )
+        for attempt, channel in rows
+    ]
+    return PaginatedResponse(items=items, total=len(items), limit=max(len(items), 1), offset=0)

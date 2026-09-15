@@ -69,7 +69,7 @@ from app.services import (
     vacancy_workflow,
 )
 from app.services.storage import get_minio_client
-from app.services.ai_client import get_openai_client
+from app.services.ai_client import get_jd_ai_client
 from app.services.audit import log_create, log_delete, log_event as log_create_event, log_update
 
 router = APIRouter(prefix="/vacancy-requests", tags=["vacancy-requests"])
@@ -368,7 +368,7 @@ def generate_jd_for_vacancy_request(
     current_user: User = Depends(_can_edit),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
-    ai: openai.OpenAI = Depends(get_openai_client),
+    ai: openai.OpenAI = Depends(get_jd_ai_client),
 ) -> VacancyRequest:
     vr = _get_or_404_scoped(db, vacancy_request_id, scope, scope_dept)
     if vr.status != VacancyRequestStatusEnum.DRAFT:

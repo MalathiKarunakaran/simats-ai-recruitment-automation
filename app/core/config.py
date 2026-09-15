@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     #               each provider gets its own Chroma collection and a resume
     #               is re-embedded on its next screening after a switch.
     AI_PROVIDER: str = "openai"
+    # Job-description drafts only (vacancy request and job posting "Generate
+    # with AI"), 2026-09-15. Empty = follow AI_PROVIDER. Lets JD drafting move
+    # to a self-hosted model without moving resume scoring with it.
+    JD_AI_PROVIDER: str = ""
     EMBEDDING_PROVIDER: str = "chroma"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen3:4b"
@@ -190,9 +194,16 @@ class Settings(BaseSettings):
         return self.EMBEDDING_PROVIDER.strip().lower() or "chroma"
 
     @property
+    def jd_ai_provider(self) -> str:
+        return self.JD_AI_PROVIDER.strip().lower() or self.ai_provider
+
+    def model_for(self, provider: str) -> str:
+        return self.OLLAMA_MODEL if provider == "ollama" else self.OPENAI_MODEL
+
+    @property
     def ai_model(self) -> str:
         """The model name every generation call passes, per provider."""
-        return self.OLLAMA_MODEL if self.ai_provider == "ollama" else self.OPENAI_MODEL
+        return self.model_for(self.ai_provider)
 
     @property
     def ollama_openai_base_url(self) -> str:

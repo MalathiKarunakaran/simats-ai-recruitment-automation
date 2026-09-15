@@ -31,6 +31,7 @@ from app.models.enums import (
     MAX_POSTING_ATTEMPTS_PER_CHANNEL,
     ChannelRecommendationSourceEnum,
     JobPostingChannelStatusEnum,
+    JobPostingStatusEnum,
     PostingAttemptOutcomeEnum,
     PostingAttemptTriggerEnum,
     RecruitmentChannelModeEnum,
@@ -39,10 +40,11 @@ from app.models.job_posting import JobPosting
 from app.models.job_posting_channel import JobPostingChannel, PostingAttempt
 from app.models.recruitment_channel import ChannelRule, RecruitmentChannel
 from app.models.user import User
+from app.services import channel_providers
 from app.services.audit import log_event
 from app.services.n8n_client import N8nClient, get_n8n_client
 
-LEGACY_DISTRIBUTION_WEBHOOK = "job-distribution"
+LEGACY_DISTRIBUTION_WEBHOOK = channel_providers.LEGACY_DISTRIBUTION_WEBHOOK
 
 
 def _snapshot(row: JobPostingChannel) -> dict:
@@ -164,7 +166,9 @@ def attach_channel(
     revived rather than duplicated (the pair is unique)."""
     if not channel.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This channel is inactive")
-    if not job_posting.is_active:
+    # Channels are chosen while the posting is still being drafted, so only
+    # a closed posting refuses; posting to a channel still needs it live.
+    if job_posting.status == JobPostingStatusEnum.CLOSED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This job posting is closed")
 
     target = (
@@ -346,22 +350,6 @@ def _mark_posted(row: JobPostingChannel, response: dict | None) -> None:
             row.external_url = url[:500]
 
 
-def _build_api_payload(row: JobPostingChannel, attempt_number: int) -> dict:
-    from app.services.job_distribution import generate_job_ad  # local: job_distribution imports this module
-
-    ad = generate_job_ad(row.job_posting)
-    return {
-        **ad,
-        "job_posting_id": str(ad["job_posting_id"]),
-        "job_posting_channel_id": str(row.id),
-        "attempt_number": attempt_number,
-        "channel_code": row.channel.code,
-        "channel_config": row.channel.config or {},
-        # `portals` kept for the existing n8n workflow, which switches on it.
-        "portals": [row.channel.code],
-    }
-
-
 def _audit_attempt(db: Session, *, row: JobPostingChannel, attempt: PostingAttempt, actor: User | None, request) -> None:
     succeeded = attempt.outcome == PostingAttemptOutcomeEnum.SUCCEEDED
     log_event(
@@ -391,68 +379,56 @@ def post_channel(
     request: Request | None,
     n8n_client: N8nClient | None = None,
 ) -> PostingAttempt:
-    """One attempt to put the posting on this channel, dispatched by the
-    channel's mode. Never raises for a delivery failure -- the attempt row
-    and the FAILED status are the result, and the caller reads
-    `attempt.outcome` to pick a response code. Raises 409 only for a row
-    that must not be posted (wrong status, closed posting, retry cap)."""
+    """One attempt to put the posting on this channel, carried out by the
+    channel's provider (services/channel_providers.py). Never raises for a
+    delivery failure -- the attempt row and the FAILED status are the result,
+    and the caller reads `attempt.outcome` to pick a response code. Raises
+    409 for a row that must not be posted (wrong status, posting not live,
+    retry cap) and for a channel whose integration is not configured: that
+    is refused before any attempt exists, so nothing can read as a try that
+    might have worked."""
     _assert_postable(row)
+    provider = channel_providers.provider_for(row.channel)
+    client = n8n_client if n8n_client is not None else get_n8n_client()
+    if provider.configuration_status(row.channel, client) == channel_providers.NOT_CONFIGURED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{row.channel.name}: integration not configured. "
+                "Post it by hand and record the reference instead."
+            ),
+        )
     trigger = PostingAttemptTriggerEnum.RETRY if row.attempt_count > 0 else PostingAttemptTriggerEnum.MANUAL
-    mode = row.channel.mode
-    attempt_number = row.attempt_count + 1
+    result = provider.post(row, attempt_number=row.attempt_count + 1, n8n_client=client)
 
-    if mode in (RecruitmentChannelModeEnum.INTERNAL, RecruitmentChannelModeEnum.FEED):
-        # Nothing to send: the posting is live wherever this system serves it.
-        _mark_posted(row, None)
-        attempt = _new_attempt(
-            db, row=row, trigger=trigger, outcome=PostingAttemptOutcomeEnum.SUCCEEDED, actor=actor,
-            request_payload={"mode": mode.value}, response_payload=None, error_message=None,
-        )
-    elif mode == RecruitmentChannelModeEnum.MANUAL_ASSISTED:
-        # The pack is ready; a person posts it and records the reference via
-        # record_manual_posting(). QUEUED is that hand-off.
-        row.status = JobPostingChannelStatusEnum.QUEUED
-        row.last_error = None
-        attempt = _new_attempt(
-            db, row=row, trigger=trigger, outcome=PostingAttemptOutcomeEnum.SUCCEEDED, actor=actor,
-            request_payload={"mode": mode.value, "queued_for_manual_posting": True},
-            response_payload=None, error_message=None,
-        )
-    else:  # API
-        payload = _build_api_payload(row, attempt_number)
-        client = n8n_client if n8n_client is not None else get_n8n_client()
-        if client is None:
-            row.status = JobPostingChannelStatusEnum.FAILED
-            attempt = _new_attempt(
-                db, row=row, trigger=trigger, outcome=PostingAttemptOutcomeEnum.NOT_CONFIGURED, actor=actor,
-                request_payload=payload, response_payload=None,
-                error_message="Job-portal distribution is not configured (N8N_BASE_URL is not set)",
-            )
-        else:
-            path = row.channel.integration_path or LEGACY_DISTRIBUTION_WEBHOOK
-            try:
-                response = client.post_webhook(path, payload)
-            except httpx.TimeoutException as exc:
-                row.status = JobPostingChannelStatusEnum.FAILED
-                attempt = _new_attempt(
-                    db, row=row, trigger=trigger, outcome=PostingAttemptOutcomeEnum.TIMEOUT, actor=actor,
-                    request_payload=payload, response_payload=None, error_message=f"Timed out reaching n8n: {exc}",
-                )
-            except httpx.HTTPError as exc:
-                row.status = JobPostingChannelStatusEnum.FAILED
-                attempt = _new_attempt(
-                    db, row=row, trigger=trigger, outcome=PostingAttemptOutcomeEnum.FAILED, actor=actor,
-                    request_payload=payload, response_payload=None, error_message=str(exc)[:2000],
-                )
-            else:
-                _mark_posted(row, response)
-                attempt = _new_attempt(
-                    db, row=row, trigger=trigger, outcome=PostingAttemptOutcomeEnum.SUCCEEDED, actor=actor,
-                    request_payload=payload, response_payload=response, error_message=None,
-                )
-
+    if result.status == JobPostingChannelStatusEnum.POSTED:
+        _mark_posted(row, {"external_ref": result.external_ref, "external_url": result.external_url})
+    else:
+        row.status = result.status
+    attempt = _new_attempt(
+        db, row=row, trigger=trigger, outcome=result.outcome, actor=actor,
+        request_payload=result.request_payload, response_payload=result.response_payload,
+        error_message=result.error_message,
+    )
     _audit_attempt(db, row=row, attempt=attempt, actor=actor, request=request)
     return attempt
+
+
+def post_automatic_channels(
+    db: Session, *, job_posting: JobPosting, actor: User, request: Request | None
+) -> list[PostingAttempt]:
+    """Called by job_postings.publish once the posting is live: every
+    SELECTED channel this system publishes by itself (the careers page, a
+    feed) is posted now. Channels needing a person or an integration are
+    left SELECTED for the recruiter -- publishing never posts to them."""
+    attempts = []
+    for row in existing_channel_rows(db, job_posting).values():
+        if row.status != JobPostingChannelStatusEnum.SELECTED:
+            continue
+        if not channel_providers.provider_for(row.channel).automatic:
+            continue
+        attempts.append(post_channel(db, row=row, actor=actor, request=request))
+    return attempts
 
 
 def record_manual_posting(
@@ -463,13 +439,17 @@ def record_manual_posting(
     request: Request | None,
     external_ref: str | None,
     external_url: str | None,
+    posted_at: datetime | None = None,
 ) -> JobPostingChannel:
     """A person posted it (FacultyPlus, a notice board, a group) and is
-    recording where. Allowed from SELECTED, QUEUED or FAILED on any mode --
-    an API channel that keeps failing can still be posted by hand."""
+    recording where, and optionally when (defaults to now). Allowed from
+    SELECTED, QUEUED or FAILED on any mode -- an API channel that keeps
+    failing, or has no integration, can still be posted by hand."""
     _assert_postable(row)
     before = _snapshot(row)
     _mark_posted(row, {"external_ref": external_ref, "external_url": external_url})
+    if posted_at is not None:
+        row.posted_at = posted_at
     attempt = _new_attempt(
         db, row=row,
         trigger=PostingAttemptTriggerEnum.RETRY if row.attempt_count > 0 else PostingAttemptTriggerEnum.MANUAL,

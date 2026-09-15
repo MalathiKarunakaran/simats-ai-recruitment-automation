@@ -12,6 +12,7 @@ import openai
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.services import ai_client
@@ -29,7 +30,9 @@ def generate_and_apply_jd(
 ) -> VacancyRequest:
     before = {"jd_draft": vacancy_request.jd_draft}
 
-    jd_fields = ai_client.generate_jd(client, vacancy_request, additional_instructions)
+    jd_fields = ai_client.generate_jd(
+        client, vacancy_request, additional_instructions, provider=settings.jd_ai_provider
+    )
     vacancy_request.jd_draft = ai_client.render_jd_text(jd_fields)
 
     log_update(

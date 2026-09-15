@@ -178,14 +178,39 @@ def get_ai_client() -> anthropic.Anthropic:
 
 def get_openai_client() -> openai.OpenAI:
     """FastAPI dependency -- overridden with a fake in tests. Backs every
-    generation call in this module, whichever provider is configured.
+    generation call in this module except job-description drafts, whichever
+    provider is configured."""
+    return _openai_client_for(settings.ai_provider, setting_name="AI_PROVIDER", raw_value=settings.AI_PROVIDER)
 
-    With AI_PROVIDER=ollama the same client class talks to the Ollama
+
+def get_jd_ai_client() -> openai.OpenAI:
+    """FastAPI dependency for job-description drafts (vacancy request and job
+    posting "Generate with AI"): JD_AI_PROVIDER, falling back to AI_PROVIDER.
+    Overridden with the same fake as get_openai_client in tests."""
+    if settings.JD_AI_PROVIDER.strip():
+        return _openai_client_for(
+            settings.jd_ai_provider, setting_name="JD_AI_PROVIDER", raw_value=settings.JD_AI_PROVIDER
+        )
+    return get_openai_client()
+
+
+def jd_ai_status() -> dict:
+    """Whether "Generate with AI" can run, without calling anyone -- so a
+    screen can say "not configured" up front instead of failing on click."""
+    provider = settings.jd_ai_provider
+    try:
+        _openai_client_for(provider, setting_name="JD_AI_PROVIDER", raw_value=provider)
+    except HTTPException as exc:
+        return {"configured": False, "provider": provider, "model": None, "message": exc.detail}
+    return {"configured": True, "provider": provider, "model": settings.model_for(provider), "message": None}
+
+
+def _openai_client_for(provider: str, *, setting_name: str, raw_value: str) -> openai.OpenAI:
+    """With provider "ollama" the same client class talks to the Ollama
     server's OpenAI-compatible endpoint; Ollama needs no key, so the SDK is
     given a placeholder (it refuses an empty one). A provider name that is
     neither is a deployment mistake, reported as the same 503 shape.
     """
-    provider = settings.ai_provider
     if provider == "openai":
         if not settings.OPENAI_API_KEY:
             raise HTTPException(
@@ -206,7 +231,7 @@ def get_openai_client() -> openai.OpenAI:
         )
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail=f"AI features are not configured (AI_PROVIDER={settings.AI_PROVIDER!r} is not openai or ollama)",
+        detail=f"AI features are not configured ({setting_name}={raw_value!r} is not openai or ollama)",
     )
 
 
@@ -222,7 +247,7 @@ def _strip_thinking(text: str) -> str:
     return _THINK_BLOCK.sub("", text).strip()
 
 
-def _provider_extra() -> dict:
+def _provider_extra(provider: str | None = None) -> dict:
     """Extra request fields for the configured provider. Ollama's
     OpenAI-compatible endpoint honours `reasoning_effort: "none"` to switch
     Qwen3's reasoning off -- a structured-output call has no use for it and
@@ -232,7 +257,7 @@ def _provider_extra() -> dict:
     leaving `content` empty; Qwen3's "/no_think" prompt switch is ignored
     too. OpenAI's own models would refuse the value, so it is sent to
     Ollama only."""
-    if settings.ai_provider == "ollama":
+    if (provider or settings.ai_provider) == "ollama":
         return {"reasoning_effort": "none"}
     return {}
 
@@ -329,16 +354,57 @@ def _jd_user_content(vacancy_request: VacancyRequest, additional_instructions: s
 
 
 def generate_jd(
-    client: openai.OpenAI, vacancy_request: VacancyRequest, additional_instructions: str | None
+    client: openai.OpenAI,
+    vacancy_request: VacancyRequest,
+    additional_instructions: str | None,
+    *,
+    provider: str | None = None,
 ) -> dict:
+    return _generate_jd_fields(client, _jd_user_content(vacancy_request, additional_instructions), provider)
+
+
+def _posting_jd_user_content(job_posting, additional_instructions: str | None) -> str:
+    """The posting's own (possibly edited) content, falling back to the
+    request for anything the posting does not carry."""
+    vacancy_request = job_posting.approved_vacancy.vacancy_request
+    employment_type = job_posting.employment_type or vacancy_request.employment_type
+    lines = [
+        f"Campus: {job_posting.campus.code}",
+        f"Department: {vacancy_request.department.name}",
+        f"Staff role category: {job_posting.role_category.value}",
+        f"Position title: {job_posting.ad_title or vacancy_request.position_title}",
+        f"Employment type: {employment_type.value}",
+        f"Required qualification: {job_posting.required_qualification or vacancy_request.qualification}",
+        f"Required experience: {job_posting.required_experience or vacancy_request.experience_required}",
+        f"Priority: {vacancy_request.priority.value}",
+    ]
+    if job_posting.location_label:
+        lines.append(f"Location: {job_posting.location_label}")
+    if job_posting.salary_min or job_posting.salary_max:
+        lines.append(f"Salary band: {job_posting.salary_min} - {job_posting.salary_max}")
+    skills = job_posting.required_skills or vacancy_request.skills
+    if skills:
+        lines.append(f"Skills: {', '.join(skills)}")
+    if additional_instructions:
+        lines.append(f"Additional instructions from the recruiter: {additional_instructions}")
+    return "\n".join(lines)
+
+
+def generate_posting_jd(
+    client: openai.OpenAI, job_posting, additional_instructions: str | None, *, provider: str
+) -> dict:
+    return _generate_jd_fields(client, _posting_jd_user_content(job_posting, additional_instructions), provider)
+
+
+def _generate_jd_fields(client: openai.OpenAI, user_content: str, provider: str | None) -> dict:
     response = _call_openai(
         client.chat.completions.create,
-        model=settings.ai_model,
-        **_provider_extra(),
+        model=settings.model_for(provider) if provider else settings.ai_model,
+        **_provider_extra(provider),
         max_completion_tokens=4000,
         messages=[
             {"role": "system", "content": _JD_SYSTEM_PROMPT},
-            {"role": "user", "content": _jd_user_content(vacancy_request, additional_instructions)},
+            {"role": "user", "content": user_content},
         ],
         response_format={"type": "json_schema", "json_schema": {"name": "job_description", "schema": JD_JSON_SCHEMA, "strict": True}},
     )

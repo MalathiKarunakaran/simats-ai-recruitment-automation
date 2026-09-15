@@ -305,11 +305,15 @@ def _import_vacancy_row(db: Session, row: dict, row_number: int, actor: User) ->
         role_category=role_category,
         public_apply_slug=slug,
         posting_number=reference_numbers.next_posting_number(db),
+        # Tracker rows are historical postings that were already live, so
+        # they land PUBLISHED (the column default), not as drafts.
         published_at=now,
+        created_by_id=actor.id,
+        published_by_id=actor.id,
     )
     db.add(job_posting)
     db.flush()
-    job_postings.snapshot_ad_at_publish(job_posting)
+    job_postings.snapshot_content(job_posting)
 
     return vacancy_request, warnings
 

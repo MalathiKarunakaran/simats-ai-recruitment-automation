@@ -517,9 +517,13 @@ class PermissionEnum(str, enum.Enum):
     SETTINGS = "SETTINGS"
     # Job posting content and channels (2026-09-06, migration f0a1b2c3d4e5
     # adds the labels, c4d5e6f7a8b9 backfills holders):
-    EDIT_JOB_POSTING = "EDIT_JOB_POSTING"  # ad content, pause, resume
+    EDIT_JOB_POSTING = "EDIT_JOB_POSTING"  # ad content, AI draft, submit for review, pause, resume
     REVIEW_POSTING_CHANNELS = "REVIEW_POSTING_CHANNELS"  # select/remove recommendations, record manual refs
     MANAGE_RECRUITMENT_CHANNELS = "MANAGE_RECRUITMENT_CHANNELS"  # channel + rule admin
+    # Posting review stage (2026-09-15, migration b8c7d6e5f4a3 adds the
+    # labels, e8f9a0b1c2d3 backfills holders):
+    APPROVE_JOB_POSTING = "APPROVE_JOB_POSTING"  # READY_FOR_REVIEW -> APPROVED
+    PUBLISH_JOB_POSTING = "PUBLISH_JOB_POSTING"  # APPROVED -> PUBLISHED
 
 
 # Frontend permission-matrix grouping (Phase 3) -- lives here once, centrally,
@@ -551,6 +555,8 @@ PERMISSION_CATEGORIES: dict[str, list[PermissionEnum]] = {
     "RECRUITMENT": [
         PermissionEnum.JOB_DISTRIBUTION,
         PermissionEnum.EDIT_JOB_POSTING,
+        PermissionEnum.APPROVE_JOB_POSTING,
+        PermissionEnum.PUBLISH_JOB_POSTING,
         PermissionEnum.REVIEW_POSTING_CHANNELS,
         PermissionEnum.MANAGE_RECRUITMENT_CHANNELS,
         PermissionEnum.RESUME_SCREENING,
@@ -710,11 +716,24 @@ class JobPostingStatusEnum(str, enum.Enum):
     but HR can still record walk-in applications against it. CLOSED is
     reached only through vacancy_workflow.close/cancel/adjust_slot_count or
     the pipeline's auto-close, never set directly. Expiry is derived on
-    read from `apply_deadline`, not a stored state."""
+    read from `apply_deadline`, not a stored state.
 
+    DRAFT -> READY_FOR_REVIEW -> APPROVED (2026-09-15, labels added by
+    migration b8c7d6e5f4a3) come before PUBLISHED: publishing a vacancy now
+    creates its posting as a DRAFT, and only services/job_postings.py moves
+    it on. None of the three is active, so a draft is never on the careers
+    page and never takes an application."""
+
+    DRAFT = "DRAFT"
+    READY_FOR_REVIEW = "READY_FOR_REVIEW"
+    APPROVED = "APPROVED"
     PUBLISHED = "PUBLISHED"
     PAUSED = "PAUSED"
     CLOSED = "CLOSED"
+
+
+# The two statuses in which a posting is live (`JobPosting.is_active`).
+JOB_POSTING_LIVE_STATUSES = frozenset({JobPostingStatusEnum.PUBLISHED, JobPostingStatusEnum.PAUSED})
 
 
 # Statuses a posting-channel row can still be posted from. RECOMMENDED is

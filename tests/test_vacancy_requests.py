@@ -205,7 +205,10 @@ def test_full_approval_chain_creates_slots_and_posting(client, user_factory, dep
 
     published = client.post(f"/api/v1/vacancy-requests/{vr_id}/publish", headers=auth_headers(client, hr_admin))
     assert published.status_code == 200
-    assert published.json()["is_active"] is True
+    # Publishing the vacancy creates its posting as a draft (2026-09-15).
+    assert published.json()["status"] == "DRAFT"
+    assert published.json()["is_active"] is False
+    assert published.json()["published_at"] is None
 
     vr_detail = client.get(f"/api/v1/vacancy-requests/{vr_id}", headers=auth_headers(client, hr_admin))
     assert vr_detail.json()["status"] == "PUBLISHED"
@@ -1130,7 +1133,7 @@ def test_recruitment_coordinator_with_vacancy_approval_grant_can_hr_approve_and_
         f"/api/v1/vacancy-requests/{vr_id}/publish", headers=auth_headers(client, coordinator)
     )
     assert published.status_code == 200
-    assert published.json()["is_active"] is True
+    assert published.json()["status"] == "DRAFT"
 
 
 def test_recruitment_coordinator_with_vacancy_approval_grant_can_close_cancel_and_adjust_slot_count(

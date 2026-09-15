@@ -1,8 +1,11 @@
 import uuid
 
+import openai
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.core.config import settings
 from app.core.deps import (
     CampusScope,
     DepartmentScope,
@@ -23,18 +26,32 @@ from app.models.resume_score import ResumeScore
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.schemas.common import PaginatedResponse
-from app.schemas.job_posting import JobPostingRead, JobPostingUpdate
-from app.services import job_postings, vacancy_workflow
+from app.schemas.job_posting import (
+    JdAiStatusRead,
+    JobPostingGenerateContentRequest,
+    JobPostingRead,
+    JobPostingReturnToDraftRequest,
+    JobPostingUpdate,
+)
 from app.schemas.resume_score import RankedApplicationRead
+from app.services import ai_client, job_postings, vacancy_workflow
 
 router = APIRouter(prefix="/job-postings", tags=["job-postings"])
 
-# Eager-loads for JobPosting's position_title/department_id/requested_count/
-# available_count @properties -- without these, each row would lazy-load its
-# approved_vacancy, vacancy_request, and hiring_slots individually (N+1).
+# Eager-loads for JobPostingRead's @properties -- without these, each row
+# would lazy-load its approved_vacancy, vacancy_request, department,
+# designation, campus, location, hiring_slots and trail users one by one.
 _POSITION_TRACKING_LOADER_OPTIONS = (
-    joinedload(JobPosting.approved_vacancy).joinedload(ApprovedVacancy.vacancy_request),
+    joinedload(JobPosting.approved_vacancy).joinedload(ApprovedVacancy.vacancy_request).joinedload(VacancyRequest.department),
+    joinedload(JobPosting.approved_vacancy).joinedload(ApprovedVacancy.vacancy_request).joinedload(VacancyRequest.designation),
     joinedload(JobPosting.approved_vacancy).selectinload(ApprovedVacancy.hiring_slots),
+    joinedload(JobPosting.campus),
+    joinedload(JobPosting.location),
+    selectinload(JobPosting.created_by),
+    selectinload(JobPosting.last_edited_by),
+    selectinload(JobPosting.submitted_for_review_by),
+    selectinload(JobPosting.approved_by),
+    selectinload(JobPosting.published_by),
 )
 
 
@@ -68,8 +85,23 @@ def list_job_postings(
             .filter(VacancyRequest.department_id.in_(scope_dept.department_ids))
         )
     total = query.count()
-    rows = query.order_by(JobPosting.published_at.desc()).offset(offset).limit(limit).all()
+    # Drafts have no published_at yet; they sort by when they were created.
+    rows = (
+        query.order_by(func.coalesce(JobPosting.published_at, JobPosting.created_at).desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
+
+
+# Registered before /{job_posting_id}: FastAPI matches in order, and a
+# literal two-segment path must not be parsed as a posting id.
+@router.get("/content-generation/status", response_model=JdAiStatusRead)
+def get_content_generation_status(current_user: User = Depends(_staff_only)) -> dict:
+    """Whether "Generate with AI" is available, so the screen can say "not
+    configured" before anyone clicks. Makes no call to the AI."""
+    return ai_client.jd_ai_status()
 
 
 @router.get("/{job_posting_id}", response_model=JobPostingRead)
@@ -143,11 +175,32 @@ def rank_candidates(
     return PaginatedResponse(items=items, total=total, limit=limit, offset=offset)
 
 
-# --- Content and lifecycle (2026-09-06) --------------------------------------
+# --- Content, review and lifecycle (2026-09-06; review 2026-09-15) -----------
 
 
 def _edit_gate(
     current_user: User = Depends(require_permission(PermissionEnum.EDIT_JOB_POSTING)),
+) -> User:
+    return current_user
+
+
+def _approve_gate(
+    current_user: User = Depends(require_permission(PermissionEnum.APPROVE_JOB_POSTING)),
+) -> User:
+    return current_user
+
+
+def _publish_gate(
+    current_user: User = Depends(require_permission(PermissionEnum.PUBLISH_JOB_POSTING)),
+) -> User:
+    return current_user
+
+
+def _return_gate(
+    # The author withdrawing it, or the reviewer sending it back.
+    current_user: User = Depends(
+        require_permission(PermissionEnum.EDIT_JOB_POSTING, PermissionEnum.APPROVE_JOB_POSTING)
+    ),
 ) -> User:
     return current_user
 
@@ -168,6 +221,12 @@ def _get_posting_for_write(
     return posting
 
 
+def _committed(db: Session, posting: JobPosting) -> JobPosting:
+    db.commit()
+    db.refresh(posting)
+    return posting
+
+
 @router.patch("/{job_posting_id}", response_model=JobPostingRead)
 def update_job_posting(
     job_posting_id: uuid.UUID,
@@ -182,9 +241,93 @@ def update_job_posting(
     job_postings.update_content(
         db, job_posting=posting, changes=payload.model_dump(exclude_unset=True), actor=current_user, request=request
     )
-    db.commit()
-    db.refresh(posting)
-    return posting
+    return _committed(db, posting)
+
+
+@router.post("/{job_posting_id}/generate-content", response_model=JobPostingRead)
+def generate_job_posting_content(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    payload: JobPostingGenerateContentRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+    # Last, so a caller without the permission gets 403, not 503.
+    ai: openai.OpenAI = Depends(ai_client.get_jd_ai_client),
+) -> JobPosting:
+    """Writes an AI draft of the description into a DRAFT posting. The text
+    is for a person to edit; nothing is approved, published or selected."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.generate_content(
+        db,
+        job_posting=posting,
+        client=ai,
+        provider=settings.jd_ai_provider,
+        additional_instructions=payload.additional_instructions if payload else None,
+        actor=current_user,
+        request=request,
+    )
+    return _committed(db, posting)
+
+
+@router.post("/{job_posting_id}/submit-for-review", response_model=JobPostingRead)
+def submit_job_posting_for_review(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.submit_for_review(db, job_posting=posting, actor=current_user, request=request)
+    return _committed(db, posting)
+
+
+@router.post("/{job_posting_id}/return-to-draft", response_model=JobPostingRead)
+def return_job_posting_to_draft(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    payload: JobPostingReturnToDraftRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_return_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.return_to_draft(
+        db, job_posting=posting, reason=payload.reason if payload else None, actor=current_user, request=request
+    )
+    return _committed(db, posting)
+
+
+@router.post("/{job_posting_id}/approve", response_model=JobPostingRead)
+def approve_job_posting(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_approve_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.approve(db, job_posting=posting, actor=current_user, request=request)
+    return _committed(db, posting)
+
+
+@router.post("/{job_posting_id}/publish", response_model=JobPostingRead)
+def publish_job_posting(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_publish_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.publish(db, job_posting=posting, actor=current_user, request=request)
+    return _committed(db, posting)
 
 
 @router.post("/{job_posting_id}/pause", response_model=JobPostingRead)
@@ -198,9 +341,7 @@ def pause_job_posting(
 ) -> JobPosting:
     posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
     job_postings.pause(db, job_posting=posting, actor=current_user, request=request)
-    db.commit()
-    db.refresh(posting)
-    return posting
+    return _committed(db, posting)
 
 
 @router.post("/{job_posting_id}/resume", response_model=JobPostingRead)
@@ -214,9 +355,7 @@ def resume_job_posting(
 ) -> JobPosting:
     posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
     job_postings.resume(db, job_posting=posting, actor=current_user, request=request)
-    db.commit()
-    db.refresh(posting)
-    return posting
+    return _committed(db, posting)
 
 
 @router.post("/{job_posting_id}/close", response_model=JobPostingRead)
@@ -239,6 +378,4 @@ def close_job_posting(
     vacancy_workflow.close(
         db, approved_vacancy.vacancy_request, approved_vacancy, posting, current_user, request
     )
-    db.commit()
-    db.refresh(posting)
-    return posting
+    return _committed(db, posting)

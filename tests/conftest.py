@@ -62,8 +62,8 @@ from app.models.user_department_scope import user_department_scope
 from app.models.user_permission_grant import UserPermissionGrant
 from app.models.vacancy_request import VacancyRequest
 from app.services import joining as joining_service
-from app.services import pipeline, vacancy_workflow
-from app.services.ai_client import get_ai_client, get_openai_client
+from app.services import job_postings, pipeline, vacancy_workflow
+from app.services.ai_client import get_ai_client, get_jd_ai_client, get_openai_client
 from app.services.permissions import seed_default_permissions
 from app.services.storage import get_minio_client
 from app.services.vector_store import get_chroma_collection
@@ -460,6 +460,7 @@ def client(db_session, fake_ai_client, fake_openai_client, fake_minio_client, fa
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_ai_client] = lambda: fake_ai_client
     app.dependency_overrides[get_openai_client] = lambda: fake_openai_client
+    app.dependency_overrides[get_jd_ai_client] = lambda: fake_openai_client
     app.dependency_overrides[get_minio_client] = lambda: fake_minio_client
     app.dependency_overrides[get_chroma_collection] = lambda: fake_chroma_collection
     with TestClient(app) as test_client:
@@ -852,13 +853,19 @@ def published_vacancy_factory(db_session, campus_factory, department_factory, us
     submit -> dean-approve -> hr-approve (creating N HiringSlots) -> publish
     (creating a JobPosting), using the real vacancy_workflow service --
     exactly what the API does -- so tests exercise the same code path.
-    Returns a SimpleNamespace with all the created entities/actors."""
+    Returns a SimpleNamespace with all the created entities/actors.
+
+    Publishing a vacancy creates a DRAFT posting (2026-09-15). With
+    `live=True` (the default, what nearly every test needs: a posting that
+    takes applications) HR then walks it through review and publication with
+    the real job_postings service; `live=False` leaves the draft."""
 
     def _make(
         campus_code: str = "SSE",
         slot_count: int = 2,
         role_category: StaffRoleCategoryEnum = StaffRoleCategoryEnum.TEACHING,
         qualification: str = "Test qualification",
+        live: bool = True,
     ):
         campus = campus_factory(campus_code)
         department = department_factory(campus_code)
@@ -885,6 +892,10 @@ def published_vacancy_factory(db_session, campus_factory, department_factory, us
         vacancy_workflow.dean_approve(db_session, vacancy_request, dean, None)
         approved_vacancy = vacancy_workflow.hr_approve(db_session, vacancy_request, hr_admin, None)
         job_posting = vacancy_workflow.publish(db_session, vacancy_request, approved_vacancy, hr_admin, None)
+        if live:
+            job_postings.submit_for_review(db_session, job_posting=job_posting, actor=hr_admin, request=None)
+            job_postings.approve(db_session, job_posting=job_posting, actor=hr_admin, request=None)
+            job_postings.publish(db_session, job_posting=job_posting, actor=hr_admin, request=None)
         db_session.flush()
 
         return SimpleNamespace(

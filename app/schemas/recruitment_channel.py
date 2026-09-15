@@ -24,8 +24,19 @@ class RecruitmentChannelBase(BaseModel):
     notes: str | None = None
 
 
+def _posting_url_is_http(value: dict | None) -> dict | None:
+    # `config.posting_url` is where a person goes to post by hand; the job
+    # posting screen opens it in a new tab, so it must be a web address.
+    url = (value or {}).get("posting_url")
+    if url is not None and (not isinstance(url, str) or not url.startswith(("http://", "https://"))):
+        raise ValueError("config.posting_url must start with http:// or https://")
+    return value
+
+
 class RecruitmentChannelCreate(RecruitmentChannelBase):
     code: str = Field(min_length=2, max_length=40, pattern=r"^[A-Z][A-Z0-9_]*$")
+
+    _config_posting_url = field_validator("config")(_posting_url_is_http)
 
     @field_validator("integration_path")
     @classmethod
@@ -52,6 +63,7 @@ class RecruitmentChannelUpdate(BaseModel):
     notes: str | None = None
 
     _path_is_relative = field_validator("integration_path")(RecruitmentChannelCreate._path_is_relative.__func__)
+    _config_posting_url = field_validator("config")(_posting_url_is_http)
 
 
 class RecruitmentChannelRead(RecruitmentChannelBase):
@@ -59,6 +71,9 @@ class RecruitmentChannelRead(RecruitmentChannelBase):
 
     id: uuid.UUID
     code: str
+    configuration_status: str
+    configuration_message: str | None
+    posting_url: str | None
     created_at: datetime
     updated_at: datetime
 

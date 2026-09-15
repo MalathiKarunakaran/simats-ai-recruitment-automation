@@ -112,7 +112,14 @@ def list_open_postings(
 def get_posting_by_slug(db: Session, slug: str) -> JobPosting:
     """Any posting the slug names, whatever its state -- the detail page says
     "closed" itself. 404 only for a slug that never existed."""
-    posting = _base_query(db).filter(JobPosting.public_apply_slug == slug).one_or_none()
+    # A posting that has never been published (DRAFT, in review, approved,
+    # or closed while still a draft) does not exist as far as the public is
+    # concerned -- 404, the same answer as an unknown slug.
+    posting = (
+        _base_query(db)
+        .filter(JobPosting.public_apply_slug == slug, JobPosting.published_at.is_not(None))
+        .one_or_none()
+    )
     if posting is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     return posting

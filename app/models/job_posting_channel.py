@@ -105,6 +105,18 @@ class JobPostingChannel(Base):
     def channel_mode(self):
         return self.channel.mode
 
+    @property
+    def channel_configuration_status(self) -> str:
+        return self.channel.configuration_status
+
+    @property
+    def channel_configuration_message(self) -> str | None:
+        return self.channel.configuration_message
+
+    @property
+    def channel_posting_url(self) -> str | None:
+        return self.channel.posting_url
+
     def __repr__(self) -> str:
         return f"<JobPostingChannel {self.job_posting_id} on {self.channel_id} ({self.status.value})>"
 

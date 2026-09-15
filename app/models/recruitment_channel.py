@@ -71,6 +71,27 @@ class RecruitmentChannel(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    @property
+    def configuration_status(self) -> str:
+        """AUTOMATIC / MANUAL / READY / NOT_CONFIGURED -- derived from the
+        mode and the deployment, never stored (see services/channel_providers)."""
+        from app.services import channel_providers  # local: services import models
+
+        return channel_providers.configuration_status(self)
+
+    @property
+    def configuration_message(self) -> str | None:
+        from app.services import channel_providers  # local: services import models
+
+        return channel_providers.configuration_message(self)
+
+    @property
+    def posting_url(self) -> str | None:
+        """Where a person goes to post by hand (e.g. the FacultyPlus employer
+        page), set by an admin in `config`. Never guessed."""
+        value = (self.config or {}).get("posting_url")
+        return value if isinstance(value, str) and value else None
+
     def applies_to(self, *, category: StaffRoleCategoryEnum, campus_id: uuid.UUID) -> bool:
         if self.applicable_categories and category not in self.applicable_categories:
             return False

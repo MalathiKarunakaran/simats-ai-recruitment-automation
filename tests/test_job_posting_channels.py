@@ -53,7 +53,9 @@ def test_publish_recommends_channels_from_rules(
     channel_rule_factory("Careers page for every posting", [careers], auto_select=True)
     channel_rule_factory("Teaching posts", [linkedin, board], match_category=StaffRoleCategoryEnum.TEACHING)
 
-    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    # A draft: rules run when the vacancy is published, before the posting
+    # goes live and the careers page is posted automatically.
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1, live=False)
     rows = _rows_by_code(client, vacancy, vacancy.hr_admin)
 
     assert rows["CAREERS_PAGE"]["status"] == "SELECTED"
@@ -148,8 +150,8 @@ def test_select_then_post_api_channel_records_attempt(
     assert audit.after_state["channel_code"] == "LINKEDIN"
 
 
-def test_unconfigured_n8n_records_not_configured_then_retry_succeeds(
-    client, published_vacancy_factory, recruitment_channel_factory, channel_rule_factory
+def test_unconfigured_integration_is_refused_without_an_attempt_then_posts_once_configured(
+    client, published_vacancy_factory, recruitment_channel_factory, channel_rule_factory, db_session
 ):
     linkedin = recruitment_channel_factory("LINKEDIN")
     channel_rule_factory("Auto", [linkedin], auto_select=True)
@@ -157,11 +159,19 @@ def test_unconfigured_n8n_records_not_configured_then_retry_succeeds(
     headers = auth_headers(client, vacancy.hr_admin)
     url = f"{_channels_url(vacancy)}/{linkedin.id}"
 
-    first = client.post(f"{url}/post", headers=headers)  # N8N_BASE_URL is unset in tests
-    assert first.status_code == 200
-    assert first.json()["attempt"]["outcome"] == "NOT_CONFIGURED"
-    assert first.json()["channel"]["status"] == "FAILED"
-    assert "N8N_BASE_URL" in first.json()["channel"]["last_error"]
+    row = _rows_by_code(client, vacancy, vacancy.hr_admin)["LINKEDIN"]
+    assert row["channel_configuration_status"] == "NOT_CONFIGURED"  # N8N_BASE_URL is unset in tests
+    assert "not configured" in row["channel_configuration_message"]
+
+    first = client.post(f"{url}/post", headers=headers)
+    assert first.status_code == 409
+    assert "integration not configured" in first.json()["detail"]
+    # Refused, not tried: no attempt, and the row still reads SELECTED, never
+    # a failure that might look like a partial success.
+    row = _rows_by_code(client, vacancy, vacancy.hr_admin)["LINKEDIN"]
+    assert row["status"] == "SELECTED"
+    assert row["attempt_count"] == 0
+    assert db_session.query(PostingAttempt).count() == 0
 
     _override_n8n(FakeN8nClient())
     try:
@@ -169,8 +179,8 @@ def test_unconfigured_n8n_records_not_configured_then_retry_succeeds(
     finally:
         _clear_n8n()
     assert second.status_code == 200
-    assert second.json()["attempt"]["attempt_number"] == 2
-    assert second.json()["attempt"]["trigger"] == "RETRY"
+    assert second.json()["attempt"]["attempt_number"] == 1
+    assert second.json()["attempt"]["trigger"] == "MANUAL"
     assert second.json()["channel"]["status"] == "POSTED"
     assert second.json()["channel"]["last_error"] is None
 
@@ -244,18 +254,23 @@ def test_manual_assisted_channel_queues_then_reference_marks_posted(
     assert recorded.json()["attempt_count"] == 2
 
 
-def test_internal_channel_posts_immediately(
+def test_internal_careers_channel_is_posted_when_the_posting_is_published(
     client, published_vacancy_factory, recruitment_channel_factory, channel_rule_factory
 ):
     careers = recruitment_channel_factory("CAREERS_PAGE", mode=RecruitmentChannelModeEnum.INTERNAL)
     channel_rule_factory("Careers", [careers], auto_select=True)
-    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
-    response = client.post(
-        f"{_channels_url(vacancy)}/{careers.id}/post", headers=auth_headers(client, vacancy.hr_admin)
-    )
-    assert response.status_code == 200
-    assert response.json()["channel"]["status"] == "POSTED"
-    assert response.json()["channel"]["posted_at"] is not None
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)  # live: published through review
+
+    row = _rows_by_code(client, vacancy, vacancy.hr_admin)["CAREERS_PAGE"]
+    assert row["status"] == "POSTED"
+    assert row["channel_configuration_status"] == "AUTOMATIC"
+    assert row["posted_at"] is not None
+    assert row["external_url"].endswith(f"/careers/{vacancy.job_posting.public_apply_slug}")
+    assert row["attempt_count"] == 1
+
+    # Already posted: nothing left to post.
+    again = client.post(f"{_channels_url(vacancy)}/{careers.id}/post", headers=auth_headers(client, vacancy.hr_admin))
+    assert again.status_code == 409
 
 
 def test_attach_duplicate_remove_and_reattach(
@@ -376,7 +391,8 @@ def test_closing_the_vacancy_retires_live_channel_rows(
     channel_rule_factory("Both", [careers, linkedin], auto_select=True)
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
     headers = auth_headers(client, vacancy.hr_admin)
-    assert client.post(f"{_channels_url(vacancy)}/{careers.id}/post", headers=headers).status_code == 200
+    # The careers page was posted when the posting was published.
+    assert _rows_by_code(client, vacancy, vacancy.hr_admin)["CAREERS_PAGE"]["status"] == "POSTED"
 
     closed = client.post(f"/api/v1/vacancy-requests/{vacancy.vacancy_request.id}/close", headers=headers)
     assert closed.status_code == 200, closed.text

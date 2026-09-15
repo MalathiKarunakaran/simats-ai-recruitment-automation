@@ -46,6 +46,8 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
             PermissionEnum.CANCEL_INTERVIEW,
             PermissionEnum.JOB_DISTRIBUTION,
             PermissionEnum.EDIT_JOB_POSTING,
+            PermissionEnum.APPROVE_JOB_POSTING,
+            PermissionEnum.PUBLISH_JOB_POSTING,
             PermissionEnum.REVIEW_POSTING_CHANNELS,
             PermissionEnum.MANAGE_RECRUITMENT_CHANNELS,
             PermissionEnum.RESUME_SCREENING,
@@ -106,6 +108,9 @@ DEFAULT_PERMISSIONS_BY_ROLE: dict[UserRoleEnum, frozenset[PermissionEnum]] = {
             PermissionEnum.CANCEL_INTERVIEW,
             PermissionEnum.JOB_DISTRIBUTION,
             PermissionEnum.EDIT_JOB_POSTING,
+            # Holds PUBLISH_VACANCY, so taking the approved ad live stays
+            # theirs. Approving it is HR's (HR_ADMIN above).
+            PermissionEnum.PUBLISH_JOB_POSTING,
             PermissionEnum.REVIEW_POSTING_CHANNELS,
             PermissionEnum.RESUME_SCREENING,
             PermissionEnum.ONBOARDING,

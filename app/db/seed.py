@@ -51,10 +51,20 @@ from app.models.vacancy_request import VacancyRequest
 from app.schemas.interview import InterviewFeedbackCreate
 from app.services import eligibility as eligibility_service
 from app.services import interviews as interviews_service
+from app.services import job_postings as job_postings_service
 from app.services import joining as joining_service
 from app.services import pipeline, vacancy_workflow
 
 GENERIC_DEPARTMENTS = ("Administration", "Human Resources")
+
+
+def _take_posting_live(db, job_posting, actor) -> None:
+    """Publishing a vacancy creates a DRAFT posting (2026-09-15). The demo
+    scenarios record applications against it, so walk it through review and
+    publication with the real service, as HR would."""
+    job_postings_service.submit_for_review(db, job_posting=job_posting, actor=actor, request=None)
+    job_postings_service.approve(db, job_posting=job_posting, actor=actor, request=None)
+    job_postings_service.publish(db, job_posting=job_posting, actor=actor, request=None)
 
 
 # The official name behind each code, as carried by the production rows. The
@@ -218,6 +228,7 @@ def _seed_scenario_eligibility_mismatch_demo(db, *, campus, department, hod, dea
     vacancy_workflow.dean_approve(db, vr, dean, None)
     approved_vacancy = vacancy_workflow.hr_approve(db, vr, hr_admin, None)
     job_posting = vacancy_workflow.publish(db, vr, approved_vacancy, hr_admin, None)
+    _take_posting_live(db, job_posting, hr_admin)
     db.flush()
 
     candidate = _get_or_create_candidate(
@@ -273,6 +284,7 @@ def _seed_scenario_full_happy_path(db, *, campus, department, hod, dean, hr_admi
     vacancy_workflow.dean_approve(db, vr, dean, None)
     approved_vacancy = vacancy_workflow.hr_approve(db, vr, hr_admin, None)
     job_posting = vacancy_workflow.publish(db, vr, approved_vacancy, hr_admin, None)
+    _take_posting_live(db, job_posting, hr_admin)
     db.flush()
 
     now = datetime.now(timezone.utc)
