@@ -9,6 +9,11 @@ export async function getQrCodeBlob(jobPostingId: string): Promise<Blob> {
   return apiFetchBlob(`/job-postings/${jobPostingId}/qr-code`);
 }
 
+// Printable A4 poster (PDF) for a PUBLISHED posting. JOB_DISTRIBUTION.
+export async function getPosterBlob(jobPostingId: string): Promise<Blob> {
+  return apiFetchBlob(`/job-postings/${jobPostingId}/poster`);
+}
+
 export async function distributeJobPosting(jobPostingId: string, portals: JobPortal[]): Promise<DistributeResponse> {
   return apiFetch<DistributeResponse>(`/job-postings/${jobPostingId}/distribute`, {
     method: "POST",

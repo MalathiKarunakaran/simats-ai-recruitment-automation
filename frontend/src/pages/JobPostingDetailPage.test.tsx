@@ -49,6 +49,7 @@ const mockedGenerate = vi.mocked(jobPostingsApi.generateJobPostingContent);
 const mockedAiStatus = vi.mocked(jobPostingsApi.getContentGenerationStatus);
 const mockedGetJobAd = vi.mocked(jobDistributionApi.getJobAd);
 const mockedGetQrCodeBlob = vi.mocked(jobDistributionApi.getQrCodeBlob);
+const mockedGetPosterBlob = vi.mocked(jobDistributionApi.getPosterBlob);
 const mockedListPostingChannels = vi.mocked(jobPostingChannelsApi.listPostingChannels);
 const mockedListHistory = vi.mocked(jobPostingChannelsApi.listPostingHistory);
 const mockedRecommend = vi.mocked(jobPostingChannelsApi.recommendPostingChannels);
@@ -353,6 +354,35 @@ describe("JobPostingDetailPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Generate QR code" }));
     expect(await screen.findByAltText("Apply QR code")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download PNG" })).toHaveAttribute("download", "job-posting-jp-1-qr.png");
+  });
+
+  it("downloads the printable poster for a published posting", async () => {
+    authAs("RECRUITMENT_OFFICER", ["JOB_DISTRIBUTION"]);
+    mockedGetPosterBlob.mockResolvedValue(new Blob(["%PDF-1.4"], { type: "application/pdf" }));
+    const originalCreate = URL.createObjectURL;
+    const originalRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = vi.fn(() => "blob:poster");
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      renderPage();
+      await userEvent.click(await screen.findByRole("button", { name: "Download poster (PDF)" }));
+      await waitFor(() => expect(mockedGetPosterBlob).toHaveBeenCalledWith("jp-1"));
+      await waitFor(() => expect(click).toHaveBeenCalled());
+      expect(await screen.findByText("Poster downloaded.")).toBeInTheDocument();
+    } finally {
+      click.mockRestore();
+      URL.createObjectURL = originalCreate;
+      URL.revokeObjectURL = originalRevoke;
+    }
+  });
+
+  it("offers no poster before the posting is published", async () => {
+    authAs("HR_ADMIN", EVERYTHING);
+    mockedGetJobPosting.mockResolvedValue(APPROVED);
+    renderPage();
+    expect(await screen.findByText("Application details")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Download poster (PDF)" })).not.toBeInTheDocument();
   });
 
   it("renders ranked candidates in the returned order with a link to the application", async () => {

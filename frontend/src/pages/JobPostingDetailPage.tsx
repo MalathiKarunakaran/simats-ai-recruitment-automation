@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
-import { getJobAd, getQrCodeBlob } from "@/api/jobDistribution";
+import { getJobAd, getPosterBlob, getQrCodeBlob } from "@/api/jobDistribution";
 import {
   approveJobPosting,
   closeJobPosting,
@@ -182,6 +182,22 @@ export function JobPostingDetailPage() {
       setQrCodeUrl(URL.createObjectURL(blob));
     },
     onError: fail("QR code generation failed"),
+  });
+  const posterMutation = useMutation({
+    mutationFn: () => getPosterBlob(id!),
+    onSuccess: (blob) => {
+      setError(null);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${jobPosting?.posting_number ?? "job-posting"}-poster.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Poster downloaded.");
+    },
+    onError: fail("Could not create the poster"),
   });
 
   if (isLoading) {
@@ -414,6 +430,15 @@ export function JobPostingDetailPage() {
                   ) : null}
                 </DetailItem>
               </dl>
+              {canDistribute && status === "PUBLISHED" ? (
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">Poster</div>
+                  <Button variant="outline" size="sm" disabled={posterMutation.isPending} onClick={() => posterMutation.mutate()}>
+                    {posterMutation.isPending ? "Preparing…" : "Download poster (PDF)"}
+                  </Button>
+                  <p className="mt-1 text-xs text-muted-foreground">A4, with the SIMATS seal, the apply link and its QR code.</p>
+                </div>
+              ) : null}
               {canDistribute && published && !closed ? (
                 <div>
                   <div className="mb-1 text-xs text-muted-foreground">QR code (apply link)</div>

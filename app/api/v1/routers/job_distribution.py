@@ -33,7 +33,7 @@ from app.schemas.job_posting_channel import (
     RecommendChannelsResponse,
     ReviewChannelRequest,
 )
-from app.services import job_channels, job_distribution
+from app.services import job_channels, job_distribution, job_poster
 from app.services.n8n_client import N8nClient, get_n8n_client, get_n8n_client_or_503
 
 router = APIRouter(prefix="/job-postings", tags=["job-distribution"])
@@ -93,6 +93,33 @@ def get_qr_code(
     posting = _get_posting_or_404_scoped(db, job_posting_id, scope, scope_dept)
     png_bytes = job_distribution.generate_qr_code_png(posting)
     return StreamingResponse(io.BytesIO(png_bytes), media_type="image/png")
+
+
+@router.get("/{job_posting_id}/poster")
+def get_poster(
+    job_posting_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_distribute_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> StreamingResponse:
+    """A printable A4 poster (PDF) with the SIMATS seal, the job and a QR code
+    for its apply page. Only for a PUBLISHED posting: before that there is no
+    public page for the QR code to open, and a paused one takes no online
+    applications."""
+    posting = _get_posting_or_404_scoped(db, job_posting_id, scope, scope_dept)
+    if posting.status != JobPostingStatusEnum.PUBLISHED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A poster is only available for a published job posting: its QR code opens the public apply page.",
+        )
+    pdf_bytes = job_poster.render_poster_pdf(job_poster.poster_content(posting))
+    filename = f"{posting.posting_number or posting.public_apply_slug}-poster.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/{job_posting_id}/distribute", response_model=DistributeResponse)
