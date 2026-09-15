@@ -148,7 +148,8 @@ for bringing an ongoing drive in, not for new requests.
 **The approval chain** is Draft, Submitted, Dean approved, Approved (HR),
 Published, Closed; a request can be Rejected or Cancelled along the way.
 HR's approval is the moment hiring slots are created. Publishing creates the
-job posting. Nobody can approve or reject their own request, Super Admins
+job posting as a draft, which is then reviewed and published on its own
+page (since 15 September). Nobody can approve or reject their own request, Super Admins
 excepted, and a Super Admin may approve directly from Submitted. The Vacancy Approvals page is the
 "needs your action" queue for the approvers.
 
@@ -168,6 +169,20 @@ Super Admin and HR Admin) and, since the same evening, on the
 **Recruitment Channels** page under Administration. The job posting page
 shows the channels with the rule that recommended each one; a recruiter
 selects, posts, retries, records a manual reference, or removes them there.
+
+Since 15 September a posting starts as a **draft**. Its content (title,
+summary, description, responsibilities, required qualification,
+experience and skills, preferred skills, employment type, location, salary
+range, deadline) is written by hand or drafted with **Generate with AI**,
+which only ever writes a draft and says plainly when no AI provider is
+configured. The draft is submitted for review, approved (the Approve job
+postings permission, HR Admin by default) and published (Publish job
+postings). Only then is it on the careers page and taking applications;
+publishing also posts the careers-page channel. LinkedIn, Indeed, Naukri,
+FacultyPlus and Email are manual channels: the page gives the text to
+copy, opens the portal when an admin has set its posting URL on the
+Recruitment Channels page, and records the reference and date once the ad
+is up. No channel is shown as posted unless it is.
 
 Each requisition and posting now carries a number people can quote
 (RQ-2026-000001, JP-2026-000001). A posting's advertisement is copied

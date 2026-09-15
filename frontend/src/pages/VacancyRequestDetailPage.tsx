@@ -500,8 +500,11 @@ export function VacancyRequestDetailPage() {
           </Button>
         ) : null}
         {canPublish ? (
+          // Publishing a vacancy creates its job posting as a draft
+          // (2026-09-15); the posting itself is reviewed and published on
+          // the job posting page.
           <Button disabled={isBusy} onClick={() => publishMutation.mutate()}>
-            Publish
+            Create job posting
           </Button>
         ) : null}
         {canClose ? (

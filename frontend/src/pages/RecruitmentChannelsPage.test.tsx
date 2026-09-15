@@ -42,6 +42,9 @@ function channel(overrides: Partial<RecruitmentChannelRead> = {}): RecruitmentCh
     is_active: true,
     display_order: 20,
     notes: null,
+    configuration_status: "NOT_CONFIGURED",
+    configuration_message: "Integration not configured (N8N_BASE_URL is not set)",
+    posting_url: null,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -91,7 +94,7 @@ describe("RecruitmentChannelsPage", () => {
     vi.clearAllMocks();
     mockedListChannels.mockResolvedValue([
       channel(),
-      channel({ id: "ch-board", code: "FACULTYPLUS", name: "FacultyPlus", kind: "ACADEMIC_PORTAL", mode: "MANUAL_ASSISTED", integration_path: null, applicable_categories: ["TEACHING"], applicable_campus_ids: ["c-sse"], is_active: false, display_order: 50 }),
+      channel({ id: "ch-board", code: "FACULTYPLUS", name: "FacultyPlus", kind: "ACADEMIC_PORTAL", mode: "MANUAL_ASSISTED", integration_path: null, applicable_categories: ["TEACHING"], applicable_campus_ids: ["c-sse"], is_active: false, display_order: 50, configuration_status: "MANUAL", configuration_message: null }),
     ]);
     mockedListRules.mockResolvedValue([RULE]);
     mockedListCampuses.mockResolvedValue([SSE]);
@@ -108,6 +111,9 @@ describe("RecruitmentChannelsPage", () => {
     expect(within(rows[1]).getByText("TEACHING")).toBeInTheDocument();
     expect(within(rows[1]).getByText("SSE")).toBeInTheDocument();
     expect(within(rows[1]).getByText("Inactive")).toBeInTheDocument();
+    // How each channel is posted right now, derived on the backend.
+    expect(within(rows[0]).getByText("Integration not configured")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Manual posting")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New channel" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
@@ -161,6 +167,29 @@ describe("RecruitmentChannelsPage", () => {
     await userEvent.type(screen.getByLabelText("Code"), "LINKEDIN");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("A channel with this code already exists")).toBeInTheDocument();
+  });
+
+  it("saves a manual channel's posting URL into its config, and refuses one that is not a web address", async () => {
+    authAs("HR_ADMIN");
+    mockedUpdateChannel.mockResolvedValue(channel({ id: "ch-board" }));
+    renderPage();
+    const editButtons = await screen.findAllByRole("button", { name: "Edit" });
+    await userEvent.click(editButtons[1]); // FacultyPlus (display order 50)
+    const url = screen.getByLabelText("Posting URL (optional)");
+    await userEvent.type(url, "facultyplus.example");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Posting URL must start with http:// or https://.")).toBeInTheDocument();
+    expect(mockedUpdateChannel).not.toHaveBeenCalled();
+
+    await userEvent.clear(url);
+    await userEvent.type(url, "https://employer.facultyplus.example/post");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(mockedUpdateChannel).toHaveBeenCalledWith(
+        "ch-board",
+        expect.objectContaining({ config: { posting_url: "https://employer.facultyplus.example/post" } }),
+      ),
+    );
   });
 
   it("toggles a channel's active switch straight to the server", async () => {

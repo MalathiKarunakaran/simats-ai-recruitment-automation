@@ -4,6 +4,7 @@ import type {
   PaginatedResponse,
   PostChannelResponse,
   PostingAttemptRead,
+  PostingHistoryItem,
   RecommendChannelsResponse,
 } from "@/api/types";
 
@@ -46,12 +47,19 @@ export async function postPostingChannel(jobPostingId: string, channelId: string
 export async function recordManualPosting(
   jobPostingId: string,
   channelId: string,
-  payload: { external_ref?: string | null; external_url?: string | null },
+  // posted_on: the day it went up on the portal, when that was not today.
+  payload: { external_ref?: string | null; external_url?: string | null; posted_on?: string | null },
 ): Promise<JobPostingChannelRead> {
   return apiFetch<JobPostingChannelRead>(`/job-postings/${jobPostingId}/channels/${channelId}/manual-posting`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+// Every attempt on every channel of the posting, newest first. JOB_DISTRIBUTION.
+export async function listPostingHistory(jobPostingId: string): Promise<PostingHistoryItem[]> {
+  const response = await apiFetch<PaginatedResponse<PostingHistoryItem>>(`/job-postings/${jobPostingId}/posting-history`);
+  return response.items;
 }
 
 export async function listPostingAttempts(jobPostingId: string, channelId: string): Promise<PostingAttemptRead[]> {

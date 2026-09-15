@@ -19,6 +19,7 @@ import type {
   StaffRoleCategory,
 } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { ChannelConfigurationBadge } from "@/components/job-postings/PostingStatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -57,6 +58,10 @@ interface ChannelForm {
   kind: RecruitmentChannelKind;
   mode: RecruitmentChannelMode;
   integrationPath: string;
+  // config.posting_url, and what it was when the dialog opened: config is
+  // only sent when this changed, so saving never rewrites other settings.
+  postingUrl: string;
+  initialPostingUrl: string;
   categories: StaffRoleCategory[];
   campusIds: string[];
   isActive: boolean;
@@ -64,7 +69,7 @@ interface ChannelForm {
   notes: string;
 }
 const EMPTY_CHANNEL: ChannelForm = {
-  code: "", kind: "JOB_PORTAL", mode: "API", integrationPath: "job-distribution",
+  code: "", kind: "JOB_PORTAL", mode: "API", integrationPath: "job-distribution", postingUrl: "", initialPostingUrl: "",
   categories: [], campusIds: [], isActive: true, displayOrder: "100", notes: "",
 };
 
@@ -122,6 +127,8 @@ export function RecruitmentChannelsPage() {
       kind: channel.kind,
       mode: channel.mode,
       integrationPath: channel.integration_path ?? "",
+      postingUrl: channel.posting_url ?? "",
+      initialPostingUrl: channel.posting_url ?? "",
       categories: channel.applicable_categories,
       campusIds: channel.applicable_campus_ids,
       isActive: channel.is_active,
@@ -132,9 +139,17 @@ export function RecruitmentChannelsPage() {
     setChannelError(null);
     setChannelOpen(true);
   }
+  function configChange() {
+    const postingUrl = channelForm.postingUrl.trim();
+    if (postingUrl === channelForm.initialPostingUrl) return {};
+    const current = (editingChannelId ? channelById.get(editingChannelId)?.config : null) ?? {};
+    const rest = Object.fromEntries(Object.entries(current).filter(([key]) => key !== "posting_url"));
+    return { config: postingUrl ? { ...rest, posting_url: postingUrl } : rest };
+  }
   function channelPayload() {
     const needsPath = channelForm.mode === "API" || channelForm.mode === "FEED";
     return {
+      ...configChange(),
       name: channelName.value.trim(),
       kind: channelForm.kind,
       mode: channelForm.mode,
@@ -170,6 +185,11 @@ export function RecruitmentChannelsPage() {
   });
   function submitChannel() {
     if (!channelName.validate()) return;
+    const postingUrl = channelForm.postingUrl.trim();
+    if (postingUrl && !/^https?:\/\//.test(postingUrl)) {
+      setChannelError("Posting URL must start with http:// or https://.");
+      return;
+    }
     if (!editingChannelId && !/^[A-Z][A-Z0-9_]*$/.test(channelForm.code.trim().toUpperCase())) {
       setChannelError("Code must be letters, digits and underscores, starting with a letter.");
       return;
@@ -290,6 +310,7 @@ export function RecruitmentChannelsPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Kind</TableHead>
                   <TableHead>Mode</TableHead>
+                  <TableHead>Setup</TableHead>
                   <TableHead>Categories</TableHead>
                   <TableHead>Campuses</TableHead>
                   <TableHead>Active</TableHead>
@@ -298,9 +319,9 @@ export function RecruitmentChannelsPage() {
               </TableHeader>
               <TableBody>
                 {channelsLoading ? (
-                  <TableEmpty colSpan={8} loading />
+                  <TableEmpty colSpan={9} loading />
                 ) : sortedChannels.length === 0 ? (
-                  <TableEmpty colSpan={8}>No channels yet.</TableEmpty>
+                  <TableEmpty colSpan={9}>No channels yet.</TableEmpty>
                 ) : (
                   sortedChannels.map((channel) => (
                     <TableRow key={channel.id}>
@@ -308,6 +329,9 @@ export function RecruitmentChannelsPage() {
                       <TableCell className="font-medium">{channel.name}</TableCell>
                       <TableCell>{channel.kind.replace(/_/g, " ")}</TableCell>
                       <TableCell>{MODES.find((m) => m.value === channel.mode)?.label ?? channel.mode}</TableCell>
+                      <TableCell>
+                        <ChannelConfigurationBadge status={channel.configuration_status} />
+                      </TableCell>
                       <TableCell>
                         {channel.applicable_categories.length === 0
                           ? "All"
@@ -476,6 +500,20 @@ export function RecruitmentChannelsPage() {
                   placeholder="job-distribution"
                 />
                 <p className="text-xs text-muted-foreground">A path under the configured n8n base, never a full URL.</p>
+              </div>
+            ) : null}
+            {channelForm.mode === "MANUAL_ASSISTED" ? (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="channel_posting_url">Posting URL (optional)</Label>
+                <Input
+                  id="channel_posting_url"
+                  value={channelForm.postingUrl}
+                  onChange={(e) => setChannelForm((f) => ({ ...f, postingUrl: e.target.value }))}
+                  placeholder="https://"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Where a recruiter goes to post this channel by hand. The job posting page opens it.
+                </p>
               </div>
             ) : null}
             <div className="flex flex-col gap-1.5">

@@ -219,7 +219,7 @@ on an exception). The test DB has no seeded channels: use
 
 **A posting has content and a lifecycle of its own (2026-09-06, step 2)**:
 `JobPosting.ad_title/ad_body/apply_deadline/contact_email` are a snapshot
-taken by `job_postings.snapshot_ad_at_publish` inside `publish()` (and the
+taken by `job_postings.snapshot_content` inside `publish()` (and the
 tracker import) and edited via `PATCH /job-postings/{id}`; the ad builder
 reads the snapshot first. `JobPosting.status` (PUBLISHED / PAUSED / CLOSED,
 new enum type) is the lifecycle and `is_active` is DERIVED from it --
@@ -240,6 +240,43 @@ revisions because ADD VALUE must commit first; env.py runs one transaction
 per revision). The four plumbing sites moved together: `PermissionEnum`,
 `PERMISSION_CATEGORIES`, `DEFAULT_PERMISSIONS_BY_ROLE`, and the frontend
 `PERMISSIONS`/`PERMISSION_CATEGORIES`/`PERMISSION_LABELS` in `types.ts`.
+
+**Job posting review stage (2026-09-15)**: `vacancy_workflow.publish` now
+creates the posting as DRAFT (`is_active` false, `published_at` NULL,
+`created_by_id` set, content copied by `job_postings.snapshot_content`).
+`services/job_postings.py` is the only mover after that: DRAFT ->
+READY_FOR_REVIEW (EDIT_JOB_POSTING) -> APPROVED (APPROVE_JOB_POSTING) ->
+PUBLISHED (PUBLISH_JOB_POSTING); `return_to_draft` from either review state,
+and a content edit made in review sends it back to DRAFT. Change status only
+through `JobPosting.set_status` (or close/reopen) so `is_active` stays
+derived. `reopen` returns to PUBLISHED only if the posting had been
+published, else DRAFT. The public careers detail 404s any posting with no
+`published_at`. `job_postings.publish` posts every SELECTED channel whose
+provider is automatic (careers page, feed) in the same transaction, and
+never a manual or API one. `services/channel_providers.py` decides HOW a
+channel is posted (provider by channel code first, then mode) and its
+derived configuration status (AUTOMATIC / MANUAL / READY / NOT_CONFIGURED);
+`job_channels.post_channel` refuses NOT_CONFIGURED with 409 before any
+attempt exists. Stored channel statuses are unchanged; the UI relabels
+QUEUED "Manual action required", POSTED "Published", REMOVED "Closed".
+Migration `e8f9a0b1c2d3` (labels in `b8c7d6e5f4a3`) flipped FACULTYPLUS,
+LINKEDIN, INDEED, NAUKRI and EMAIL to MANUAL_ASSISTED and granted
+APPROVE/PUBLISH_JOB_POSTING to HR_ADMINs and PUBLISH_JOB_POSTING to
+PUBLISH_VACANCY holders. AI drafts: `POST /job-postings/{id}/generate-content`
+(DRAFT only; writes summary, responsibilities, preferred skills and
+description, never requirements, status or channels) through
+`ai_client.get_jd_ai_client`, which reads `JD_AI_PROVIDER` and falls back to
+`AI_PROVIDER` (the vacancy request's generate-jd uses it too);
+`GET /job-postings/content-generation/status` answers without calling the
+AI. Screens show `positions_requested` (approved total) /
+`positions_filled` / `positions_remaining`; `requested_count` and
+`available_count` stay for older readers (`available_count` is the FILLED
+count -- the list page's old "Available" label was wrong).
+`published_vacancy_factory(live=True)` and `seed._take_posting_live` walk
+the review so downstream tests and demo data get a live posting. Tests:
+`tests/test_job_posting_workflow.py`. **Revision ids**: `d1e2f3a4b5c6`
+already exists in a single-quoted phase-5 file -- check for duplicates with
+`grep -rhoE "^revision(: str)? = ['\"][0-9a-f]+['\"]" alembic/versions/*.py | grep -oE "[0-9a-f]{12}" | sort | uniq -d`.
 
 **AI provider switch (2026-09-07, step 6)**: `settings.AI_PROVIDER`
 (`openai` | `ollama`) decides who answers every generation call and

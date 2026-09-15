@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { listCampuses } from "@/api/campuses";
 import { listDepartments } from "@/api/departments";
 import { listJobPostings } from "@/api/jobPostings";
-import type { JobPostingRead } from "@/api/types";
+import type { JobPostingRead, JobPostingStatus } from "@/api/types";
 import { PostingStatusBadge } from "@/components/job-postings/PostingStatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,13 +14,14 @@ import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableR
 import { CategoryTabs } from "@/components/domain/CategoryTabs";
 import { useCategoryTabState } from "@/hooks/useCategoryTabState";
 
-// ACTIVE = published or paused (is_active on the backend); the three
-// named states mirror app/models/enums.py::JobPostingStatusEnum.
-type ActiveFilter = "ALL" | "ACTIVE" | "PUBLISHED" | "PAUSED" | "CLOSED";
+// ACTIVE = published or paused (is_active on the backend); the named states
+// mirror app/models/enums.py::JobPostingStatusEnum.
+type ActiveFilter = "ALL" | "ACTIVE" | JobPostingStatus;
 
-const TOTAL_COLUMN_COUNT = 8;
+const TOTAL_COLUMN_COUNT = 9;
 
 export function JobPostingsListPage() {
+  const navigate = useNavigate();
   const { data: jobPostings, isLoading } = useQuery({ queryKey: ["job-postings"], queryFn: listJobPostings });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
@@ -83,6 +84,9 @@ export function JobPostingsListPage() {
             <SelectContent>
               <SelectItem value="ALL">All statuses</SelectItem>
               <SelectItem value="ACTIVE">Active (published or paused)</SelectItem>
+              <SelectItem value="DRAFT">Draft</SelectItem>
+              <SelectItem value="READY_FOR_REVIEW">In review</SelectItem>
+              <SelectItem value="APPROVED">Approved</SelectItem>
               <SelectItem value="PUBLISHED">Published</SelectItem>
               <SelectItem value="PAUSED">Paused</SelectItem>
               <SelectItem value="CLOSED">Closed</SelectItem>
@@ -118,7 +122,8 @@ export function JobPostingsListPage() {
                 <TableHead>Department</TableHead>
                 <TableHead>Campus</TableHead>
                 <TableHead>Requested</TableHead>
-                <TableHead>Available</TableHead>
+                <TableHead>Filled</TableHead>
+                <TableHead>Remaining</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Published</TableHead>
               </TableRow>
@@ -137,7 +142,11 @@ export function JobPostingsListPage() {
                   const campus = campuses?.find((c) => c.id === jp.campus_id);
                   const department = departments?.find((d) => d.id === jp.department_id);
                   return (
-                    <TableRow key={jp.id}>
+                    <TableRow
+                      key={jp.id}
+                      className="cursor-pointer"
+                      onClick={() => navigate(`/job-postings/${jp.id}`)}
+                    >
                       <TableCell className="font-mono text-xs">{jp.posting_number ?? "—"}</TableCell>
                       <TableCell>
                         <Link to={`/job-postings/${jp.id}`} className="font-medium hover:underline">
@@ -146,12 +155,23 @@ export function JobPostingsListPage() {
                       </TableCell>
                       <TableCell>{department?.name ?? "—"}</TableCell>
                       <TableCell className="font-mono text-xs">{campus?.code ?? "—"}</TableCell>
-                      <TableCell>{jp.requested_count}</TableCell>
-                      <TableCell>{jp.available_count}</TableCell>
+                      {/* Requested = approved total, Filled = joined,
+                          Remaining = the difference -- all derived on the
+                          backend. The old "Available" column showed the
+                          filled count under a misleading name. */}
+                      <TableCell>{jp.positions_requested}</TableCell>
+                      <TableCell>{jp.positions_filled}</TableCell>
+                      <TableCell>{jp.positions_remaining}</TableCell>
                       <TableCell>
                         <PostingStatusBadge status={jp.status} />
                       </TableCell>
-                      <TableCell>{new Date(jp.published_at).toLocaleDateString()}</TableCell>
+                      <TableCell>
+                        {jp.published_at ? (
+                          new Date(jp.published_at).toLocaleDateString()
+                        ) : (
+                          <span className="text-muted-foreground">Not yet</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })

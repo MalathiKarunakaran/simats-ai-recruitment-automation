@@ -586,14 +586,15 @@ export interface CoordinatorCapabilitiesRead {
   capabilities: CoordinatorCapability[];
 }
 
-// Mirrors app/models/enums.py::PermissionEnum -- the 40-permission matrix,
+// Mirrors app/models/enums.py::PermissionEnum -- the 42-permission matrix,
 // generalized beyond RECRUITMENT_COORDINATOR to any staff role.
 export const PERMISSIONS = [
   "VIEW_VACANCY", "CREATE_VACANCY_REQUEST", "EDIT_VACANCY_REQUEST", "APPROVE_VACANCY",
   "REJECT_VACANCY", "PUBLISH_VACANCY", "CLOSE_VACANCY", "CANCEL_VACANCY",
   "VIEW_CANDIDATES", "CREATE_CANDIDATE", "EDIT_CANDIDATE", "DELETE_CANDIDATE", "MANAGE_APPLICATIONS",
   "SCHEDULE_INTERVIEW", "RESCHEDULE_INTERVIEW", "CANCEL_INTERVIEW", "MARK_INTERVIEW_COMPLETED",
-  "JOB_DISTRIBUTION", "EDIT_JOB_POSTING", "REVIEW_POSTING_CHANNELS", "MANAGE_RECRUITMENT_CHANNELS",
+  "JOB_DISTRIBUTION", "EDIT_JOB_POSTING", "APPROVE_JOB_POSTING", "PUBLISH_JOB_POSTING",
+  "REVIEW_POSTING_CHANNELS", "MANAGE_RECRUITMENT_CHANNELS",
   "RESUME_SCREENING", "OFFERS", "ONBOARDING",
   "VIEW_EMPLOYEES", "EDIT_EMPLOYEES", "MANAGE_DEPARTMENTS", "MANAGE_DESIGNATIONS",
   "MANAGE_LOCATIONS", "MANAGE_CAMPUSES", "MANAGE_USERS",
@@ -637,6 +638,8 @@ export const PERMISSION_CATEGORIES: { key: string; label: string; permissions: P
     permissions: [
       "JOB_DISTRIBUTION",
       "EDIT_JOB_POSTING",
+      "APPROVE_JOB_POSTING",
+      "PUBLISH_JOB_POSTING",
       "REVIEW_POSTING_CHANNELS",
       "MANAGE_RECRUITMENT_CHANNELS",
       "RESUME_SCREENING",
@@ -696,6 +699,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   MARK_INTERVIEW_COMPLETED: "Mark interviews completed",
   JOB_DISTRIBUTION: "Job distribution",
   EDIT_JOB_POSTING: "Edit job postings",
+  APPROVE_JOB_POSTING: "Approve job postings",
+  PUBLISH_JOB_POSTING: "Publish job postings",
   REVIEW_POSTING_CHANNELS: "Review posting channels",
   MANAGE_RECRUITMENT_CHANNELS: "Manage recruitment channels",
   RESUME_SCREENING: "Resume screening",
@@ -1104,7 +1109,8 @@ export interface JobPostingRead {
   // filter by category directly instead of joining up to VacancyRequest.
   role_category: StaffRoleCategory;
   public_apply_slug: string;
-  published_at: string;
+  // null until the posting first goes live (a posting starts as a DRAFT).
+  published_at: string | null;
   closed_at: string | null;
   is_active: boolean;
   created_at: string;
@@ -1131,11 +1137,51 @@ export interface JobPostingRead {
   last_edited_at: string | null;
   is_accepting_applications: boolean;
   vacancy_request_id: string;
+  vacancy_request_ref: string | null;
   requisition_number: string | null;
+  last_edited_by_name: string | null;
+  // The counts the posting screens show (2026-09-15): requested = approved
+  // total, filled = joined, remaining = requested - filled. Derived only.
+  positions_requested: number;
+  positions_filled: number;
+  positions_remaining: number;
+  // Detail view, read through the vacancy request's master data.
+  campus_code: string;
+  campus_name: string;
+  department_name: string;
+  designation_id: string | null;
+  designation_name: string | null;
+  priority: VacancyPriority;
+  required_by: string | null;
+  // Structured job content (2026-09-15).
+  summary: string | null;
+  responsibilities: string | null;
+  required_qualification: string | null;
+  required_experience: string | null;
+  required_skills: string[] | null;
+  preferred_skills: string[] | null;
+  employment_type: EmploymentType | null;
+  location_id: string | null;
+  location_label: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  ai_generated_at: string | null;
+  // Review trail (2026-09-15).
+  created_by_id: string | null;
+  created_by_name: string | null;
+  submitted_for_review_by_id: string | null;
+  submitted_for_review_by_name: string | null;
+  submitted_for_review_at: string | null;
+  approved_by_id: string | null;
+  approved_by_name: string | null;
+  approved_at: string | null;
+  published_by_id: string | null;
+  published_by_name: string | null;
 }
 
-// Mirrors app/models/enums.py::JobPostingStatusEnum.
-export type JobPostingStatus = "PUBLISHED" | "PAUSED" | "CLOSED";
+// Mirrors app/models/enums.py::JobPostingStatusEnum. DRAFT ->
+// READY_FOR_REVIEW -> APPROVED come before PUBLISHED (2026-09-15).
+export type JobPostingStatus = "DRAFT" | "READY_FOR_REVIEW" | "APPROVED" | "PUBLISHED" | "PAUSED" | "CLOSED";
 
 // Mirrors app/schemas/job_posting.py::JobPostingUpdate.
 export interface JobPostingUpdatePayload {
@@ -1143,6 +1189,24 @@ export interface JobPostingUpdatePayload {
   ad_body?: string;
   apply_deadline?: string | null;
   contact_email?: string | null;
+  summary?: string | null;
+  responsibilities?: string | null;
+  required_qualification?: string | null;
+  required_experience?: string | null;
+  required_skills?: string[] | null;
+  preferred_skills?: string[] | null;
+  employment_type?: EmploymentType | null;
+  location_id?: string | null;
+  salary_min?: number | null;
+  salary_max?: number | null;
+}
+
+// Mirrors app/schemas/job_posting.py::JdAiStatusRead.
+export interface JdAiStatusRead {
+  configured: boolean;
+  provider: string;
+  model: string | null;
+  message: string | null;
 }
 
 // --- Recruitment channels (2026-09-06) ------------------------------------
@@ -1158,6 +1222,9 @@ export type RecruitmentChannelKind =
   | "REFERRAL"
   | "AGENCY";
 export type RecruitmentChannelMode = "API" | "FEED" | "MANUAL_ASSISTED" | "INTERNAL";
+// Mirrors app/services/channel_providers.py: how a channel gets posted right
+// now. Derived on the backend, never stored.
+export type ChannelConfigurationStatus = "AUTOMATIC" | "MANUAL" | "READY" | "NOT_CONFIGURED";
 export type JobPostingChannelStatus =
   | "RECOMMENDED"
   | "SELECTED"
@@ -1183,6 +1250,10 @@ export interface RecruitmentChannelRead {
   is_active: boolean;
   display_order: number;
   notes: string | null;
+  configuration_status: ChannelConfigurationStatus;
+  configuration_message: string | null;
+  // Where a person posts this channel by hand (config.posting_url).
+  posting_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1198,6 +1269,7 @@ export interface RecruitmentChannelCreatePayload {
   is_active?: boolean;
   display_order?: number;
   notes?: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 export type RecruitmentChannelUpdatePayload = Partial<Omit<RecruitmentChannelCreatePayload, "code">>;
@@ -1242,6 +1314,9 @@ export interface JobPostingChannelRead {
   channel_code: string;
   channel_name: string;
   channel_mode: RecruitmentChannelMode;
+  channel_configuration_status: ChannelConfigurationStatus;
+  channel_configuration_message: string | null;
+  channel_posting_url: string | null;
   campus_id: string;
   status: JobPostingChannelStatus;
   recommended_by: ChannelRecommendationSource;
@@ -1271,6 +1346,13 @@ export interface PostingAttemptRead {
   error_message: string | null;
   attempted_by_id: string | null;
   attempted_at: string;
+}
+
+// Mirrors app/schemas/job_posting_channel.py::PostingHistoryItem.
+export interface PostingHistoryItem extends PostingAttemptRead {
+  channel_id: string;
+  channel_code: string;
+  channel_name: string;
 }
 
 export interface PostChannelResponse {

@@ -10,6 +10,7 @@ import * as jobPostingsApi from "@/api/jobPostings";
 import type { ApplicationRead, CandidateRead, JobPostingRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import * as jobPostingLookup from "@/hooks/useJobPostingLookup";
+import { JOB_POSTING_DETAIL_DEFAULTS } from "@/test/jobPostingFixture";
 import { ApplicationCreatePage } from "@/pages/ApplicationCreatePage";
 
 vi.mock("@/api/applications");
@@ -43,6 +44,7 @@ const CANDIDATE: CandidateRead = {
 };
 
 const JOB_POSTING: JobPostingRead = {
+  ...JOB_POSTING_DETAIL_DEFAULTS,
   id: "jp-1",
   approved_vacancy_id: "av-1",
   campus_id: "c-sse",
