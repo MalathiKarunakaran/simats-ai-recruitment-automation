@@ -64,7 +64,6 @@ const BULK_IMPORT_ACTIONS = ["TRACKER_WORKBOOK_IMPORTED", "LEGACY_VACANCIES_IMPO
 // (EDIT_VACANCY_REQUEST), both OR'd with this same pair of roles.
 const CAN_WRITE_ROLES = ["CAMPUS_HOD", "SUPER_ADMIN"];
 const CAN_IMPORT_ROLES = ["HR_ADMIN", "SUPER_ADMIN"];
-const AUDIT_READ_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "ASSOCIATE_DEAN_RECRUITMENT", "CAMPUS_HOD"];
 
 // Same labels as CategoryTabs/DesignationsPage -- used for the
 // category-aware empty-state copy ("No Housekeeping Vacancy Requests" etc.).
@@ -172,7 +171,10 @@ export function VacancyRequestsListPage() {
   );
   const canImport = Boolean(user && CAN_IMPORT_ROLES.includes(user.role));
   const canResolveRequesterNames = Boolean(user && USER_MANAGEMENT_ROLES.includes(user.role));
-  const canReadAuditLogs = Boolean(user && AUDIT_READ_ROLES.includes(user.role));
+  // GET /audit-logs is require_permission(ACTIVITY_LOG), not a role gate --
+  // a role list here sent the request for HR/Dean/HOD accounts without the
+  // grant (403) and skipped it for anyone granted it outside those roles.
+  const canReadAuditLogs = hasPermission?.("ACTIVITY_LOG") ?? false;
 
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses });
   const { data: departments } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });

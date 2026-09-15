@@ -13,12 +13,18 @@ import type {
   CriticalVacancyRow,
   DashboardKpis,
   RecentEmployeeEventRow,
+  UserRead,
   VacancyRequestRead,
 } from "@/api/types";
 import * as vacancyRequestsApi from "@/api/vacancyRequests";
+import * as authContext from "@/auth/AuthContext";
 import { CampusProvider } from "@/campus/CampusContext";
 import { DashboardPage } from "@/pages/DashboardPage";
 
+vi.mock("@/auth/AuthContext", async () => {
+  const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
+  return { ...actual, useAuth: vi.fn() };
+});
 vi.mock("@/api/dashboard");
 vi.mock("@/api/vacancyRequests");
 // Filter-bar option lists (2026-08-30).
@@ -32,6 +38,17 @@ const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
 const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedListVacancyRequests = vi.mocked(vacancyRequestsApi.listVacancyRequests);
+const mockedUseAuth = vi.mocked(authContext.useAuth);
+
+function mockAuth(hasPermission: (permission: string) => boolean) {
+  mockedUseAuth.mockReturnValue({
+    user: { role: "HR_ADMIN" } as UserRead,
+    isLoading: false,
+    login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+    logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    hasPermission,
+  });
+}
 
 function renderWithProviders() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -226,9 +243,22 @@ beforeEach(() => {
   // those two new tiles render "0" rather than hanging on a never-resolving
   // query and breaking every pre-existing test in this file.
   mockedListVacancyRequests.mockResolvedValue([]);
+  mockAuth((permission) => permission === "SETTINGS");
 });
 
 describe("DashboardPage", () => {
+  it("does not call the dashboard endpoints for an account without SETTINGS, and says why", async () => {
+    mockKpis();
+    mockAuth(() => false);
+
+    renderWithProviders();
+
+    expect(await screen.findByText(/does not have dashboard access/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Executive Dashboard" })).toBeInTheDocument();
+    expect(mockedGetDashboardKpis).not.toHaveBeenCalled();
+    expect(mockedGetStrengthTable).not.toHaveBeenCalled();
+  });
+
   it("renders KPI values from the API response using StatTile", async () => {
     mockKpis();
 

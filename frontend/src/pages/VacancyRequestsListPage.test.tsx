@@ -225,6 +225,36 @@ describe("VacancyRequestsListPage", () => {
     expect(screen.queryByRole("button", { name: /New request/ })).not.toBeInTheDocument();
   });
 
+  // GET /audit-logs is gated on ACTIVITY_LOG server-side; a role list here
+  // used to send it for an HR_ADMIN without the grant (403).
+  it("reads today's audit logs only when the viewer holds ACTIVITY_LOG, whatever the role", async () => {
+    mockCommonApis();
+    mockedListVacancyRequests.mockResolvedValue([]);
+    mockedListCampuses.mockResolvedValue([]);
+
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: () => false,
+    });
+    const { unmount } = renderPage();
+    expect(await screen.findByText("No Vacancy Requests Yet")).toBeInTheDocument();
+    expect(mockedListAuditLogs).not.toHaveBeenCalled();
+    unmount();
+
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_COORDINATOR" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "ACTIVITY_LOG",
+    });
+    renderPage();
+    await waitFor(() => expect(mockedListAuditLogs).toHaveBeenCalled());
+  });
+
   it("narrows the list client-side by status without re-fetching (KPIs need the full unfiltered set)", async () => {
     mockCommonApis();
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);

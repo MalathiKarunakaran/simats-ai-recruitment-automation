@@ -31,6 +31,7 @@ import type {
   VacancyRequestStatus,
 } from "@/api/types";
 import { listVacancyRequests } from "@/api/vacancyRequests";
+import { useAuth } from "@/auth/AuthContext";
 import { useCampus } from "@/campus/CampusContext";
 import { CampusHiringChart } from "@/components/dashboard/CampusHiringChart";
 import { CategoryBarChart } from "@/components/dashboard/CategoryBarChart";
@@ -253,6 +254,12 @@ function toRoleCategoryParam(tab: CategoryTabValue): StaffRoleCategory | undefin
 
 export function DashboardPage() {
   const { selectedCampusCode } = useCampus();
+  // Both /dashboard endpoints are require_permission(SETTINGS). Coordinators
+  // whose grants were backfilled from their old capabilities do not hold it,
+  // and without this gate they fired five 403s on every visit and saw only
+  // the raw error text.
+  const { hasPermission } = useAuth();
+  const canViewDashboard = hasPermission?.("SETTINGS") ?? false;
   const [dateRange, setDateRange] = useState<DateRangeValue>({ startDate: null, endDate: null });
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -298,6 +305,7 @@ export function DashboardPage() {
       locationId,
     ],
     queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, roleCategoryParam, drilldownFilters),
+    enabled: canViewDashboard,
   });
 
   // Filter-bar option lists. Designations are narrowed by the category tab so
@@ -342,6 +350,7 @@ export function DashboardPage() {
         locationId: locationId || null,
         recruitmentStatus: recruitmentStatus || null,
       }),
+    enabled: canViewDashboard,
   });
 
   // Category Summary section (Executive Dashboard redesign) -- always all 3
@@ -354,14 +363,17 @@ export function DashboardPage() {
   const teachingSummary = useQuery({
     queryKey: ["dashboard-kpis", selectedCampusCode, dateRange.startDate, dateRange.endDate, "TEACHING"],
     queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, "TEACHING"),
+    enabled: canViewDashboard,
   });
   const nonTeachingSummary = useQuery({
     queryKey: ["dashboard-kpis", selectedCampusCode, dateRange.startDate, dateRange.endDate, "NON_TEACHING"],
     queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, "NON_TEACHING"),
+    enabled: canViewDashboard,
   });
   const housekeepingSummary = useQuery({
     queryKey: ["dashboard-kpis", selectedCampusCode, dateRange.startDate, dateRange.endDate, "HOUSEKEEPING"],
     queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, "HOUSEKEEPING"),
+    enabled: canViewDashboard,
   });
 
   const categoryBreakdown = data?.category_wise_breakdown ?? EMPTY_CATEGORY_BREAKDOWN;
@@ -511,6 +523,18 @@ export function DashboardPage() {
     } finally {
       setIsExporting(false);
     }
+  }
+
+  if (!canViewDashboard) {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="font-display text-lg font-bold tracking-tight">Executive Dashboard</h1>
+        <p className="text-sm text-muted-foreground">
+          Your account does not have dashboard access. A Super Admin can turn on the "Manage settings" permission for
+          you in your user record's permissions.
+        </p>
+      </div>
+    );
   }
 
   if (isError) {
