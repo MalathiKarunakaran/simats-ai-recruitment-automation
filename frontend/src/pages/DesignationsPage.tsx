@@ -75,6 +75,8 @@ interface FormState {
   // (empty string = unset) and trimmed to `null` on submit, same convention
   // as DepartmentsPage's own `description` field.
   requiredSkills: string;
+  // Same empty-string-means-unset convention as requiredSkills above.
+  jobDescription: string;
   isActive: boolean;
   departmentIds: string[];
 }
@@ -286,6 +288,9 @@ function DesignationDetailPanel({
         />
         <div className="sm:col-span-2">
           <DetailField label="Required skills" value={designation.required_skills} />
+        </div>
+        <div className="sm:col-span-2 lg:col-span-4">
+          <DetailField label="Job description" value={designation.job_description} />
         </div>
       </div>
 
@@ -506,6 +511,7 @@ const EMPTY_FORM: FormState = {
   category: "TEACHING",
   employmentType: "FULL_TIME",
   requiredSkills: "",
+  jobDescription: "",
   isActive: true,
   departmentIds: [],
 };
@@ -638,6 +644,7 @@ export function DesignationsPage() {
         min_experience: minExperience.value,
         employment_type: form.employmentType,
         required_skills: form.requiredSkills.trim() || null,
+        job_description: form.jobDescription.trim() || null,
         is_active: form.isActive,
         department_ids: form.departmentIds,
       }),
@@ -654,6 +661,7 @@ export function DesignationsPage() {
         min_experience: minExperience.value,
         employment_type: form.employmentType,
         required_skills: form.requiredSkills.trim() || null,
+        job_description: form.jobDescription.trim() || null,
         is_active: form.isActive,
         department_ids: form.departmentIds,
       }),
@@ -677,6 +685,7 @@ export function DesignationsPage() {
       category: designation.category,
       employmentType: designation.employment_type,
       requiredSkills: designation.required_skills ?? "",
+      jobDescription: designation.job_description ?? "",
       isActive: designation.is_active,
       departmentIds: designation.department_ids,
     });
@@ -871,6 +880,22 @@ export function DesignationsPage() {
                       value={form.requiredSkills}
                       onChange={(e) => setForm((f) => ({ ...f, requiredSkills: e.target.value }))}
                     />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="job_description">Job description (optional)</Label>
+                    <Textarea
+                      id="job_description"
+                      rows={6}
+                      placeholder="What this position does -- written once here instead of retyped into every vacancy request"
+                      value={form.jobDescription}
+                      onChange={(e) => setForm((f) => ({ ...f, jobDescription: e.target.value }))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Copied into a vacancy request raised against this designation, and from there into the job
+                      advertisement. Editing it here changes what the next request starts from; requests and ads that
+                      already exist keep the text they were created with.
+                    </p>
                   </div>
 
                   <div className="flex flex-col gap-1.5">

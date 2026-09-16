@@ -63,6 +63,7 @@ const DESIGNATIONS = [
     min_experience: "2+ years",
     employment_type: "FULL_TIME" as const,
     required_skills: null,
+    job_description: null,
     is_active: true,
     department_ids: ["d-1"],
     created_at: "",
@@ -486,4 +487,47 @@ describe("VacancyRequestWizard", () => {
     await userEvent.type(screen.getByLabelText("Experience required"), "1+ years");
     expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
   }, 15000);
+
+  // The reusable JD per job position (2026-09-16). The wizard never sends
+  // jd_draft -- the server copies the designation's job_description into the
+  // request on create -- so the review step is the one place the requester
+  // sees the text their advertisement will start from.
+  it("shows the selected designation's job description on the review step, and nothing when it has none", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD", campus_id: "c-sse", department_id: "d-1" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue(CAMPUSES);
+    mockedListLocations.mockResolvedValue([]);
+    mockedListDepartments.mockResolvedValue(DEPARTMENTS);
+    mockedListDesignations.mockResolvedValue([
+      { ...DESIGNATIONS[0], job_description: "Teach UG and PG courses, supervise projects." },
+    ]);
+    mockedGetAvailability.mockResolvedValue({
+      approved: 5,
+      working: 3,
+      vacant: 2,
+      already_requested: 1,
+      available_to_request: 1,
+    });
+
+    renderWizard();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Teaching/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Assistant Professor/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    const countInput = await screen.findByLabelText("Required count");
+    await userEvent.clear(countInput);
+    await userEvent.type(countInput, "1");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByText("Teach UG and PG courses, supervise projects.")).toBeInTheDocument();
+    expect(screen.getByText(/From Assistant Professor's Designation Master entry/)).toBeInTheDocument();
+  }, 20000);
 });

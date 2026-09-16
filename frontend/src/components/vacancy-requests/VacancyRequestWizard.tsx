@@ -651,6 +651,22 @@ export function VacancyRequestWizard({ onSuccess }: Props) {
               <dt className="text-muted-foreground">Required by</dt>
               <dd>{requiredBy || "—"}</dd>
             </dl>
+            {/* The wizard never sends jd_draft, so the server copies the
+                designation's job description into the request on create.
+                Showing it here is the only place the requester sees the text
+                their advertisement will start from. */}
+            {selectedDesignation?.job_description ? (
+              <div className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
+                <p className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+                  Job description
+                </p>
+                <p className="text-sm whitespace-pre-line">{selectedDesignation.job_description}</p>
+                <p className="text-xs text-muted-foreground">
+                  From {selectedDesignation.name}'s Designation Master entry. It is copied into this request and can be
+                  edited afterwards without changing the Designation Master.
+                </p>
+              </div>
+            ) : null}
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
           </div>
         ) : null}

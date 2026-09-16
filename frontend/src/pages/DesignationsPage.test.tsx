@@ -133,6 +133,7 @@ const DESIGNATION: DesignationRead = {
   min_experience: "2+ years",
   employment_type: "FULL_TIME",
   required_skills: null,
+  job_description: null,
   is_active: true,
   department_ids: ["d-1"],
   created_at: "2026-01-01T00:00:00Z",
@@ -147,6 +148,7 @@ const OTHER_DESIGNATION: DesignationRead = {
   min_experience: "1+ years",
   employment_type: "FULL_TIME",
   required_skills: null,
+  job_description: null,
   is_active: false,
   department_ids: ["d-1"],
   created_at: "2026-01-01T00:00:00Z",
@@ -537,6 +539,7 @@ describe("DesignationsPage", () => {
           min_experience: "2+ years",
           employment_type: "FULL_TIME",
           required_skills: null,
+          job_description: null,
           is_active: true,
           department_ids: ["d-1"],
         }),
@@ -981,6 +984,72 @@ describe("DesignationsPage", () => {
 
       await userEvent.click(screen.getByRole("button", { name: "Edit" }));
       expect(await screen.findByLabelText("Required skills (optional)")).toHaveValue("Advanced statistics");
+    });
+  });
+
+  // The reusable JD per job position (2026-09-16). Same nullable free-text
+  // shape as required_skills above, but it travels: the server copies it into
+  // a vacancy request's jd_draft, and from there into the advertisement.
+  describe("job_description", () => {
+    it("submits a new designation with the entered Job description text", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+      mockedCreateDesignation.mockResolvedValue(DESIGNATION);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByRole("button", { name: "+ New Designation" })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "+ New Designation" }));
+
+      await userEvent.type(screen.getByLabelText("Designation name"), "Assistant Professor");
+      await userEvent.type(screen.getByLabelText("Qualification"), "PhD");
+      await userEvent.type(screen.getByLabelText("Minimum experience"), "2+ years");
+      await userEvent.type(screen.getByLabelText("Job description (optional)"), "Teach UG courses and publish.");
+
+      await userEvent.click(screen.getByRole("button", { name: "Create designation" }));
+
+      await waitFor(() =>
+        expect(mockedCreateDesignation).toHaveBeenCalledWith(
+          expect.objectContaining({ job_description: "Teach UG courses and publish." }),
+        ),
+      );
+    }, 15000);
+
+    it("submits null when Job description is left blank", async () => {
+      mockUser("SUPER_ADMIN");
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+      mockedCreateDesignation.mockResolvedValue(DESIGNATION);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByRole("button", { name: "+ New Designation" })).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: "+ New Designation" }));
+
+      await userEvent.type(screen.getByLabelText("Designation name"), "Assistant Professor");
+      await userEvent.type(screen.getByLabelText("Qualification"), "PhD");
+      await userEvent.type(screen.getByLabelText("Minimum experience"), "2+ years");
+
+      await userEvent.click(screen.getByRole("button", { name: "Create designation" }));
+
+      await waitFor(() =>
+        expect(mockedCreateDesignation).toHaveBeenCalledWith(expect.objectContaining({ job_description: null })),
+      );
+    }, 15000);
+
+    it("pre-fills Job description in the Edit dialog and shows it in the expanded row", async () => {
+      mockUser("SUPER_ADMIN");
+      const withJd: DesignationRead = { ...DESIGNATION, job_description: "Teach UG and PG courses." };
+      mockedListDesignationsWithCounts.mockResolvedValue(withCounts([withJd]));
+      mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByRole("button", { name: "Expand details for Assistant Professor" }));
+      expect(await screen.findByText("Teach UG and PG courses.")).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+      expect(await screen.findByLabelText("Job description (optional)")).toHaveValue("Teach UG and PG courses.");
     });
   });
 });

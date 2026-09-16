@@ -526,6 +526,11 @@ export interface DesignationRead {
   // Designation Master production-hardening epic (backend Phase 1) --
   // nullable free-text field, no structured skills taxonomy behind it.
   required_skills: string | null;
+  // The reusable job description for this position, typed by hand. Copied
+  // into a vacancy request's own jd_draft when one is raised against this
+  // designation, and from there into the advertisement -- a pre-fill, so
+  // editing it here never changes a request or an ad that already exists.
+  job_description: string | null;
   is_active: boolean;
   department_ids: string[];
   created_at: string;
@@ -540,6 +545,7 @@ export interface DesignationCreatePayload {
   min_experience: string;
   employment_type: EmploymentType;
   required_skills?: string | null;
+  job_description?: string | null;
   is_active?: boolean;
   department_ids?: string[];
 }
