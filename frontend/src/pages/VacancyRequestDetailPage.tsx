@@ -385,7 +385,10 @@ export function VacancyRequestDetailPage() {
                     {jobPosting.posting_number ?? "View posting"}
                   </Link>
                 ) : (
-                  "Not published yet"
+                  // The field shows the posting from the moment it exists,
+                  // draft included, so its absence means no posting has been
+                  // created -- not that one is waiting to go live.
+                  "Not created yet"
                 )}
               </div>
             </div>

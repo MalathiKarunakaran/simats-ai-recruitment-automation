@@ -242,7 +242,7 @@ export function VacancyApprovalsPage() {
     mutationFn: (id: string) => publishVacancyRequest(id),
     onSuccess: () => {
       afterAction();
-      success("Vacancy request published.");
+      success("Job posting created as a draft. Review and publish it under Job Postings.");
     },
     onError: onActionError,
   });
@@ -476,8 +476,12 @@ export function VacancyApprovalsPage() {
                             </Button>
                           ) : null}
                           {canPublish ? (
+                            // Since 2026-09-15 this creates the job posting as a
+                            // DRAFT -- the ad itself is reviewed and published on
+                            // the job posting page. Same label as the one
+                            // VacancyRequestDetailPage already uses for it.
                             <Button size="sm" disabled={isBusy} onClick={() => publishMutation.mutate(vr.id)}>
-                              Publish
+                              Create job posting
                             </Button>
                           ) : null}
                           {canReject ? (

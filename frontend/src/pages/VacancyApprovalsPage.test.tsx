@@ -131,7 +131,7 @@ describe("VacancyApprovalsPage", () => {
   // granted PUBLISH_VACANCY now sees the APPROVED queue and a working
   // Publish button) without changing the "scope message" test above (no
   // grant passed there, so it behaves exactly as before).
-  it("shows the APPROVED queue and Publish to a role outside the approval chain individually granted PUBLISH_VACANCY", async () => {
+  it("shows the APPROVED queue and Create job posting to a role outside the approval chain individually granted PUBLISH_VACANCY", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "RECRUITMENT_OFFICER" } as UserRead,
       isLoading: false,
@@ -146,7 +146,7 @@ describe("VacancyApprovalsPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create job posting" })).toBeInTheDocument());
   });
 
   it("shows Dean-approve and Reject for a SUBMITTED request as Associate Dean", async () => {
@@ -167,7 +167,7 @@ describe("VacancyApprovalsPage", () => {
     expect(screen.getByRole("button", { name: "Dean-approve" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "HR-approve" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Publish" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create job posting" })).not.toBeInTheDocument();
 
     mockedDeanApprove.mockResolvedValue(makeVR({ status: "DEAN_APPROVED" }));
     await userEvent.click(screen.getByRole("button", { name: "Dean-approve" }));
@@ -178,7 +178,7 @@ describe("VacancyApprovalsPage", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Vacancy request dean-approved.");
   });
 
-  it("shows HR-approve for DEAN_APPROVED and Publish for APPROVED as HR Admin", async () => {
+  it("shows HR-approve for DEAN_APPROVED and Create job posting for APPROVED as HR Admin", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
@@ -203,7 +203,7 @@ describe("VacancyApprovalsPage", () => {
 
     expect(within(labRow).getByRole("button", { name: "HR-approve" })).toBeInTheDocument();
     expect(within(labRow).getByRole("button", { name: "Reject" })).toBeInTheDocument();
-    expect(within(lecturerRow).getByRole("button", { name: "Publish" })).toBeInTheDocument();
+    expect(within(lecturerRow).getByRole("button", { name: "Create job posting" })).toBeInTheDocument();
     expect(within(lecturerRow).queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
 
     mockedHrApprove.mockResolvedValue({
@@ -250,9 +250,11 @@ describe("VacancyApprovalsPage", () => {
       created_at: "2026-07-30T00:00:00Z",
       updated_at: "2026-07-30T00:00:00Z",
     });
-    await userEvent.click(within(lecturerRow).getByRole("button", { name: "Publish" }));
+    await userEvent.click(within(lecturerRow).getByRole("button", { name: "Create job posting" }));
     await waitFor(() => expect(mockedPublish).toHaveBeenCalledWith("vr-3"));
-    expect(await screen.findByText("Vacancy request published.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Job posting created as a draft. Review and publish it under Job Postings."),
+    ).toBeInTheDocument();
   });
 
   it("sorts the queue by priority first, then by how long each request has been waiting", async () => {
