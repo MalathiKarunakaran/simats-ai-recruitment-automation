@@ -1274,6 +1274,35 @@ describe("SanctionedStrengthPage", () => {
         expect(await screen.findByLabelText("Approved / Sanctioned")).toHaveValue(10);
       });
 
+      // GET /audit-logs is require_permission(ACTIVITY_LOG) and nothing else.
+      // The page used to decide this from a role list OR the permission, so
+      // an HR_ADMIN without the grant was shown the tab and got a 403 on
+      // clicking it. These two pin the permission as the only input.
+      it("hides the drawer's Audit Log tab from an HR_ADMIN with no ACTIVITY_LOG grant", async () => {
+        mockAuth("HR_ADMIN");
+        mockCampuses();
+        mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+        mockedGetBreakdown.mockResolvedValue(BREAKDOWN_ROWS);
+
+        await expandCse();
+        await userEvent.click(screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }));
+
+        expect(await screen.findByRole("tab", { name: "Details" })).toBeInTheDocument();
+        expect(screen.queryByRole("tab", { name: "Audit Log" })).not.toBeInTheDocument();
+      });
+
+      it("shows the drawer's Audit Log tab once that HR_ADMIN holds ACTIVITY_LOG", async () => {
+        mockAuth("HR_ADMIN", [...FULL_STRENGTH_PERMISSIONS, "ACTIVITY_LOG" as Permission]);
+        mockCampuses();
+        mockedListSanctionedStrengthRegister.mockResolvedValue(paginated([CSE_ROW, MECH_ROW]));
+        mockedGetBreakdown.mockResolvedValue(BREAKDOWN_ROWS);
+
+        await expandCse();
+        await userEvent.click(screen.getByRole("button", { name: "Edit sanctioned strength for Assistant Professor" }));
+
+        expect(await screen.findByRole("tab", { name: "Audit Log" })).toBeInTheDocument();
+      });
+
       it("POSTs a brand-new row when editing a designation with no sanctioned_strength_id yet", async () => {
         mockAuth("HR_ADMIN");
         mockCampuses();

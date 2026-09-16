@@ -13,7 +13,6 @@ import {
   type SortDirection,
 } from "@/api/sanctionedStrength";
 import {
-  AUDIT_LOG_READ_ROLES,
   GLOBAL_SCOPE_ROLES,
   HOUSEKEEPING_STAFF_MANAGEMENT_ROLES,
   type ApprovalStatus,
@@ -394,15 +393,12 @@ export function SanctionedStrengthPage() {
   // RECRUITMENT_OFFICER, unlike SANCTIONED_STRENGTH_WRITE_ROLES) -- see that
   // component's own docstring, item 2.
   const canManageHousekeepingStaff = Boolean(user && HOUSEKEEPING_STAFF_MANAGEMENT_ROLES.includes(user.role));
-  // Phase H: gates SanctionedStrengthDrawer's own Audit Log tab -- mirrors
-  // app/api/v1/routers/audit_logs.py's own read-role gate (same set
-  // AppShell.tsx's "Activity Log" nav item already uses), a different (and
-  // broader-in-one-direction, narrower-in-another) role set than `canManage`
-  // above. Bug fix: OR'd with hasPermission("ACTIVITY_LOG") -- both
-  // audit_logs.py endpoints are actually gated by
-  // require_permission(ACTIVITY_LOG), not this role list alone, same fix as
-  // ActivityLogPage's own canView.
-  const canViewAuditLog = Boolean(user && (AUDIT_LOG_READ_ROLES.includes(user.role) || hasPermission?.("ACTIVITY_LOG")));
+  // Phase H: gates SanctionedStrengthDrawer's own Audit Log tab. Both
+  // audit_logs.py endpoints are require_permission(ACTIVITY_LOG) and nothing
+  // else, so the permission alone decides -- a role list here showed the tab
+  // to role-holders without the grant, who hit a 403 the moment they clicked
+  // it. Same gate as ActivityLogPage's own canView.
+  const canViewAuditLog = hasPermission?.("ACTIVITY_LOG") ?? false;
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses, enabled: canFilterByCampus });
 
   const { data, isLoading, isError, error } = useQuery({

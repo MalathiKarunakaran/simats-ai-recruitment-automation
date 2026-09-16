@@ -176,8 +176,8 @@ export interface SanctionedStrengthDrawerProps {
    * write control (Approved/Effective from/Remarks/Location/Designation
    * inputs, the Save button) and drives the default tab. */
   canManage: boolean;
-  /** Mirrors AUDIT_LOG_READ_ROLES on the caller -- hides the Audit Log tab
-   * for a viewer who'd otherwise hit a 403 the moment they clicked it. */
+  /** The caller's ACTIVITY_LOG permission -- hides the Audit Log tab for a
+   * viewer who'd otherwise hit a 403 the moment they clicked it. */
   canViewAuditLog: boolean;
   campusId: string;
   campusLabel: string;

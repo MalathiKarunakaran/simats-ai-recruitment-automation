@@ -515,20 +515,6 @@ export const DESIGNATION_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "REC
 // only consulted for the write actions, never the "View history" trigger.
 export const SANCTIONED_STRENGTH_WRITE_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN"];
 
-// Mirrors app/api/v1/routers/audit_logs.py::_READ_ROLES exactly (same role
-// set AppShell.tsx's own "Activity Log" nav item already gates on) --
-// SanctionedStrengthDrawer.tsx (Phase H, glowing-zooming-hamming.md) reuses
-// this to hide its Audit Log tab for a viewer who'd otherwise hit a 403 on
-// GET /audit-logs the moment they clicked it (e.g. RECRUITMENT_OFFICER/
-// MANAGEMENT/INTERVIEW_PANEL_MEMBER, all of whom can still view the drawer
-// itself read-only).
-export const AUDIT_LOG_READ_ROLES: readonly UserRole[] = [
-  "SUPER_ADMIN",
-  "HR_ADMIN",
-  "ASSOCIATE_DEAN_RECRUITMENT",
-  "CAMPUS_HOD",
-];
-
 // Mirrors app/schemas/designation.py::DesignationRead.
 export interface DesignationRead {
   id: string;

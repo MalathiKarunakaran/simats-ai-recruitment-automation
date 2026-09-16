@@ -191,6 +191,24 @@ describe("AppShell nav", () => {
     expect(await screen.findByRole("link", { name: "Vacancy Approvals" })).toBeInTheDocument();
   });
 
+  // The other half of that same mismatch: the item also carried a
+  // visibleForRoles list, so an HR_ADMIN without the grant was shown a link
+  // to a page they can only be refused. The item is now permission-only.
+  it("hides Activity Log from an HR_ADMIN with no ACTIVITY_LOG grant", async () => {
+    mockAuth("HR_ADMIN");
+    renderShell();
+
+    await waitFor(() => expect(screen.getByRole("navigation")).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: "Activity Log" })).not.toBeInTheDocument();
+  });
+
+  it("shows Activity Log to an HR_ADMIN who holds ACTIVITY_LOG", async () => {
+    mockAuth("HR_ADMIN", (permission) => permission === "ACTIVITY_LOG");
+    renderShell();
+
+    expect(await screen.findByRole("link", { name: "Activity Log" })).toHaveAttribute("href", "/activity-log");
+  });
+
   it("shows Activity Log to a RECRUITMENT_COORDINATOR individually granted ACTIVITY_LOG", async () => {
     mockAuth(
       "RECRUITMENT_COORDINATOR",

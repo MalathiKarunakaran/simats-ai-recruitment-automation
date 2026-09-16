@@ -21,6 +21,11 @@ const mockedUseAuth = vi.mocked(authContext.useAuth);
 const mockedListAuditLogs = vi.mocked(auditLogsApi.listAuditLogs);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 
+// The page is gated on the ACTIVITY_LOG permission alone (as the server is),
+// so every test that expects it to render has to grant it -- the role no
+// longer opens the door on its own.
+const GRANTED = (permission: string) => permission === "ACTIVITY_LOG";
+
 function mockUser(role: UserRead["role"], hasPermission: (permission: string) => boolean = () => false) {
   mockedUseAuth.mockReturnValue({
     user: { role } as UserRead,
@@ -70,24 +75,32 @@ function renderPage() {
 }
 
 describe("ActivityLogPage", () => {
-  it("blocks a role outside the backend's own read-role gate", () => {
+  it("blocks an account without the ACTIVITY_LOG permission", () => {
     mockUser("RECRUITMENT_OFFICER");
 
     renderPage();
 
-    expect(
-      screen.getByText(
-        "Only Super Admin, HR Admin, Associate Dean (Recruitment), or a Campus HOD can view the activity log.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/does not have activity log access/)).toBeInTheDocument();
   });
 
-  // RBAC permission-gate audit (2026-08-24): both audit_logs.py endpoints
-  // are gated by require_permission(ACTIVITY_LOG), not CAN_VIEW_ROLES alone
-  // -- this locks in the fix without changing the "blocked" test above
-  // (which passes no grant, so behaves exactly as before).
-  it("unblocks a role outside CAN_VIEW_ROLES individually granted ACTIVITY_LOG", async () => {
-    mockUser("RECRUITMENT_OFFICER", (permission) => permission === "ACTIVITY_LOG");
+  // The other half of the same mismatch, unfixed until now: the gate used to
+  // be `role in CAN_VIEW_ROLES || hasPermission(...)`, so an HR_ADMIN whose
+  // grants were backfilled without ACTIVITY_LOG rendered the page and fired
+  // a request the server was always going to 403. Fails without the fix.
+  it("blocks an HR_ADMIN who was never granted ACTIVITY_LOG, instead of 403ing", () => {
+    mockUser("HR_ADMIN");
+    // Nothing in this file clears mocks between tests, so the call count
+    // below has to start from a known zero rather than from test order.
+    mockedListAuditLogs.mockClear();
+
+    renderPage();
+
+    expect(screen.getByText(/does not have activity log access/)).toBeInTheDocument();
+    expect(mockedListAuditLogs).not.toHaveBeenCalled();
+  });
+
+  it("renders for a role outside the old role list once granted ACTIVITY_LOG", async () => {
+    mockUser("RECRUITMENT_OFFICER", GRANTED);
     mockedListAuditLogs.mockResolvedValue([ENTRY]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
@@ -97,7 +110,7 @@ describe("ActivityLogPage", () => {
   });
 
   it("renders activity entries for a global-scope role", async () => {
-    mockUser("SUPER_ADMIN");
+    mockUser("SUPER_ADMIN", GRANTED);
     mockedListAuditLogs.mockResolvedValue([ENTRY]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
@@ -108,7 +121,7 @@ describe("ActivityLogPage", () => {
   });
 
   it("shows a campus filter for a global-scope role and re-fetches when it changes", async () => {
-    mockUser("HR_ADMIN");
+    mockUser("HR_ADMIN", GRANTED);
     mockedListAuditLogs.mockResolvedValue([ENTRY]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
@@ -136,7 +149,7 @@ describe("ActivityLogPage", () => {
   });
 
   it("hides the campus filter for a Campus HOD, who is hard-pinned server-side", async () => {
-    mockUser("CAMPUS_HOD");
+    mockUser("CAMPUS_HOD", GRANTED);
     mockedListAuditLogs.mockResolvedValue([ENTRY]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
@@ -147,7 +160,7 @@ describe("ActivityLogPage", () => {
   });
 
   it("re-fetches with the entity type filter", async () => {
-    mockUser("SUPER_ADMIN");
+    mockUser("SUPER_ADMIN", GRANTED);
     mockedListAuditLogs.mockResolvedValue([ENTRY]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
@@ -175,7 +188,7 @@ describe("ActivityLogPage", () => {
   });
 
   it("re-fetches with a date range when the date control is used", async () => {
-    mockUser("SUPER_ADMIN");
+    mockUser("SUPER_ADMIN", GRANTED);
     mockedListAuditLogs.mockResolvedValue([ENTRY]);
     mockedListCampuses.mockResolvedValue([CAMPUS]);
 
@@ -200,7 +213,7 @@ describe("ActivityLogPage", () => {
   });
 
   it("shows the empty-state message when no entries exist in scope", async () => {
-    mockUser("SUPER_ADMIN");
+    mockUser("SUPER_ADMIN", GRANTED);
     mockedListAuditLogs.mockResolvedValue([]);
     mockedListCampuses.mockResolvedValue([]);
 

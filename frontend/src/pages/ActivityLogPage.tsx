@@ -10,10 +10,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-// Mirrors the backend's own read-role gate exactly
-// (app/api/v1/routers/audit_logs.py::_READ_ROLES).
-const CAN_VIEW_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "ASSOCIATE_DEAN_RECRUITMENT", "CAMPUS_HOD"];
-
 const ENTITY_TYPES = [
   "VacancyRequest",
   "Application",
@@ -32,12 +28,14 @@ export function ActivityLogPage() {
   const [campusId, setCampusId] = useState<string>("ALL");
   const [dateRange, setDateRange] = useState<DateRangeValue>({ startDate: null, endDate: null });
 
-  // Bug fix: OR'd with hasPermission("ACTIVITY_LOG") -- both audit_logs.py
-  // endpoints are gated by require_permission(ACTIVITY_LOG), not a role
-  // list, so someone individually granted the permission (but outside
-  // CAN_VIEW_ROLES) must still be able to view this page, same pattern as
-  // UsersListPage's canManage.
-  const canView = Boolean(user && (CAN_VIEW_ROLES.includes(user.role) || hasPermission?.("ACTIVITY_LOG")));
+  // Both audit_logs.py endpoints are require_permission(ACTIVITY_LOG) and
+  // nothing else, so this asks exactly what the server asks. The role list
+  // that used to sit here was wrong in both directions: it hid the page
+  // from anyone individually granted the permission, and -- the half left
+  // unfixed in 2026-08-24 -- it let a role-holder WITHOUT the grant render
+  // the page and fire a guaranteed 403. Live accounts whose grants were
+  // backfilled from their old capabilities are exactly that second case.
+  const canView = hasPermission?.("ACTIVITY_LOG") ?? false;
   // CAMPUS_HOD is hard-pinned to their own campus server-side regardless of
   // any campus_id passed, so the filter only means anything for the 3
   // global-scope roles among the readers.
@@ -60,7 +58,8 @@ export function ActivityLogPage() {
   if (!canView) {
     return (
       <p className="text-sm text-muted-foreground">
-        Only Super Admin, HR Admin, Associate Dean (Recruitment), or a Campus HOD can view the activity log.
+        Your account does not have activity log access. A Super Admin can turn on the "View activity log" permission
+        for you in your user record's permissions.
       </p>
     );
   }

@@ -234,12 +234,10 @@ const NAV_GROUPS: NavGroup[] = [
         to: "/activity-log",
         label: "Activity Log",
         icon: History,
-        // Mirrors audit_logs.py::_READ_ROLES, PLUS anyone individually
-        // granted ACTIVITY_LOG via the Permission Matrix (audit fix
-        // 2026-08-24 -- both audit_logs.py endpoints are actually gated by
-        // require_permission(ACTIVITY_LOG), not this role list alone; see
-        // NavItem.visibleForPermission's own comment).
-        visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN", "ASSOCIATE_DEAN_RECRUITMENT", "CAMPUS_HOD"],
+        // Permission only, no visibleForRoles: both audit_logs.py endpoints
+        // are require_permission(ACTIVITY_LOG) and nothing else, so a role
+        // list here advertised the link to role-holders without the grant,
+        // who could only ever land on the page's own "no access" line.
         visibleForPermission: "ACTIVITY_LOG",
       },
     ],
