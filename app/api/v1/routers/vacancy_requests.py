@@ -183,6 +183,7 @@ def create_vacancy_request(
     )
 
     position_title = payload.position_title
+    jd_draft = payload.jd_draft
     if payload.designation_id is not None:
         designation = db.get(Designation, payload.designation_id)
         if designation is None:
@@ -191,6 +192,13 @@ def create_vacancy_request(
         # existing consumer of position_title (reports, exports, the
         # frontend) keeps working unchanged.
         position_title = designation.name
+        # Same idea for the JD: Designation Master carries the reusable text
+        # so it is written once per position rather than retyped per request.
+        # Only a pre-fill -- anything the caller sent wins, and the copy taken
+        # here is the request's own from now on, so later edits to the
+        # designation never rewrite this request.
+        if not jd_draft:
+            jd_draft = designation.job_description
 
     vr = VacancyRequest(
         campus_id=payload.campus_id,
@@ -204,7 +212,7 @@ def create_vacancy_request(
         experience_required=payload.experience_required,
         salary_band_min=payload.salary_band_min,
         salary_band_max=payload.salary_band_max,
-        jd_draft=payload.jd_draft,
+        jd_draft=jd_draft,
         remarks=payload.remarks,
         skills=payload.skills,
         priority=payload.priority,

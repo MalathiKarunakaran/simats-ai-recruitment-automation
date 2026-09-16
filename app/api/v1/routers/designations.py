@@ -47,6 +47,7 @@ def _designation_snapshot(designation: Designation) -> dict:
         "min_experience": designation.min_experience,
         "employment_type": designation.employment_type.value,
         "required_skills": designation.required_skills,
+        "job_description": designation.job_description,
         "is_active": designation.is_active,
         "department_ids": [str(department_id) for department_id in designation.department_ids],
     }
@@ -223,6 +224,7 @@ def create_designation(
         min_experience=payload.min_experience,
         employment_type=payload.employment_type,
         required_skills=payload.required_skills,
+        job_description=payload.job_description,
         is_active=payload.is_active,
     )
     designation.departments = departments

@@ -38,6 +38,34 @@ def test_super_admin_can_create_and_list_designation(client, user_factory):
     assert listing.json()["total"] >= 1
 
 
+def test_designation_carries_a_job_description(client, user_factory):
+    """The reusable JD per job position -- written by hand here, optional, and
+    absent on every designation that predates it."""
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    headers = auth_headers(client, super_admin)
+
+    without = client.post("/api/v1/designations", headers=headers, json=_payload())
+    assert without.status_code == 201, without.text
+    assert without.json()["job_description"] is None
+
+    jd = "Teach UG and PG courses, supervise projects, publish."
+    created = client.post(
+        "/api/v1/designations",
+        headers=headers,
+        json=_payload(name="Associate Professor", job_description=jd),
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["job_description"] == jd
+
+    edited = client.patch(
+        f"/api/v1/designations/{created.json()['id']}",
+        headers=headers,
+        json={"job_description": "Rewritten by hand."},
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["job_description"] == "Rewritten by hand."
+
+
 def test_recruitment_coordinator_can_create_designation_with_departments(
     client, user_factory, department_factory
 ):

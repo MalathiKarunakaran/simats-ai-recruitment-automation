@@ -153,6 +153,114 @@ def test_designation_id_auto_populates_position_title(client, user_factory, depa
     assert body["position_title"] == "Professor of Data Science"
 
 
+def _designation_with_jd(client, super_admin, job_description, name="Professor of Data Science"):
+    response = client.post(
+        "/api/v1/designations",
+        headers=auth_headers(client, super_admin),
+        json={
+            "name": name,
+            "category": "TEACHING",
+            "qualification": "PhD",
+            "min_experience": "5+ years",
+            "employment_type": "FULL_TIME",
+            "job_description": job_description,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+def test_designation_job_description_pre_fills_the_request_jd(
+    client, user_factory, department_factory
+):
+    """Written once on the designation, copied into the request at creation --
+    the front of the chain that already runs jd_draft -> snapshot_content ->
+    the advertisement."""
+    department = department_factory("SSE")
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    jd = "Teach UG and PG courses, supervise projects, publish."
+    designation_id = _designation_with_jd(client, super_admin, jd)
+
+    response = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, super_admin),
+        json=_create_payload(
+            department.id, campus_id=str(department.campus_id), designation_id=designation_id
+        ),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["jd_draft"] == jd
+
+
+def test_a_jd_sent_with_the_request_beats_the_designation_one(
+    client, user_factory, department_factory
+):
+    department = department_factory("SSE")
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    designation_id = _designation_with_jd(client, super_admin, "The designation's own text.")
+
+    response = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, super_admin),
+        json=_create_payload(
+            department.id,
+            campus_id=str(department.campus_id),
+            designation_id=designation_id,
+            jd_draft="What the requester actually typed.",
+        ),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["jd_draft"] == "What the requester actually typed."
+
+
+def test_editing_the_designation_jd_does_not_rewrite_an_existing_request(
+    client, user_factory, department_factory
+):
+    """The copy taken at creation is the request's own from then on -- the same
+    guarantee snapshot_content gives an advertisement."""
+    department = department_factory("SSE")
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    headers = auth_headers(client, super_admin)
+    designation_id = _designation_with_jd(client, super_admin, "Original text.")
+
+    created = client.post(
+        "/api/v1/vacancy-requests",
+        headers=headers,
+        json=_create_payload(
+            department.id, campus_id=str(department.campus_id), designation_id=designation_id
+        ),
+    )
+    assert created.status_code == 201, created.text
+
+    client.patch(
+        f"/api/v1/designations/{designation_id}",
+        headers=headers,
+        json={"job_description": "Completely different text."},
+    )
+
+    reread = client.get(f"/api/v1/vacancy-requests/{created.json()['id']}", headers=headers)
+    assert reread.status_code == 200
+    assert reread.json()["jd_draft"] == "Original text."
+
+
+def test_a_designation_without_a_job_description_leaves_jd_draft_empty(
+    client, user_factory, department_factory
+):
+    department = department_factory("SSE")
+    super_admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    designation_id = _designation_with_jd(client, super_admin, None)
+
+    response = client.post(
+        "/api/v1/vacancy-requests",
+        headers=auth_headers(client, super_admin),
+        json=_create_payload(
+            department.id, campus_id=str(department.campus_id), designation_id=designation_id
+        ),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["jd_draft"] is None
+
+
 def test_designation_id_unknown_is_rejected(client, user_factory, department_factory):
     import uuid
 

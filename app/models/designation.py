@@ -57,6 +57,13 @@ class Designation(Base):
     # create/update never required it before, and the bulk-upload import
     # treats it as optional too.
     required_skills: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The reusable job description for this position, written once by hand
+    # here instead of retyped into every vacancy request. Optional, and only
+    # ever a STARTING POINT: vacancy_requests.py copies it into the request's
+    # own `jd_draft` at creation, and from there job_postings.snapshot_content
+    # copies that into the advertisement -- so editing this text later never
+    # reaches a request or an ad that already exists.
+    job_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
