@@ -90,6 +90,16 @@ class JobPosting(Base):
     # When "Generate with AI" last wrote the draft. The text is a draft for a
     # person to edit; this only lets the screen say so.
     ai_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # --- Poster copy (2026-09-16) -------------------------------------------
+    # The A4 poster's own marketing wording, written by the AI from the job
+    # description and then edited by a person. Stored rather than generated at
+    # download time so two prints of the same poster cannot differ, and so the
+    # text can be reviewed before it reaches a notice board. All nullable: a
+    # poster with none of it renders exactly as it did before these existed.
+    poster_headline: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    poster_pitch: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    poster_bullets: Mapped[list[str] | None] = mapped_column(ARRAY(String(160)), nullable=True)
+    poster_copy_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # --- Review trail (2026-09-15) ------------------------------------------
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True

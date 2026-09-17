@@ -70,6 +70,10 @@ class JobPostingRead(BaseModel):
     salary_min: float | None
     salary_max: float | None
     ai_generated_at: datetime | None
+    poster_headline: str | None
+    poster_pitch: str | None
+    poster_bullets: list[str] | None
+    poster_copy_generated_at: datetime | None
     # Review trail (2026-09-15).
     created_by_id: uuid.UUID | None
     created_by_name: str | None
@@ -92,6 +96,17 @@ def _clean_skills(value: list[str] | None) -> list[str] | None:
     if any(len(item) > 100 for item in cleaned):
         raise ValueError("A skill is at most 100 characters")
     return cleaned or None
+
+
+class JobPostingPosterCopyUpdate(BaseModel):
+    """The printed poster's wording, edited by hand after the AI drafted it.
+    Separate from JobPostingUpdate because editing it must not send a posting
+    under review back to draft -- see services.job_postings.update_poster_copy.
+    The lengths match what the A4 template can actually lay out."""
+
+    poster_headline: str | None = Field(default=None, max_length=60)
+    poster_pitch: str | None = Field(default=None, max_length=240)
+    poster_bullets: list[str] | None = Field(default=None, max_length=5)
 
 
 class JobPostingUpdate(BaseModel):

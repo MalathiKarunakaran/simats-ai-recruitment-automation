@@ -29,6 +29,7 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.job_posting import (
     JdAiStatusRead,
     JobPostingGenerateContentRequest,
+    JobPostingPosterCopyUpdate,
     JobPostingRead,
     JobPostingReturnToDraftRequest,
     JobPostingUpdate,
@@ -267,6 +268,51 @@ def generate_job_posting_content(
         additional_instructions=payload.additional_instructions if payload else None,
         actor=current_user,
         request=request,
+    )
+    return _committed(db, posting)
+
+
+@router.post("/{job_posting_id}/generate-poster-copy", response_model=JobPostingRead)
+def generate_job_posting_poster_copy(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+    # Last, so a caller without the permission gets 403, not 503.
+    ai: openai.OpenAI = Depends(ai_client.get_jd_ai_client),
+) -> JobPosting:
+    """Writes the printed poster's wording from the advertisement's own text.
+    A draft for a person to read before it reaches a notice board -- nothing
+    is published and the poster download is unchanged until they are happy."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.generate_poster_copy(
+        db,
+        job_posting=posting,
+        client=ai,
+        provider=settings.jd_ai_provider,
+        actor=current_user,
+        request=request,
+    )
+    return _committed(db, posting)
+
+
+@router.patch("/{job_posting_id}/poster-copy", response_model=JobPostingRead)
+def update_job_posting_poster_copy(
+    job_posting_id: uuid.UUID,
+    payload: JobPostingPosterCopyUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    """Edits the poster wording by hand. Unlike PATCH /job-postings/{id} this
+    never returns a posting under review to draft."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.update_poster_copy(
+        db, job_posting=posting, changes=payload.model_dump(exclude_unset=True), actor=current_user, request=request
     )
     return _committed(db, posting)
 

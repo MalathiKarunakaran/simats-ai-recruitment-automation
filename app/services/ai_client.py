@@ -68,6 +68,17 @@ JD_JSON_SCHEMA = {
     "additionalProperties": False,
 }
 
+POSTER_COPY_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "pitch": {"type": "string"},
+        "bullets": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["headline", "pitch", "bullets"],
+    "additionalProperties": False,
+}
+
 RESUME_SCORE_JSON_SCHEMA = {
     "type": "object",
     "properties": {
@@ -361,6 +372,69 @@ def generate_jd(
     provider: str | None = None,
 ) -> dict:
     return _generate_jd_fields(client, _jd_user_content(vacancy_request, additional_instructions), provider)
+
+
+_POSTER_COPY_SYSTEM_PROMPT = """# Role
+You are a recruitment copywriter for SIMATS (Saveetha Institute of Medical and Technical Sciences), writing the wording for a printed A4 recruitment poster that will be pinned to a public notice board.
+
+# Task
+Turn the job description in the user's message into poster wording: a short headline, a one-sentence pitch, and three to five bullets.
+
+# Format
+- headline: AT MOST 40 CHARACTERS, upper or title case, no full stop. It sits   where "WE ARE HIRING" would otherwise go.
+- pitch: ONE sentence, at most 140 characters, saying why this role is worth   applying for.
+- bullets: 3 to 5 items, each at most 80 characters, no leading dash or   bullet character, each a concrete fact about the role.
+
+# Result
+Everything must be supported by the job description you were given. Do not invent salary figures, benefits, accreditation, rankings or deadlines. Do not promise anything the text does not state. A person reviews this before it is printed, but write it as if they will not."""
+
+
+def _poster_copy_user_content(job_posting) -> str:
+    """The advertisement's own words -- which is where the designation's job
+    description has arrived by this point (designation -> request.jd_draft ->
+    snapshot_content -> the posting)."""
+    vacancy_request = job_posting.approved_vacancy.vacancy_request
+    employment_type = job_posting.employment_type or vacancy_request.employment_type
+    lines = [
+        f"Position title: {job_posting.ad_title or vacancy_request.position_title}",
+        f"Campus: {job_posting.campus.name}",
+        f"Department: {vacancy_request.department.name}",
+        f"Staff role category: {job_posting.role_category.value}",
+        f"Employment type: {employment_type.value}",
+    ]
+    for label, value in (
+        ("Role summary", job_posting.summary),
+        ("Job description", job_posting.ad_body),
+        ("Responsibilities", job_posting.responsibilities),
+        ("Required qualification", job_posting.required_qualification or vacancy_request.qualification),
+        ("Required experience", job_posting.required_experience or vacancy_request.experience_required),
+    ):
+        if value:
+            lines.append(f"{label}: {value}")
+    skills = job_posting.required_skills or vacancy_request.skills
+    if skills:
+        lines.append(f"Skills: {', '.join(skills)}")
+    if job_posting.location_label:
+        lines.append(f"Location: {job_posting.location_label}")
+    return "\n".join(lines)
+
+
+def generate_poster_copy(client: openai.OpenAI, job_posting, *, provider: str) -> dict:
+    response = _call_openai(
+        client.chat.completions.create,
+        model=settings.model_for(provider) if provider else settings.ai_model,
+        **_provider_extra(provider),
+        max_completion_tokens=1000,
+        messages=[
+            {"role": "system", "content": _POSTER_COPY_SYSTEM_PROMPT},
+            {"role": "user", "content": _poster_copy_user_content(job_posting)},
+        ],
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "poster_copy", "schema": POSTER_COPY_JSON_SCHEMA, "strict": True},
+        },
+    )
+    return _parse_openai_structured_json(response)
 
 
 def _posting_jd_user_content(job_posting, additional_instructions: str | None) -> str:

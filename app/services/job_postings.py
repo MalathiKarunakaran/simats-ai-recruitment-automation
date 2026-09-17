@@ -208,6 +208,79 @@ def generate_content(
     return job_posting
 
 
+def _clean_poster_bullets(bullets: list[str] | None) -> list[str] | None:
+    """What the A4 template can actually lay out: at most five bullets of at
+    most 160 characters. A blank one would print as an empty row, so it is
+    dropped rather than kept."""
+    cleaned = [bullet.strip()[:160] for bullet in bullets or [] if bullet.strip()]
+    return cleaned[:5] or None
+
+
+def update_poster_copy(
+    db: Session,
+    *,
+    job_posting: JobPosting,
+    changes: dict,
+    actor: User,
+    request: Request | None,
+) -> JobPosting:
+    """The person's edit of the AI's poster wording. Deliberately NOT part of
+    update_content: that sends a posting under review back to DRAFT, and the
+    poster is print collateral rather than the advertisement text the review
+    approved. Fixing a headline should not cost an approval."""
+    _assert_not_closed(job_posting)
+    if not changes:
+        return job_posting
+    before = snapshot(job_posting)
+    if "poster_bullets" in changes:
+        changes["poster_bullets"] = _clean_poster_bullets(changes["poster_bullets"])
+    for field, value in changes.items():
+        setattr(job_posting, field, value)
+    job_posting.last_edited_by_id = actor.id
+    job_posting.last_edited_at = _now()
+    db.flush()
+    _audit(db, job_posting=job_posting, action="JOB_POSTING_POSTER_COPY_UPDATED", before=before, actor=actor, request=request)
+    return job_posting
+
+
+def generate_poster_copy(
+    db: Session,
+    *,
+    job_posting: JobPosting,
+    client: openai.OpenAI,
+    provider: str,
+    actor: User,
+    request: Request | None,
+) -> JobPosting:
+    """Writes the printed poster's wording from the advertisement's own text.
+    Allowed in every status except CLOSED -- the copy is usually wanted before
+    the posting goes live, and the poster itself is still PUBLISHED-only. Like
+    generate_content, the AI call happens before anything is written, so a
+    failure leaves the posting exactly as it was."""
+    _assert_not_closed(job_posting)
+    if not (job_posting.ad_body or "").strip() and not (job_posting.summary or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Add a job description before generating poster copy",
+        )
+    fields = ai_client.generate_poster_copy(client, job_posting, provider=provider)
+
+    before = snapshot(job_posting)
+    job_posting.poster_headline = fields["headline"].strip()[:60]
+    job_posting.poster_pitch = fields["pitch"].strip()[:240]
+    job_posting.poster_bullets = _clean_poster_bullets(fields["bullets"])
+    now = _now()
+    job_posting.poster_copy_generated_at = now
+    job_posting.last_edited_by_id = actor.id
+    job_posting.last_edited_at = now
+    db.flush()
+    _audit(
+        db, job_posting=job_posting, action="JOB_POSTING_POSTER_COPY_GENERATED", before=before, actor=actor,
+        request=request, ai_provider=provider, ai_model=settings.model_for(provider),
+    )
+    return job_posting
+
+
 # --- Review and publication -------------------------------------------------
 
 

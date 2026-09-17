@@ -64,6 +64,12 @@ class PosterContent:
     salary_text: str | None = None
     apply_deadline: date | None = None
     contact_email: str | None = None
+    # Poster copy (2026-09-16). Written by the AI from the job description and
+    # edited by a person; every one of them is optional and the poster falls
+    # back to its original fixed wording when they are unset.
+    headline: str | None = None
+    pitch: str | None = None
+    bullets: tuple[str, ...] = ()
 
 
 def _pdf_text(value: object) -> str:
@@ -106,6 +112,9 @@ def poster_content(job_posting) -> PosterContent:
         salary_text=_salary_text(job_posting.salary_min, job_posting.salary_max),
         apply_deadline=job_posting.apply_deadline,
         contact_email=job_posting.contact_email,
+        headline=job_posting.poster_headline,
+        pitch=job_posting.poster_pitch,
+        bullets=tuple(job_posting.poster_bullets or ()),
     )
 
 
@@ -160,7 +169,7 @@ def _hiring_block(canvas: Canvas, content: PosterContent, width: float, y: float
     label.setFont("Helvetica-Bold", 13)
     label.setFillColor(BLUE)
     label.setCharSpace(2.5)
-    label.textLine("WE ARE HIRING")
+    label.textLine(_pdf_text(content.headline.upper() if content.headline else "WE ARE HIRING"))
     # Character spacing is PDF text state and outlives this text object:
     # without the reset every later string is spaced out too, and the chips,
     # the URL and the reference run off the page.
@@ -187,6 +196,13 @@ def _hiring_block(canvas: Canvas, content: PosterContent, width: float, y: float
     canvas.setFillColor(MUTED)
     canvas.setFont("Helvetica", 15)
     canvas.drawString(MARGIN, y, _pdf_text(" · ".join(parts)))
+
+    if content.pitch:
+        y -= 24
+        y = _paragraph(
+            canvas, content.pitch, MARGIN, y, width - 2 * MARGIN,
+            size=12.5, leading=17, max_lines=2, color=INK,
+        ) + 17
 
     y -= 36
     chips = [content.category_label, content.employment_label]
@@ -264,6 +280,20 @@ def _details(canvas: Canvas, content: PosterContent, *, x: float, top: float, co
         y = _heading(canvas, "About the role", x, y)
         y = _paragraph(canvas, content.summary, x, y, column_width, size=11, leading=15, max_lines=5, color=MUTED)
         y -= 14
+
+    if content.bullets:
+        y = _heading(canvas, "Highlights", x, y)
+        for bullet in content.bullets:
+            if y - 30 < floor:
+                break
+            canvas.setFillColor(BLUE)
+            canvas.circle(x + 3, y + 4, 2.4, stroke=0, fill=1)
+            y = _paragraph(
+                canvas, bullet, x + 14, y, column_width - 14,
+                size=11, leading=15, max_lines=2, color=INK,
+            )
+            y -= 6
+        y -= 12
 
     y = _heading(canvas, "What you need", x, y)
     rows = (

@@ -258,6 +258,12 @@ def _default_openai_response(kwargs: dict) -> FakeOpenAIResponse:
             "preferred_skills": ["Research publications.", "Industry experience."],
             "application_process": "Apply online via the SIMATS careers portal.",
         }
+    elif "headline" in properties:
+        payload = {
+            "headline": "Join Our Faculty",
+            "pitch": "Teach and research at a NAAC A++ deemed university.",
+            "bullets": ["Full-time teaching post", "PhD required", "Chennai campus"],
+        }
     elif "eligibility_score" in properties:
         payload = {
             "eligibility_score": 82.5,
