@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 
 import { ApiError } from "@/api/client";
-import { getJobAd, getPosterBlob, getQrCodeBlob } from "@/api/jobDistribution";
+import { getJobAd, getQrCodeBlob } from "@/api/jobDistribution";
 import {
   approveJobPosting,
   closeJobPosting,
@@ -20,6 +20,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { DetailItem } from "@/components/job-postings/DetailItem";
 import { JobContentCard } from "@/components/job-postings/JobContentCard";
 import { PostingAuditCard } from "@/components/job-postings/PostingAuditCard";
+import { PosterCard } from "@/components/job-postings/PosterCard";
 import { PostingChannelsPanel } from "@/components/job-postings/PostingChannelsPanel";
 import { PostingHistoryCard } from "@/components/job-postings/PostingHistoryCard";
 import { PostingStatusBadge } from "@/components/job-postings/PostingStatusBadge";
@@ -183,22 +184,6 @@ export function JobPostingDetailPage() {
     },
     onError: fail("QR code generation failed"),
   });
-  const posterMutation = useMutation({
-    mutationFn: () => getPosterBlob(id!),
-    onSuccess: (blob) => {
-      setError(null);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${jobPosting?.posting_number ?? "job-posting"}-poster.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      toast.success("Poster downloaded.");
-    },
-    onError: fail("Could not create the poster"),
-  });
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -326,6 +311,13 @@ export function JobPostingDetailPage() {
 
           <JobContentCard key={jobPosting.updated_at} jobPosting={jobPosting} canEdit={canEdit} onChanged={refreshPosting} />
 
+          <PosterCard
+            jobPosting={jobPosting}
+            canEdit={canEdit}
+            canDownload={canDistribute && status === "PUBLISHED"}
+            onChanged={refreshPosting}
+          />
+
           <PostingChannelsPanel
             jobPosting={jobPosting}
             canPost={canDistribute}
@@ -430,15 +422,6 @@ export function JobPostingDetailPage() {
                   ) : null}
                 </DetailItem>
               </dl>
-              {canDistribute && status === "PUBLISHED" ? (
-                <div>
-                  <div className="mb-1 text-xs text-muted-foreground">Poster</div>
-                  <Button variant="outline" size="sm" disabled={posterMutation.isPending} onClick={() => posterMutation.mutate()}>
-                    {posterMutation.isPending ? "Preparing…" : "Download poster (PDF)"}
-                  </Button>
-                  <p className="mt-1 text-xs text-muted-foreground">A4, with the SIMATS seal, the apply link and its QR code.</p>
-                </div>
-              ) : null}
               {canDistribute && published && !closed ? (
                 <div>
                   <div className="mb-1 text-xs text-muted-foreground">QR code (apply link)</div>

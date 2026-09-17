@@ -108,6 +108,13 @@ const JOB_POSTING: JobPostingRead = {
   salary_min: null,
   salary_max: null,
   ai_generated_at: null,
+  poster_headline: null,
+  poster_pitch: null,
+  poster_bullets: null,
+  poster_copy_generated_at: null,
+  has_poster_background: false,
+  poster_background_enabled: false,
+  poster_background_generated_at: null,
   created_by_id: "u-hr",
   created_by_name: "Hema HR",
   submitted_for_review_by_id: null,
@@ -561,7 +568,10 @@ describe("JobPostingDetailPage", () => {
     renderPage();
     expect(await screen.findByText("Job description")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Generate with AI" })).not.toBeInTheDocument();
-    expect(mockedAiStatus).not.toHaveBeenCalled();
+    // The status endpoint itself IS still called: the poster card offers AI
+    // wording in every status but CLOSED, and asks the same endpoint. What
+    // must not come back after publication is the job-description draft,
+    // which the assertion above pins.
   });
 
   // --- E, F, G: channels --------------------------------------------------------------

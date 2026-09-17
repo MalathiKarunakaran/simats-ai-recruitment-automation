@@ -2,7 +2,8 @@ import type { JobPostingRead } from "@/api/types";
 
 /**
  * Neutral values for the JobPostingRead fields added with the job posting
- * review workflow (2026-09-15) -- detail facts, structured content, derived
+ * review workflow (2026-09-15) and the printed poster (2026-09-16/17) --
+ * detail facts, structured content, derived
  * position counts and the review trail. Spread into a fixture that predates
  * them and does not exercise them, so it keeps describing only what its own
  * test cares about.
@@ -42,6 +43,13 @@ export const JOB_POSTING_DETAIL_DEFAULTS: Pick<
   | "approved_by_name"
   | "approved_at"
   | "published_by_id"
+  | "poster_headline"
+  | "poster_pitch"
+  | "poster_bullets"
+  | "poster_copy_generated_at"
+  | "has_poster_background"
+  | "poster_background_enabled"
+  | "poster_background_generated_at"
   | "published_by_name"
 > = {
   vacancy_request_ref: null,
@@ -78,4 +86,11 @@ export const JOB_POSTING_DETAIL_DEFAULTS: Pick<
   approved_at: null,
   published_by_id: null,
   published_by_name: null,
+  poster_headline: null,
+  poster_pitch: null,
+  poster_bullets: null,
+  poster_copy_generated_at: null,
+  has_poster_background: false,
+  poster_background_enabled: false,
+  poster_background_generated_at: null,
 };

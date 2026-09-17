@@ -1158,6 +1158,19 @@ export interface JobPostingRead {
   salary_min: number | null;
   salary_max: number | null;
   ai_generated_at: string | null;
+  // The printed poster's own wording (2026-09-16) and the AI image behind
+  // its header band (2026-09-17). Both optional: a posting with none of
+  // them prints the poster it printed before they existed.
+  poster_headline: string | null;
+  poster_pitch: string | null;
+  poster_bullets: string[] | null;
+  poster_copy_generated_at: string | null;
+  // has_poster_background is whether an image EXISTS; poster_background_enabled
+  // is whether a person has approved it for printing. Different questions --
+  // generating never switches it on, and regenerating switches it off again.
+  has_poster_background: boolean;
+  poster_background_enabled: boolean;
+  poster_background_generated_at: string | null;
   // Review trail (2026-09-15).
   created_by_id: string | null;
   created_by_name: string | null;
@@ -1191,6 +1204,16 @@ export interface JobPostingUpdatePayload {
   location_id?: string | null;
   salary_min?: number | null;
   salary_max?: number | null;
+}
+
+// Mirrors app/schemas/job_posting.py::JobPostingPosterCopyUpdate. Separate
+// from JobPostingUpdatePayload on purpose: editing poster wording must not
+// send a posting under review back to draft. At most five bullets -- the
+// backend rejects a sixth with 422 rather than silently dropping it.
+export interface JobPostingPosterCopyPayload {
+  poster_headline?: string | null;
+  poster_pitch?: string | null;
+  poster_bullets?: string[] | null;
 }
 
 // Mirrors app/schemas/job_posting.py::JdAiStatusRead.
