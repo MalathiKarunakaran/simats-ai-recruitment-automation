@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from PIL import Image
 from reportlab.graphics import renderPDF
 from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics.shapes import Drawing
@@ -70,6 +71,10 @@ class PosterContent:
     headline: str | None = None
     pitch: str | None = None
     bullets: tuple[str, ...] = ()
+    # Poster background (2026-09-17). PNG bytes, already fetched by the caller
+    # -- this module does no IO -- and only ever passed in once a person has
+    # switched the image on for this posting.
+    background_png: bytes | None = None
 
 
 def _pdf_text(value: object) -> str:
@@ -90,7 +95,7 @@ def _salary_text(salary_min: float | None, salary_max: float | None) -> str | No
     return None
 
 
-def poster_content(job_posting) -> PosterContent:
+def poster_content(job_posting, background_png: bytes | None = None) -> PosterContent:
     """The posting's own (edited) content first, the request's for anything
     the posting does not carry."""
     vacancy_request = job_posting.approved_vacancy.vacancy_request
@@ -115,6 +120,7 @@ def poster_content(job_posting) -> PosterContent:
         headline=job_posting.poster_headline,
         pitch=job_posting.poster_pitch,
         bullets=tuple(job_posting.poster_bullets or ()),
+        background_png=background_png,
     )
 
 
@@ -138,10 +144,48 @@ def render_poster_pdf(content: PosterContent) -> bytes:
     return buf.getvalue()
 
 
+def _band_image(png: bytes, aspect: float) -> ImageReader | None:
+    """Centre-crops the generated image to the header band's aspect ratio.
+
+    The image model's widest output is 3:2 and the band is about 3.5:1, so
+    drawing the image into the band directly would squash it to a third of
+    its height. Cropping to fill is what a designer would do by hand. An
+    image that cannot be read at all returns None and the poster prints its
+    plain navy band -- a broken picture must never cost somebody the poster.
+    """
+    try:
+        image = Image.open(io.BytesIO(png))
+        image.load()
+    except (OSError, ValueError):
+        return None
+    if image.width / image.height >= aspect:
+        target_width, target_height = round(image.height * aspect), image.height
+    else:
+        target_width, target_height = image.width, round(image.width / aspect)
+    left = (image.width - target_width) // 2
+    top = (image.height - target_height) // 2
+    cropped = image.convert("RGB").crop((left, top, left + target_width, top + target_height))
+    buf = io.BytesIO()
+    cropped.save(buf, format="PNG")
+    buf.seek(0)
+    return ImageReader(buf)
+
+
 def _header(canvas: Canvas, content: PosterContent, width: float, height: float) -> None:
     band = 170
-    canvas.setFillColor(NAVY)
-    canvas.rect(0, height - band, width, band, stroke=0, fill=1)
+    background = _band_image(content.background_png, width / band) if content.background_png else None
+    if background is not None:
+        canvas.drawImage(background, 0, height - band, width, band, mask="auto")
+        # A scrim, not a tint: the wordmark, the campus name and the seal are
+        # white on this band and have to stay readable over any photograph.
+        canvas.saveState()
+        canvas.setFillAlpha(0.74)
+        canvas.setFillColor(NAVY)
+        canvas.rect(0, height - band, width, band, stroke=0, fill=1)
+        canvas.restoreState()
+    else:
+        canvas.setFillColor(NAVY)
+        canvas.rect(0, height - band, width, band, stroke=0, fill=1)
     canvas.setFillColor(BLUE)
     canvas.rect(0, height - band - 6, width, 6, stroke=0, fill=1)
 

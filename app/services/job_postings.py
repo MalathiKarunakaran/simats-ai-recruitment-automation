@@ -37,7 +37,7 @@ from app.models.enums import JobPostingStatusEnum
 from app.models.job_posting import JobPosting
 from app.models.location import Location
 from app.models.user import User
-from app.services import ai_client, job_channels
+from app.services import ai_client, job_channels, storage
 from app.services.audit import log_event
 
 _UNDER_REVIEW = (JobPostingStatusEnum.READY_FOR_REVIEW, JobPostingStatusEnum.APPROVED)
@@ -62,6 +62,11 @@ def snapshot(job_posting: JobPosting) -> dict:
         "apply_deadline": job_posting.apply_deadline.isoformat() if job_posting.apply_deadline else None,
         "contact_email": job_posting.contact_email,
         "is_active": job_posting.is_active,
+        "poster_headline": job_posting.poster_headline,
+        "poster_pitch": job_posting.poster_pitch,
+        "poster_bullets": list(job_posting.poster_bullets) if job_posting.poster_bullets is not None else None,
+        "poster_background_key": job_posting.poster_background_key,
+        "poster_background_enabled": job_posting.poster_background_enabled,
     }
 
 
@@ -277,6 +282,76 @@ def generate_poster_copy(
     _audit(
         db, job_posting=job_posting, action="JOB_POSTING_POSTER_COPY_GENERATED", before=before, actor=actor,
         request=request, ai_provider=provider, ai_model=settings.model_for(provider),
+    )
+    return job_posting
+
+
+def generate_poster_background(
+    db: Session,
+    *,
+    job_posting: JobPosting,
+    client: openai.OpenAI,
+    minio_client,
+    actor: User,
+    request: Request | None,
+) -> JobPosting:
+    """Generates the image that sits behind the poster's header band, stores
+    it, and leaves it SWITCHED OFF.
+
+    The switch is the point of this function. AI art printed under the SIMATS
+    seal and pinned to a public notice board is a reputational risk that no
+    test can catch, so nothing reaches a printed poster until a person has
+    looked at the preview and turned it on. A regenerate clears the switch
+    again, because the image somebody approved is not the image now stored.
+    """
+    _assert_not_closed(job_posting)
+    prompt = ai_client.poster_background_prompt(job_posting)
+    png = ai_client.generate_poster_background(client, prompt)
+    storage_key = storage.upload_poster_background(minio_client, job_posting_id=job_posting.id, data=png)
+
+    before = snapshot(job_posting)
+    job_posting.poster_background_key = storage_key
+    job_posting.poster_background_prompt = prompt
+    now = _now()
+    job_posting.poster_background_generated_at = now
+    job_posting.poster_background_enabled = False
+    job_posting.last_edited_by_id = actor.id
+    job_posting.last_edited_at = now
+    db.flush()
+    _audit(
+        db, job_posting=job_posting, action="JOB_POSTING_POSTER_BACKGROUND_GENERATED", before=before, actor=actor,
+        request=request, ai_provider="openai", ai_model=settings.OPENAI_IMAGE_MODEL,
+    )
+    return job_posting
+
+
+def set_poster_background_enabled(
+    db: Session,
+    *,
+    job_posting: JobPosting,
+    enabled: bool,
+    actor: User,
+    request: Request | None,
+) -> JobPosting:
+    """A person's decision that the generated image may be printed. Like the
+    poster copy it never touches the posting's status: approving a picture is
+    not approving an advertisement."""
+    _assert_not_closed(job_posting)
+    if enabled and not job_posting.poster_background_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Generate a poster background before switching it on",
+        )
+    if job_posting.poster_background_enabled == enabled:
+        return job_posting
+    before = snapshot(job_posting)
+    job_posting.poster_background_enabled = enabled
+    job_posting.last_edited_by_id = actor.id
+    job_posting.last_edited_at = _now()
+    db.flush()
+    _audit(
+        db, job_posting=job_posting, action="JOB_POSTING_POSTER_BACKGROUND_UPDATED", before=before, actor=actor,
+        request=request,
     )
     return job_posting
 

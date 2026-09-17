@@ -100,6 +100,24 @@ class JobPosting(Base):
     poster_pitch: Mapped[str | None] = mapped_column(String(240), nullable=True)
     poster_bullets: Mapped[list[str] | None] = mapped_column(ARRAY(String(160)), nullable=True)
     poster_copy_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # --- Poster background image (2026-09-17) -------------------------------
+    # An AI-generated image sitting behind the poster's navy header band. The
+    # PNG itself lives in MinIO (one object per posting, overwritten on a
+    # regenerate); only its key is here. `poster_background_enabled` is the
+    # human approval and starts false on every generation -- AI art under the
+    # SIMATS seal on a public notice board is printed only once somebody has
+    # looked at it.
+    poster_background_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    poster_background_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    poster_background_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    poster_background_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+
+    @property
+    def has_poster_background(self) -> bool:
+        """Whether an image exists at all, which is a different question from
+        whether it may be printed (`poster_background_enabled`). The storage
+        key itself is plumbing and stays off the API."""
+        return bool(self.poster_background_key)
     # --- Review trail (2026-09-15) ------------------------------------------
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True

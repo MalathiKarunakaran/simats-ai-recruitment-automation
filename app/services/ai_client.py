@@ -39,6 +39,7 @@ Qwen3's "thinking" is switched off per request (`_provider_extra`) and a
 carries one (`_strip_thinking`).
 """
 
+import base64
 import json
 import re
 
@@ -47,6 +48,7 @@ import openai
 from fastapi import HTTPException, status
 
 from app.core.config import settings
+from app.models.enums import StaffRoleCategoryEnum
 from app.models.vacancy_request import VacancyRequest
 
 JD_JSON_SCHEMA = {
@@ -203,6 +205,32 @@ def get_jd_ai_client() -> openai.OpenAI:
             settings.jd_ai_provider, setting_name="JD_AI_PROVIDER", raw_value=settings.JD_AI_PROVIDER
         )
     return get_openai_client()
+
+
+def get_image_ai_client() -> openai.OpenAI:
+    """FastAPI dependency for poster background images (2026-09-17).
+
+    Deliberately NOT routed through AI_PROVIDER/JD_AI_PROVIDER like every
+    other call in this module: Ollama has no image generation at all, so a
+    site running Qwen3 for text still needs OpenAI for a picture. Asking for
+    OPENAI_API_KEY directly is the honest version of that -- the alternative
+    is a 502 from the Ollama endpoint that reads like an outage.
+    """
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI image generation is not configured (OPENAI_API_KEY is not set)",
+        )
+    return openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+
+
+def image_ai_status() -> dict:
+    """Whether a poster background can be generated, without calling anyone."""
+    try:
+        get_image_ai_client()
+    except HTTPException as exc:
+        return {"configured": False, "provider": "openai", "model": None, "message": exc.detail}
+    return {"configured": True, "provider": "openai", "model": settings.OPENAI_IMAGE_MODEL, "message": None}
 
 
 def jd_ai_status() -> dict:
@@ -435,6 +463,59 @@ def generate_poster_copy(client: openai.OpenAI, job_posting, *, provider: str) -
         },
     )
     return _parse_openai_structured_json(response)
+
+
+_POSTER_BACKGROUND_PROMPT = """A photographic background image for a printed university recruitment poster for SIMATS (Saveetha Institute of Medical and Technical Sciences), a deemed university in Chennai, India.
+
+Subject: {subject}
+
+Composition: a wide banner, shot from a distance, with the interest in the left third and the right two thirds calm and uncluttered -- text and a seal are printed over this image.
+Style: real photography, natural daylight, deep blues and cool neutrals, softly out of focus.
+Absolutely no text, lettering, numerals, signage, watermarks, logos, crests or seals of any kind.
+No recognisable faces and no people in the foreground."""
+
+_POSTER_BACKGROUND_SUBJECTS = {
+    StaffRoleCategoryEnum.TEACHING: "a modern university campus building and a quiet tree-lined walkway",
+    StaffRoleCategoryEnum.NON_TEACHING: "a bright university administrative building and open courtyard",
+    StaffRoleCategoryEnum.HOUSEKEEPING: "clean sunlit corridors and landscaped grounds of a university campus",
+}
+
+
+def poster_background_prompt(job_posting) -> str:
+    """Built from the posting rather than typed, so the same kind of post gets
+    the same kind of picture and the recorded prompt explains any image that
+    was printed. Never includes the job title or any wording: the model is
+    asked for a background, and asked for no lettering at all, because a
+    poster that misspells its own job title in AI-rendered text is worse than
+    a poster with no picture."""
+    subject = _POSTER_BACKGROUND_SUBJECTS.get(
+        job_posting.role_category, _POSTER_BACKGROUND_SUBJECTS[StaffRoleCategoryEnum.TEACHING]
+    )
+    return _POSTER_BACKGROUND_PROMPT.format(subject=subject)
+
+
+def generate_poster_background(client: openai.OpenAI, prompt: str) -> bytes:
+    """Returns PNG bytes. 1536x1024 is the widest size the image model offers
+    and the poster header is wider still, so the renderer crops it -- see
+    job_poster._band_image."""
+    response = _call_openai(
+        client.images.generate,
+        model=settings.OPENAI_IMAGE_MODEL,
+        prompt=prompt,
+        size="1536x1024",
+        n=1,
+    )
+    encoded = response.data[0].b64_json if response.data else None
+    if not encoded:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned no image"
+        )
+    try:
+        return base64.b64decode(encoded)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unreadable image"
+        ) from exc
 
 
 def _posting_jd_user_content(job_posting, additional_instructions: str | None) -> str:

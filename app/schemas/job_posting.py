@@ -74,6 +74,9 @@ class JobPostingRead(BaseModel):
     poster_pitch: str | None
     poster_bullets: list[str] | None
     poster_copy_generated_at: datetime | None
+    has_poster_background: bool
+    poster_background_enabled: bool
+    poster_background_generated_at: datetime | None
     # Review trail (2026-09-15).
     created_by_id: uuid.UUID | None
     created_by_name: str | None
@@ -107,6 +110,14 @@ class JobPostingPosterCopyUpdate(BaseModel):
     poster_headline: str | None = Field(default=None, max_length=60)
     poster_pitch: str | None = Field(default=None, max_length=240)
     poster_bullets: list[str] | None = Field(default=None, max_length=5)
+
+
+class JobPostingPosterBackgroundUpdate(BaseModel):
+    """A person's decision that the generated image may be printed. Switching
+    it on with no image stored is refused -- see
+    services.job_postings.set_poster_background_enabled."""
+
+    enabled: bool
 
 
 class JobPostingUpdate(BaseModel):

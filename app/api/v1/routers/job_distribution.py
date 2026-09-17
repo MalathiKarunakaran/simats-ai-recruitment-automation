@@ -4,6 +4,7 @@ from datetime import date, datetime, time, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from minio import Minio
 from sqlalchemy.orm import Session
 
 from app.core.deps import (
@@ -33,8 +34,9 @@ from app.schemas.job_posting_channel import (
     RecommendChannelsResponse,
     ReviewChannelRequest,
 )
-from app.services import job_channels, job_distribution, job_poster
+from app.services import job_channels, job_distribution, job_poster, storage
 from app.services.n8n_client import N8nClient, get_n8n_client, get_n8n_client_or_503
+from app.services.storage import get_minio_client
 
 router = APIRouter(prefix="/job-postings", tags=["job-distribution"])
 
@@ -102,6 +104,7 @@ def get_poster(
     current_user: User = Depends(_distribute_gate),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),
+    minio_client: Minio = Depends(get_minio_client),
 ) -> StreamingResponse:
     """A printable A4 poster (PDF) with the SIMATS seal, the job and a QR code
     for its apply page. Only for a PUBLISHED posting: before that there is no
@@ -113,7 +116,15 @@ def get_poster(
             status_code=status.HTTP_409_CONFLICT,
             detail="A poster is only available for a published job posting: its QR code opens the public apply page.",
         )
-    pdf_bytes = job_poster.render_poster_pdf(job_poster.poster_content(posting))
+    # Only a background somebody has switched on is printed, and only if
+    # storage answers: try_download_ returns None rather than raising, so an
+    # unreachable MinIO costs the picture and not the poster.
+    background_png = (
+        storage.try_download_poster_background_bytes(minio_client, posting.poster_background_key)
+        if posting.poster_background_enabled and posting.poster_background_key
+        else None
+    )
+    pdf_bytes = job_poster.render_poster_pdf(job_poster.poster_content(posting, background_png))
     filename = f"{posting.posting_number or posting.public_apply_slug}-poster.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

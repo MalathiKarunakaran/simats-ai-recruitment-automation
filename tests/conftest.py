@@ -12,6 +12,8 @@ transaction" recipe), so router code calling `db.commit()` behaves normally
 within a test while nothing is ever persisted between tests.
 """
 
+import base64
+import io
 import json
 import os
 import uuid
@@ -20,6 +22,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
@@ -63,7 +66,7 @@ from app.models.user_permission_grant import UserPermissionGrant
 from app.models.vacancy_request import VacancyRequest
 from app.services import joining as joining_service
 from app.services import job_postings, pipeline, vacancy_workflow
-from app.services.ai_client import get_ai_client, get_jd_ai_client, get_openai_client
+from app.services.ai_client import get_ai_client, get_image_ai_client, get_jd_ai_client, get_openai_client
 from app.services.permissions import seed_default_permissions
 from app.services.storage import get_minio_client
 from app.services.vector_store import get_chroma_collection
@@ -290,19 +293,40 @@ def _default_openai_response(kwargs: dict) -> FakeOpenAIResponse:
     return FakeOpenAIResponse(FakeOpenAIChoiceMessage(content=json.dumps(payload)))
 
 
+def fake_png_bytes(width: int = 1536, height: int = 1024, colour: str = "#1D4ED8") -> bytes:
+    """A real PNG, not a placeholder string: the poster renderer opens the
+    image with Pillow and centre-crops it, so a fake has to survive that."""
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), colour).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class FakeOpenAIImagesResponse:
+    def __init__(self, b64: str | None):
+        self.data = [SimpleNamespace(b64_json=b64)] if b64 is not None else []
+
+
 class FakeOpenAIClient:
     """Fake for app.services.ai_client.get_openai_client. `response_provider`
     defaults to _default_openai_response; tests that need to exercise the
     exception->HTTP mapping in ai_client._call_openai swap in a provider (or
     a `.chat.completions.create` override) that raises a real
-    `openai.*Error`."""
+    `openai.*Error`. `images.generate` answers poster-background calls with a
+    real PNG the same way."""
 
-    def __init__(self, response_provider=_default_openai_response):
+    def __init__(self, response_provider=_default_openai_response, image_provider=None):
         self.response_provider = response_provider
+        self.image_provider = image_provider or (
+            lambda kwargs: FakeOpenAIImagesResponse(base64.b64encode(fake_png_bytes()).decode())
+        )
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        self.images = SimpleNamespace(generate=self._generate_image)
 
     def _create(self, **kwargs):
         return self.response_provider(kwargs)
+
+    def _generate_image(self, **kwargs):
+        return self.image_provider(kwargs)
 
 
 class _FakeMinioResponse:
@@ -467,6 +491,7 @@ def client(db_session, fake_ai_client, fake_openai_client, fake_minio_client, fa
     app.dependency_overrides[get_ai_client] = lambda: fake_ai_client
     app.dependency_overrides[get_openai_client] = lambda: fake_openai_client
     app.dependency_overrides[get_jd_ai_client] = lambda: fake_openai_client
+    app.dependency_overrides[get_image_ai_client] = lambda: fake_openai_client
     app.dependency_overrides[get_minio_client] = lambda: fake_minio_client
     app.dependency_overrides[get_chroma_collection] = lambda: fake_chroma_collection
     with TestClient(app) as test_client:

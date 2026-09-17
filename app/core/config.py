@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # leave blank to run without live AI calls; tests override get_openai_client.
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o"
+    # Poster background images (2026-09-17). OpenAI only: image generation
+    # has no Ollama equivalent, so this never follows AI_PROVIDER.
+    OPENAI_IMAGE_MODEL: str = "gpt-image-1"
 
     # --- AI provider switch (2026-09-07, RMS step 6) ---
     # Which service answers every generation call in app/services/ai_client.py
@@ -71,6 +74,10 @@ class Settings(BaseSettings):
     # Degree/experience certificates, PAN, Aadhaar, photo, bank details --
     # one object per JoiningDocument row, keys `{application_id}/{type}/{name}`.
     MINIO_BUCKET_JOINING_DOCUMENTS: str = "joining-documents"
+    # --- MinIO (2026-09-17): AI-generated poster background images ---
+    # One object per posting, key `{job_posting_id}/background.png`, so a
+    # regenerated image replaces the one before it.
+    MINIO_BUCKET_POSTER_BACKGROUNDS: str = "poster-backgrounds"
     MINIO_USE_SSL: bool = False
 
     # --- ChromaDB (Phase 3: resume embeddings / semantic JD matching) ---

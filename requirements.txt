@@ -22,3 +22,6 @@ python-pptx>=1.0
 qrcode[pil]>=7.4
 # Printable A4 job posting posters (app/services/job_poster.py, 2026-09-15).
 reportlab>=4.2
+# Already a reportlab dependency; imported directly by app/services/job_poster.py
+# to crop a generated background image to the poster header's aspect ratio.
+pillow>=11.0

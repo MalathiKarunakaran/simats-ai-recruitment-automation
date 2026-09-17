@@ -1,7 +1,10 @@
+import io
 import uuid
 
 import openai
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
+from minio import Minio
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -29,13 +32,15 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.job_posting import (
     JdAiStatusRead,
     JobPostingGenerateContentRequest,
+    JobPostingPosterBackgroundUpdate,
     JobPostingPosterCopyUpdate,
     JobPostingRead,
     JobPostingReturnToDraftRequest,
     JobPostingUpdate,
 )
 from app.schemas.resume_score import RankedApplicationRead
-from app.services import ai_client, job_postings, vacancy_workflow
+from app.services import ai_client, job_postings, storage, vacancy_workflow
+from app.services.storage import get_minio_client
 
 router = APIRouter(prefix="/job-postings", tags=["job-postings"])
 
@@ -103,6 +108,15 @@ def get_content_generation_status(current_user: User = Depends(_staff_only)) -> 
     """Whether "Generate with AI" is available, so the screen can say "not
     configured" before anyone clicks. Makes no call to the AI."""
     return ai_client.jd_ai_status()
+
+
+@router.get("/poster-background/status", response_model=JdAiStatusRead)
+def get_poster_background_status(current_user: User = Depends(_staff_only)) -> dict:
+    """Whether a poster background can be generated, so the screen can say
+    "not configured" before anyone clicks. Answers without calling the AI, and
+    reports OpenAI whatever AI_PROVIDER says -- images have no Ollama
+    equivalent."""
+    return ai_client.image_ai_status()
 
 
 @router.get("/{job_posting_id}", response_model=JobPostingRead)
@@ -313,6 +327,66 @@ def update_job_posting_poster_copy(
     posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
     job_postings.update_poster_copy(
         db, job_posting=posting, changes=payload.model_dump(exclude_unset=True), actor=current_user, request=request
+    )
+    return _committed(db, posting)
+
+
+@router.post("/{job_posting_id}/generate-poster-background", response_model=JobPostingRead)
+def generate_job_posting_poster_background(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+    # Last, so a caller without the permission gets 403, not 503.
+    ai: openai.OpenAI = Depends(ai_client.get_image_ai_client),
+    minio_client: Minio = Depends(get_minio_client),
+) -> JobPosting:
+    """Draws the image that sits behind the poster's header band. It is stored
+    switched OFF: nothing reaches a printed poster until somebody has opened
+    the preview and turned it on."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.generate_poster_background(
+        db, job_posting=posting, client=ai, minio_client=minio_client, actor=current_user, request=request
+    )
+    return _committed(db, posting)
+
+
+@router.get("/{job_posting_id}/poster-background")
+def get_job_posting_poster_background(
+    job_posting_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> StreamingResponse:
+    """The generated image itself, for the preview a person approves from."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    if not posting.poster_background_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="This job posting has no poster background"
+        )
+    png = storage.download_poster_background_bytes(minio_client, posting.poster_background_key)
+    return StreamingResponse(io.BytesIO(png), media_type="image/png")
+
+
+@router.patch("/{job_posting_id}/poster-background", response_model=JobPostingRead)
+def update_job_posting_poster_background(
+    job_posting_id: uuid.UUID,
+    payload: JobPostingPosterBackgroundUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    """Switches the generated image on or off for printing. Like the poster
+    copy this never moves the posting's own status."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.set_poster_background_enabled(
+        db, job_posting=posting, enabled=payload.enabled, actor=current_user, request=request
     )
     return _committed(db, posting)
 
