@@ -150,6 +150,18 @@ describe("PosterCard", () => {
     await waitFor(() => expect(mockedSetEnabled).toHaveBeenCalledWith("jp-1", true));
   });
 
+  it("says how long drawing takes, before and during the wait", async () => {
+    // Measured against the real model on production 2026-09-17: 51 seconds.
+    // A button that only says "Drawing…" for that long reads as hung.
+    const user = userEvent.setup();
+    mockedGenerateBackground.mockReturnValue(new Promise(() => {}));
+    renderCard();
+
+    expect(screen.getByText(/Drawing one takes about a minute/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Draw with AI" }));
+    expect(await screen.findByRole("button", { name: /about a minute/ })).toBeDisabled();
+  });
+
   it("offers to take an approved image back off the poster", async () => {
     const user = userEvent.setup();
     renderCard({ has_poster_background: true, poster_background_enabled: true });

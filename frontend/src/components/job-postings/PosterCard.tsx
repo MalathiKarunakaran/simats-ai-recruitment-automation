@@ -255,7 +255,7 @@ export function PosterCard({ jobPosting, canEdit, canDownload, onChanged }: Post
                 onClick={() => generateBackground.mutate()}
               >
                 {generateBackground.isPending
-                  ? "Drawing…"
+                  ? "Drawing… (about a minute)"
                   : jobPosting.has_poster_background
                     ? "Draw a new one"
                     : "Draw with AI"}
@@ -321,8 +321,8 @@ export function PosterCard({ jobPosting, canEdit, canDownload, onChanged }: Post
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              No background image. The poster prints its plain navy header. A new image is always switched off until
-              somebody looks at it.
+              No background image. The poster prints its plain navy header. Drawing one takes about a minute, and a
+              new image is always switched off until somebody looks at it.
             </p>
           )}
         </section>
