@@ -21,6 +21,7 @@ import { HousekeepingStaffListPage } from "@/pages/HousekeepingStaffListPage";
 import { InterviewCreatePage } from "@/pages/InterviewCreatePage";
 import { InterviewDetailPage } from "@/pages/InterviewDetailPage";
 import { InterviewsListPage } from "@/pages/InterviewsListPage";
+import { CampaignPosterPage } from "@/pages/CampaignPosterPage";
 import { JobPostingDetailPage } from "@/pages/JobPostingDetailPage";
 import { JobPostingsListPage } from "@/pages/JobPostingsListPage";
 import { LocationsPage } from "@/pages/LocationsPage";
@@ -97,6 +98,7 @@ export function App() {
           <Route path="/employees/:id" element={<EmployeeDetailPage />} />
           <Route path="/job-postings" element={<JobPostingsListPage />} />
           <Route path="/job-postings/:id" element={<JobPostingDetailPage />} />
+          <Route path="/campaign-poster" element={<CampaignPosterPage />} />
           <Route path="/onboarding" element={<OnboardingListPage />} />
           <Route path="/import-tracker" element={<TrackerImportPage />} />
           <Route path="/activity-log" element={<ActivityLogPage />} />

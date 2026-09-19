@@ -111,6 +111,23 @@ export async function getPosterBackgroundBlob(id: string): Promise<Blob> {
   return apiFetchBlob(`/job-postings/${id}/poster-background`);
 }
 
+// The role photo on a campaign poster: same generate / look / switch on
+// rules as the background, and the same image-model status check.
+export async function generateRolePhoto(id: string): Promise<JobPostingRead> {
+  return apiFetch<JobPostingRead>(`/job-postings/${id}/generate-role-photo`, { method: "POST" });
+}
+
+export async function setRolePhotoEnabled(id: string, enabled: boolean): Promise<JobPostingRead> {
+  return apiFetch<JobPostingRead>(`/job-postings/${id}/role-photo`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export async function getRolePhotoBlob(id: string): Promise<Blob> {
+  return apiFetchBlob(`/job-postings/${id}/role-photo`);
+}
+
 // Images come from OpenAI whatever AI_PROVIDER says -- Ollama has none -- so
 // this is a separate check from getContentGenerationStatus.
 export async function getPosterBackgroundStatus(): Promise<JdAiStatusRead> {

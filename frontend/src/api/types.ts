@@ -1171,6 +1171,11 @@ export interface JobPostingRead {
   has_poster_background: boolean;
   poster_background_enabled: boolean;
   poster_background_generated_at: string | null;
+  // The photograph of the work printed beside this role on a multi-role
+  // campaign poster (2026-09-18). Same exists-vs-approved split as above.
+  has_role_photo: boolean;
+  role_photo_enabled: boolean;
+  role_photo_generated_at: string | null;
   // Review trail (2026-09-15).
   created_by_id: string | null;
   created_by_name: string | null;

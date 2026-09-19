@@ -1,18 +1,22 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { ApiError } from "@/api/client";
 import { getPosterBlob } from "@/api/jobDistribution";
 import {
   generatePosterBackground,
   generatePosterCopy,
+  generateRolePhoto,
   getContentGenerationStatus,
   getPosterBackgroundBlob,
   getPosterBackgroundStatus,
+  getRolePhotoBlob,
   setPosterBackgroundEnabled,
+  setRolePhotoEnabled,
   updatePosterCopy,
 } from "@/api/jobPostings";
 import type { JobPostingPosterCopyPayload, JobPostingRead } from "@/api/types";
+import { ArtworkSection, type ArtworkLabels } from "@/components/job-postings/ArtworkSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +31,46 @@ import { useToast } from "@/components/ui/toast";
 const MAX_BULLETS = 5;
 const HEADLINE_MAX = 60;
 const PITCH_MAX = 240;
+
+const BACKGROUND_LABELS: ArtworkLabels = {
+  title: "Background image",
+  alt: "Generated poster background",
+  draw: "Draw with AI",
+  redraw: "Draw a new one",
+  use: "Use it on the poster",
+  stop: "Do not print it",
+  approvedHint: "This image sits behind the poster's header band.",
+  pendingHint: "Look at it at full size before you switch it on — it will be printed under the SIMATS seal.",
+  empty:
+    "No background image. The poster prints its plain navy header. Drawing one takes about a minute, and a new image is always switched off until somebody looks at it.",
+  unavailableSuffix: "The poster prints its plain header.",
+  drawnToast: "Background image drawn. Look at it before switching it on.",
+  enabledToast: "The image will be printed on the poster.",
+  disabledToast: "The image will not be printed.",
+  drawFailed: "Could not draw the background image",
+  switchFailed: "Could not change the background image",
+};
+
+// Printed beside this role on a multi-role campaign poster (Job Postings >
+// Campaign poster), never on this posting's own single-role poster.
+const ROLE_PHOTO_LABELS: ArtworkLabels = {
+  title: "Role photo (campaign poster)",
+  alt: "Generated role photo",
+  draw: "Draw role photo",
+  redraw: "Draw a new photo",
+  use: "Use it on campaign posters",
+  stop: "Leave it off campaign posters",
+  approvedHint: "Printed beside this role on a campaign poster.",
+  pendingHint: "Look at it at full size before you switch it on — it is printed beside this role on campaign posters.",
+  empty:
+    "No role photo. On a campaign poster this role prints without a picture. Drawing one takes about a minute, and a new photo is always switched off until somebody looks at it.",
+  unavailableSuffix: "Campaign posters print this role without a picture.",
+  drawnToast: "Role photo drawn. Look at it before switching it on.",
+  enabledToast: "The photo will be printed on campaign posters.",
+  disabledToast: "The photo will not be printed.",
+  drawFailed: "Could not draw the role photo",
+  switchFailed: "Could not change the role photo",
+};
 
 interface CopyForm {
   headline: string;
@@ -56,7 +100,6 @@ export function PosterCard({ jobPosting, canEdit, canDownload, onChanged }: Post
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [form, setForm] = useState<CopyForm>(() => formFrom(jobPosting));
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const closed = jobPosting.status === "CLOSED";
   const hasCopy = Boolean(jobPosting.poster_headline || jobPosting.poster_pitch || jobPosting.poster_bullets?.length);
@@ -75,19 +118,6 @@ export function PosterCard({ jobPosting, canEdit, canDownload, onChanged }: Post
     enabled: canEdit && !closed,
   });
 
-  const { data: previewBlob } = useQuery({
-    queryKey: ["poster-background", jobPosting.id, jobPosting.poster_background_generated_at],
-    queryFn: () => getPosterBackgroundBlob(jobPosting.id),
-    enabled: jobPosting.has_poster_background,
-  });
-
-  useEffect(() => {
-    if (!previewBlob) return;
-    const url = URL.createObjectURL(previewBlob);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [previewBlob]);
-
   function fail(fallback: string) {
     return (err: unknown) => setError(err instanceof ApiError ? err.message : fallback);
   }
@@ -98,6 +128,7 @@ export function PosterCard({ jobPosting, canEdit, canDownload, onChanged }: Post
       toast.success(message);
     };
   }
+  const artworkDone = (message: string) => done(message)();
 
   const generateCopy = useMutation({
     mutationFn: () => generatePosterCopy(jobPosting.id),
@@ -120,19 +151,6 @@ export function PosterCard({ jobPosting, canEdit, canDownload, onChanged }: Post
       done("Poster wording saved.")();
     },
     onError: fail("Could not save the poster wording"),
-  });
-
-  const generateBackground = useMutation({
-    mutationFn: () => generatePosterBackground(jobPosting.id),
-    onSuccess: done("Background image drawn. Look at it before switching it on."),
-    onError: fail("Could not draw the background image"),
-  });
-
-  const switchBackground = useMutation({
-    mutationFn: (enabled: boolean) => setPosterBackgroundEnabled(jobPosting.id, enabled),
-    onSuccess: (posting) =>
-      done(posting.poster_background_enabled ? "The image will be printed on the poster." : "The image will not be printed.")(),
-    onError: fail("Could not change the background image"),
   });
 
   const download = useMutation({
@@ -164,7 +182,8 @@ export function PosterCard({ jobPosting, canEdit, canDownload, onChanged }: Post
 
   const copyAiUnavailable = copyAiStatus !== undefined && !copyAiStatus.configured;
   const imageAiUnavailable = imageAiStatus !== undefined && !imageAiStatus.configured;
-  const busy = generateCopy.isPending || generateBackground.isPending || switchBackground.isPending;
+  const busy = generateCopy.isPending;
+  const editable = canEdit && !closed;
 
   return (
     <Card>
@@ -243,89 +262,41 @@ export function PosterCard({ jobPosting, canEdit, canDownload, onChanged }: Post
           )}
         </section>
 
-        {/* --- Background image ------------------------------------------- */}
-        <section className="flex flex-col gap-3 border-t border-border pt-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-medium">Background image</h3>
-            {canEdit && !closed ? (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy || imageAiUnavailable}
-                onClick={() => generateBackground.mutate()}
-              >
-                {generateBackground.isPending
-                  ? "Drawing… (about a minute)"
-                  : jobPosting.has_poster_background
-                    ? "Draw a new one"
-                    : "Draw with AI"}
-              </Button>
-            ) : null}
-          </div>
+        <ArtworkSection
+          jobPostingId={jobPosting.id}
+          exists={jobPosting.has_poster_background}
+          enabled={jobPosting.poster_background_enabled}
+          generatedAt={jobPosting.poster_background_generated_at}
+          editable={editable}
+          disabled={busy}
+          imageAiUnavailable={imageAiUnavailable}
+          imageAiMessage={imageAiStatus?.message}
+          previewQueryKey="poster-background"
+          getBlob={getPosterBackgroundBlob}
+          generate={generatePosterBackground}
+          setEnabled={setPosterBackgroundEnabled}
+          labels={BACKGROUND_LABELS}
+          onDone={artworkDone}
+          onError={fail}
+        />
 
-          {canEdit && !closed && imageAiUnavailable ? (
-            <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              {imageAiStatus?.message}. The poster prints its plain header.
-            </p>
-          ) : null}
-
-          {jobPosting.has_poster_background ? (
-            <div className="flex flex-wrap items-start gap-4">
-              {previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt="Generated poster background"
-                  className="h-24 w-36 rounded-md border border-border object-cover"
-                />
-              ) : (
-                <div className="flex h-24 w-36 items-center justify-center rounded-md border border-border text-xs text-muted-foreground">
-                  Loading…
-                </div>
-              )}
-              <div className="flex min-w-0 flex-col gap-2">
-                {jobPosting.poster_background_enabled ? (
-                  <Badge variant="success">Printed on the poster</Badge>
-                ) : (
-                  <Badge variant="warning">Not printed yet</Badge>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  {jobPosting.poster_background_enabled
-                    ? "This image sits behind the poster's header band."
-                    : "Look at it at full size before you switch it on — it will be printed under the SIMATS seal."}
-                </p>
-                {canEdit && !closed ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant={jobPosting.poster_background_enabled ? "outline" : "default"}
-                      disabled={busy}
-                      onClick={() => switchBackground.mutate(!jobPosting.poster_background_enabled)}
-                    >
-                      {jobPosting.poster_background_enabled ? "Do not print it" : "Use it on the poster"}
-                    </Button>
-                    {previewUrl ? (
-                      <Button variant="outline" size="sm" asChild>
-                        <a href={previewUrl} target="_blank" rel="noreferrer">
-                          View full size
-                        </a>
-                      </Button>
-                    ) : null}
-                  </div>
-                ) : null}
-                {jobPosting.poster_background_generated_at ? (
-                  <p className="text-xs text-muted-foreground">
-                    Drawn {new Date(jobPosting.poster_background_generated_at).toLocaleString()}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              No background image. The poster prints its plain navy header. Drawing one takes about a minute, and a
-              new image is always switched off until somebody looks at it.
-            </p>
-          )}
-        </section>
+        <ArtworkSection
+          jobPostingId={jobPosting.id}
+          exists={jobPosting.has_role_photo}
+          enabled={jobPosting.role_photo_enabled}
+          generatedAt={jobPosting.role_photo_generated_at}
+          editable={editable}
+          disabled={busy}
+          imageAiUnavailable={imageAiUnavailable}
+          imageAiMessage={imageAiStatus?.message}
+          previewQueryKey="role-photo"
+          getBlob={getRolePhotoBlob}
+          generate={generateRolePhoto}
+          setEnabled={setRolePhotoEnabled}
+          labels={ROLE_PHOTO_LABELS}
+          onDone={artworkDone}
+          onError={fail}
+        />
       </CardContent>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

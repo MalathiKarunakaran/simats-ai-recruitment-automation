@@ -50,6 +50,9 @@ export const JOB_POSTING_DETAIL_DEFAULTS: Pick<
   | "has_poster_background"
   | "poster_background_enabled"
   | "poster_background_generated_at"
+  | "has_role_photo"
+  | "role_photo_enabled"
+  | "role_photo_generated_at"
   | "published_by_name"
 > = {
   vacancy_request_ref: null,
@@ -93,4 +96,7 @@ export const JOB_POSTING_DETAIL_DEFAULTS: Pick<
   has_poster_background: false,
   poster_background_enabled: false,
   poster_background_generated_at: null,
+  has_role_photo: false,
+  role_photo_enabled: false,
+  role_photo_generated_at: null,
 };

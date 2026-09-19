@@ -22,6 +22,9 @@ const mockedBackgroundBlob = vi.mocked(jobPostingsApi.getPosterBackgroundBlob);
 const mockedCopyStatus = vi.mocked(jobPostingsApi.getContentGenerationStatus);
 const mockedImageStatus = vi.mocked(jobPostingsApi.getPosterBackgroundStatus);
 const mockedPosterBlob = vi.mocked(jobDistributionApi.getPosterBlob);
+const mockedGenerateRolePhoto = vi.mocked(jobPostingsApi.generateRolePhoto);
+const mockedSetRolePhoto = vi.mocked(jobPostingsApi.setRolePhotoEnabled);
+const mockedRolePhotoBlob = vi.mocked(jobPostingsApi.getRolePhotoBlob);
 
 const POSTING: JobPostingRead = {
   ...JOB_POSTING_DETAIL_DEFAULTS,
@@ -83,6 +86,9 @@ describe("PosterCard", () => {
     mockedSetEnabled.mockResolvedValue(POSTING);
     mockedBackgroundBlob.mockResolvedValue(new Blob(["png"], { type: "image/png" }));
     mockedPosterBlob.mockResolvedValue(new Blob(["pdf"], { type: "application/pdf" }));
+    mockedGenerateRolePhoto.mockResolvedValue(POSTING);
+    mockedSetRolePhoto.mockResolvedValue(POSTING);
+    mockedRolePhotoBlob.mockResolvedValue(new Blob(["png"], { type: "image/png" }));
   });
 
   it("says what the poster prints when nothing has been written or drawn", () => {
@@ -157,7 +163,8 @@ describe("PosterCard", () => {
     mockedGenerateBackground.mockReturnValue(new Promise(() => {}));
     renderCard();
 
-    expect(screen.getByText(/Drawing one takes about a minute/)).toBeInTheDocument();
+    // Said twice: once for the background, once for the role photo.
+    expect(screen.getAllByText(/Drawing one takes about a minute/)).toHaveLength(2);
     await user.click(screen.getByRole("button", { name: "Draw with AI" }));
     expect(await screen.findByRole("button", { name: /about a minute/ })).toBeDisabled();
   });
@@ -180,8 +187,9 @@ describe("PosterCard", () => {
     });
     renderCard();
 
-    expect(await screen.findByText(/AI image generation is not configured/)).toBeInTheDocument();
+    expect(await screen.findAllByText(/AI image generation is not configured/)).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Draw with AI" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Draw role photo" })).toBeDisabled();
   });
 
   it("surfaces the server's own refusal", async () => {
@@ -191,6 +199,30 @@ describe("PosterCard", () => {
 
     await user.click(screen.getByRole("button", { name: "Draft with AI" }));
     expect(await screen.findByText("Add a job description before generating poster copy")).toBeInTheDocument();
+  });
+
+  it("draws a role photo for campaign posters, separately from the background", async () => {
+    const user = userEvent.setup();
+    const { onChanged } = renderCard();
+
+    expect(screen.getByText(/On a campaign poster this role prints without a picture/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Draw role photo" }));
+
+    await waitFor(() => expect(mockedGenerateRolePhoto).toHaveBeenCalledWith("jp-1"));
+    expect(mockedGenerateBackground).not.toHaveBeenCalled();
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it("keeps a drawn role photo off campaign posters until somebody switches it on", async () => {
+    const user = userEvent.setup();
+    renderCard({ has_role_photo: true, role_photo_enabled: false });
+
+    expect(await screen.findByText("Not printed yet")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "Generated role photo" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Use it on campaign posters" }));
+
+    await waitFor(() => expect(mockedSetRolePhoto).toHaveBeenCalledWith("jp-1", true));
+    expect(mockedSetEnabled).not.toHaveBeenCalled();
   });
 
   it("only offers the download to someone who may print it", () => {
@@ -203,6 +235,7 @@ describe("PosterCard", () => {
     expect(screen.queryByRole("button", { name: "Draft with AI" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Draw with AI" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Use it on the poster" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Draw role photo" })).not.toBeInTheDocument();
     expect(mockedCopyStatus).not.toHaveBeenCalled();
   });
 

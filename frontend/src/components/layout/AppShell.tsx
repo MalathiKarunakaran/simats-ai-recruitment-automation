@@ -18,6 +18,7 @@ import {
   Megaphone,
   Newspaper,
   Plus,
+  Printer,
   Settings,
   Sparkles,
   Upload,
@@ -113,6 +114,13 @@ const NAV_GROUPS: NavGroup[] = [
         visibleForPermission: ["APPROVE_VACANCY", "REJECT_VACANCY"],
       },
       { to: "/job-postings", label: "Job Postings", icon: Newspaper },
+      {
+        to: "/campaign-poster",
+        label: "Campaign Poster",
+        icon: Printer,
+        // Mirrors campaign_posters.py::_poster_gate (JOB_DISTRIBUTION).
+        visibleForPermission: "JOB_DISTRIBUTION",
+      },
     ],
   },
   {
