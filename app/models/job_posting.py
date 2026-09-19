@@ -111,6 +111,18 @@ class JobPosting(Base):
     poster_background_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     poster_background_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     poster_background_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+    # --- Role photo (2026-09-18) --------------------------------------------
+    # The picture of the work itself -- an electrician at a panel, a plumber at
+    # a pipe -- on the multi-role campaign poster. Same switch as the
+    # background: generated off, and a regenerate turns it off again.
+    role_photo_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    role_photo_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role_photo_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    role_photo_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+
+    @property
+    def has_role_photo(self) -> bool:
+        return bool(self.role_photo_key)
 
     @property
     def has_poster_background(self) -> bool:

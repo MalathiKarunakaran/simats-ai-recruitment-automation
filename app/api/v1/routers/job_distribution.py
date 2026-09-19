@@ -120,7 +120,7 @@ def get_poster(
     # storage answers: try_download_ returns None rather than raising, so an
     # unreachable MinIO costs the picture and not the poster.
     background_png = (
-        storage.try_download_poster_background_bytes(minio_client, posting.poster_background_key)
+        storage.try_download_poster_artwork_bytes(minio_client, posting.poster_background_key)
         if posting.poster_background_enabled and posting.poster_background_key
         else None
     )

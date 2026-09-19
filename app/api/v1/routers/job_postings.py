@@ -347,8 +347,9 @@ def generate_job_posting_poster_background(
     switched OFF: nothing reaches a printed poster until somebody has opened
     the preview and turned it on."""
     posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
-    job_postings.generate_poster_background(
-        db, job_posting=posting, client=ai, minio_client=minio_client, actor=current_user, request=request
+    job_postings.generate_artwork(
+        db, job_posting=posting, artwork=job_postings.BACKGROUND, client=ai, minio_client=minio_client,
+        actor=current_user, request=request,
     )
     return _committed(db, posting)
 
@@ -368,7 +369,7 @@ def get_job_posting_poster_background(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="This job posting has no poster background"
         )
-    png = storage.download_poster_background_bytes(minio_client, posting.poster_background_key)
+    png = storage.download_poster_artwork_bytes(minio_client, posting.poster_background_key)
     return StreamingResponse(io.BytesIO(png), media_type="image/png")
 
 
@@ -385,8 +386,69 @@ def update_job_posting_poster_background(
     """Switches the generated image on or off for printing. Like the poster
     copy this never moves the posting's own status."""
     posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
-    job_postings.set_poster_background_enabled(
-        db, job_posting=posting, enabled=payload.enabled, actor=current_user, request=request
+    job_postings.set_artwork_enabled(
+        db, job_posting=posting, artwork=job_postings.BACKGROUND, enabled=payload.enabled,
+        actor=current_user, request=request,
+    )
+    return _committed(db, posting)
+
+
+@router.post("/{job_posting_id}/generate-role-photo", response_model=JobPostingRead)
+def generate_job_posting_role_photo(
+    job_posting_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+    # Last, so a caller without the permission gets 403, not 503.
+    ai: openai.OpenAI = Depends(ai_client.get_image_ai_client),
+    minio_client: Minio = Depends(get_minio_client),
+) -> JobPosting:
+    """Draws the picture of the work that appears on a multi-role campaign
+    poster. Stored switched OFF, like every generated picture here."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.generate_artwork(
+        db, job_posting=posting, artwork=job_postings.ROLE_PHOTO, client=ai, minio_client=minio_client,
+        actor=current_user, request=request,
+    )
+    return _committed(db, posting)
+
+
+@router.get("/{job_posting_id}/role-photo")
+def get_job_posting_role_photo(
+    job_posting_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> StreamingResponse:
+    """The generated photograph itself, for the preview a person approves
+    from."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    if not posting.role_photo_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This job posting has no role photo")
+    png = storage.download_poster_artwork_bytes(minio_client, posting.role_photo_key)
+    return StreamingResponse(io.BytesIO(png), media_type="image/png")
+
+
+@router.patch("/{job_posting_id}/role-photo", response_model=JobPostingRead)
+def update_job_posting_role_photo(
+    job_posting_id: uuid.UUID,
+    payload: JobPostingPosterBackgroundUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_edit_gate),
+    scope: CampusScope = Depends(get_campus_scope),
+    scope_dept: DepartmentScope = Depends(get_department_scope),
+) -> JobPosting:
+    """Switches the generated photograph on or off for printing. Shares
+    JobPostingPosterBackgroundUpdate: both are the same one-word decision."""
+    posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
+    job_postings.set_artwork_enabled(
+        db, job_posting=posting, artwork=job_postings.ROLE_PHOTO, enabled=payload.enabled,
+        actor=current_user, request=request,
     )
     return _committed(db, posting)
 

@@ -138,16 +138,17 @@ def download_joining_document_bytes(client: Minio, storage_key: str) -> bytes:
         ) from exc
 
 
-def upload_poster_background(client: Minio, *, job_posting_id: uuid.UUID, data: bytes) -> str:
-    """The AI-generated image behind a poster's header band (2026-09-17).
+def upload_poster_artwork(client: Minio, *, job_posting_id: uuid.UUID, filename: str, data: bytes) -> str:
+    """A generated picture for a poster: the header background, or the
+    photograph of a role on a campaign sheet (2026-09-17, 2026-09-18).
 
     Hard-fails like a resume rather than degrading: the caller asked for an
-    image to be made and kept, and reporting success with nothing stored
-    would be a lie. One object per posting -- a regenerate overwrites, which
-    is also why the approval flag is cleared every time one is generated.
+    image to be made and kept, and reporting success with nothing stored would
+    be a lie. One object per posting per filename -- a regenerate overwrites,
+    which is also why the approval flag is cleared every time one is made.
     """
     _ensure_bucket(client, settings.MINIO_BUCKET_POSTER_BACKGROUNDS)
-    storage_key = f"{job_posting_id}/background.png"
+    storage_key = f"{job_posting_id}/{filename}"
     try:
         client.put_object(
             settings.MINIO_BUCKET_POSTER_BACKGROUNDS,
@@ -159,12 +160,12 @@ def upload_poster_background(client: Minio, *, job_posting_id: uuid.UUID, data: 
     except _STORAGE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to upload the poster background to object storage",
+            detail="Failed to upload the poster artwork to object storage",
         ) from exc
     return storage_key
 
 
-def download_poster_background_bytes(client: Minio, storage_key: str) -> bytes:
+def download_poster_artwork_bytes(client: Minio, storage_key: str) -> bytes:
     """For the preview screen, where the image IS what was asked for."""
     try:
         response = client.get_object(settings.MINIO_BUCKET_POSTER_BACKGROUNDS, storage_key)
@@ -176,19 +177,19 @@ def download_poster_background_bytes(client: Minio, storage_key: str) -> bytes:
     except _STORAGE_ERRORS as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to fetch the poster background from object storage",
+            detail="Failed to fetch the poster artwork from object storage",
         ) from exc
 
 
-def try_download_poster_background_bytes(client: Minio, storage_key: str) -> bytes | None:
-    """For the poster download, where the image is decoration and the PDF is
+def try_download_poster_artwork_bytes(client: Minio, storage_key: str) -> bytes | None:
+    """For the poster download, where the picture is decoration and the PDF is
     what was asked for. The deliberate asymmetry with the two functions above:
     a recruiter printing a poster on the morning of a walk-in must not be told
     "object storage is unreachable" -- they get the poster without its
-    background, exactly as it looked before backgrounds existed.
+    artwork, exactly as it looked before any existed.
     """
     try:
-        return download_poster_background_bytes(client, storage_key)
+        return download_poster_artwork_bytes(client, storage_key)
     except HTTPException:
         return None
 

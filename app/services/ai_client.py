@@ -494,15 +494,33 @@ def poster_background_prompt(job_posting) -> str:
     return _POSTER_BACKGROUND_PROMPT.format(subject=subject)
 
 
-def generate_poster_background(client: openai.OpenAI, prompt: str) -> bytes:
-    """Returns PNG bytes. 1536x1024 is the widest size the image model offers
-    and the poster header is wider still, so the renderer crops it -- see
-    job_poster._band_image."""
+_ROLE_PHOTO_PROMPT = """A photograph of the work itself, for a printed university recruitment poster: {subject}.
+
+Composition: a single clear subject, shot close, filling the frame, on a calm uncluttered background. It is printed small, in a card about four centimetres wide, so one readable subject and nothing else.
+Style: real photography, natural light, neutral colours, sharp.
+Absolutely no text, lettering, numerals, signage, watermarks, logos or brand marks of any kind.
+No recognisable faces: hands at work, or a person seen from behind or at a distance."""
+
+
+def poster_role_photo_prompt(job_posting) -> str:
+    """Built from the job title, which is the one thing that makes an
+    electrician's card different from a plumber's. No other posting text goes
+    in: the picture illustrates the work, it does not advertise it -- the
+    advertising is the template's job, in real characters."""
+    title = (job_posting.ad_title or job_posting.approved_vacancy.vacancy_request.position_title).strip()
+    return _ROLE_PHOTO_PROMPT.format(subject=f"a {title} at work")
+
+
+def generate_poster_image(client: openai.OpenAI, prompt: str, *, size: str = "1536x1024") -> bytes:
+    """Returns PNG bytes for any poster picture -- a header background or a
+    role photograph. Both ask for a landscape frame and both are cropped to
+    fill their box by the renderer (`pdf_layout.cover_image`), because no size
+    the image model offers matches a poster band or a role card."""
     response = _call_openai(
         client.images.generate,
         model=settings.OPENAI_IMAGE_MODEL,
         prompt=prompt,
-        size="1536x1024",
+        size=size,
         n=1,
     )
     encoded = response.data[0].b64_json if response.data else None
@@ -723,3 +741,8 @@ def generate_narrative_openai(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="AI service returned an unexpected response"
         )
     return content
+
+
+# The name the poster-background feature shipped with (2026-09-17). Kept so
+# that call site reads as what it does; both go through one implementation.
+generate_poster_background = generate_poster_image

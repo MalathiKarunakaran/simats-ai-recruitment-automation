@@ -26,6 +26,8 @@ approved requirements, the status, or any channel.
 Every write is audited with a before/after snapshot.
 """
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 import openai
@@ -67,6 +69,8 @@ def snapshot(job_posting: JobPosting) -> dict:
         "poster_bullets": list(job_posting.poster_bullets) if job_posting.poster_bullets is not None else None,
         "poster_background_key": job_posting.poster_background_key,
         "poster_background_enabled": job_posting.poster_background_enabled,
+        "role_photo_key": job_posting.role_photo_key,
+        "role_photo_enabled": job_posting.role_photo_enabled,
     }
 
 
@@ -286,17 +290,63 @@ def generate_poster_copy(
     return job_posting
 
 
-def generate_poster_background(
+@dataclass(frozen=True)
+class _Artwork:
+    """One kind of generated picture on a poster.
+
+    Two of these exist and they behave identically -- generate it, look at it,
+    switch it on -- so they share one implementation rather than two copies
+    that would drift the first time the rule changed. What differs is which
+    columns hold it, which file it is stored as, and what the prompt asks for.
+    """
+
+    label: str
+    key_field: str
+    prompt_field: str
+    generated_at_field: str
+    enabled_field: str
+    filename: str
+    audit_noun: str
+    build_prompt: Callable[[JobPosting], str]
+    refuse_hint: str
+
+
+BACKGROUND = _Artwork(
+    label="poster background",
+    key_field="poster_background_key",
+    prompt_field="poster_background_prompt",
+    generated_at_field="poster_background_generated_at",
+    enabled_field="poster_background_enabled",
+    filename="background.png",
+    audit_noun="POSTER_BACKGROUND",
+    build_prompt=lambda posting: ai_client.poster_background_prompt(posting),
+    refuse_hint="Generate a poster background before switching it on",
+)
+
+ROLE_PHOTO = _Artwork(
+    label="role photo",
+    key_field="role_photo_key",
+    prompt_field="role_photo_prompt",
+    generated_at_field="role_photo_generated_at",
+    enabled_field="role_photo_enabled",
+    filename="role-photo.png",
+    audit_noun="ROLE_PHOTO",
+    build_prompt=lambda posting: ai_client.poster_role_photo_prompt(posting),
+    refuse_hint="Generate a role photo before switching it on",
+)
+
+
+def generate_artwork(
     db: Session,
     *,
     job_posting: JobPosting,
+    artwork: _Artwork,
     client: openai.OpenAI,
     minio_client,
     actor: User,
     request: Request | None,
 ) -> JobPosting:
-    """Generates the image that sits behind the poster's header band, stores
-    it, and leaves it SWITCHED OFF.
+    """Generates a poster picture, stores it, and leaves it SWITCHED OFF.
 
     The switch is the point of this function. AI art printed under the SIMATS
     seal and pinned to a public notice board is a reputational risk that no
@@ -305,53 +355,53 @@ def generate_poster_background(
     again, because the image somebody approved is not the image now stored.
     """
     _assert_not_closed(job_posting)
-    prompt = ai_client.poster_background_prompt(job_posting)
-    png = ai_client.generate_poster_background(client, prompt)
-    storage_key = storage.upload_poster_background(minio_client, job_posting_id=job_posting.id, data=png)
+    prompt = artwork.build_prompt(job_posting)
+    png = ai_client.generate_poster_image(client, prompt)
+    storage_key = storage.upload_poster_artwork(
+        minio_client, job_posting_id=job_posting.id, filename=artwork.filename, data=png
+    )
 
     before = snapshot(job_posting)
-    job_posting.poster_background_key = storage_key
-    job_posting.poster_background_prompt = prompt
     now = _now()
-    job_posting.poster_background_generated_at = now
-    job_posting.poster_background_enabled = False
+    setattr(job_posting, artwork.key_field, storage_key)
+    setattr(job_posting, artwork.prompt_field, prompt)
+    setattr(job_posting, artwork.generated_at_field, now)
+    setattr(job_posting, artwork.enabled_field, False)
     job_posting.last_edited_by_id = actor.id
     job_posting.last_edited_at = now
     db.flush()
     _audit(
-        db, job_posting=job_posting, action="JOB_POSTING_POSTER_BACKGROUND_GENERATED", before=before, actor=actor,
-        request=request, ai_provider="openai", ai_model=settings.OPENAI_IMAGE_MODEL,
+        db, job_posting=job_posting, action=f"JOB_POSTING_{artwork.audit_noun}_GENERATED", before=before,
+        actor=actor, request=request, ai_provider="openai", ai_model=settings.OPENAI_IMAGE_MODEL,
     )
     return job_posting
 
 
-def set_poster_background_enabled(
+def set_artwork_enabled(
     db: Session,
     *,
     job_posting: JobPosting,
+    artwork: _Artwork,
     enabled: bool,
     actor: User,
     request: Request | None,
 ) -> JobPosting:
-    """A person's decision that the generated image may be printed. Like the
+    """A person's decision that a generated picture may be printed. Like the
     poster copy it never touches the posting's status: approving a picture is
     not approving an advertisement."""
     _assert_not_closed(job_posting)
-    if enabled and not job_posting.poster_background_key:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Generate a poster background before switching it on",
-        )
-    if job_posting.poster_background_enabled == enabled:
+    if enabled and not getattr(job_posting, artwork.key_field):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=artwork.refuse_hint)
+    if getattr(job_posting, artwork.enabled_field) == enabled:
         return job_posting
     before = snapshot(job_posting)
-    job_posting.poster_background_enabled = enabled
+    setattr(job_posting, artwork.enabled_field, enabled)
     job_posting.last_edited_by_id = actor.id
     job_posting.last_edited_at = _now()
     db.flush()
     _audit(
-        db, job_posting=job_posting, action="JOB_POSTING_POSTER_BACKGROUND_UPDATED", before=before, actor=actor,
-        request=request,
+        db, job_posting=job_posting, action=f"JOB_POSTING_{artwork.audit_noun}_UPDATED", before=before,
+        actor=actor, request=request,
     )
     return job_posting
 

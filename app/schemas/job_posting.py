@@ -77,6 +77,9 @@ class JobPostingRead(BaseModel):
     has_poster_background: bool
     poster_background_enabled: bool
     poster_background_generated_at: datetime | None
+    has_role_photo: bool
+    role_photo_enabled: bool
+    role_photo_generated_at: datetime | None
     # Review trail (2026-09-15).
     created_by_id: uuid.UUID | None
     created_by_name: str | None

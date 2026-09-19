@@ -15,6 +15,7 @@ from app.api.v1.routers import (
     employees,
     housekeeping_staff,
     interviews,
+    campaign_posters,
     job_distribution,
     job_postings,
     joining,
@@ -65,6 +66,7 @@ api_router.include_router(approved_vacancies.router)
 api_router.include_router(approved_vacancies.hiring_slots_router)
 api_router.include_router(job_postings.router)
 api_router.include_router(job_distribution.router)
+api_router.include_router(campaign_posters.router)
 api_router.include_router(candidates.router)
 api_router.include_router(applications.router)
 api_router.include_router(offers.router)

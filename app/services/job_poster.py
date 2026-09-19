@@ -23,6 +23,7 @@ from reportlab.lib.utils import ImageReader, simpleSplit
 from reportlab.pdfgen.canvas import Canvas
 
 from app.models.enums import StaffRoleCategoryEnum
+from app.services.pdf_layout import cover_image, paragraph, pdf_text
 from app.services.job_distribution import build_public_apply_url
 
 SEAL_PATH = Path(__file__).resolve().parent.parent / "assets" / "simats-seal.png"
@@ -77,9 +78,9 @@ class PosterContent:
     background_png: bytes | None = None
 
 
-def _pdf_text(value: object) -> str:
-    text = str(value).replace("₹", "Rs. ")
-    return text.encode("cp1252", errors="replace").decode("cp1252")
+# Kept as module-local names: every call site below reads better unqualified,
+# and the implementations now live in pdf_layout so campaign_poster shares them.
+_pdf_text = pdf_text
 
 
 def _salary_text(salary_min: float | None, salary_max: float | None) -> str | None:
@@ -144,31 +145,7 @@ def render_poster_pdf(content: PosterContent) -> bytes:
     return buf.getvalue()
 
 
-def _band_image(png: bytes, aspect: float) -> ImageReader | None:
-    """Centre-crops the generated image to the header band's aspect ratio.
-
-    The image model's widest output is 3:2 and the band is about 3.5:1, so
-    drawing the image into the band directly would squash it to a third of
-    its height. Cropping to fill is what a designer would do by hand. An
-    image that cannot be read at all returns None and the poster prints its
-    plain navy band -- a broken picture must never cost somebody the poster.
-    """
-    try:
-        image = Image.open(io.BytesIO(png))
-        image.load()
-    except (OSError, ValueError):
-        return None
-    if image.width / image.height >= aspect:
-        target_width, target_height = round(image.height * aspect), image.height
-    else:
-        target_width, target_height = image.width, round(image.width / aspect)
-    left = (image.width - target_width) // 2
-    top = (image.height - target_height) // 2
-    cropped = image.convert("RGB").crop((left, top, left + target_width, top + target_height))
-    buf = io.BytesIO()
-    cropped.save(buf, format="PNG")
-    buf.seek(0)
-    return ImageReader(buf)
+_band_image = cover_image
 
 
 def _header(canvas: Canvas, content: PosterContent, width: float, height: float) -> None:
@@ -302,19 +279,7 @@ def _heading(canvas: Canvas, text: str, x: float, y: float) -> float:
     return y - 28
 
 
-def _paragraph(
-    canvas: Canvas, text: str, x: float, y: float, width: float, *, size: float, leading: float, max_lines: int, color
-) -> float:
-    lines = simpleSplit(_pdf_text(text), "Helvetica", size, width)
-    if len(lines) > max_lines:
-        lines = lines[:max_lines]
-        lines[-1] = lines[-1].rstrip(" .,") + "..."
-    canvas.setFillColor(color)
-    canvas.setFont("Helvetica", size)
-    for line in lines:
-        canvas.drawString(x, y, line)
-        y -= leading
-    return y
+_paragraph = paragraph
 
 
 def _details(canvas: Canvas, content: PosterContent, *, x: float, top: float, column_width: float) -> None:
