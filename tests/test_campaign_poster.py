@@ -178,3 +178,74 @@ def test_the_earliest_deadline_across_the_sheet_is_the_one_printed(client, publi
     text = _text(response.content)
     assert "30 Nov 2026" in text
     assert "31 Dec 2026" not in text
+
+
+def _split_for(roles, *, education=()) -> tuple[float, float]:
+    """The photo/body division the renderer would use for these roles."""
+    from reportlab.lib.pagesizes import A4
+
+    content = campaign_poster.CampaignPosterContent(
+        identity=SSE,
+        ribbon_title="Join our maintenance team",
+        roles=roles,
+        apply_url="https://example.com/careers",
+        education_lines=education,
+    )
+    width, height = A4
+    ribbon_y = height - campaign_poster.HEADER_HEIGHT - 6 - 32
+    return campaign_poster._split_space(content, width, ribbon_y - 16)
+
+
+def test_the_photographs_take_the_space_the_body_cards_do_not_need():
+    """Found on the first real prod sheet: all three live postings had no
+    `required_skills`, so each skills column held two short lines inside a
+    230pt card while the pictures of the work were squeezed into 62pt.
+
+    The cards are sized to what they hold and the photographs take the rest.
+    """
+    bare = (
+        campaign_poster.CampaignRole(title="Electrician", qualification="ITI Diploma", experience="1+ years"),
+        campaign_poster.CampaignRole(title="AC Helper", qualification="ITI Diploma", experience="1+ years"),
+    )
+    art, body = _split_for(bare, education=("ITI Diploma",))
+    assert art > campaign_poster.ROLE_ART_HEIGHT
+    assert art <= campaign_poster.ROLE_ART_MAX
+
+    # The same roles with more to say in the body: the cards take it back and
+    # the photographs give it up. Only the sidebar changes, because the
+    # sidebar is the taller of the two cards on a sheet like this one -- the
+    # panels are sized together so they stay aligned.
+    art_full, body_full = _split_for(
+        bare, education=tuple(f"Diploma in discipline number {n}" for n in range(6))
+    )
+    assert body_full > body
+    assert art_full < art
+    # Nothing is invented or lost: the two shares still fill the same band.
+    assert round(art + body, 6) == round(art_full + body_full, 6)
+
+
+def test_a_body_card_is_never_shorter_than_what_it_holds():
+    """The failure this guards is silent: a card sized below its content
+    clips bullets against its own floor rather than erroring."""
+    crowded = tuple(
+        campaign_poster.CampaignRole(
+            title=f"Role {n}",
+            skills=tuple(f"A requirement written out at some length, number {i}" for i in range(4)),
+        )
+        for n in range(3)
+    )
+    art, body = _split_for(crowded, education=("ITI Diploma", "Diploma in Electrical Engineering"))
+    content = campaign_poster.CampaignPosterContent(
+        identity=SSE,
+        ribbon_title="Join our maintenance team",
+        roles=crowded,
+        apply_url="https://example.com/careers",
+        education_lines=("ITI Diploma", "Diploma in Electrical Engineering"),
+    )
+    from reportlab.lib.pagesizes import A4
+
+    assert body >= min(
+        campaign_poster._body_content_height(content, A4[0]),
+        art + body - campaign_poster.ROLE_ART_HEIGHT,
+    )
+    assert art >= campaign_poster.ROLE_ART_HEIGHT

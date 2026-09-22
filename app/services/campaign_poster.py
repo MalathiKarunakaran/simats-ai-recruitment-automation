@@ -64,6 +64,17 @@ ROLE_COLOURS = (NAVY, ORANGE, GREEN, BLUE)
 HEADER_HEIGHT = 246
 RIBBON_HEIGHT = 32
 ROLE_ART_HEIGHT = 62
+# The photographs grow into whatever the two body cards do not need. Real
+# postings often carry no `required_skills` at all, and then each skills
+# column holds one or two short lines -- which used to print as 20pt of text
+# in a 230pt box, with the pictures of the work squeezed above it.
+# ROLE_ART_MAX stops a sheet with almost no body text from becoming three
+# enormous photographs.
+ROLE_ART_MAX = 150
+BODY_MIN_HEIGHT = 120
+# Breathing room under the last line inside a body card.
+PANEL_BOTTOM_PADDING = 14
+SIDEBAR_WIDTH = 162
 ROLE_LABEL_HEIGHT = 30
 APPLY_STRIP_HEIGHT = 76
 APPLY_STRIP_Y = 96
@@ -120,8 +131,9 @@ def render_campaign_poster_pdf(content: CampaignPosterContent) -> bytes:
 
     _header(canvas, content, width, height)
     y = _ribbon(canvas, content, width, height - HEADER_HEIGHT - 6)
-    y = _roles_row(canvas, content, width, y - 16)
-    _body(canvas, content, width, y - 12)
+    art_height, body_height = _split_space(content, width, y - 16)
+    y = _roles_row(canvas, content, width, y - 16, art_height)
+    _body(canvas, content, width, y - 12, body_height)
     _apply_strip(canvas, content, width)
     _footer(canvas, content, width)
 
@@ -315,7 +327,9 @@ def _ribbon(canvas: Canvas, content: CampaignPosterContent, width: float, top: f
     return y
 
 
-def _roles_row(canvas: Canvas, content: CampaignPosterContent, width: float, top: float) -> float:
+def _roles_row(
+    canvas: Canvas, content: CampaignPosterContent, width: float, top: float, art_height: float = ROLE_ART_HEIGHT
+) -> float:
     roles = content.roles
     if not roles:
         return top
@@ -330,19 +344,19 @@ def _roles_row(canvas: Canvas, content: CampaignPosterContent, width: float, top
     gap = 11
     available = width - 2 * MARGIN
     card_width = (available - gap * (len(roles) - 1)) / len(roles)
-    card_height = ROLE_ART_HEIGHT + ROLE_LABEL_HEIGHT
+    card_height = art_height + ROLE_LABEL_HEIGHT
 
     for index, role in enumerate(roles):
         x = MARGIN + index * (card_width + gap)
         colour = ROLE_COLOURS[index % len(ROLE_COLOURS)]
         _image_or_placeholder(
-            canvas, role.artwork_png, x, top - ROLE_ART_HEIGHT, card_width, ROLE_ART_HEIGHT, f"{role.title} photo"
+            canvas, role.artwork_png, x, top - art_height, card_width, art_height, f"{role.title} photo"
         )
         canvas.setFillColor(colour)
         canvas.roundRect(x, top - card_height, card_width, ROLE_LABEL_HEIGHT, 6, stroke=0, fill=1)
         canvas.setFillColor(white)
         _centred_lines(
-            canvas, role.title.upper(), x + card_width / 2, top - ROLE_ART_HEIGHT - 13, card_width - 12, size=9.5
+            canvas, role.title.upper(), x + card_width / 2, top - art_height - 13, card_width - 12, size=9.5
         )
         if role.positions_open:
             label = "1 vacancy" if role.positions_open == 1 else f"{role.positions_open} vacancies"
@@ -389,24 +403,60 @@ def _bullets(
     return y
 
 
-def _body(canvas: Canvas, content: CampaignPosterContent, width: float, top: float) -> None:
-    height = top - BODY_FLOOR
-    sidebar_width = 162
-    main_width = width - 2 * MARGIN - sidebar_width - 12
+def _body_widths(width: float) -> tuple[float, float]:
+    return width - 2 * MARGIN - SIDEBAR_WIDTH - 12, SIDEBAR_WIDTH
+
+
+def _body(canvas: Canvas, content: CampaignPosterContent, width: float, top: float, height: float) -> None:
+    main_width, sidebar_width = _body_widths(width)
     _skills_panel(canvas, content, MARGIN, top, main_width, height)
     _sidebar(canvas, content, width - MARGIN - sidebar_width, top, sidebar_width, height)
 
 
+def _body_content_height(content: CampaignPosterContent, width: float) -> float:
+    """How tall the two body cards must be to hold what is actually in them,
+    measured by drawing them onto a throwaway canvas with room to spare.
+
+    Re-deriving the text metrics here instead would be a second copy of the
+    layout, and it would drift from the real one the first time a bullet
+    changes size."""
+    scratch = Canvas(io.BytesIO(), pagesize=A4)
+    top = A4[1]
+    roomy = top * 4
+    main_width, sidebar_width = _body_widths(width)
+    lowest = min(
+        _skills_panel(scratch, content, MARGIN, top, main_width, roomy),
+        _sidebar(scratch, content, width - MARGIN - sidebar_width, top, sidebar_width, roomy),
+    )
+    return top - lowest + PANEL_BOTTOM_PADDING
+
+
+def _split_space(content: CampaignPosterContent, width: float, roles_top: float) -> tuple[float, float]:
+    """How the space between the ribbon and the apply strip is divided
+    between the photographs of the work and the two body cards.
+
+    The cards take what they need and the photographs take the rest, rather
+    than the cards taking everything and the photographs a fixed 62pt."""
+    # 22pt for the OPEN POSITIONS heading, 12pt between that row and the body.
+    total = roles_top - 22 - ROLE_LABEL_HEIGHT - 12 - BODY_FLOOR
+    body_height = max(BODY_MIN_HEIGHT, min(_body_content_height(content, width), total - ROLE_ART_HEIGHT))
+    art_height = min(ROLE_ART_MAX, total - body_height)
+    # Anything ROLE_ART_MAX refuses goes back to the cards.
+    return art_height, total - art_height
+
+
 def _skills_panel(
     canvas: Canvas, content: CampaignPosterContent, x: float, top: float, width: float, height: float
-) -> None:
+) -> float:
+    """Returns the lowest y it drew to, so the card can be sized to it."""
     y = _panel(canvas, x, top, width, height, "SKILLS REQUIRED", NAVY)
     roles = content.roles[:3]
     if not roles:
-        return
+        return y
     gap = 9
     column_width = (width - 26 - gap * (len(roles) - 1)) / len(roles)
     floor = top - height + 10
+    lowest = y
 
     for index, role in enumerate(roles):
         colour = ROLE_COLOURS[index % len(ROLE_COLOURS)]
@@ -424,7 +474,7 @@ def _skills_panel(
             # Nothing structured to show: the requirement text beats a blank
             # column.
             items = [text for text in (role.qualification, role.experience) if text]
-        _bullets(canvas, items, column_x, column_y, column_width, floor, colour=colour)
+        lowest = min(lowest, _bullets(canvas, items, column_x, column_y, column_width, floor, colour=colour))
 
         if index < len(roles) - 1:
             canvas.setStrokeColor(LINE)
@@ -432,11 +482,14 @@ def _skills_panel(
             divider_x = column_x + column_width + gap / 2
             canvas.line(divider_x, floor, divider_x, y + 2)
 
+    return lowest
+
 
 def _sidebar(
     canvas: Canvas, content: CampaignPosterContent, x: float, top: float, width: float, height: float
-) -> None:
+) -> float:
     """Facts, in the order somebody standing at a notice board wants them.
+    Returns the lowest y it drew to, so the card can be sized to it.
     Everything is measured against the panel's own floor before it is drawn:
     the first draft let the education bullets run out of the panel and into
     the footer."""
@@ -482,7 +535,7 @@ def _sidebar(
         canvas.setFont("Helvetica-Bold", 9)
         canvas.drawString(x + 11, y, "EDUCATION")
         y -= 12
-        _bullets(canvas, content.education_lines, x + 11, y, inner, floor, colour=GREEN, size=8)
+        y = _bullets(canvas, content.education_lines, x + 11, y, inner, floor, colour=GREEN, size=8)
 
     if content.apply_deadline:
         canvas.setFillColor(ORANGE)
@@ -492,6 +545,10 @@ def _sidebar(
         canvas.drawCentredString(
             x + width / 2, bottom + 13.5, pdf_text(f"Apply by {content.apply_deadline:%d %b %Y}")
         )
+
+    # The deadline chip is pinned to the card's floor rather than flowing, so
+    # its height is added rather than measured.
+    return y - (25 if content.apply_deadline else 0)
 
 
 def _apply_strip(canvas: Canvas, content: CampaignPosterContent, width: float) -> None:
