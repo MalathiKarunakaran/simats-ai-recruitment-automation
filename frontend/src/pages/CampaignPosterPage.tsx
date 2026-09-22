@@ -203,10 +203,12 @@ export function CampaignPosterPage() {
                 id="campaign-title"
                 value={title}
                 maxLength={TITLE_MAX}
-                placeholder="We are hiring"
+                placeholder="Join our maintenance team"
                 onChange={(e) => setTitle(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">For example “Join our maintenance team”. Printed large.</p>
+              <p className="text-xs text-muted-foreground">
+                Printed large across the ribbon. Left empty, the ribbon carries the campus name.
+              </p>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="campaign-pitch">Pitch (optional)</Label>

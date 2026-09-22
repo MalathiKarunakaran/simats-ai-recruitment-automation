@@ -108,7 +108,12 @@ def _read_identity_asset(identity, name: str) -> bytes | None:
 @router.get("")
 def get_campaign_poster(
     posting_ids: str = Query(..., description="Comma-separated job posting ids, all from one campus"),
-    title: str = Query("We are hiring", max_length=60, description="The ribbon: 'Join our maintenance team'"),
+    # Defaults to the campus's own name, resolved once the postings name a
+    # campus. It cannot be a literal here: "We are hiring" was the default,
+    # and the header already prints "We are HIRING!" in 40pt, so every
+    # untitled sheet -- which is what the screen sends unless somebody types
+    # a title -- said it twice.
+    title: str | None = Query(None, max_length=60, description="The ribbon: 'Join our maintenance team'"),
     pitch: str | None = Query(None, max_length=160),
     db: Session = Depends(get_db),
     current_user: User = Depends(_poster_gate),
@@ -154,7 +159,7 @@ def get_campaign_poster(
         postings,
         identity=identity,
         role_artwork=role_artwork,
-        ribbon_title=title,
+        ribbon_title=title or identity.display_name,
         apply_url=apply_url,
         pitch=pitch,
         campus_png=_read_identity_asset(identity, "campus.jpg"),

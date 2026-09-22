@@ -249,3 +249,21 @@ def test_a_body_card_is_never_shorter_than_what_it_holds():
         art + body - campaign_poster.ROLE_ART_HEIGHT,
     )
     assert art >= campaign_poster.ROLE_ART_HEIGHT
+
+
+def test_an_untitled_sheet_puts_the_campus_in_the_ribbon_rather_than_repeating_the_headline(
+    client, published_vacancy_factory
+):
+    """The screen sends no `title` unless somebody types one, so this is the
+    default sheet, not an edge case. The header already prints "We are
+    HIRING!" in 40pt; the old default printed it again in the ribbon."""
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    response = client.get(
+        _url([vacancy.job_posting.id]), headers=auth_headers(client, vacancy.hr_admin)
+    )
+    assert response.status_code == 200, response.text
+
+    text = _text(response.content)
+    assert SSE.display_name.upper() in text.upper()
+    # The fixed headline is still there, exactly once more than the ribbon.
+    assert text.upper().count("WE ARE") == 1
