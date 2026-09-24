@@ -7,6 +7,7 @@ per channel. Nothing unconfigured reports success, and one channel failing
 never fails the posting or another channel.
 """
 
+import uuid
 from datetime import date, timedelta
 
 import httpx
@@ -256,10 +257,13 @@ def test_ai_only_drafts_a_draft(client, published_vacancy_factory):
     assert response.status_code == 409
 
 
-def test_ai_failure_or_absence_does_not_break_the_posting(client, published_vacancy_factory, monkeypatch):
+def test_ai_failure_or_absence_does_not_break_the_posting(
+    client, published_vacancy_factory, monkeypatch, db_session
+):
     vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1, live=False)
     hr = auth_headers(client, vacancy.hr_admin)
     before = client.get(_url(vacancy), headers=hr).json()
+    posting_id = uuid.UUID(before["id"])
 
     def _unreachable(kwargs):
         raise openai.APIConnectionError(request=httpx.Request("POST", "https://ai.example"))
@@ -269,6 +273,16 @@ def test_ai_failure_or_absence_does_not_break_the_posting(client, published_vaca
     assert failed.status_code == 502
     after = client.get(_url(vacancy), headers=hr).json()
     assert (after["ad_body"], after["summary"], after["ai_generated_at"]) == (before["ad_body"], None, None)
+
+    # The failure is AUDITED even though the request 502'd and the posting was
+    # left alone -- the audit row is committed before the error is re-raised.
+    failures = _audit(db_session, posting_id, "JOB_POSTING_AI_GENERATION_FAILED")
+    assert len(failures) == 1
+    assert failures[0].status_code == 502
+    assert failures[0].after_state["ai_provider"] == settings.jd_ai_provider
+    assert failures[0].after_state["error"]
+    # ...and no success was logged.
+    assert _audit(db_session, posting_id, "JOB_POSTING_CONTENT_GENERATED") == []
 
     # Not configured at all: a clear 503 up front, and the status endpoint says so.
     app.dependency_overrides.pop(get_jd_ai_client)
@@ -281,6 +295,12 @@ def test_ai_failure_or_absence_does_not_break_the_posting(client, published_vaca
     status = client.get("/api/v1/job-postings/content-generation/status", headers=hr).json()
     assert status["configured"] is False
     assert "OPENAI_API_KEY" in status["message"]
+
+    # That 503 is raised by the get_jd_ai_client DEPENDENCY, before the route
+    # body runs, so there is no posting loaded to audit against and the count
+    # is still 1. A missing key is answered by the status endpoint above; only
+    # a real mid-call failure is an event.
+    assert len(_audit(db_session, posting_id, "JOB_POSTING_AI_GENERATION_FAILED")) == 1
 
     # The posting itself carries on without AI.
     assert client.post(_url(vacancy, "/submit-for-review"), headers=hr).status_code == 200

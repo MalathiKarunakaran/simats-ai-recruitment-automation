@@ -198,7 +198,31 @@ def generate_content(
     before anything is written, so an AI failure (503 not configured, 502
     unreachable) leaves the posting exactly as it was."""
     _assert_status(job_posting, (JobPostingStatusEnum.DRAFT,), "generate AI content for")
-    fields = ai_client.generate_posting_jd(client, job_posting, additional_instructions, provider=provider)
+    try:
+        fields = ai_client.generate_posting_jd(client, job_posting, additional_instructions, provider=provider)
+    except HTTPException as exc:
+        # A failed draft is an event worth keeping: it is how "the AI was
+        # unreachable all Tuesday" is answerable later. Nothing has been
+        # written yet, so this audit row is the only thing in the transaction
+        # -- and the ROUTER commits it before re-raising, because get_db never
+        # commits on an exception (same reason as the legacy distribute call
+        # in routers/job_distribution.py).
+        log_event(
+            db,
+            actor=actor,
+            action="JOB_POSTING_AI_GENERATION_FAILED",
+            campus_context_id=job_posting.campus_id,
+            entity_type="JobPosting",
+            entity_id=job_posting.id,
+            after_state={
+                "ai_provider": provider,
+                "ai_model": settings.model_for(provider),
+                "error": str(exc.detail)[:500],
+            },
+            request=request,
+            status_code=exc.status_code,
+        )
+        raise
 
     before = snapshot(job_posting)
     job_posting.summary = fields["role_overview"]

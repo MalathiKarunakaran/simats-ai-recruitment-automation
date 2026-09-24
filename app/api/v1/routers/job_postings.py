@@ -274,15 +274,23 @@ def generate_job_posting_content(
     """Writes an AI draft of the description into a DRAFT posting. The text
     is for a person to edit; nothing is approved, published or selected."""
     posting = _get_posting_for_write(db, job_posting_id, scope, scope_dept)
-    job_postings.generate_content(
-        db,
-        job_posting=posting,
-        client=ai,
-        provider=settings.jd_ai_provider,
-        additional_instructions=payload.additional_instructions if payload else None,
-        actor=current_user,
-        request=request,
-    )
+    try:
+        job_postings.generate_content(
+            db,
+            job_posting=posting,
+            client=ai,
+            provider=settings.jd_ai_provider,
+            additional_instructions=payload.additional_instructions if payload else None,
+            actor=current_user,
+            request=request,
+        )
+    except HTTPException:
+        # Commit BEFORE the error leaves: generate_content has written a
+        # JOB_POSTING_AI_GENERATION_FAILED audit row and nothing else, and
+        # get_db never commits on an exception. Same pattern as the legacy
+        # distribute call. The posting itself is untouched either way.
+        db.commit()
+        raise
     return _committed(db, posting)
 
 
