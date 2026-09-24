@@ -40,7 +40,7 @@ from app.models.job_posting import JobPosting
 from app.models.job_posting_channel import JobPostingChannel, PostingAttempt
 from app.models.recruitment_channel import ChannelRule, RecruitmentChannel
 from app.models.user import User
-from app.services import channel_providers
+from app.services import channel_providers, decision_providers
 from app.services.audit import log_event
 from app.services.n8n_client import N8nClient, get_n8n_client
 
@@ -128,6 +128,13 @@ def recommend_channels(
             db.add(row)
             created.append(row)
     db.flush()
+
+    # Advisory only, and only once the rules have finished: a decision
+    # provider (JEV/openJEV, when one is configured) may add a rationale to
+    # what was chosen above. It cannot change WHICH channels are attached or
+    # their status -- see app/services/decision_providers.py. With no provider
+    # configured, which is every deployment today, this does nothing at all.
+    decision_providers.annotate_recommendations(job_posting, created)
 
     if created:
         log_event(

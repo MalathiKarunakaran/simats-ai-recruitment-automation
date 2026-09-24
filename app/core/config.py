@@ -61,6 +61,16 @@ class Settings(BaseSettings):
     # answer is waited for rather than cut off mid-generation.
     OLLAMA_TIMEOUT_SECONDS: float = 900.0
 
+    # --- Structured decision support (2026-09-24) ---
+    # Who answers advisory, structured judgement calls -- today only "is this
+    # recruitment channel a good fit for this vacancy", annotating channels
+    # the deterministic rules already chose. "none" (the default) means no
+    # provider and no opinion: the rules decide alone, which is how every
+    # deployment runs right now. This is where JEV/openJEV would be named.
+    # See app/services/decision_providers.py -- a provider is ADVISORY and
+    # can never add, remove, select or publish a channel.
+    DECISION_PROVIDER: str = "none"
+
     # --- MinIO (Phase 3: resume object storage) ---
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ACCESS_KEY: str = "simats_minio"
@@ -203,6 +213,10 @@ class Settings(BaseSettings):
     @property
     def jd_ai_provider(self) -> str:
         return self.JD_AI_PROVIDER.strip().lower() or self.ai_provider
+
+    @property
+    def decision_provider(self) -> str:
+        return self.DECISION_PROVIDER.strip().lower() or "none"
 
     def model_for(self, provider: str) -> str:
         return self.OLLAMA_MODEL if provider == "ollama" else self.OPENAI_MODEL
