@@ -37,6 +37,7 @@ import { ReportsPage } from "@/pages/ReportsPage";
 import { SanctionedStrengthPage } from "@/pages/SanctionedStrengthPage";
 import { SetNewPasswordPage } from "@/pages/SetNewPasswordPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { TalentPoolPage } from "@/pages/TalentPoolPage";
 import { TrackerImportPage } from "@/pages/TrackerImportPage";
 import { UserCreatePage } from "@/pages/UserCreatePage";
 import { UserDetailPage } from "@/pages/UserDetailPage";
@@ -100,6 +101,7 @@ export function App() {
           <Route path="/job-postings/:id" element={<JobPostingDetailPage />} />
           <Route path="/campaign-poster" element={<CampaignPosterPage />} />
           <Route path="/onboarding" element={<OnboardingListPage />} />
+          <Route path="/talent-pool" element={<TalentPoolPage />} />
           <Route path="/import-tracker" element={<TrackerImportPage />} />
           <Route path="/activity-log" element={<ActivityLogPage />} />
           <Route path="/settings" element={<SettingsPage />} />

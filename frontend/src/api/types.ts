@@ -2658,3 +2658,112 @@ export interface VacancyRequestBulkUploadCommitResponse extends VacancyRequestBu
   bulk_upload_log_id: string;
   storage_warning: string | null;
 }
+
+
+// --- Talent pool (2026-10-23) ------------------------------------------------
+// Mirrors app/schemas/talent_pool.py. Read-only: there is no Create/Update
+// payload here because the Google Sheet is the system of record and the sync
+// is the only writer of talent_pool_entries.
+
+export type TalentPoolSourceTab = "TEACHING_FINAL" | "NTS";
+
+// Mirrors app/schemas/talent_pool.py::TalentPoolEntryRead. `raw` and
+// `content_hash` are deliberately absent -- see TalentPoolEntryDetail.
+export interface TalentPoolEntryRead {
+  id: string;
+  source_tab: TalentPoolSourceTab;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  dept_raw: string | null;
+  dept_group: string | null;
+  applied_post: string | null;
+  applied_on: string | null;
+  sheet_status: string;
+  status_from_remark: boolean;
+  eligibility: string | null;
+  eligibility_raw: string | null;
+  interview_on_raw: string | null;
+  called_by: string | null;
+  source: string | null;
+  remarks: string | null;
+  resume_url: string | null;
+  application_id: string | null;
+  is_active: boolean;
+  sheet_row_number: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// The single-entry view adds every sheet column back, as header -> value.
+export interface TalentPoolEntryDetail extends TalentPoolEntryRead {
+  raw: Record<string, unknown>;
+}
+
+export interface TalentPoolDepartmentRow {
+  department: string;
+  total: number;
+  eligible: number;
+  selected: number;
+  waiting: number;
+  rejected: number;
+  // Every status that is not Selected / Waiting List / Rejected. Labelled
+  // "Pending" on the teaching tab and "Open" on NTS -- one column, two
+  // labels, per spec 1.4.
+  open: number;
+}
+
+export interface TalentPoolMonthlyPoint {
+  month: string;
+  added: number;
+  selected: number;
+}
+
+export interface TalentPoolBreakdownItem {
+  label: string;
+  count: number;
+}
+
+export interface TalentPoolBreakdowns {
+  source: TalentPoolBreakdownItem[];
+  called_by: TalentPoolBreakdownItem[];
+  eligibility: TalentPoolBreakdownItem[];
+  applied_post: TalentPoolBreakdownItem[];
+  call_outcomes: TalentPoolBreakdownItem[];
+}
+
+export interface TalentPoolSummary {
+  source_tab: TalentPoolSourceTab;
+  total: number;
+  by_status: Record<string, number>;
+  by_eligibility: Record<string, number>;
+  // What "Eligible" counts, returned by the API rather than hardcoded here
+  // so a tile's sub-line and the backend cannot disagree about it.
+  eligible_definition: string[];
+  eligible_pending: number;
+  by_department: TalentPoolDepartmentRow[];
+  department_mode: string;
+  department_count: number;
+  monthly: TalentPoolMonthlyPoint[];
+  undated: number;
+  breakdowns: TalentPoolBreakdowns;
+  // All three are null until a sync has actually run. That is a real state,
+  // not an error -- the read API was built before the sync existed -- so the
+  // stale-sync banner must treat null as "never synced" rather than as
+  // stale by an infinite amount.
+  last_sync_at: string | null;
+  sheet_last_update: string | null;
+  last_sync_counts: Record<string, number> | null;
+}
+
+export interface TalentPoolListParams {
+  source_tab: TalentPoolSourceTab;
+  q?: string;
+  sheet_status?: string;
+  dept_mode?: "group" | "raw";
+  department?: string;
+  eligibility?: string;
+  include_inactive?: boolean;
+  limit?: number;
+  offset?: number;
+}

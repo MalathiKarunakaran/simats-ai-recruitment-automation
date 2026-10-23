@@ -99,6 +99,14 @@ interface StatTileProps {
    * "analytics" icon, or vice versa, per the redesign's own per-metric color
    * choices. */
   iconColor?: StatIconColor;
+  /** Always-visible line under the number (Talent Pool, 2026-10-23) --
+   * e.g. "in the Final sheet", "9% of interviewed", "+3 at thesis / viva
+   * stage". Distinct from `zeroCaption`, which deliberately shows ONLY when
+   * the value is exactly zero; these sub-lines are part of the metric's
+   * meaning and must show at every value. Purely additive: no existing call
+   * site passes one, and when it is absent the zeroCaption behaviour below
+   * is unchanged. */
+  subLine?: string;
   /** Makes the whole tile a link to the records behind the number
    * (2026-08-30). Purely additive: every existing call site omits it and
    * renders exactly as before, as a non-interactive tile. Rendered as a real
@@ -114,6 +122,7 @@ export function StatTile({
   isLoading = false,
   accent = "none",
   zeroCaption,
+  subLine,
   tooltip,
   hero = false,
   size = "default",
@@ -200,7 +209,11 @@ export function StatTile({
             <span className={cn("font-display font-bold tabular-nums", isCompact ? "text-sm" : "text-xl")}>
               {value}
             </span>
-            {isZero && zeroCaption ? <p className="mt-0.5 text-[10px] text-muted-foreground">{zeroCaption}</p> : null}
+            {subLine ? (
+              <p className="mt-0.5 text-[10px] text-muted-foreground">{subLine}</p>
+            ) : isZero && zeroCaption ? (
+              <p className="mt-0.5 text-[10px] text-muted-foreground">{zeroCaption}</p>
+            ) : null}
           </>
         )}
       </CardContent>

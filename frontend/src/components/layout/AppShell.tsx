@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Contact,
+  Database,
   FileCheck,
   History,
   IdCard,
@@ -114,6 +115,15 @@ const NAV_GROUPS: NavGroup[] = [
         visibleForPermission: ["APPROVE_VACANCY", "REJECT_VACANCY"],
       },
       { to: "/job-postings", label: "Job Postings", icon: Newspaper },
+      {
+        to: "/talent-pool",
+        label: "Talent Pool",
+        icon: Database,
+        // Mirrors talent_pool.py's own require_roles(HR_ADMIN, SUPER_ADMIN).
+        // No visibleForPermission: that router is role-gated and adds no
+        // PermissionEnum value, so there is nothing to grant individually.
+        visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN"],
+      },
       {
         to: "/campaign-poster",
         label: "Campaign Poster",
