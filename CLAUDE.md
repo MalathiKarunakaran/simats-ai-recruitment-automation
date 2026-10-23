@@ -422,31 +422,105 @@ build` does via `tsc -b && vite build`); `--force` avoids stale
 
 ## Running locally
 
+**Two machines, and the interpreter differs.** This repo is worked on from a
+Windows machine (`venv/`, Python 3.14) and, since 2026-10-23, from a mac
+(`.venv-mac/`, Python **3.12.14**). Both `Dockerfile` and CI pin **3.14**, so
+the mac venv is the one environment that is NOT the deployed interpreter —
+the suite passes on it, but a 3.14-only syntax or stdlib change would go
+unnoticed there until CI. Pick the block for where you are.
+
+### Windows (`venv/`, Python 3.14)
+
 ```bash
-# Backend deps (existing venv/, Python 3.14)
 venv/Scripts/python.exe -m pip install -r requirements-dev.txt
 cp .env.example .env   # then edit JWT_SECRET_KEY etc.
-
-# Postgres: runs as a NATIVE Windows service (postgresql-x64-18) on the
-# default port 5432 — Docker Desktop was uninstalled from this machine
-# 2026-08-05, so `docker compose up -d` does NOT work for local dev and
-# `docker` is not on PATH at all. (Postgres was on 5434 back when it ran in
-# Docker; .env's DATABASE_URL already points at 5432.) docker-compose.yml is
-# still real and still used — but for PRODUCTION on the Hostinger VPS only,
-# see DEPLOYMENT.md.
-#
-# MinIO (9000/9001) and ChromaDB (8012) are NOT running locally. Everything
-# that touches them degrades gracefully rather than erroring: bulk-upload
-# archival falls back to a `storage_warning` in the response (see commit
-# c81ceb4), so the whole master-data/bulk-upload surface is fully testable
-# locally without them. Start them separately only if working on resume
-# storage or semantic matching specifically.
 
 venv/Scripts/python.exe -m alembic upgrade head
 venv/Scripts/python.exe -m app.db.seed        # idempotent
 venv/Scripts/python.exe -m uvicorn app.main:app --reload
 # -> http://127.0.0.1:8000/docs
+```
 
+Postgres there is a NATIVE Windows service (postgresql-x64-18) on the default
+port 5432. Docker Desktop was uninstalled from that machine 2026-08-05, so
+`docker compose up -d` does NOT work for local dev there and `docker` is not
+on PATH at all. (Postgres was on 5434 back when it ran in Docker; `.env`'s
+`DATABASE_URL` already points at 5432.)
+
+### mac (`.venv-mac/`, Python 3.12.14)
+
+```bash
+.venv-mac/bin/python -m pip install -r requirements-dev.txt
+
+# Postgres 16 is installed via Homebrew but does NOT run by default, and its
+# binaries are NOT on PATH. Both of these bite on a fresh shell:
+brew services start postgresql@16
+export PATH=/opt/homebrew/opt/postgresql@16/bin:$PATH
+
+.venv-mac/bin/python -m alembic upgrade head
+.venv-mac/bin/python -m app.db.seed
+.venv-mac/bin/python -m uvicorn app.main:app --reload
+```
+
+**The `simats_app` role must OWN the databases it uses, not merely be able to
+log in.** Postgres 15+ revoked `CREATE` on `public` from `PUBLIC`, so a
+database owned by anyone else gives `InsufficientPrivilege: permission denied
+for schema public` on the first `CREATE TYPE` — which surfaces as all 1502
+tests ERRORing at setup, looking nothing like a permissions problem. Fix, once
+per database:
+
+```bash
+psql -d postgres -c "ALTER DATABASE simats_recruitment_test OWNER TO simats_app;"
+psql -d simats_recruitment_test -c "ALTER SCHEMA public OWNER TO simats_app;"
+```
+
+`docker` IS on PATH on the mac, but `docker-compose.yml` is still PRODUCTION
+only (the Hostinger VPS, see DEPLOYMENT.md) — do not bring the stack up to
+develop against.
+
+**The frontend needs Node 22 on PATH, and `node` here is 26.** CI
+(`NODE_VERSION: "22"`) and `frontend/Dockerfile` (`node:22-bookworm-slim`)
+both pin 22; Homebrew's default `node` on this mac is 26.10.0. Node 26 ships
+its own built-in `localStorage` global, which shadows jsdom's inside the
+vitest environment, so bare `localStorage` is `undefined` and
+`AuthContext.test.tsx` + `AppShell.test.tsx` fail all 21 of their tests in
+`beforeEach` with `Cannot read properties of undefined (reading 'clear')` —
+a code-shaped error with an entirely environmental cause. Node 22 is
+installed but deliberately NOT `brew link`ed, so other projects on this
+machine keep 26:
+
+```bash
+export PATH=/opt/homebrew/opt/node@22/bin:$PATH   # per shell, before npm
+```
+
+**The Windows-generated `package-lock.json` leaves node_modules without the
+mac's native binaries.** `npm install` on the mac installs only the
+`win32-x64` Rolldown/lightningcss bindings the lockfile records, and vitest
+then dies at startup with `Cannot find native binding` / `Cannot find module
+'@rolldown/binding-darwin-arm64'`. This is npm/cli#4828 — the same bug the
+production image works around by using `npm install` instead of `npm ci`
+(see Known gaps). Add the missing bindings WITHOUT touching the lockfile:
+
+```bash
+cd frontend
+npm i --no-save @rolldown/binding-darwin-arm64@1.1.5 lightningcss-darwin-arm64@1.32.0
+# versions must match node_modules/rolldown and node_modules/lightningcss
+```
+
+Do **not** follow the error's own advice to delete `package-lock.json` and
+`node_modules` and reinstall: that regenerates the lockfile on macOS and
+moves the identical breakage onto Windows and the Linux image instead.
+
+### Both machines
+
+MinIO (9000/9001) and ChromaDB (8012) are NOT running locally. Everything
+that touches them degrades gracefully rather than erroring: bulk-upload
+archival falls back to a `storage_warning` in the response (see commit
+c81ceb4), so the whole master-data/bulk-upload surface is fully testable
+locally without them. Start them separately only if working on resume
+storage or semantic matching specifically.
+
+```bash
 # Frontend
 cd frontend && npm install && npm run dev
 # -> http://localhost:5173 (CORS_ALLOWED_ORIGINS in .env.example already allows this)
@@ -455,13 +529,35 @@ cd frontend && npm install && npm run dev
 ## Testing
 
 ```bash
-# Backend — needs a one-time `CREATE DATABASE simats_recruitment_test`
-venv/Scripts/python.exe -m pytest -v
+# Backend — needs a one-time `CREATE DATABASE simats_recruitment_test`,
+# OWNED BY simats_app (see "Running locally" — wrong owner = 1502 setup errors)
+venv/Scripts/python.exe -m pytest -v      # Windows
+.venv-mac/bin/python -m pytest -q         # mac
 
 # Frontend
 cd frontend
 npx tsc -b --force     # NOT `tsc --noEmit` — see footgun above
 npm run test           # vitest run
+```
+
+**Three checks pytest cannot do, worth running by hand before committing a
+migration** — `tests/conftest.py` builds its schema with
+`Base.metadata.create_all`, so the migration chain is never exercised by the
+suite (this is what CI's `migrations` job is for):
+
+```bash
+grep -rhoE "^revision(: str)? = ['\"][0-9a-f]+['\"]" alembic/versions/*.py \
+  | grep -oE "[0-9a-f]{12}" | sort | uniq -d        # must print nothing
+.venv-mac/bin/python -m alembic heads                # must be a single head
+
+# Chain + drift against a throwaway empty database. Note PYTHONPATH=. —
+# scripts/ are not a package and `import app` fails without it.
+createdb -O simats_app simats_migcheck
+DATABASE_URL="postgresql+psycopg://simats_app:change_me_locally@localhost:5432/simats_migcheck" \
+  .venv-mac/bin/python -m alembic upgrade head
+PYTHONPATH=. DATABASE_URL="postgresql+psycopg://simats_app:change_me_locally@localhost:5432/simats_migcheck" \
+  .venv-mac/bin/python scripts/check_schema_drift.py   # "Migrations and models agree."
+dropdb simats_migcheck
 ```
 
 **A missing `db.commit()` is invisible to this suite** (learned 2026-10-17):
