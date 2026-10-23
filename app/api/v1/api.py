@@ -14,6 +14,7 @@ from app.api.v1.routers import (
     eligibility_rules,
     employees,
     housekeeping_staff,
+    inbound_emails,
     interviews,
     campaign_posters,
     job_distribution,
@@ -56,6 +57,10 @@ api_router.include_router(housekeeping_staff.router)
 api_router.include_router(eligibility_rules.router)
 api_router.include_router(pipeline_stage_configs.router)
 api_router.include_router(audit_logs.router)
+
+# Mail intake (2026-10-17). The POST here is secret-gated rather than
+# open like the two public routers above -- see its module docstring.
+api_router.include_router(inbound_emails.router)
 
 # qr_router first: its /vacancy-requests/qr/* paths would otherwise be
 # swallowed by /vacancy-requests/{vacancy_request_id} below.

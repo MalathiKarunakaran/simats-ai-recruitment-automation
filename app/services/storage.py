@@ -138,6 +138,59 @@ def download_joining_document_bytes(client: Minio, storage_key: str) -> bytes:
         ) from exc
 
 
+def upload_email_attachment(
+    client: Minio,
+    *,
+    inbound_email_id: uuid.UUID,
+    filename: str,
+    data: bytes,
+    content_type: str | None,
+) -> str:
+    """Store one attachment exactly as it arrived.
+
+    Hard-fails like `upload_resume` rather than degrading like the bulk
+    archival copy: the EmailAttachment row records a storage key, so a row
+    written after a failed put would claim bytes that are not there. The
+    caller writes the row only once this has returned a key -- see
+    app/services/mail_intake.py.
+
+    Keys are `{inbound_email_id}/{filename}`. Two attachments with the same
+    name on one message would collide, so the caller de-duplicates the
+    name before calling (`mail_intake._unique_filename`).
+    """
+    _ensure_bucket(client, settings.MINIO_BUCKET_EMAIL_ATTACHMENTS)
+    storage_key = f"{inbound_email_id}/{filename}"
+    try:
+        client.put_object(
+            settings.MINIO_BUCKET_EMAIL_ATTACHMENTS,
+            storage_key,
+            io.BytesIO(data),
+            length=len(data),
+            content_type=content_type or "application/octet-stream",
+        )
+    except _STORAGE_ERRORS as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to upload the email attachment to object storage",
+        ) from exc
+    return storage_key
+
+
+def download_email_attachment_bytes(client: Minio, storage_key: str) -> bytes:
+    try:
+        response = client.get_object(settings.MINIO_BUCKET_EMAIL_ATTACHMENTS, storage_key)
+        try:
+            return response.read()
+        finally:
+            response.close()
+            response.release_conn()
+    except _STORAGE_ERRORS as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch the email attachment from object storage",
+        ) from exc
+
+
 def upload_poster_artwork(client: Minio, *, job_posting_id: uuid.UUID, filename: str, data: bytes) -> str:
     """A generated picture for a poster: the header background, or the
     photograph of a role on a campaign sheet (2026-09-17, 2026-09-18).

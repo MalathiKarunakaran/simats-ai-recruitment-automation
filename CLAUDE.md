@@ -81,7 +81,7 @@ Testing: Vitest 4 + Testing Library + jsdom. Lint: `oxlint`.
   departments, audit_logs, vacancy_requests, approved_vacancies, job_postings,
   job_distribution, candidates, applications, offers, joining, employees,
   resume_screening, interviews, notifications, assistant, dashboard, reports,
-  migration). Registered in `app/api/v1/api.py`.
+  migration, inbound_emails). Registered in `app/api/v1/api.py`.
 - `app/core/` — `config.py` (pydantic-settings), `security.py` (password
   hashing, JWT, opaque tokens), `deps.py` (auth/RBAC/campus-scope FastAPI
   dependencies), `rate_limit.py` (in-memory sliding-window limiter),
@@ -329,6 +329,50 @@ separation. Nothing auto-submits. Joining documents: `POST/GET
 magic bytes checked, 10 MB cap; upload sets RECEIVED. Tests:
 `tests/test_replacement_vacancy.py`, `tests/test_joining_document_files.py`.
 
+**Recruitment mail intake is a log, and Phase 1 only records (2026-10-17)**:
+`app/services/mail_intake.py` is the only writer of `InboundEmail` and
+`EmailAttachment` (migration `a7b8c9d0e1f2`). It records what arrived in the
+recruitment inbox and does nothing else -- no classification, no candidate
+matching, no `Application` touched. The classification columns
+(`category`, `confidence`, `needs_review`) and the three nullable links out
+exist already and stay NULL/false, so Phase 2 is a service and a test
+rather than another migration against a table with production rows in it.
+When Phase 2 does act, it must go through
+`pipeline.transition_application_status` like everything else -- never reach
+into an Application from here. `MIN_CLASSIFICATION_CONFIDENCE` (0.75) in
+`enums.py` is named once so the classifier and the review queue cannot
+disagree about the number.
+
+Three things about it that are easy to get wrong:
+
+- **`gmail_message_id` is UNIQUE and THAT is the idempotency guarantee**,
+  not the SELECT `record_email` does first. A replay returns the existing
+  row with `created=false` and HTTP **200**, deliberately not an error --
+  a 4xx would have n8n retrying forever. The duplicate is caught on a
+  **SAVEPOINT** (`db.begin_nested()`): a plain `db.rollback()` there would
+  discard everything else the request had written, and every fixture row in
+  the enclosing test savepoint.
+- **Attachment bytes land in MinIO BEFORE their row is written**, because
+  `EmailAttachment.storage_path` is NOT NULL -- a row written after a failed
+  put would claim bytes that are not there. The reverse leak (an object with
+  no row, if the transaction rolls back) is the cheaper one.
+- **The POST is gated by a shared secret, not left open** like the QR intake
+  and the careers apply form. `MAIL_INTAKE_SECRET` is compared in constant
+  time by `deps.require_mail_intake_secret`, and **empty means the endpoint
+  refuses everything with 503** -- the inverse of the `N8N_BASE_URL`
+  precedent, because a missing outbound URL costs a notification whereas a
+  missing inbound secret would cost control of the table. n8n holds no
+  `User`, so the audit rows are `actor=None` (as the two public routers
+  already are) and there is no identity for the endpoint to act under.
+
+The mail log is NOT campus-scoped: an email arrives before anyone knows
+which campus it concerns, so there is no `campus_id` to scope by. Reads are
+role-gated with `require_roles` (no new `PermissionEnum`, same reasoning as
+the reopen/unpublish transitions) and `_MAIL_LOG_READERS` is asserted to be
+a subset of `GLOBAL_SCOPE_ROLES` by a test -- so adding a single-campus role
+to it fails rather than silently leaking another campus's mail.
+`tests/test_mail_intake.py` guards all of it.
+
 **Working strength is derived, never stored**: `sanctioned_strength.working_count_for`
 counts ACTIVE `Employee` rows by `designation_id` for Teaching/Non-Teaching and
 active `HousekeepingStaff` roster rows for Housekeeping (a `working_override`
@@ -419,6 +463,18 @@ cd frontend
 npx tsc -b --force     # NOT `tsc --noEmit` — see footgun above
 npm run test           # vitest run
 ```
+
+**A missing `db.commit()` is invisible to this suite** (learned 2026-10-17):
+`db.session.get_db` only closes the session, it never commits, so every
+writing router must call `db.commit()` itself. `tests/conftest.py`'s
+`db_session` holds one long-lived session inside a SAVEPOINT that the
+TestClient shares, so uncommitted rows are visible to the assertions
+anyway and a router that forgot to commit still passes everything. The
+mail-intake POST shipped without one and looked green across 1502 tests;
+it was caught by running uvicorn and posting the same message twice
+against a real database (two rows, `created: true` both times). For a new
+write endpoint, check the commit by hand or drive it live -- the suite
+will not tell you.
 
 170+ backend tests (`tests/`, one file per router/concern), 78+ frontend
 tests (Vitest + Testing Library, `*.test.tsx` colocated with components/pages).

@@ -1,13 +1,15 @@
+import hmac
 import uuid
 from dataclasses import dataclass
 
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.client_ip import client_ip as _client_ip
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.coordinator_capability_grant import CoordinatorCapabilityGrant
 from app.models.enums import (
@@ -337,3 +339,33 @@ def client_ip(request: Request) -> str | None:
     # Kept for existing importers; the implementation (and the reasoning
     # about proxies) lives in app/core/client_ip.py.
     return _client_ip(request)
+
+
+def require_mail_intake_secret(
+    x_mail_intake_secret: str | None = Header(None, alias="X-Mail-Intake-Secret"),
+) -> None:
+    """Gate for the machine-only mail intake endpoint (2026-10-17).
+
+    Deliberately NOT a `User`: n8n is not a person, has no role and must
+    not appear in `AuditLog.actor_user_id` as though it were one. Nothing
+    downstream of this gets a `current_user`, which is why the intake
+    endpoint can only write `InboundEmail` rows and nothing else.
+
+    An unset `MAIL_INTAKE_SECRET` closes the endpoint (503) instead of
+    opening it. That is the opposite of how `N8N_BASE_URL` behaves and the
+    asymmetry is the point: a missing outbound URL costs a notification, a
+    missing inbound secret would cost control of the table.
+    """
+    if not settings.MAIL_INTAKE_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Mail intake is not configured (MAIL_INTAKE_SECRET is not set)",
+        )
+    # compare_digest, not ==, so a wrong secret cannot be guessed a
+    # character at a time from response timing.
+    if not x_mail_intake_secret or not hmac.compare_digest(
+        x_mail_intake_secret, settings.MAIL_INTAKE_SECRET
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid mail intake secret"
+        )

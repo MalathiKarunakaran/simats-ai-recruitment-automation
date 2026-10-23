@@ -760,3 +760,30 @@ JOB_POSTING_CHANNEL_LIVE_STATUSES = frozenset(
 # Bounded retry: a channel that has failed this many times stays FAILED
 # until a person looks at it (or n8n is fixed); nothing loops forever.
 MAX_POSTING_ATTEMPTS_PER_CHANNEL = 5
+
+
+class EmailCategoryEnum(str, enum.Enum):
+    """What an inbound recruitment email turns out to be (mail intake,
+    2026-10-17). NULL on the row until a classifier has looked at it, so
+    "unclassified" is the absence of a value rather than a member here.
+
+    A native Postgres enum rather than the free string `AuditLog.action`
+    uses: this is a closed set the classifier is prompted with, and a value
+    outside it is a bug worth a database error. The cost is that a new
+    category needs an ALTER TYPE ... ADD VALUE migration, which cannot be
+    undone -- see app/models/enums.py's other enums for the same trade.
+    """
+
+    NEW_APPLICATION = "NEW_APPLICATION"
+    STATUS_ENQUIRY = "STATUS_ENQUIRY"
+    INTERVIEW_RESPONSE = "INTERVIEW_RESPONSE"
+    OFFER_RESPONSE = "OFFER_RESPONSE"
+    DOCUMENTS_SUBMITTED = "DOCUMENTS_SUBMITTED"
+    WITHDRAWAL = "WITHDRAWAL"
+    OTHER = "OTHER"
+
+
+# Below this, a classification is not acted on: the row is flagged
+# `needs_review` and no application status moves. Phase 2's rule, named here
+# so the classifier and the review queue cannot disagree about the number.
+MIN_CLASSIFICATION_CONFIDENCE = 0.75

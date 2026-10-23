@@ -33,5 +33,6 @@ from app.models.location import Location  # noqa: F401
 from app.models.housekeeping_staff import HousekeepingStaff  # noqa: F401
 from app.models.recruitment_channel import ChannelRule, RecruitmentChannel  # noqa: F401
 from app.models.job_posting_channel import JobPostingChannel, PostingAttempt  # noqa: F401
+from app.models.inbound_email import EmailAttachment, InboundEmail  # noqa: F401
 
 __all__ = ["Base"]

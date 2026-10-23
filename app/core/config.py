@@ -88,6 +88,14 @@ class Settings(BaseSettings):
     # One object per posting, key `{job_posting_id}/background.png`, so a
     # regenerated image replaces the one before it.
     MINIO_BUCKET_POSTER_BACKGROUNDS: str = "poster-backgrounds"
+
+    # --- MinIO (2026-10-17, mail intake): email attachments ---
+    # Whatever arrived attached to a recruitment email, kept exactly as
+    # it arrived. Separate from `resumes` on purpose: a resume in that
+    # bucket is a Candidate's current CV, while this is evidence of one
+    # message. Promoting an attachment to a resume is a later phase's
+    # decision and will copy, not move.
+    MINIO_BUCKET_EMAIL_ATTACHMENTS: str = "email-attachments"
     MINIO_USE_SSL: bool = False
 
     # --- ChromaDB (Phase 3: resume embeddings / semantic JD matching) ---
@@ -101,6 +109,17 @@ class Settings(BaseSettings):
     # degrade cleanly (never crash) when this is unset.
     N8N_BASE_URL: str = ""
     N8N_TIMEOUT_SECONDS: float = 5.0
+
+    # --- Recruitment mail intake (2026-10-17) ---
+    #
+    # The shared secret n8n must send as `X-Mail-Intake-Secret` to push a
+    # Gmail message in. Empty by default, and empty means the intake
+    # endpoint REFUSES EVERYTHING (503) rather than accepting anonymous
+    # writes -- the inverse of the N8N_BASE_URL precedent above, because
+    # an unset outbound URL only costs a notification whereas an unset
+    # inbound secret would be an open write surface. Compared in constant
+    # time; see app/core/deps.py's require_mail_intake_secret.
+    MAIL_INTAKE_SECRET: str = ""
 
     # --- Deployment environment (2026-09-03, audit H1) ---
     #
