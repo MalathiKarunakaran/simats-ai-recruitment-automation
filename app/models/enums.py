@@ -787,3 +787,86 @@ class EmailCategoryEnum(str, enum.Enum):
 # `needs_review` and no application status moves. Phase 2's rule, named here
 # so the classifier and the review queue cannot disagree about the number.
 MIN_CLASSIFICATION_CONFIDENCE = 0.75
+
+
+class TalentPoolSourceTabEnum(str, enum.Enum):
+    """Which sheet tab a talent-pool entry was read from.
+
+    A native Postgres enum, unlike the free-text `sheet_status` and
+    `eligibility` columns beside it, because this one is structural rather
+    than transcribed: every query in the read API filters on it, the two
+    tabs have genuinely different columns (teaching has eligibility, NTS has
+    applied_post), and a third value would be a new sheet, which is a
+    decision someone makes rather than a spelling that drifts.
+    """
+
+    TEACHING_FINAL = "TEACHING_FINAL"
+    NTS = "NTS"
+
+
+# The talent pool's statuses and eligibility values are stored as PLAIN
+# STRINGS on the row, not as Postgres enums, and these tuples are the
+# canonical display spellings the normaliser is expected to produce. The
+# reason is the direction the data flows: these values are transcribed from
+# a Google Sheet that people edit by hand, so an unexpected spelling must
+# land in the table where it can be seen and corrected, not raise a database
+# error that loses the row. The read API counts whatever it finds and these
+# tuples only fix the ORDER things are displayed in -- a value outside them
+# still appears, it is simply listed last.
+TALENT_POOL_TEACHING_STATUSES = (
+    "Selected",
+    "Waiting List",
+    "Rejected",
+    "Pending",
+)
+
+TALENT_POOL_NTS_STATUSES = (
+    "Selected",
+    "Waiting List",
+    "Rejected",
+    "Interview Scheduled",
+    "On Hold",
+    "RNR",
+    "Not Interested",
+    "No outcome",
+)
+
+# Fixed display order for the teaching eligibility panel (spec 1.5), best
+# qualification first and "Not set" last.
+TALENT_POOL_ELIGIBILITY_VALUES = (
+    "With Ph.D",
+    "Thesis / viva stage",
+    "Pursuing Ph.D",
+    "No Ph.D",
+    "Not eligible",
+    "Not set",
+)
+
+# What "Eligible" means on the dashboard, named once so the tile, the
+# by-department column and the API's own `eligible_definition` field cannot
+# drift apart. A thesis/viva candidate is deliberately NOT eligible -- the
+# tile reports them separately as "+N at thesis / viva stage".
+TALENT_POOL_ELIGIBLE_VALUES = ("With Ph.D",)
+
+# The teaching status that means nobody has decided yet. Used by the
+# "Eligible, no decision" tile and excluded from the Selected percentage.
+TALENT_POOL_PENDING_STATUS = "Pending"
+
+# Statuses that count as a decision having been taken, for the "N% of
+# interviewed" / "N% of decided" sub-lines on the Selected tile.
+TALENT_POOL_DECIDED_STATUSES = ("Selected", "Waiting List", "Rejected")
+
+# Shown in place of a blank department or eligibility, so a missing value is
+# a visible bucket rather than a row that quietly vanishes from a breakdown.
+TALENT_POOL_NOT_SET_LABEL = "Not set"
+
+# Breakdown lists (spec 1.5) show this many ranked entries and fold the rest
+# into a single "Others" row.
+TALENT_POOL_BREAKDOWN_TOP_N = 8
+TALENT_POOL_OTHERS_LABEL = "Others"
+
+# The audit action the sync writes, which the summary endpoint reads back for
+# its freshness line. `AuditLog.action` is a plain String(50) by design, so
+# this needs no migration -- it is named here only so the writer (a later
+# phase) and the reader cannot disagree about the spelling.
+TALENT_POOL_SYNCED_ACTION = "TALENT_POOL_SYNCED"
