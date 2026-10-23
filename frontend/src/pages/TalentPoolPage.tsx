@@ -5,6 +5,9 @@ import { useSearchParams } from "react-router-dom";
 
 import { getTalentPoolSummary } from "@/api/talentPool";
 import type { TalentPoolSourceTab } from "@/api/types";
+import { BreakdownList } from "@/components/talentPool/BreakdownList";
+import { DepartmentTable } from "@/components/talentPool/DepartmentTable";
+import { MonthlyAddedChart } from "@/components/talentPool/MonthlyAddedChart";
 import { TalentPoolTiles } from "@/components/talentPool/TalentPoolTiles";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +29,29 @@ import { cn } from "@/lib/utils";
  */
 
 const STALE_AFTER_MINUTES = 60;
+
+/** The Grouped / As-in-sheet choice is remembered per browser (spec 1.4).
+ * Every access is wrapped: a private window, cleared site data or a browser
+ * set to block storage makes these throw, and a remembered toggle is not
+ * worth a blank page. */
+const DEPT_MODE_KEY = "talent-pool.dept-mode";
+
+function readStoredDeptMode(): "group" | "raw" | null {
+  try {
+    const stored = localStorage.getItem(DEPT_MODE_KEY);
+    return stored === "raw" || stored === "group" ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeDeptMode(mode: "group" | "raw"): void {
+  try {
+    localStorage.setItem(DEPT_MODE_KEY, mode);
+  } catch {
+    // Ignored on purpose -- see DEPT_MODE_KEY.
+  }
+}
 
 const TABS: { tab: TalentPoolSourceTab; param: string; label: string }[] = [
   { tab: "TEACHING_FINAL", param: "teaching", label: "Teaching" },
@@ -58,7 +84,14 @@ export function TalentPoolPage() {
   const queryClient = useQueryClient();
 
   const tab = tabFromParam(searchParams.get("tab"));
-  const deptMode = searchParams.get("dept_mode") === "raw" ? "raw" : "group";
+
+  // The URL wins when it says something, so a shared link opens the view it
+  // describes; otherwise fall back to what this browser last chose.
+  const urlDeptMode = searchParams.get("dept_mode");
+  const deptMode: "group" | "raw" =
+    urlDeptMode === "raw" || urlDeptMode === "group"
+      ? urlDeptMode
+      : (readStoredDeptMode() ?? "group");
 
   const summaryQuery = useQuery({
     queryKey: ["talent-pool", "summary", tab, deptMode],
@@ -77,6 +110,30 @@ export function TalentPoolPage() {
     [setSearchParams],
   );
 
+  const selectDeptMode = useCallback(
+    (mode: "group" | "raw") => {
+      storeDeptMode(mode);
+      const params = new URLSearchParams(searchParams);
+      params.set("dept_mode", mode);
+      setSearchParams(params);
+    },
+    [searchParams, setSearchParams],
+  );
+
+  /** A department row click sets the register's department filter. It keeps
+   * the current dept_mode, because the filter is matched against whichever
+   * column the table was grouped by -- clicking "CSE" in Grouped and in
+   * As-in-sheet are two different questions with two different answers. */
+  const selectDepartment = useCallback(
+    (department: string) => {
+      const params = new URLSearchParams(searchParams);
+      params.set("dept_mode", deptMode);
+      params.set("department", department);
+      setSearchParams(params);
+    },
+    [deptMode, searchParams, setSearchParams],
+  );
+
   /** Re-fetches what is on screen. It does NOT trigger a sync -- the n8n
    * workflow owns that, and a button that looked like it pulled from the
    * sheet but only re-read our own table would be a lie. */
@@ -88,10 +145,17 @@ export function TalentPoolPage() {
 
   const freshness = useMemo(() => {
     if (!summary) return null;
-    const parts: string[] = ["Synced from Google Sheet"];
-    parts.push(
-      summary.last_sync_at ? `last sync ${formatSyncTime(summary.last_sync_at)}` : "never synced",
-    );
+    // Never claim a sync that has not happened. Leading with "Synced from
+    // Google Sheet" and then admitting "never synced" is a contradiction
+    // that reads as a working sync at a glance -- and anyone skimming the
+    // numbers would take them for the sheet's. When nothing has synced, say
+    // plainly where the numbers did NOT come from.
+    if (!summary.last_sync_at) {
+      return summary.total > 0
+        ? "Not synced from the Google Sheet yet \u2014 these numbers are whatever is already in this database, not the sheet."
+        : "Not synced from the Google Sheet yet.";
+    }
+    const parts = ["Synced from Google Sheet", `last sync ${formatSyncTime(summary.last_sync_at)}`];
     if (summary.sheet_last_update) parts.push(`sheet last updated ${summary.sheet_last_update}`);
     return parts.join(" \u00b7 ");
   }, [summary]);
@@ -208,7 +272,82 @@ export function TalentPoolPage() {
           </CardContent>
         </Card>
       ) : summary ? (
-        <TalentPoolTiles summary={summary} tab={tab} />
+        <>
+          <TalentPoolTiles summary={summary} tab={tab} currentParams={searchParams} />
+
+          {/* Two columns on wide screens, stacked below -- the chart and the
+              department table are the same altitude of question ("when" and
+              "where"), so neither gets priority. */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardContent className="p-3">
+                <h2 className="mb-2 text-sm font-semibold">Candidates per month</h2>
+                <MonthlyAddedChart data={summary.monthly} undated={summary.undated} tab={tab} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-3">
+                <DepartmentTable
+                  rows={summary.by_department}
+                  tab={tab}
+                  deptMode={summary.department_mode === "raw" ? "raw" : "group"}
+                  departmentCount={summary.department_count}
+                  onDeptModeChange={selectDeptMode}
+                  onSelectDepartment={selectDepartment}
+                />
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            {tab === "TEACHING_FINAL" ? (
+              <>
+                <Card>
+                  <CardContent className="p-3">
+                    <BreakdownList
+                      title="PhD / eligibility"
+                      items={summary.breakdowns.eligibility}
+                      subLine={`Eligible = ${summary.eligible_definition.join(" / ")}.`}
+                    />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3">
+                    <BreakdownList title="Data source" items={summary.breakdowns.source} />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3">
+                    <BreakdownList
+                      title="Interviews called by"
+                      items={summary.breakdowns.called_by}
+                      emptyMessage="No interviewer recorded against any candidate yet."
+                    />
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <>
+                <Card>
+                  <CardContent className="p-3">
+                    <BreakdownList title="Applied post" items={summary.breakdowns.applied_post} />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3">
+                    <BreakdownList title="Reference source" items={summary.breakdowns.source} />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-3">
+                    <BreakdownList title="Call outcomes" items={summary.breakdowns.call_outcomes} />
+                  </CardContent>
+                </Card>
+              </>
+            )}
+          </div>
+        </>
       ) : null}
     </div>
   );

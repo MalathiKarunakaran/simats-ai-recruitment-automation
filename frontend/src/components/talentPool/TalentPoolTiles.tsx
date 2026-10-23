@@ -19,19 +19,34 @@ import type { TalentPoolSourceTab, TalentPoolSummary } from "@/api/types";
 interface TalentPoolTilesProps {
   summary: TalentPoolSummary;
   tab: TalentPoolSourceTab;
+  /** The page's current query string, so a tile composes with the filters
+   * already applied instead of discarding them. */
+  currentParams?: URLSearchParams;
   isLoading?: boolean;
 }
 
 /** The register's filters live in the URL, so a tile is just a link to this
  * page with those filters already set. The `#register` anchor is the scroll
  * target the register itself supplies (step D); until then the query
- * parameters still apply correctly and the anchor is simply inert. */
+ * parameters still apply correctly and the anchor is simply inert.
+ *
+ * A tile COMPOSES with the department filter rather than replacing the whole
+ * query: having narrowed to ECE, clicking Selected should mean "selected, in
+ * ECE" -- that is what drilling into a dashboard means, and silently
+ * dropping the department would make the number on screen disagree with the
+ * tile that was clicked. Status and eligibility ARE replaced, because each
+ * tile's row in spec 1.2 names every filter it sets, so leaving a previous
+ * one in place would stack two tiles' meanings. */
 function filterHref(
   tab: TalentPoolSourceTab,
   filters: { status?: string; eligibility?: string },
+  currentParams?: URLSearchParams,
 ): string {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams(currentParams ?? undefined);
+  params.delete("status");
+  params.delete("eligibility");
   if (tab === "NTS") params.set("tab", "nts");
+  else params.delete("tab");
   if (filters.status) params.set("status", filters.status);
   if (filters.eligibility) params.set("eligibility", filters.eligibility);
   const query = params.toString();
@@ -46,7 +61,7 @@ function percentOf(part: number, whole: number): number | undefined {
   return Math.round((part / whole) * 100);
 }
 
-export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolTilesProps) {
+export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false }: TalentPoolTilesProps) {
   const status = (name: string) => summary.by_status[name] ?? 0;
   const eligibility = (name: string) => summary.by_eligibility[name] ?? 0;
 
@@ -64,7 +79,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
     const thesisStage = eligibility("Thesis / viva stage");
 
     return (
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+      <div data-testid="talent-pool-tiles" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
         <StatTile
           label="Total candidates"
           value={summary.total}
@@ -81,7 +96,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
           icon={CheckCircle2}
           iconColor="green"
           accent="green"
-          to={filterHref(tab, { status: "Selected" })}
+          to={filterHref(tab, { status: "Selected" }, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -90,7 +105,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
           icon={Clock}
           iconColor="orange"
           accent="orange"
-          to={filterHref(tab, { status: "Waiting List" })}
+          to={filterHref(tab, { status: "Waiting List" }, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -99,7 +114,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
           icon={XCircle}
           iconColor="red"
           accent="red"
-          to={filterHref(tab, { status: "Rejected" })}
+          to={filterHref(tab, { status: "Rejected" }, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -108,7 +123,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
           subLine="no decision recorded"
           icon={HelpCircle}
           iconColor="blue"
-          to={filterHref(tab, { status: "Pending" })}
+          to={filterHref(tab, { status: "Pending" }, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -117,7 +132,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
           subLine={thesisStage > 0 ? `+${thesisStage} at thesis / viva stage` : undefined}
           icon={Award}
           iconColor="purple"
-          to={filterHref(tab, { eligibility: summary.eligible_definition[0] })}
+          to={filterHref(tab, { eligibility: summary.eligible_definition[0] }, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -127,7 +142,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
           icon={Award}
           iconColor="orange"
           accent="gold"
-          to={filterHref(tab, { eligibility: summary.eligible_definition[0], status: "Pending" })}
+          to={filterHref(tab, { eligibility: summary.eligible_definition[0], status: "Pending" }, currentParams)}
           isLoading={isLoading}
         />
       </div>
@@ -141,7 +156,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
   const followUp = rnr + onHold + interviewScheduled;
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+    <div data-testid="talent-pool-tiles" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
       <StatTile
         label="Total candidates"
         value={summary.total}
@@ -158,7 +173,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
         icon={CheckCircle2}
         iconColor="green"
         accent="green"
-        to={filterHref(tab, { status: "Selected" })}
+        to={filterHref(tab, { status: "Selected" }, currentParams)}
         isLoading={isLoading}
       />
       <StatTile
@@ -167,7 +182,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
         icon={Clock}
         iconColor="orange"
         accent="orange"
-        to={filterHref(tab, { status: "Waiting List" })}
+        to={filterHref(tab, { status: "Waiting List" }, currentParams)}
         isLoading={isLoading}
       />
       <StatTile
@@ -176,7 +191,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
         icon={XCircle}
         iconColor="red"
         accent="red"
-        to={filterHref(tab, { status: "Rejected" })}
+        to={filterHref(tab, { status: "Rejected" }, currentParams)}
         isLoading={isLoading}
       />
       <StatTile
@@ -192,7 +207,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
         value={status("Not Interested")}
         icon={PhoneOff}
         iconColor="red"
-        to={filterHref(tab, { status: "Not Interested" })}
+        to={filterHref(tab, { status: "Not Interested" }, currentParams)}
         isLoading={isLoading}
       />
       <StatTile
@@ -201,7 +216,7 @@ export function TalentPoolTiles({ summary, tab, isLoading = false }: TalentPoolT
         subLine="date or note only"
         icon={HelpCircle}
         iconColor="blue"
-        to={filterHref(tab, { status: "No outcome" })}
+        to={filterHref(tab, { status: "No outcome" }, currentParams)}
         isLoading={isLoading}
       />
     </div>

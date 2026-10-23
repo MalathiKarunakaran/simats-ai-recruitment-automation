@@ -29,6 +29,9 @@ function summary(overrides: Partial<TalentPoolSummary> = {}): TalentPoolSummary 
     eligible_pending: 3,
     by_department: [
       { department: "CSE", total: 7, eligible: 5, selected: 2, waiting: 1, rejected: 2, open: 2 },
+      { department: "ECE", total: 5, eligible: 1, selected: 1, waiting: 1, rejected: 2, open: 1 },
+      { department: "Nursing", total: 4, eligible: 0, selected: 1, waiting: 1, rejected: 1, open: 1 },
+      { department: "Not set", total: 3, eligible: 0, selected: 0, waiting: 0, rejected: 0, open: 3 },
     ],
     department_mode: "group",
     department_count: 4,
@@ -38,7 +41,27 @@ function summary(overrides: Partial<TalentPoolSummary> = {}): TalentPoolSummary 
       selected: 0,
     })),
     undated: 2,
-    breakdowns: { source: [], called_by: [], eligibility: [], applied_post: [], call_outcomes: [] },
+    breakdowns: {
+      source: [
+        { label: "Our Data", count: 7 },
+        { label: "Mam Data", count: 7 },
+        { label: "Not set", count: 5 },
+      ],
+      called_by: [
+        { label: "Narmada", count: 2 },
+        { label: "Suresh", count: 1 },
+      ],
+      eligibility: [
+        { label: "With Ph.D", count: 9 },
+        { label: "Thesis / viva stage", count: 1 },
+        { label: "Pursuing Ph.D", count: 3 },
+        { label: "No Ph.D", count: 2 },
+        { label: "Not eligible", count: 2 },
+        { label: "Not set", count: 2 },
+      ],
+      applied_post: [],
+      call_outcomes: [],
+    },
     last_sync_at: new Date(Date.now() - 5 * 60_000).toISOString(),
     sheet_last_update: "14-10-2026, 04.51 pm",
     last_sync_counts: { inserted: 12, updated: 30, unchanged: 7700, deactivated: 0 },
@@ -61,6 +84,26 @@ function ntsSummary(): TalentPoolSummary {
     },
     by_eligibility: {},
     eligible_pending: 0,
+    department_count: 1,
+    by_department: [
+      { department: "Administration", total: 9, eligible: 0, selected: 2, waiting: 0, rejected: 1, open: 6 },
+    ],
+    breakdowns: {
+      source: [{ label: "Referral", count: 9 }],
+      called_by: [],
+      eligibility: [],
+      applied_post: [
+        { label: "Lab Assistant", count: 3 },
+        { label: "Office Assistant", count: 3 },
+      ],
+      call_outcomes: [
+        { label: "Interview Scheduled", count: 1 },
+        { label: "On Hold", count: 1 },
+        { label: "RNR", count: 2 },
+        { label: "Not Interested", count: 1 },
+        { label: "No outcome", count: 1 },
+      ],
+    },
   });
 }
 
@@ -77,14 +120,33 @@ function renderPage(initialPath = "/talent-pool") {
 
 /** The tiles are anchors, so a tile's "click action" is asserted as its
  * href. Finding the <a> by its accessible name would match the label text
- * only, so walk up from the label instead. */
+ * only, so walk up from the label instead.
+ *
+ * Scoped to the tiles region: after step C, "Selected" is also a table
+ * column header and a chart legend entry, so an unscoped getByText is
+ * genuinely ambiguous rather than merely fragile. */
+function tiles() {
+  return within(screen.getByTestId("talent-pool-tiles"));
+}
+
 function tileLink(label: string | RegExp): HTMLAnchorElement | null {
-  const title = screen.getByText(label);
-  return title.closest("a");
+  return tiles().getByText(label).closest("a");
+}
+
+function departmentRow(name: string): HTMLTableRowElement {
+  return within(screen.getByRole("table")).getByText(name).closest("tr")!;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The department toggle is remembered in localStorage, which jsdom keeps
+  // for the whole file -- without this, one test's "As in sheet" choice
+  // silently becomes the next test's starting state.
+  try {
+    localStorage.clear();
+  } catch {
+    // Ignored, same as the page does.
+  }
 });
 
 describe("TalentPoolPage", () => {
@@ -97,8 +159,8 @@ describe("TalentPoolPage", () => {
     await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
     expect(mockedGetSummary).toHaveBeenCalledWith("TEACHING_FINAL", "group");
 
-    expect(screen.getByText("Total candidates")).toBeInTheDocument();
-    expect(screen.getByText("19")).toBeInTheDocument();
+    expect(tiles().getByText("Total candidates")).toBeInTheDocument();
+    expect(tiles().getByText("19")).toBeInTheDocument();
     // Selected = 4 of 12 decided (4 + 3 + 5) -> 33%.
     expect(screen.getByText("33% of interviewed")).toBeInTheDocument();
     expect(screen.getByText("no decision recorded")).toBeInTheDocument();
@@ -163,12 +225,12 @@ describe("TalentPoolPage", () => {
     await waitFor(() => expect(screen.getByText("in the NTS sheet")).toBeInTheDocument());
     expect(mockedGetSummary).toHaveBeenCalledWith("NTS", "group");
     // RNR 2 + On Hold 1 + Interview Scheduled 1
-    expect(screen.getByText("In follow-up")).toBeInTheDocument();
-    expect(screen.getByText("4")).toBeInTheDocument();
+    expect(tiles().getByText("In follow-up")).toBeInTheDocument();
+    expect(tiles().getByText("4")).toBeInTheDocument();
     expect(screen.getByText("RNR 2 \u00b7 On hold 1")).toBeInTheDocument();
     expect(screen.getByText("date or note only")).toBeInTheDocument();
     // Teaching-only tiles must be gone.
-    expect(screen.queryByText("Eligible, no decision")).not.toBeInTheDocument();
+    expect(tiles().queryByText("Eligible, no decision")).not.toBeInTheDocument();
   });
 
   it("shows the freshness line from the summary", async () => {
@@ -205,7 +267,7 @@ describe("TalentPoolPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("No candidates synced yet")).toBeInTheDocument());
-    expect(screen.getByText(/never synced/)).toBeInTheDocument();
+    expect(screen.getByText("Not synced from the Google Sheet yet.")).toBeInTheDocument();
     // The stale banner is about a sync that happened too long ago; one that
     // never happened is a different message.
     expect(screen.queryByText(/hasn't synced since/)).not.toBeInTheDocument();
@@ -273,5 +335,292 @@ describe("TalentPoolPage", () => {
 
     resolve(summary());
     await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
+  });
+
+  // --- step C: chart, department table, breakdowns -------------------------
+
+  describe("by-department table", () => {
+    it("renders every row from the response, with the teaching-only Eligible column", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
+
+      const table = screen.getByRole("table");
+      expect(within(table).getByRole("columnheader", { name: "Eligible" })).toBeInTheDocument();
+      // "Pending" on teaching; NTS calls the same column "Open".
+      expect(within(table).getByRole("columnheader", { name: "Pending" })).toBeInTheDocument();
+
+      // One header row + four department rows.
+      expect(within(table).getAllByRole("row")).toHaveLength(5);
+      for (const name of ["CSE", "ECE", "Nursing", "Not set"]) {
+        expect(within(table).getByText(name)).toBeInTheDocument();
+      }
+    });
+
+    it("every department row's columns equal the summary response", async () => {
+      const data = summary();
+      mockedGetSummary.mockResolvedValue(data);
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
+
+      // The step C gate: what is on screen must be the response, cell for
+      // cell -- not a re-derivation of it.
+      for (const expected of data.by_department) {
+        const row = departmentRow(expected.department);
+        const cells = within(row)
+          .getAllByRole("cell")
+          .slice(1)
+          .map((cell) => Number(cell.textContent));
+        expect(cells).toEqual([
+          expected.total,
+          expected.eligible,
+          expected.selected,
+          expected.waiting,
+          expected.rejected,
+          expected.open,
+        ]);
+      }
+    });
+
+    it("the Grouped / As-in-sheet toggle re-asks the API for the raw departments", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Grouped" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByText(/4 groups made from Actual Dept/)).toBeInTheDocument();
+
+      mockedGetSummary.mockResolvedValue(
+        summary({
+          department_mode: "raw",
+          department_count: 5,
+          by_department: [
+            { department: "CSE", total: 6, eligible: 4, selected: 1, waiting: 1, rejected: 2, open: 2 },
+            { department: "Computer Science & Engg", total: 1, eligible: 1, selected: 1, waiting: 0, rejected: 0, open: 0 },
+          ],
+        }),
+      );
+      await userEvent.click(screen.getByRole("button", { name: "As in sheet" }));
+
+      await waitFor(() => expect(mockedGetSummary).toHaveBeenCalledWith("TEACHING_FINAL", "raw"));
+      // The two CSE spellings are the whole point of the toggle.
+      await waitFor(() =>
+        expect(within(screen.getByRole("table")).getByText("Computer Science & Engg")).toBeInTheDocument(),
+      );
+      expect(screen.getByText(/5 departments exactly as typed/)).toBeInTheDocument();
+    });
+
+    it("NTS has no grouping toggle, because its two views would be identical", async () => {
+      mockedGetSummary.mockResolvedValue(ntsSummary());
+      renderPage("/talent-pool?tab=nts");
+
+      await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
+      expect(screen.queryByRole("button", { name: "Grouped" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "As in sheet" })).not.toBeInTheDocument();
+      // ...and the Eligible column is teaching-only.
+      expect(
+        within(screen.getByRole("table")).queryByRole("columnheader", { name: "Eligible" }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(screen.getByRole("table")).getByRole("columnheader", { name: "Open" }),
+      ).toBeInTheDocument();
+    });
+
+    it("clicking a department row sets the register's department filter", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
+      await userEvent.click(within(screen.getByRole("table")).getByText("ECE"));
+
+      // The filter is URL state, and it carries the mode the table was
+      // grouped by -- "CSE" grouped and "CSE" as-typed are different counts.
+      await waitFor(() => {
+        const link = tileLink("Selected")!;
+        expect(link.getAttribute("href")).toContain("department=ECE");
+        expect(link.getAttribute("href")).toContain("dept_mode=group");
+      });
+    });
+
+    it("a focused row responds to Enter, since a table row cannot be an anchor", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
+      const row = departmentRow("Nursing");
+      row.focus();
+      await userEvent.keyboard("{Enter}");
+
+      await waitFor(() =>
+        expect(tileLink("Selected")!.getAttribute("href")).toContain("department=Nursing"),
+      );
+    });
+  });
+
+  describe("candidates per month", () => {
+    it("reports the undated rows under the chart rather than hiding them", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+
+      await waitFor(() =>
+        expect(screen.getByText(/2 rows have no readable date/)).toBeInTheDocument(),
+      );
+      expect(screen.getByText(/Dates come from Applied Date/)).toBeInTheDocument();
+      expect(screen.getByTestId("talent-pool-monthly-chart")).toBeInTheDocument();
+    });
+
+    it("says nothing about undated rows when there are none", async () => {
+      mockedGetSummary.mockResolvedValue(summary({ undated: 0 }));
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText(/Dates come from Applied Date/)).toBeInTheDocument());
+      expect(screen.queryByText(/no readable date/)).not.toBeInTheDocument();
+    });
+
+    it("names the NTS date columns, which are not the teaching ones", async () => {
+      mockedGetSummary.mockResolvedValue(ntsSummary());
+      renderPage("/talent-pool?tab=nts");
+
+      await waitFor(() =>
+        expect(screen.getByText(/Call \/ Mail Sent Date, or the interview date/)).toBeInTheDocument(),
+      );
+      expect(screen.queryByText(/Dates come from Applied Date/)).not.toBeInTheDocument();
+    });
+
+    it("renders a legend naming both series", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Added")).toBeInTheDocument());
+      // "Selected" is also a tile label, so scope to the chart's own legend.
+      expect(screen.getAllByText("Selected").length).toBeGreaterThan(1);
+    });
+  });
+
+  describe("breakdown panels", () => {
+    it("shows the teaching three, with eligibility in its fixed order", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("PhD / eligibility")).toBeInTheDocument());
+      expect(screen.getByText("Data source")).toBeInTheDocument();
+      expect(screen.getByText("Interviews called by")).toBeInTheDocument();
+      expect(screen.getByText("Eligible = With Ph.D.")).toBeInTheDocument();
+
+      // Rendered in the API's order, not re-sorted by size -- "Not set" has
+      // the same count as "No Ph.D" and "Not eligible" but must stay last.
+      const panel = screen.getByText("PhD / eligibility").closest("div")!.parentElement!;
+      const labels = within(panel)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent?.replace(/\d+$/, "").trim());
+      expect(labels).toEqual([
+        "With Ph.D",
+        "Thesis / viva stage",
+        "Pursuing Ph.D",
+        "No Ph.D",
+        "Not eligible",
+        "Not set",
+      ]);
+    });
+
+    it("shows the non-teaching three instead", async () => {
+      mockedGetSummary.mockResolvedValue(ntsSummary());
+      renderPage("/talent-pool?tab=nts");
+
+      await waitFor(() => expect(screen.getByText("Applied post")).toBeInTheDocument());
+      expect(screen.getByText("Reference source")).toBeInTheDocument();
+      expect(screen.getByText("Call outcomes")).toBeInTheDocument();
+      expect(screen.queryByText("PhD / eligibility")).not.toBeInTheDocument();
+      expect(screen.queryByText("Interviews called by")).not.toBeInTheDocument();
+    });
+
+    it("an all-zero panel says so instead of drawing empty bars", async () => {
+      mockedGetSummary.mockResolvedValue(
+        summary({
+          breakdowns: {
+            ...summary().breakdowns,
+            called_by: [],
+          },
+        }),
+      );
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Interviews called by")).toBeInTheDocument());
+      expect(
+        screen.getByText("No interviewer recorded against any candidate yet."),
+      ).toBeInTheDocument();
+    });
+  });
+
+  describe("remembering the department toggle", () => {
+    it("remembers As-in-sheet for the next visit, with no dept_mode in the URL", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      const first = renderPage();
+
+      await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
+      mockedGetSummary.mockResolvedValue(summary({ department_mode: "raw", department_count: 5 }));
+      await userEvent.click(screen.getByRole("button", { name: "As in sheet" }));
+      await waitFor(() => expect(mockedGetSummary).toHaveBeenCalledWith("TEACHING_FINAL", "raw"));
+      first.unmount();
+
+      // A fresh mount with a bare URL -- the choice has to come from storage.
+      mockedGetSummary.mockClear();
+      renderPage("/talent-pool");
+      await waitFor(() => expect(mockedGetSummary).toHaveBeenCalledWith("TEACHING_FINAL", "raw"));
+    });
+
+    it("lets the URL win over the remembered choice, so a shared link opens what it says", async () => {
+      try {
+        localStorage.setItem("talent-pool.dept-mode", "raw");
+      } catch {
+        // Ignored.
+      }
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage("/talent-pool?dept_mode=group");
+
+      await waitFor(() => expect(mockedGetSummary).toHaveBeenCalledWith("TEACHING_FINAL", "group"));
+    });
+
+    it("still renders when localStorage throws, which it does in a private window", async () => {
+      const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("storage is blocked");
+      });
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
+      expect(mockedGetSummary).toHaveBeenCalledWith("TEACHING_FINAL", "group");
+      getItem.mockRestore();
+    });
+  });
+
+  describe("not claiming a sync that has not happened", () => {
+    it("says where the numbers did NOT come from when rows exist but no sync has run", async () => {
+      // The case that misled a real reader: seeded or imported rows with no
+      // sync history. Saying "Synced from Google Sheet" above them, even
+      // followed by "never synced", reads as a working sync at a glance.
+      mockedGetSummary.mockResolvedValue(
+        summary({ last_sync_at: null, sheet_last_update: null, last_sync_counts: null }),
+      );
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
+      expect(
+        screen.getByText(/these numbers are whatever is already in this database, not the sheet/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/^Synced from Google Sheet/)).not.toBeInTheDocument();
+      // And it is not stale either -- nothing has synced to be stale.
+      expect(screen.queryByText(/hasn't synced since/)).not.toBeInTheDocument();
+    });
+
+    it("only says Synced from Google Sheet once a sync has actually run", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText(/Synced from Google Sheet/)).toBeInTheDocument());
+      expect(screen.queryByText(/not the sheet/)).not.toBeInTheDocument();
+    });
   });
 });
