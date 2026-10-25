@@ -5,12 +5,14 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as talentPoolApi from "@/api/talentPool";
-import type { TalentPoolSummary } from "@/api/types";
+import type { TalentPoolEntryRead, TalentPoolSummary } from "@/api/types";
 import { TalentPoolPage } from "@/pages/TalentPoolPage";
 
 vi.mock("@/api/talentPool");
 
 const mockedGetSummary = vi.mocked(talentPoolApi.getTalentPoolSummary);
+const mockedListPool = vi.mocked(talentPoolApi.listTalentPool);
+const mockedGetEntry = vi.mocked(talentPoolApi.getTalentPoolEntry);
 
 function summary(overrides: Partial<TalentPoolSummary> = {}): TalentPoolSummary {
   return {
@@ -107,6 +109,39 @@ function ntsSummary(): TalentPoolSummary {
   });
 }
 
+function entry(overrides: Partial<TalentPoolEntryRead> = {}): TalentPoolEntryRead {
+  return {
+    id: "entry-1",
+    source_tab: "TEACHING_FINAL",
+    full_name: "Arunkumar S",
+    email: "arunkumar@example.com",
+    phone: "9876500000",
+    dept_raw: "CSE",
+    dept_group: "CSE",
+    applied_post: null,
+    applied_on: "2026-10-01",
+    sheet_status: "Selected",
+    status_from_remark: false,
+    eligibility: "With Ph.D",
+    eligibility_raw: "With Ph.D",
+    interview_on_raw: "12/13-9-25",
+    called_by: "Narmada",
+    source: "Mam Data",
+    remarks: "strong profile",
+    resume_url: "https://drive.example.com/arunkumar.pdf",
+    application_id: null,
+    is_active: true,
+    sheet_row_number: 42,
+    created_at: "2026-10-01T00:00:00Z",
+    updated_at: "2026-10-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function page(items: TalentPoolEntryRead[], total = items.length) {
+  return { items, total, limit: 25, offset: 0 };
+}
+
 function renderPage(initialPath = "/talent-pool") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -133,8 +168,16 @@ function tileLink(label: string | RegExp): HTMLAnchorElement | null {
   return tiles().getByText(label).closest("a");
 }
 
+function departmentTable(): HTMLElement {
+  return screen.getByTestId("talent-pool-department-table");
+}
+
+function registerTable(): HTMLElement {
+  return screen.getByTestId("talent-pool-register-table");
+}
+
 function departmentRow(name: string): HTMLTableRowElement {
-  return within(screen.getByRole("table")).getByText(name).closest("tr")!;
+  return within(departmentTable()).getByText(name).closest("tr")!;
 }
 
 beforeEach(() => {
@@ -147,6 +190,8 @@ beforeEach(() => {
   } catch {
     // Ignored, same as the page does.
   }
+  mockedListPool.mockResolvedValue(page([entry()]));
+  mockedGetEntry.mockResolvedValue({ ...entry(), raw: {} });
 });
 
 describe("TalentPoolPage", () => {
@@ -310,10 +355,14 @@ describe("TalentPoolPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
-    for (const name of [/edit/i, /save/i, /delete/i, /remove/i]) {
+    for (const name of [/^edit/i, /^save/i, /^delete/i, /^remove$/i]) {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     }
-    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+    // The register has exactly one input -- the search box. Anything else
+    // would be a field someone could type a candidate's details into.
+    const inputs = screen.getAllByRole("textbox");
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toHaveAccessibleName("Search candidates");
   });
 
   it("keeps the tab in the URL so a link opens the same view", async () => {
@@ -346,7 +395,7 @@ describe("TalentPoolPage", () => {
 
       await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
 
-      const table = screen.getByRole("table");
+      const table = departmentTable();
       expect(within(table).getByRole("columnheader", { name: "Eligible" })).toBeInTheDocument();
       // "Pending" on teaching; NTS calls the same column "Open".
       expect(within(table).getByRole("columnheader", { name: "Pending" })).toBeInTheDocument();
@@ -407,7 +456,7 @@ describe("TalentPoolPage", () => {
       await waitFor(() => expect(mockedGetSummary).toHaveBeenCalledWith("TEACHING_FINAL", "raw"));
       // The two CSE spellings are the whole point of the toggle.
       await waitFor(() =>
-        expect(within(screen.getByRole("table")).getByText("Computer Science & Engg")).toBeInTheDocument(),
+        expect(within(departmentTable()).getByText("Computer Science & Engg")).toBeInTheDocument(),
       );
       expect(screen.getByText(/5 departments exactly as typed/)).toBeInTheDocument();
     });
@@ -421,10 +470,10 @@ describe("TalentPoolPage", () => {
       expect(screen.queryByRole("button", { name: "As in sheet" })).not.toBeInTheDocument();
       // ...and the Eligible column is teaching-only.
       expect(
-        within(screen.getByRole("table")).queryByRole("columnheader", { name: "Eligible" }),
+        within(departmentTable()).queryByRole("columnheader", { name: "Eligible" }),
       ).not.toBeInTheDocument();
       expect(
-        within(screen.getByRole("table")).getByRole("columnheader", { name: "Open" }),
+        within(departmentTable()).getByRole("columnheader", { name: "Open" }),
       ).toBeInTheDocument();
     });
 
@@ -433,7 +482,7 @@ describe("TalentPoolPage", () => {
       renderPage();
 
       await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
-      await userEvent.click(within(screen.getByRole("table")).getByText("ECE"));
+      await userEvent.click(within(departmentTable()).getByText("ECE"));
 
       // The filter is URL state, and it carries the mode the table was
       // grouped by -- "CSE" grouped and "CSE" as-typed are different counts.
@@ -529,8 +578,10 @@ describe("TalentPoolPage", () => {
       mockedGetSummary.mockResolvedValue(ntsSummary());
       renderPage("/talent-pool?tab=nts");
 
-      await waitFor(() => expect(screen.getByText("Applied post")).toBeInTheDocument());
-      expect(screen.getByText("Reference source")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByText("Reference source")).toBeInTheDocument());
+      // "Applied post" is also a register column header now, so name the
+      // heading specifically rather than matching any text.
+      expect(screen.getByRole("heading", { name: "Applied post" })).toBeInTheDocument();
       expect(screen.getByText("Call outcomes")).toBeInTheDocument();
       expect(screen.queryByText("PhD / eligibility")).not.toBeInTheDocument();
       expect(screen.queryByText("Interviews called by")).not.toBeInTheDocument();
@@ -621,6 +672,252 @@ describe("TalentPoolPage", () => {
 
       await waitFor(() => expect(screen.getByText(/Synced from Google Sheet/)).toBeInTheDocument());
       expect(screen.queryByText(/not the sheet/)).not.toBeInTheDocument();
+    });
+  });
+
+  // --- step D: the register and the entry sheet ----------------------------
+
+  describe("candidate register", () => {
+    it("renders the teaching columns and the row's own values", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(page([entry()]));
+      renderPage();
+
+      // Wait for a ROW, not the section heading: the heading is static and
+      // renders before the list query resolves.
+      await waitFor(() => expect(screen.getByText("Arunkumar S")).toBeInTheDocument());
+
+      const table = registerTable();
+      for (const header of ["Name", "Department", "Applied", "Eligibility", "Status", "Interview", "Called by", "Resume"]) {
+        expect(within(table).getByRole("columnheader", { name: header })).toBeInTheDocument();
+      }
+      expect(within(table).getByText("Arunkumar S")).toBeInTheDocument();
+      expect(within(table).getByText("arunkumar@example.com")).toBeInTheDocument();
+      expect(within(table).getByText("12/13-9-25")).toBeInTheDocument();
+      expect(screen.getByText("1 candidate")).toBeInTheDocument();
+    });
+
+    it("renders the non-teaching columns instead, which are a different six", async () => {
+      mockedGetSummary.mockResolvedValue(ntsSummary());
+      mockedListPool.mockResolvedValue(
+        page([
+          entry({
+            source_tab: "NTS",
+            full_name: "Ramesh K",
+            applied_post: "Lab Assistant",
+            sheet_status: "RNR",
+            status_from_remark: true,
+            eligibility: null,
+            remarks: "no response twice",
+          }),
+        ]),
+      );
+      renderPage("/talent-pool?tab=nts");
+
+      await waitFor(() => expect(screen.getByText("Ramesh K")).toBeInTheDocument());
+      const table = registerTable();
+      expect(within(table).getByRole("columnheader", { name: "Applied post" })).toBeInTheDocument();
+      expect(within(table).getByRole("columnheader", { name: "Remarks" })).toBeInTheDocument();
+      expect(within(table).queryByRole("columnheader", { name: "Eligibility" })).not.toBeInTheDocument();
+      // A status read out of a free-text remark says so, so a reader can
+      // tell a recorded decision from an inferred one.
+      expect(within(table).getByText("from remark")).toBeInTheDocument();
+    });
+
+    it("shows the raw department under the group only when they differ", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(
+        page([
+          entry({ id: "same", full_name: "Same Spelling", dept_raw: "CSE", dept_group: "CSE" }),
+          entry({ id: "diff", full_name: "Other Spelling", dept_raw: "Computer Science & Engg", dept_group: "CSE" }),
+        ]),
+      );
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Other Spelling")).toBeInTheDocument());
+      const table = registerTable();
+      expect(within(table).getByText("Computer Science & Engg")).toBeInTheDocument();
+      // "CSE" appears once per row as the group; the identical raw spelling
+      // is not repeated beneath it.
+      expect(within(table).getAllByText("CSE")).toHaveLength(2);
+    });
+
+    it("offers a resume link only for an https URL, since the cell often holds a note", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(
+        page([
+          entry({ id: "link", full_name: "Has Link" }),
+          entry({ id: "note", full_name: "Has Note", resume_url: "sent by whatsapp" }),
+        ]),
+      );
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Has Note")).toBeInTheDocument());
+      const links = within(registerTable()).getAllByRole("link", { name: /Open/ });
+      expect(links).toHaveLength(1);
+      expect(links[0]).toHaveAttribute("href", "https://drive.example.com/arunkumar.pdf");
+      expect(links[0]).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    });
+
+    it("badges a row that is no longer in the sheet", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(page([entry({ is_active: false, application_id: "app-1" })]));
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Removed from sheet")).toBeInTheDocument());
+      expect(screen.getByText("In pipeline")).toBeInTheDocument();
+    });
+  });
+
+  describe("register filters", () => {
+    it("asks the API with every filter the URL carries", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage(
+        "/talent-pool?status=Rejected&department=CSE&eligibility=Pursuing+Ph.D&include_inactive=true",
+      );
+
+      await waitFor(() =>
+        expect(mockedListPool).toHaveBeenCalledWith(
+          expect.objectContaining({
+            source_tab: "TEACHING_FINAL",
+            sheet_status: "Rejected",
+            department: "CSE",
+            eligibility: "Pursuing Ph.D",
+            include_inactive: true,
+            limit: 25,
+            offset: 0,
+          }),
+        ),
+      );
+    });
+
+    it("debounces the search instead of firing a request per keystroke", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Candidate register")).toBeInTheDocument());
+
+      mockedListPool.mockClear();
+      await userEvent.type(screen.getByLabelText("Search candidates"), "meena");
+
+      await waitFor(() =>
+        expect(mockedListPool).toHaveBeenCalledWith(expect.objectContaining({ q: "meena" })),
+      );
+      // Five characters, nowhere near five requests.
+      expect(mockedListPool.mock.calls.length).toBeLessThan(5);
+    });
+
+    it("the removed-rows switch asks for the inactive entries too", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Candidate register")).toBeInTheDocument());
+
+      await userEvent.click(screen.getByLabelText("Show removed rows"));
+      await waitFor(() =>
+        expect(mockedListPool).toHaveBeenCalledWith(expect.objectContaining({ include_inactive: true })),
+      );
+    });
+
+    it("says so when the filters match nothing, rather than showing an empty frame", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(page([], 0));
+      renderPage("/talent-pool?status=Rejected");
+
+      await waitFor(() =>
+        expect(screen.getByText("No candidates match these filters.")).toBeInTheDocument(),
+      );
+      expect(screen.getByText("0 candidates")).toBeInTheDocument();
+    });
+
+    it("a department row click filters the register and returns to page one", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      renderPage("/talent-pool?offset=75");
+      await waitFor(() => expect(screen.getByText("Candidate register")).toBeInTheDocument());
+
+      mockedListPool.mockClear();
+      await userEvent.click(within(departmentTable()).getByText("Nursing"));
+
+      await waitFor(() =>
+        expect(mockedListPool).toHaveBeenCalledWith(
+          expect.objectContaining({ department: "Nursing", offset: 0 }),
+        ),
+      );
+    });
+  });
+
+  describe("pagination", () => {
+    it("pages by 25 and asks for the next offset", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(
+        page(Array.from({ length: 25 }, (_, i) => entry({ id: `e${i}`, full_name: `Candidate ${i}` })), 60),
+      );
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("60 candidates")).toBeInTheDocument());
+      await userEvent.click(screen.getByRole("button", { name: /next/i }));
+
+      await waitFor(() =>
+        expect(mockedListPool).toHaveBeenCalledWith(expect.objectContaining({ offset: 25, limit: 25 })),
+      );
+    });
+
+    it("hides the pager when everything fits on one page", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(page([entry()], 1));
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("1 candidate")).toBeInTheDocument());
+      expect(screen.queryByRole("button", { name: /next/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("entry sheet", () => {
+    it("opens on a row click and shows every sheet column", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(page([entry()]));
+      mockedGetEntry.mockResolvedValue({
+        ...entry(),
+        raw: { "Actual Dept": "CSE", "Applied Date": "01-10-2026", "Mam Remarks": "shortlist" },
+      });
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Arunkumar S")).toBeInTheDocument());
+      await userEvent.click(within(registerTable()).getByText("Arunkumar S"));
+
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Sheet row 42")).toBeInTheDocument();
+      await waitFor(() => expect(within(dialog).getByText("All columns")).toBeInTheDocument());
+      // A column nobody modelled is still readable, which is the whole
+      // point of storing `raw`.
+      await waitFor(() => expect(within(dialog).getByText("Mam Remarks")).toBeInTheDocument());
+      expect(within(dialog).getByText("shortlist")).toBeInTheDocument();
+    });
+
+    it("has nothing in it that can edit the candidate", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(page([entry()]));
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Arunkumar S")).toBeInTheDocument());
+      await userEvent.click(within(registerTable()).getByText("Arunkumar S"));
+
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).queryAllByRole("textbox")).toHaveLength(0);
+      for (const name of [/^save/i, /^edit/i, /^delete/i]) {
+        expect(within(dialog).queryByRole("button", { name })).not.toBeInTheDocument();
+      }
+    });
+
+    it("opens from a focused row on Enter", async () => {
+      mockedGetSummary.mockResolvedValue(summary());
+      mockedListPool.mockResolvedValue(page([entry()]));
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Arunkumar S")).toBeInTheDocument());
+      const row = within(registerTable()).getByText("Arunkumar S").closest("tr")!;
+      row.focus();
+      await userEvent.keyboard("{Enter}");
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
     });
   });
 });

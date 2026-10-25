@@ -406,9 +406,21 @@ def list_talent_pool(
 
     # Nulls last: an entry with no readable date is the least useful thing to
     # put at the top of a register sorted by recency.
+    #
+    # `id` is the final tiebreaker and it is NOT decoration -- without it the
+    # ordering is not total and OFFSET paging is free to repeat a row on one
+    # page and skip another. Ties are the normal case here, not the
+    # exception: a sync writes every row in one transaction so they all share
+    # a `created_at`, and candidates routinely share an applied date. Found
+    # by paging a live register and seeing the same candidate on pages 1
+    # and 2.
     rows = (
         db.execute(
-            stmt.order_by(nulls_last(desc(TalentPoolEntry.applied_on)), desc(TalentPoolEntry.created_at))
+            stmt.order_by(
+                nulls_last(desc(TalentPoolEntry.applied_on)),
+                desc(TalentPoolEntry.created_at),
+                TalentPoolEntry.id,
+            )
             .offset(offset)
             .limit(limit)
         )

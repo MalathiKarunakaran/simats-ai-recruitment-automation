@@ -54,3 +54,20 @@ const BADGE_CLASSES: Record<StatusTone, string> = {
 export function toneClasses(tone: StatusTone): string {
   return BADGE_CLASSES[tone];
 }
+
+/** Tone -> the repo's existing Badge variant, so status chips here look like
+ * status chips everywhere else in the app rather than becoming a second,
+ * nearly-identical colour system. */
+export type BadgeVariant = "default" | "success" | "warning" | "destructive" | "info";
+
+const BADGE_VARIANTS: Record<StatusTone, BadgeVariant> = {
+  success: "success",
+  warning: "warning",
+  danger: "destructive",
+  info: "info",
+  neutral: "default",
+};
+
+export function toneVariant(tone: StatusTone): BadgeVariant {
+  return BADGE_VARIANTS[tone];
+}

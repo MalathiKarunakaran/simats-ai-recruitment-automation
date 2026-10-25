@@ -1,13 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Database, RefreshCw } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { getTalentPoolSummary } from "@/api/talentPool";
-import type { TalentPoolSourceTab } from "@/api/types";
+import type { TalentPoolEntryRead, TalentPoolSourceTab } from "@/api/types";
 import { BreakdownList } from "@/components/talentPool/BreakdownList";
 import { DepartmentTable } from "@/components/talentPool/DepartmentTable";
 import { MonthlyAddedChart } from "@/components/talentPool/MonthlyAddedChart";
+import { TalentPoolEntrySheet } from "@/components/talentPool/TalentPoolEntrySheet";
+import { TalentPoolRegister, type RegisterFilters } from "@/components/talentPool/TalentPoolRegister";
 import { TalentPoolTiles } from "@/components/talentPool/TalentPoolTiles";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -93,6 +95,44 @@ export function TalentPoolPage() {
       ? urlDeptMode
       : (readStoredDeptMode() ?? "group");
 
+  // Every register filter is URL state. That is what lets a tile and a
+  // department row set them by linking, and what makes a pasted link
+  // reproduce someone else's view exactly.
+  const filters: RegisterFilters = useMemo(
+    () => ({
+      q: searchParams.get("q") ?? "",
+      status: searchParams.get("status") ?? "",
+      department: searchParams.get("department") ?? "",
+      eligibility: searchParams.get("eligibility") ?? "",
+      includeInactive: searchParams.get("include_inactive") === "true",
+      offset: Math.max(0, Number(searchParams.get("offset") ?? 0) || 0),
+    }),
+    [searchParams],
+  );
+
+  const [openEntry, setOpenEntry] = useState<TalentPoolEntryRead | null>(null);
+
+  const changeFilters = useCallback(
+    (next: Partial<RegisterFilters>) => {
+      const params = new URLSearchParams(searchParams);
+      const write = (key: string, value: string | boolean | number | undefined) => {
+        if (value === undefined) return;
+        // An empty filter is absent from the URL rather than present and
+        // blank, so a shared link carries only what was actually chosen.
+        if (value === "" || value === false || value === 0) params.delete(key);
+        else params.set(key, String(value));
+      };
+      write("q", next.q);
+      write("status", next.status);
+      write("department", next.department);
+      write("eligibility", next.eligibility);
+      write("include_inactive", next.includeInactive);
+      write("offset", next.offset);
+      setSearchParams(params, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
   const summaryQuery = useQuery({
     queryKey: ["talent-pool", "summary", tab, deptMode],
     queryFn: () => getTalentPoolSummary(tab, deptMode),
@@ -129,6 +169,9 @@ export function TalentPoolPage() {
       const params = new URLSearchParams(searchParams);
       params.set("dept_mode", deptMode);
       params.set("department", department);
+      // Back to page one: staying on page 4 of the old filter would show an
+      // empty table and look like the filter found nothing.
+      params.delete("offset");
       setSearchParams(params);
     },
     [deptMode, searchParams, setSearchParams],
@@ -347,6 +390,17 @@ export function TalentPoolPage() {
               </>
             )}
           </div>
+
+          <TalentPoolRegister
+            tab={tab}
+            deptMode={summary.department_mode === "raw" ? "raw" : "group"}
+            summary={summary}
+            filters={filters}
+            onFiltersChange={changeFilters}
+            onOpenEntry={setOpenEntry}
+          />
+
+          <TalentPoolEntrySheet entry={openEntry} tab={tab} onClose={() => setOpenEntry(null)} />
         </>
       ) : null}
     </div>

@@ -83,7 +83,7 @@ export function DepartmentTable({
       {/* Scrolls inside its own container, so a wide table never makes the
           page itself scroll sideways (spec 1.4 and 1.7). */}
       <div className="max-h-80 overflow-auto rounded-md border border-border">
-        <table className="w-full text-xs">
+        <table data-testid="talent-pool-department-table" className="w-full text-xs">
           <thead className="sticky top-0 bg-card">
             <tr className="border-b border-border text-left">
               <th scope="col" className="px-2 py-1.5 font-medium">Department</th>

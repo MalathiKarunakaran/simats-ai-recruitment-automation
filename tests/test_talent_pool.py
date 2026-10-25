@@ -463,6 +463,38 @@ def test_pagination_limits_hold(client, admin_headers, pool):
     ).status_code == 422
 
 
+def test_paging_the_whole_register_yields_every_row_exactly_once(client, admin_headers, pool):
+    """The ordering must be TOTAL, not merely sensible.
+
+    Two rows comparing equal on every sort key leave Postgres free to
+    return them in any order, and then OFFSET paging repeats one row on
+    two pages and never shows another. Ties are the normal case here: a
+    sync writes every row in one transaction so they share a `created_at`,
+    and candidates routinely share an applied date -- this fixture has 19
+    rows, one `created_at` and three distinct dates.
+
+    Comparing page 1 with page 2 is not enough to catch it (the original
+    test did exactly that and passed). Walk the whole register.
+    """
+    seen: list[str] = []
+    for offset in range(0, 20, 4):
+        seen.extend(item["id"] for item in _list(client, admin_headers, limit=4, offset=offset)["items"])
+
+    everything = _list(client, admin_headers, limit=100)["items"]
+    assert len(seen) == len(everything) == 19
+    # No repeats, and nothing missed.
+    assert len(set(seen)) == 19
+    assert set(seen) == {item["id"] for item in everything}
+
+
+def test_the_same_page_twice_is_the_same_page(client, admin_headers, pool):
+    """A stable order also means a page does not reshuffle between requests
+    -- otherwise clicking Next and then Previous shows different people."""
+    first = [i["id"] for i in _list(client, admin_headers, limit=5)["items"]]
+    again = [i["id"] for i in _list(client, admin_headers, limit=5)["items"]]
+    assert first == again
+
+
 def test_undated_rows_sort_last(client, admin_headers, pool):
     items = _list(client, admin_headers, limit=100)["items"]
     dates = [i["applied_on"] for i in items]
