@@ -744,6 +744,33 @@ export function DashboardPage() {
         />
       </div>
 
+      {/* Secondary stat strip -- 7 lower-priority metrics, visually
+          demoted below the primary 6 via StatTile's "compact" size, flowing
+          in a wrap rather than a rigid grid. Always visible and directly
+          after the primary grid, never inside "More analytics": these are
+          numbers management reads, and e2e/dashboard.spec.ts checks each
+          one against /dashboard/kpis by that sibling position. */}
+      <div className="flex flex-wrap gap-2">
+        {SECONDARY_KPI_CARDS.map(({ key, label, accent, icon, iconColor, tooltip, zeroCaption }) => {
+          const value = isLoading ? undefined : (data?.[key] as number | string | null | undefined);
+          return (
+            <div key={key} className="w-[calc(50%-0.25rem)] sm:w-[152px]">
+              <StatTile
+                label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
+                value={value}
+                isLoading={isLoading}
+                accent={accent}
+                icon={icon}
+                iconColor={iconColor}
+                zeroCaption={zeroCaption}
+                tooltip={tooltip}
+                size="compact"
+              />
+            </div>
+          );
+        })}
+      </div>
+
       {/* Key-screens redesign (2026-10-29, approved mock-up): the candidate
           sections sit directly under the headline numbers; every older card
           follows unchanged under "More analytics". Nothing was removed. */}
@@ -813,29 +840,6 @@ export function DashboardPage() {
         </summary>
         <div className="mt-4 flex flex-col gap-4">
 
-          {/* Secondary stat strip -- 7 lower-priority metrics, visually
-              demoted below the primary 6 via StatTile's "compact" size, flowing
-              in a wrap rather than a rigid grid. */}
-          <div className="flex flex-wrap gap-2">
-            {SECONDARY_KPI_CARDS.map(({ key, label, accent, icon, iconColor, tooltip, zeroCaption }) => {
-              const value = isLoading ? undefined : (data?.[key] as number | string | null | undefined);
-              return (
-                <div key={key} className="w-[calc(50%-0.25rem)] sm:w-[152px]">
-                  <StatTile
-                    label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
-                    value={value}
-                    isLoading={isLoading}
-                    accent={accent}
-                    icon={icon}
-                    iconColor={iconColor}
-                    zeroCaption={zeroCaption}
-                    tooltip={tooltip}
-                    size="compact"
-                  />
-                </div>
-              );
-            })}
-          </div>
 
           {/* Category Summary -- always all 3 categories (Teaching/Non-Teaching/
               Housekeeping) side by side, unaffected by the tabs above. */}
