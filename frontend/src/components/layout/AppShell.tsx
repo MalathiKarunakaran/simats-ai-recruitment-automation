@@ -317,38 +317,24 @@ export function AppShell({ children }: { children?: ReactNode }) {
   );
 
   return (
-    <div className="app-canvas flex h-screen overflow-hidden p-3">
+    <div className="app-canvas flex h-screen overflow-hidden">
       <aside
         className={cn(
-          // Enterprise HRMS sidebar redesign (2026-08-23): fixed dark-navy
-          // chrome (--sidebar-* tokens, index.css) regardless of the app's
-          // own light/dark theme toggle -- a recolor of this existing
-          // structure, not a restructure; every nav item/group/route/icon and
-          // the collapse behavior below are unchanged.
-          "flex shrink-0 flex-col overflow-hidden rounded-2xl border border-sidebar-border bg-sidebar-background text-sidebar-foreground shadow-sm transition-[width] duration-300 ease-out",
+          // Key-screens redesign (2026-10-29): a flush, full-height panel
+          // with a right border instead of a floating rounded card; white in
+          // the light theme, navy in dark (--sidebar-* tokens, index.css).
+          // Every nav item/group/route/icon and the collapse behavior are
+          // unchanged.
+          "flex shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar-background text-sidebar-foreground transition-[width] duration-300 ease-out",
           collapsed ? "w-[76px]" : "w-64",
         )}
       >
-        <div className="gear-edge" />
         <div className={cn("flex items-center gap-2.5 px-4 py-4", collapsed && "justify-center px-0")}>
-          {/* UI redesign Phase 2: thin signature-gradient ring around the seal
-              -- consumes --brand-signature-gradient (index.css) via the same
-              "padded gradient background, inner circle painted with --card"
-              trick as the approved mockup's `.mark`/`.mark span` pair, just
-              expressed as Tailwind classes instead of a new global CSS rule.
-              The outer span is the gradient disc; padding (2.5px) is the
-              ring's visible thickness, and the inner span paints over the
-              gradient's center -- re-pointed from bg-card to
-              bg-sidebar-background (2026-08-23) so the "hole" matches this
-              sidebar's own fixed dark-navy chrome instead of the app's
-              light/dark --card, which would otherwise render as a mismatched
-              white/slate disc against the new navy background. Purely a
-              wrapper around the existing <img>; collapsed/expanded behavior
-              (this mark stays visible either way) is unchanged. */}
-          <span
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full p-[2.5px]"
-            style={{ background: "var(--brand-signature-gradient)" }}
-          >
+          {/* The SIMATS seal, plain (2026-10-29: the signature-gradient ring
+              that used to frame it is gone, per the approved mock-up). The
+              inner span paints the sidebar's own background behind the
+              image; collapsed/expanded behavior is unchanged. */}
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full">
             <span className="grid h-full w-full place-items-center rounded-full bg-sidebar-background">
               <img src={simatsSeal} alt="SIMATS" className="h-full w-full object-contain" />
             </span>
@@ -376,22 +362,15 @@ export function AppShell({ children }: { children?: ReactNode }) {
                   title={collapsed ? item.label : undefined}
                   className={({ isActive }) =>
                     cn(
-                      // Inactive: light navy-tinted text at 70% opacity,
-                      // brightening to full --sidebar-foreground on hover
-                      // with a subtle lighter-navy hover wash (replaces the
-                      // old light-mode `hover:bg-brand-primary-light
-                      // hover:text-primary`, which would render as a pale
-                      // wash barely visible against this dark background).
-                      "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm text-sidebar-foreground/70 transition-colors duration-200 hover:bg-white/10 hover:text-sidebar-foreground",
+                      // Inactive: full-strength text with a light hover wash
+                      // (--sidebar-hover-background; navy-tinted in dark).
+                      "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-sidebar-foreground transition-colors duration-200 hover:bg-sidebar-hover-background",
                       collapsed && "justify-center px-0",
                       isActive &&
-                        // Active pill keeps its signature gradient treatment
-                        // (from --sidebar-active-background, which is just
-                        // --brand-primary, to --brand-secondary) -- white
-                        // pill text already clears AA against this gradient
-                        // regardless of the sidebar's own background color,
-                        // so no further contrast changes needed here.
-                        "bg-gradient-to-r from-[var(--sidebar-active-background)] to-brand-secondary font-medium text-primary-foreground shadow-sm hover:from-[var(--sidebar-active-background)] hover:to-brand-secondary hover:text-primary-foreground",
+                        // Active: light-blue wash + blue text (2026-10-29,
+                        // was a blue-to-teal gradient pill), both from the
+                        // --sidebar-active-* tokens so dark mode re-tints it.
+                        "bg-sidebar-active-background font-semibold text-sidebar-active-foreground hover:bg-sidebar-active-background",
                     )
                   }
                 >
@@ -408,7 +387,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             variant="ghost"
             size="sm"
             className={cn(
-              "w-full text-sidebar-foreground hover:bg-white/10 hover:text-sidebar-foreground",
+              "w-full text-sidebar-foreground hover:bg-sidebar-hover-background hover:text-sidebar-foreground",
               collapsed && "px-0",
             )}
             onClick={() => setCollapsed((c) => !c)}
@@ -420,8 +399,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col overflow-hidden pl-3">
-        <header className="flex h-[72px] shrink-0 items-center gap-4 rounded-2xl border border-border bg-card/70 px-6 shadow-sm backdrop-blur-xl">
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <header className="flex h-16 shrink-0 items-center gap-4 border-b border-border bg-card px-6">
           <CampusSwitcher />
           <div className="flex flex-1 justify-center px-4">
             <GlobalSearch />

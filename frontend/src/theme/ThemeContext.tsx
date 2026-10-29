@@ -1,14 +1,30 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
-const THEME_STORAGE_KEY = "simats_theme";
+// Light is the default for everyone (2026-10-29); only an explicit toggle is
+// remembered. A new key on purpose: the old "simats_theme" was written on
+// every load, so it holds the computer's dark setting for many people who
+// never chose it, and honouring it would keep them off the default.
+const THEME_STORAGE_KEY = "simats_theme_choice";
 
 type Theme = "light" | "dark";
 
 function getInitialTheme(): Theme {
-  const stored = localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+  } catch {
+    // Storage blocked: fall back to the default.
+  }
+  return "light";
+}
+
+function rememberChoice(theme: Theme) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // Not remembered; the toggle still works for this visit.
+  }
 }
 
 interface ThemeContextValue {
@@ -26,11 +42,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
   }, [theme]);
 
   function toggleTheme() {
-    setTheme((current) => (current === "dark" ? "light" : "dark"));
+    setTheme((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      rememberChoice(next);
+      return next;
+    });
   }
 
   return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>;
