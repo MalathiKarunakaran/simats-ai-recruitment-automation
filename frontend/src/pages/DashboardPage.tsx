@@ -272,6 +272,9 @@ export function DashboardPage() {
   );
   const [dateRange, setDateRange] = useState<DateRangeValue>({ startDate: null, endDate: null });
   const [exportError, setExportError] = useState<string | null>(null);
+  // "More analytics" (2026-10-29) is closed by default so the page opens on
+  // the mock-up's sections; every older card is inside it, one click away.
+  const [showMoreAnalytics, setShowMoreAnalytics] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [categoryTab, setCategoryTab] = useCategoryTabState();
   // Drill-down filters (2026-08-30). "" is the "no filter" value throughout,
@@ -563,27 +566,27 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      {/* Header (2026-10-29, approved mock-up): title left, category tabs
+          right; the date range, export and drill-down filters share one
+          toolbar row beneath it. */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[28px] leading-tight font-extrabold tracking-tight">Executive Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">Recruitment and workforce overview</p>
           <p className="mt-0.5 text-xs text-muted-foreground">{isLoading ? "Loading…" : data?.scope_note}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <DateRangeControl value={dateRange} onChange={setDateRange} />
-          <Button variant="outline" size="sm" disabled={isExporting} onClick={() => void handleExport()}>
-            {isExporting ? "Exporting…" : "Export briefing"}
-          </Button>
-        </div>
-      </div>
-      {exportError ? <p className="text-sm text-destructive">{exportError}</p> : null}
-
-      <div className="flex flex-wrap items-center gap-2">
         <CategoryTabs value={categoryTab} onValueChange={setCategoryTab} counts={categoryTabCounts} variant="segmented" />
-        <p className="text-[11px] text-muted-foreground">
-          Scopes the KPI tiles below. The category-wise split card always shows all 3 categories.
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <DateRangeControl value={dateRange} onChange={setDateRange} />
+        <Button variant="outline" size="sm" disabled={isExporting} onClick={() => void handleExport()}>
+          {isExporting ? "Exporting…" : "Export briefing"}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          The tabs scope the tiles below; the category-wise split always shows all 3 categories.
         </p>
       </div>
+      {exportError ? <p className="text-sm text-destructive">{exportError}</p> : null}
 
       {/* Drill-down filter bar (2026-08-30). Campus comes from the app-wide
           campus switcher and Category from the tabs above, so only the three
@@ -772,481 +775,494 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      <h2 className="mt-4 font-display text-lg font-bold">More analytics</h2>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 p-5 pb-2">
+          <CardTitle className="font-display text-base">Recent activity</CardTitle>
+          {/* Anchors to the full "Recent joins"/"Recent resignations" tables
+              inside More analytics below, opening it first -- 2 of this
+              feed's 4 event types (vacancy requested/approved have no
+              full-detail table here; see RecentActivityFeed's doc comment). */}
+          <Button variant="outline" size="sm" asChild>
+            <a href="#recent-joins" onClick={() => setShowMoreAnalytics(true)}>
+              View All
+            </a>
+          </Button>
+        </CardHeader>
+        <CardContent className="p-5 pt-1">
+          <RecentActivityFeed
+            joins={recentJoins}
+            resignations={recentResignations}
+            vacancyRequested={vacancyRequestedActivity}
+            vacancyApproved={vacancyApprovedActivity}
+            isLoading={isLoading || isVacancyRequestsLoading}
+          />
+        </CardContent>
+      </Card>
 
-      {/* Secondary stat strip -- 7 lower-priority metrics, visually
-          demoted below the primary 6 via StatTile's "compact" size, flowing
-          in a wrap rather than a rigid grid. */}
-      <div className="flex flex-wrap gap-2">
-        {SECONDARY_KPI_CARDS.map(({ key, label, accent, icon, iconColor, tooltip, zeroCaption }) => {
-          const value = isLoading ? undefined : (data?.[key] as number | string | null | undefined);
-          return (
-            <div key={key} className="w-[calc(50%-0.25rem)] sm:w-[152px]">
-              <StatTile
-                label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
-                value={value}
-                isLoading={isLoading}
-                accent={accent}
-                icon={icon}
-                iconColor={iconColor}
-                zeroCaption={zeroCaption}
-                tooltip={tooltip}
-                size="compact"
+      <details
+        open={showMoreAnalytics}
+        onToggle={(e) => setShowMoreAnalytics(e.currentTarget.open)}
+        className="group flex flex-col gap-4"
+      >
+        <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 font-display text-sm font-bold hover:bg-muted [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="transition-transform group-open:rotate-90">›</span>
+          More analytics
+          <span className="font-sans text-xs font-normal text-muted-foreground">
+            strength by position, vacancy charts, pipeline, critical vacancies, joins and resignations
+          </span>
+        </summary>
+        <div className="mt-4 flex flex-col gap-4">
+
+          {/* Secondary stat strip -- 7 lower-priority metrics, visually
+              demoted below the primary 6 via StatTile's "compact" size, flowing
+              in a wrap rather than a rigid grid. */}
+          <div className="flex flex-wrap gap-2">
+            {SECONDARY_KPI_CARDS.map(({ key, label, accent, icon, iconColor, tooltip, zeroCaption }) => {
+              const value = isLoading ? undefined : (data?.[key] as number | string | null | undefined);
+              return (
+                <div key={key} className="w-[calc(50%-0.25rem)] sm:w-[152px]">
+                  <StatTile
+                    label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
+                    value={value}
+                    isLoading={isLoading}
+                    accent={accent}
+                    icon={icon}
+                    iconColor={iconColor}
+                    zeroCaption={zeroCaption}
+                    tooltip={tooltip}
+                    size="compact"
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Category Summary -- always all 3 categories (Teaching/Non-Teaching/
+              Housekeeping) side by side, unaffected by the tabs above. */}
+          <div>
+            <h2 className="mb-2 font-display text-sm font-semibold text-foreground">Category summary</h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <CategorySummaryCard
+                title="Teaching"
+                sanctioned={teachingSummary.data?.sanctioned_approved_total}
+                working={teachingSummary.data?.sanctioned_working_total}
+                vacancy={teachingSummary.data?.sanctioned_vacancy_total}
+                isLoading={teachingSummary.isLoading}
+                accent="blue"
+              />
+              <CategorySummaryCard
+                title="Non-Teaching"
+                sanctioned={nonTeachingSummary.data?.sanctioned_approved_total}
+                working={nonTeachingSummary.data?.sanctioned_working_total}
+                vacancy={nonTeachingSummary.data?.sanctioned_vacancy_total}
+                isLoading={nonTeachingSummary.isLoading}
+                accent="green"
+              />
+              <CategorySummaryCard
+                title="Housekeeping"
+                sanctioned={housekeepingSummary.data?.sanctioned_approved_total}
+                working={housekeepingSummary.data?.sanctioned_working_total}
+                vacancy={housekeepingSummary.data?.sanctioned_vacancy_total}
+                isLoading={housekeepingSummary.isLoading}
+                accent="orange"
               />
             </div>
-          );
-        })}
-      </div>
+          </div>
 
-      {/* Category Summary -- always all 3 categories (Teaching/Non-Teaching/
-          Housekeeping) side by side, unaffected by the tabs above. */}
-      <div>
-        <h2 className="mb-2 font-display text-sm font-semibold text-foreground">Category summary</h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <CategorySummaryCard
-            title="Teaching"
-            sanctioned={teachingSummary.data?.sanctioned_approved_total}
-            working={teachingSummary.data?.sanctioned_working_total}
-            vacancy={teachingSummary.data?.sanctioned_vacancy_total}
-            isLoading={teachingSummary.isLoading}
-            accent="blue"
-          />
-          <CategorySummaryCard
-            title="Non-Teaching"
-            sanctioned={nonTeachingSummary.data?.sanctioned_approved_total}
-            working={nonTeachingSummary.data?.sanctioned_working_total}
-            vacancy={nonTeachingSummary.data?.sanctioned_vacancy_total}
-            isLoading={nonTeachingSummary.isLoading}
-            accent="green"
-          />
-          <CategorySummaryCard
-            title="Housekeeping"
-            sanctioned={housekeepingSummary.data?.sanctioned_approved_total}
-            working={housekeepingSummary.data?.sanctioned_working_total}
-            vacancy={housekeepingSummary.data?.sanctioned_vacancy_total}
-            isLoading={housekeepingSummary.isLoading}
-            accent="orange"
-          />
-        </div>
-      </div>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <Card>
+              <CardHeader className="p-3 pb-1">
+                <CardTitle className="text-xs">Source-wise split</CardTitle>
+              </CardHeader>
+              <CardContent className="p-3 pt-0">
+                {isLoading ? (
+                  <div role="status" aria-label="Loading source split" className="h-14 animate-pulse rounded bg-muted" />
+                ) : !data || data.source_wise_breakdown.length === 0 ? (
+                  <EmptyState message="No applications in this scope yet." />
+                ) : (
+                  <CategoryBarChart
+                    ariaLabel="Source-wise split"
+                    data={data.source_wise_breakdown.map((row) => ({ label: row.source, value: row.count }))}
+                  />
+                )}
+              </CardContent>
+            </Card>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="p-3 pb-1">
-            <CardTitle className="text-xs">Source-wise split</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 pt-0">
-            {isLoading ? (
-              <div role="status" aria-label="Loading source split" className="h-14 animate-pulse rounded bg-muted" />
-            ) : !data || data.source_wise_breakdown.length === 0 ? (
-              <EmptyState message="No applications in this scope yet." />
-            ) : (
-              <CategoryBarChart
-                ariaLabel="Source-wise split"
-                data={data.source_wise_breakdown.map((row) => ({ label: row.source, value: row.count }))}
-              />
-            )}
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="p-3 pb-1">
+                <CardTitle className="text-xs">Category-wise split</CardTitle>
+                {/* Deliberately not scoped by the tabs above -- the backend's
+                    category_wise_breakdown field always returns all 3 categories
+                    regardless of the KPI strip's own role_category filter (see
+                    api/types.ts's CategoryBreakdownRow doc comment), so this note
+                    keeps that distinction visible instead of letting the card
+                    silently look "filtered" like the strip above it. */}
+                <p className="text-[10px] font-normal text-muted-foreground">
+                  Always all categories -- unaffected by the tabs above.
+                </p>
+              </CardHeader>
+              <CardContent className="p-3 pt-0">
+                {isLoading ? (
+                  <div role="status" aria-label="Loading category split" className="h-16 animate-pulse rounded bg-muted" />
+                ) : categoryBreakdownIsEmpty ? (
+                  // category_wise_breakdown always has exactly 3 rows (one per
+                  // fixed role category), so an empty-data check can't be
+                  // `.length === 0` like the widget above -- this used to always
+                  // render a chart of 3 zero-height bars instead (CLAUDE.md B5).
+                  <EmptyState message="No applications in this scope yet." />
+                ) : (
+                  <Table className="text-xs" aria-label="Category-wise split">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="px-0 py-1">Category</TableHead>
+                        <TableHead className="px-0 py-1 text-right">Applications</TableHead>
+                        <TableHead className="px-0 py-1 text-right">Open positions</TableHead>
+                        <TableHead className="px-0 py-1 text-right">Hires</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {categoryBreakdown.map((row) => (
+                        <TableRow key={row.role_category}>
+                          <TableCell className="px-0 py-1 font-medium text-foreground">
+                            {ROLE_CATEGORY_LABELS[row.role_category]}
+                          </TableCell>
+                          <TableCell className="px-0 py-1 text-right tabular-nums">{row.applications}</TableCell>
+                          <TableCell className="px-0 py-1 text-right tabular-nums">{row.open_positions}</TableCell>
+                          <TableCell className="px-0 py-1 text-right tabular-nums">{row.hires}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader className="p-3 pb-1">
-            <CardTitle className="text-xs">Category-wise split</CardTitle>
-            {/* Deliberately not scoped by the tabs above -- the backend's
-                category_wise_breakdown field always returns all 3 categories
-                regardless of the KPI strip's own role_category filter (see
-                api/types.ts's CategoryBreakdownRow doc comment), so this note
-                keeps that distinction visible instead of letting the card
-                silently look "filtered" like the strip above it. */}
-            <p className="text-[10px] font-normal text-muted-foreground">
-              Always all categories -- unaffected by the tabs above.
-            </p>
-          </CardHeader>
-          <CardContent className="p-3 pt-0">
-            {isLoading ? (
-              <div role="status" aria-label="Loading category split" className="h-16 animate-pulse rounded bg-muted" />
-            ) : categoryBreakdownIsEmpty ? (
-              // category_wise_breakdown always has exactly 3 rows (one per
-              // fixed role category), so an empty-data check can't be
-              // `.length === 0` like the widget above -- this used to always
-              // render a chart of 3 zero-height bars instead (CLAUDE.md B5).
-              <EmptyState message="No applications in this scope yet." />
-            ) : (
-              <Table className="text-xs" aria-label="Category-wise split">
+            <Card>
+              <CardHeader className="p-3 pb-1">
+                <CardTitle className="text-xs">Rejected vs withdrawn</CardTitle>
+              </CardHeader>
+              <CardContent className="p-3 pt-0">
+                {isLoading ? (
+                  <div role="status" aria-label="Loading rejected vs withdrawn" className="h-14 animate-pulse rounded bg-muted" />
+                ) : rejectedWithdrawnData.every((row) => row.value === 0) ? (
+                  <EmptyState message="No rejections or withdrawals in this scope yet." />
+                ) : (
+                  <CategoryBarChart ariaLabel="Rejected vs withdrawn" data={rejectedWithdrawnData} color="var(--color-chart-4)" />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+
+          {/* Recruitment pipeline -- Enterprise HRMS dashboard redesign
+              (2026-08-23): a literal 7-stage view (Requested -> Approved ->
+              Published -> Screening -> Interview -> Selected -> Joined) mixing 2
+              real, already-fetched datasets -- see recruitmentPipelineData's own
+              comment above for exactly how each stage is computed. This is the
+              page's one large/bold chart (CategoryBarChart's `size="lg"`), per
+              the redesign's "large and visual" spec for this section.
+              Recruitment Trend (a monthly "Joined" line chart) is deliberately
+              NOT built here: that time-series data isn't fetched anywhere on
+              this page and can't be derived without a new backend endpoint or
+              fabricating numbers, both out of scope for this pass -- a
+              deliberate scope decision, not an oversight. */}
+          <Card>
+            <CardHeader className="p-4 pb-1">
+              <CardTitle className="text-sm">Recruitment pipeline</CardTitle>
+              <p className="text-[10px] font-normal text-muted-foreground">
+                Requested/Approved/Published count vacancy requests; Screening onward count individual applications --
+                different units, shown together as one pipeline view.
+              </p>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              {recruitmentPipelineIsLoading ? (
+                <div role="status" aria-label="Loading recruitment pipeline" className="h-56 animate-pulse rounded bg-muted" />
+              ) : recruitmentPipelineIsEmpty ? (
+                <EmptyState message="No vacancy requests or applications in this scope yet." />
+              ) : (
+                <CategoryBarChart
+                  ariaLabel="Recruitment pipeline"
+                  data={recruitmentPipelineData}
+                  color="var(--color-chart-2)"
+                  size="lg"
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Main table (2026-08-30) -- every figure arrives precomputed from
+              /dashboard/strength-table, which reuses the Sanctioned Strength view
+              services, so nothing here is recomputed client-side. */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 p-4 pb-1">
+              <CardTitle className="text-sm">Sanctioned strength by position</CardTitle>
+              {strengthTable ? (
+                <span className="text-[11px] text-muted-foreground">
+                  {strengthTable.total} position{strengthTable.total === 1 ? "" : "s"}
+                </span>
+              ) : null}
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <StrengthTable rows={strengthTable?.items ?? []} isLoading={isStrengthTableLoading} />
+            </CardContent>
+          </Card>
+
+          {/* Vacancy Analysis (2026-08-30) -- three views of the SAME
+              current-effective sanctioned rows the Vacancies tile is computed
+              from, so the bars always reconcile with the card above. This used to
+              roll up `critical_vacancies` client-side, which is a top-10 list:
+              any department outside those ten was silently absent. */}
+          <div className="grid gap-3 lg:grid-cols-3">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 p-4 pb-1">
+                <CardTitle className="text-sm">Vacancy by department</CardTitle>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/sanctioned-strength">View All</Link>
+                </Button>
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                {isLoading ? (
+                  <div role="status" aria-label="Loading vacancy by department" className="h-56 animate-pulse rounded bg-muted" />
+                ) : departmentVacancyTop6.length === 0 ? (
+                  <p className="py-6 text-center text-2xl font-bold tabular-nums text-foreground">0</p>
+                ) : (
+                  <CategoryBarChart
+                    ariaLabel="Vacancy by department"
+                    data={departmentVacancyTop6}
+                    color="var(--color-chart-4)"
+                    size="lg"
+                    testId="vacancy-by-department-chart"
+                    // Drill-down: sets the same Department filter the bar above
+                    // uses, so the tiles, the other charts and the table all move
+                    // together rather than this chart owning a private selection.
+                    onSelect={setDepartmentId}
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="p-4 pb-1">
+                <CardTitle className="text-sm">Vacancy by campus</CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                {isLoading ? (
+                  <div role="status" aria-label="Loading vacancy by campus" className="h-56 animate-pulse rounded bg-muted" />
+                ) : campusVacancyRows.length === 0 ? (
+                  <p className="py-6 text-center text-2xl font-bold tabular-nums text-foreground">0</p>
+                ) : (
+                  <CategoryBarChart
+                    ariaLabel="Vacancy by campus"
+                    data={campusVacancyRows}
+                    color="var(--color-chart-2)"
+                    size="lg"
+                    testId="vacancy-by-campus-chart"
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="p-4 pb-1">
+                <CardTitle className="text-sm">Vacancy by category</CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                {isLoading ? (
+                  <div role="status" aria-label="Loading vacancy by category" className="h-56 animate-pulse rounded bg-muted" />
+                ) : categoryVacancyRows.length === 0 ? (
+                  <p className="py-6 text-center text-2xl font-bold tabular-nums text-foreground">0</p>
+                ) : (
+                  <CategoryBarChart
+                    ariaLabel="Vacancy by category"
+                    data={categoryVacancyRows}
+                    color="var(--color-chart-3)"
+                    size="lg"
+                    testId="vacancy-by-category-chart"
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Secondary analytics row -- campus-wise hiring (left, now an
+              aggregate donut -- see CampusHiringChart.tsx) and a compact "Recent
+              Activity" teaser feed (right) combining recent joins/resignations.
+              The full Recent joins/Recent resignations tables further down stay
+              the detailed view. */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <Card>
+              <CardHeader className="p-3 pb-1">
+                <CardTitle className="text-xs">Campus-wise hiring</CardTitle>
+              </CardHeader>
+              <CardContent className="p-3 pt-0">
+                {isLoading ? (
+                  <div role="status" aria-label="Loading campus-wise hiring" className="h-24 animate-pulse rounded bg-muted" />
+                ) : !data || campusWiseHiring.length === 0 ? (
+                  <EmptyState message="No hires recorded in this scope yet." />
+                ) : (
+                  <CampusHiringChart data={campusWiseHiring} />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Critical vacancies -- VACANCY_RECRUITMENT_REQUIRED-status rows
+              surfaced from the Sanctioned Strength views (see
+              app/services/reporting.py::_critical_vacancy_rows). An empty list
+              here is a genuinely good sign, not a loading/error state -- worded
+              accordingly rather than the generic "No results found." Rows at
+              this result set's single highest vacancy_count get a subtle
+              red-tinted highlight (client-side relative signal, not a
+              fabricated "priority" field) -- and each row now has a "View"
+              action to the Sanctioned Strength page (no per-row detail endpoint
+              exists for a critical-vacancy row specifically). Priority (High/
+              Medium/Low) is a client-side bucketing of this same result set's
+              own vacancy_count values into thirds -- see
+              computeCriticalVacancyPriorities' own comment above for the exact
+              ranking/tie-break rule; it is NOT a fetched field. Status is a
+              constant "Open" on every row -- also not a fetched field, but
+              genuinely true by construction: critical_vacancies only ever
+              contains currently-open/understaffed rows in the first place. */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 p-3 pb-1">
+              <CardTitle className="text-xs">Critical vacancies</CardTitle>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/sanctioned-strength">View All</Link>
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table aria-label="Critical vacancies">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="px-0 py-1">Category</TableHead>
-                    <TableHead className="px-0 py-1 text-right">Applications</TableHead>
-                    <TableHead className="px-0 py-1 text-right">Open positions</TableHead>
-                    <TableHead className="px-0 py-1 text-right">Hires</TableHead>
+                    <TableHead>Department</TableHead>
+                    <TableHead>Designation</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead className="text-right">Vacancies</TableHead>
+                    <TableHead>Priority</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">View</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {categoryBreakdown.map((row) => (
-                    <TableRow key={row.role_category}>
-                      <TableCell className="px-0 py-1 font-medium text-foreground">
-                        {ROLE_CATEGORY_LABELS[row.role_category]}
-                      </TableCell>
-                      <TableCell className="px-0 py-1 text-right tabular-nums">{row.applications}</TableCell>
-                      <TableCell className="px-0 py-1 text-right tabular-nums">{row.open_positions}</TableCell>
-                      <TableCell className="px-0 py-1 text-right tabular-nums">{row.hires}</TableCell>
-                    </TableRow>
-                  ))}
+                  {isLoading ? (
+                    <TableEmpty colSpan={8} loading />
+                  ) : criticalVacancies.length === 0 ? (
+                    <TableEmpty colSpan={8}>No critical vacancies right now -- nothing urgently understaffed.</TableEmpty>
+                  ) : (
+                    criticalVacancies.map((row, index) => {
+                      const isHighlighted = criticalVacanciesMax > 0 && row.vacancy_count === criticalVacanciesMax;
+                      const priority = criticalVacancyPriorities.get(row) ?? "Low";
+                      return (
+                        <TableRow
+                          key={`${row.department}-${row.designation}-${index}`}
+                          className={cn(isHighlighted && "border-l-4 border-l-brand-danger bg-brand-danger/5")}
+                        >
+                          <TableCell className="font-medium text-foreground">{row.department}</TableCell>
+                          <TableCell>{row.designation}</TableCell>
+                          <TableCell>{row.location ?? "—"}</TableCell>
+                          <TableCell>{row.category.replace(/_/g, " ")}</TableCell>
+                          <TableCell className="text-right tabular-nums">{row.vacancy_count}</TableCell>
+                          <TableCell>
+                            <Badge variant={CRITICAL_VACANCY_PRIORITY_BADGE[priority]}>{priority}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="success">Open</Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Link to="/sanctioned-strength" className="text-xs font-medium text-primary hover:underline">
+                              View
+                            </Link>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
                 </TableBody>
               </Table>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="p-3 pb-1">
-            <CardTitle className="text-xs">Rejected vs withdrawn</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 pt-0">
-            {isLoading ? (
-              <div role="status" aria-label="Loading rejected vs withdrawn" className="h-14 animate-pulse rounded bg-muted" />
-            ) : rejectedWithdrawnData.every((row) => row.value === 0) ? (
-              <EmptyState message="No rejections or withdrawals in this scope yet." />
-            ) : (
-              <CategoryBarChart ariaLabel="Rejected vs withdrawn" data={rejectedWithdrawnData} color="var(--color-chart-4)" />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-
-      {/* Recruitment pipeline -- Enterprise HRMS dashboard redesign
-          (2026-08-23): a literal 7-stage view (Requested -> Approved ->
-          Published -> Screening -> Interview -> Selected -> Joined) mixing 2
-          real, already-fetched datasets -- see recruitmentPipelineData's own
-          comment above for exactly how each stage is computed. This is the
-          page's one large/bold chart (CategoryBarChart's `size="lg"`), per
-          the redesign's "large and visual" spec for this section.
-          Recruitment Trend (a monthly "Joined" line chart) is deliberately
-          NOT built here: that time-series data isn't fetched anywhere on
-          this page and can't be derived without a new backend endpoint or
-          fabricating numbers, both out of scope for this pass -- a
-          deliberate scope decision, not an oversight. */}
-      <Card>
-        <CardHeader className="p-4 pb-1">
-          <CardTitle className="text-sm">Recruitment pipeline</CardTitle>
-          <p className="text-[10px] font-normal text-muted-foreground">
-            Requested/Approved/Published count vacancy requests; Screening onward count individual applications --
-            different units, shown together as one pipeline view.
-          </p>
-        </CardHeader>
-        <CardContent className="p-4 pt-0">
-          {recruitmentPipelineIsLoading ? (
-            <div role="status" aria-label="Loading recruitment pipeline" className="h-56 animate-pulse rounded bg-muted" />
-          ) : recruitmentPipelineIsEmpty ? (
-            <EmptyState message="No vacancy requests or applications in this scope yet." />
-          ) : (
-            <CategoryBarChart
-              ariaLabel="Recruitment pipeline"
-              data={recruitmentPipelineData}
-              color="var(--color-chart-2)"
-              size="lg"
-            />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Main table (2026-08-30) -- every figure arrives precomputed from
-          /dashboard/strength-table, which reuses the Sanctioned Strength view
-          services, so nothing here is recomputed client-side. */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 p-4 pb-1">
-          <CardTitle className="text-sm">Sanctioned strength by position</CardTitle>
-          {strengthTable ? (
-            <span className="text-[11px] text-muted-foreground">
-              {strengthTable.total} position{strengthTable.total === 1 ? "" : "s"}
-            </span>
-          ) : null}
-        </CardHeader>
-        <CardContent className="p-4 pt-0">
-          <StrengthTable rows={strengthTable?.items ?? []} isLoading={isStrengthTableLoading} />
-        </CardContent>
-      </Card>
-
-      {/* Vacancy Analysis (2026-08-30) -- three views of the SAME
-          current-effective sanctioned rows the Vacancies tile is computed
-          from, so the bars always reconcile with the card above. This used to
-          roll up `critical_vacancies` client-side, which is a top-10 list:
-          any department outside those ten was silently absent. */}
-      <div className="grid gap-3 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 p-4 pb-1">
-            <CardTitle className="text-sm">Vacancy by department</CardTitle>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/sanctioned-strength">View All</Link>
-            </Button>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            {isLoading ? (
-              <div role="status" aria-label="Loading vacancy by department" className="h-56 animate-pulse rounded bg-muted" />
-            ) : departmentVacancyTop6.length === 0 ? (
-              <p className="py-6 text-center text-2xl font-bold tabular-nums text-foreground">0</p>
-            ) : (
-              <CategoryBarChart
-                ariaLabel="Vacancy by department"
-                data={departmentVacancyTop6}
-                color="var(--color-chart-4)"
-                size="lg"
-                testId="vacancy-by-department-chart"
-                // Drill-down: sets the same Department filter the bar above
-                // uses, so the tiles, the other charts and the table all move
-                // together rather than this chart owning a private selection.
-                onSelect={setDepartmentId}
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="p-4 pb-1">
-            <CardTitle className="text-sm">Vacancy by campus</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            {isLoading ? (
-              <div role="status" aria-label="Loading vacancy by campus" className="h-56 animate-pulse rounded bg-muted" />
-            ) : campusVacancyRows.length === 0 ? (
-              <p className="py-6 text-center text-2xl font-bold tabular-nums text-foreground">0</p>
-            ) : (
-              <CategoryBarChart
-                ariaLabel="Vacancy by campus"
-                data={campusVacancyRows}
-                color="var(--color-chart-2)"
-                size="lg"
-                testId="vacancy-by-campus-chart"
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="p-4 pb-1">
-            <CardTitle className="text-sm">Vacancy by category</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            {isLoading ? (
-              <div role="status" aria-label="Loading vacancy by category" className="h-56 animate-pulse rounded bg-muted" />
-            ) : categoryVacancyRows.length === 0 ? (
-              <p className="py-6 text-center text-2xl font-bold tabular-nums text-foreground">0</p>
-            ) : (
-              <CategoryBarChart
-                ariaLabel="Vacancy by category"
-                data={categoryVacancyRows}
-                color="var(--color-chart-3)"
-                size="lg"
-                testId="vacancy-by-category-chart"
-              />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Secondary analytics row -- campus-wise hiring (left, now an
-          aggregate donut -- see CampusHiringChart.tsx) and a compact "Recent
-          Activity" teaser feed (right) combining recent joins/resignations.
-          The full Recent joins/Recent resignations tables further down stay
-          the detailed view. */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="p-3 pb-1">
-            <CardTitle className="text-xs">Campus-wise hiring</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 pt-0">
-            {isLoading ? (
-              <div role="status" aria-label="Loading campus-wise hiring" className="h-24 animate-pulse rounded bg-muted" />
-            ) : !data || campusWiseHiring.length === 0 ? (
-              <EmptyState message="No hires recorded in this scope yet." />
-            ) : (
-              <CampusHiringChart data={campusWiseHiring} />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 p-3 pb-1">
-            <CardTitle className="text-xs">Recent activity</CardTitle>
-            {/* Anchors to the full "Recent joins"/"Recent resignations"
-                tables further down this same page -- 2 of this teaser feed's
-                4 event types (the other 2, vacancy requested/approved, have
-                no equivalent full-detail table on this page; see
-                RecentActivityFeed's own doc comment for why "candidate
-                selected" is the one event type still not included), so no
-                separate route is needed. */}
-            <Button variant="outline" size="sm" asChild>
-              <a href="#recent-joins">View All</a>
-            </Button>
-          </CardHeader>
-          <CardContent className="p-3 pt-0">
-            <RecentActivityFeed
-              joins={recentJoins}
-              resignations={recentResignations}
-              vacancyRequested={vacancyRequestedActivity}
-              vacancyApproved={vacancyApprovedActivity}
-              isLoading={isLoading || isVacancyRequestsLoading}
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Critical vacancies -- VACANCY_RECRUITMENT_REQUIRED-status rows
-          surfaced from the Sanctioned Strength views (see
-          app/services/reporting.py::_critical_vacancy_rows). An empty list
-          here is a genuinely good sign, not a loading/error state -- worded
-          accordingly rather than the generic "No results found." Rows at
-          this result set's single highest vacancy_count get a subtle
-          red-tinted highlight (client-side relative signal, not a
-          fabricated "priority" field) -- and each row now has a "View"
-          action to the Sanctioned Strength page (no per-row detail endpoint
-          exists for a critical-vacancy row specifically). Priority (High/
-          Medium/Low) is a client-side bucketing of this same result set's
-          own vacancy_count values into thirds -- see
-          computeCriticalVacancyPriorities' own comment above for the exact
-          ranking/tie-break rule; it is NOT a fetched field. Status is a
-          constant "Open" on every row -- also not a fetched field, but
-          genuinely true by construction: critical_vacancies only ever
-          contains currently-open/understaffed rows in the first place. */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 p-3 pb-1">
-          <CardTitle className="text-xs">Critical vacancies</CardTitle>
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/sanctioned-strength">View All</Link>
-          </Button>
-        </CardHeader>
-        <CardContent className="p-0">
-          <Table aria-label="Critical vacancies">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Department</TableHead>
-                <TableHead>Designation</TableHead>
-                <TableHead>Location</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead className="text-right">Vacancies</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">View</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableEmpty colSpan={8} loading />
-              ) : criticalVacancies.length === 0 ? (
-                <TableEmpty colSpan={8}>No critical vacancies right now -- nothing urgently understaffed.</TableEmpty>
-              ) : (
-                criticalVacancies.map((row, index) => {
-                  const isHighlighted = criticalVacanciesMax > 0 && row.vacancy_count === criticalVacanciesMax;
-                  const priority = criticalVacancyPriorities.get(row) ?? "Low";
-                  return (
-                    <TableRow
-                      key={`${row.department}-${row.designation}-${index}`}
-                      className={cn(isHighlighted && "border-l-4 border-l-brand-danger bg-brand-danger/5")}
-                    >
-                      <TableCell className="font-medium text-foreground">{row.department}</TableCell>
-                      <TableCell>{row.designation}</TableCell>
-                      <TableCell>{row.location ?? "—"}</TableCell>
-                      <TableCell>{row.category.replace(/_/g, " ")}</TableCell>
-                      <TableCell className="text-right tabular-nums">{row.vacancy_count}</TableCell>
-                      <TableCell>
-                        <Badge variant={CRITICAL_VACANCY_PRIORITY_BADGE[priority]}>{priority}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="success">Open</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Link to="/sanctioned-strength" className="text-xs font-medium text-primary hover:underline">
-                          View
-                        </Link>
-                      </TableCell>
+          {/* Recent joins / Recent resignations -- 2 separate cards (per the
+              original spec's distinct "D."/"E." sections), each a top-10 list of
+              Employee rows already ordered newest-first by the backend. Kept
+              exactly as before -- the "Recent Activity" feed above is a compact
+              teaser, this is the full detail. */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <Card id="recent-joins">
+              <CardHeader className="p-3 pb-1">
+                <CardTitle className="text-xs">Recent joins</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table aria-label="Recent joins">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Designation</TableHead>
+                      <TableHead>Campus</TableHead>
+                      <TableHead>Date</TableHead>
                     </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading ? (
+                      <TableEmpty colSpan={5} loading />
+                    ) : recentJoins.length === 0 ? (
+                      <TableEmpty colSpan={5}>No joinings recorded in this scope yet.</TableEmpty>
+                    ) : (
+                      recentJoins.map((row, index) => (
+                        <TableRow key={`${row.employee_name}-${row.date}-${index}`}>
+                          <TableCell className="font-medium text-foreground">{row.employee_name}</TableCell>
+                          <TableCell>{row.department ?? "—"}</TableCell>
+                          <TableCell>{row.designation}</TableCell>
+                          <TableCell>{row.campus}</TableCell>
+                          <TableCell>{new Date(row.date).toLocaleDateString()}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
 
-      {/* Recent joins / Recent resignations -- 2 separate cards (per the
-          original spec's distinct "D."/"E." sections), each a top-10 list of
-          Employee rows already ordered newest-first by the backend. Kept
-          exactly as before -- the "Recent Activity" feed above is a compact
-          teaser, this is the full detail. */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <Card id="recent-joins">
-          <CardHeader className="p-3 pb-1">
-            <CardTitle className="text-xs">Recent joins</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table aria-label="Recent joins">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Employee</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Designation</TableHead>
-                  <TableHead>Campus</TableHead>
-                  <TableHead>Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableEmpty colSpan={5} loading />
-                ) : recentJoins.length === 0 ? (
-                  <TableEmpty colSpan={5}>No joinings recorded in this scope yet.</TableEmpty>
-                ) : (
-                  recentJoins.map((row, index) => (
-                    <TableRow key={`${row.employee_name}-${row.date}-${index}`}>
-                      <TableCell className="font-medium text-foreground">{row.employee_name}</TableCell>
-                      <TableCell>{row.department ?? "—"}</TableCell>
-                      <TableCell>{row.designation}</TableCell>
-                      <TableCell>{row.campus}</TableCell>
-                      <TableCell>{new Date(row.date).toLocaleDateString()}</TableCell>
+            <Card>
+              <CardHeader className="p-3 pb-1">
+                <CardTitle className="text-xs">Recent resignations</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table aria-label="Recent resignations">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Designation</TableHead>
+                      <TableHead>Campus</TableHead>
+                      <TableHead>Date</TableHead>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="p-3 pb-1">
-            <CardTitle className="text-xs">Recent resignations</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table aria-label="Recent resignations">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Employee</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Designation</TableHead>
-                  <TableHead>Campus</TableHead>
-                  <TableHead>Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableEmpty colSpan={5} loading />
-                ) : recentResignations.length === 0 ? (
-                  <TableEmpty colSpan={5}>No resignations recorded in this scope yet.</TableEmpty>
-                ) : (
-                  recentResignations.map((row, index) => (
-                    <TableRow key={`${row.employee_name}-${row.date}-${index}`}>
-                      <TableCell className="font-medium text-foreground">{row.employee_name}</TableCell>
-                      <TableCell>{row.department ?? "—"}</TableCell>
-                      <TableCell>{row.designation}</TableCell>
-                      <TableCell>{row.campus}</TableCell>
-                      <TableCell>{new Date(row.date).toLocaleDateString()}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading ? (
+                      <TableEmpty colSpan={5} loading />
+                    ) : recentResignations.length === 0 ? (
+                      <TableEmpty colSpan={5}>No resignations recorded in this scope yet.</TableEmpty>
+                    ) : (
+                      recentResignations.map((row, index) => (
+                        <TableRow key={`${row.employee_name}-${row.date}-${index}`}>
+                          <TableCell className="font-medium text-foreground">{row.employee_name}</TableCell>
+                          <TableCell>{row.department ?? "—"}</TableCell>
+                          <TableCell>{row.designation}</TableCell>
+                          <TableCell>{row.campus}</TableCell>
+                          <TableCell>{new Date(row.date).toLocaleDateString()}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

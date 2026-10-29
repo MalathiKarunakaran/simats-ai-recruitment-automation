@@ -640,10 +640,10 @@ describe("DashboardPage", () => {
 
     const title = await screen.findByText("Urgent vacancies");
     const tile = title.closest(".rounded-xl") as HTMLElement;
-    expect(await within(tile).findByText("7")).toBeInTheDocument();
-    // "red" accent renders as the border-l-brand-danger utility class on the
-    // Card -- assert the real class landed, not just that a number rendered.
-    expect(tile.className).toContain("border-l-brand-danger");
+    const value = await within(tile).findByText("7");
+    // "red" accent colours the number (2026-10-29 redesign; it used to be a
+    // border-l-brand-danger stripe on the Card) -- assert the real class.
+    expect(value.className).toContain("text-brand-danger");
   });
 
   it("shows the urgent zero caption when there are genuinely no urgent vacancies", async () => {

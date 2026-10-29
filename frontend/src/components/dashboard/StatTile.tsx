@@ -15,14 +15,6 @@ export type StatAccent = "gold" | "green" | "orange" | "red" | "blue" | "none";
 // purple=analytics, orange=warning, red=urgent").
 export type StatIconColor = "blue" | "green" | "purple" | "orange" | "red";
 
-const ICON_CHIP_CLASSES: Record<StatIconColor, string> = {
-  blue: "bg-brand-primary/10 text-brand-primary",
-  green: "bg-brand-success/10 text-brand-success",
-  purple: "bg-brand-purple/10 text-brand-purple",
-  orange: "bg-brand-warning/10 text-brand-warning",
-  red: "bg-brand-danger/10 text-brand-danger",
-};
-
 // "gold" is kept as a StatAccent name for call-site backward compatibility
 // (DashboardPage picks accents by this string) but now renders the brand's
 // secondary teal, since the redesigned palette has no gold accent.
@@ -41,13 +33,20 @@ const ICON_CHIP_CLASSES: Record<StatIconColor, string> = {
 // are neither a success/warning/danger signal, just a normal headcount/count
 // figure (e.g. "Total Sanctioned", "Active Recruitment"). No existing call
 // site used a "blue" accent before this addition, so this is purely additive.
-const ACCENT_BORDER: Record<StatAccent, string> = {
-  gold: "border-l-brand-secondary",
-  green: "border-l-brand-success",
-  orange: "border-l-brand-warning",
-  red: "border-l-brand-danger",
-  blue: "border-l-primary",
-  none: "",
+//
+// Key-screens redesign (2026-10-29, approved mock-up): a tile is now a plain
+// white card -- label, a large number, an optional caption -- and the accent
+// colours the NUMBER instead of a left-border stripe. The icon chip and the
+// hero gradient ring are no longer drawn; `icon`, `iconColor` and `hero` are
+// still accepted so no call site has to change, and `data-hero` still marks
+// the hero tile for tests.
+const ACCENT_TEXT: Record<StatAccent, string> = {
+  gold: "text-foreground",
+  green: "text-brand-success",
+  orange: "text-brand-warning",
+  red: "text-brand-danger",
+  blue: "text-primary",
+  none: "text-foreground",
 };
 
 interface StatTileProps {
@@ -126,8 +125,6 @@ export function StatTile({
   tooltip,
   hero = false,
   size = "default",
-  icon: Icon,
-  iconColor = "blue",
   to,
 }: StatTileProps) {
   const isZero = !isLoading && (value === 0 || value === "0");
@@ -138,35 +135,19 @@ export function StatTile({
     <Card
       data-hero={hero ? "true" : undefined}
       className={cn(
-        "relative overflow-hidden",
-        // The gradient ring wrapper below already supplies the hero card's
-        // outer edge, so the usual left-accent stripe and default gray
-        // border are skipped entirely for hero (rather than layered
-        // underneath) -- avoids two competing `border-*` utilities landing
-        // on the same element with no defined precedence between them.
-        !hero && accent !== "none" && "border-l-4",
-        !hero && ACCENT_BORDER[accent],
-        hero && "border-transparent",
+        "relative h-full overflow-hidden",
         // Compact tiles don't need the default hover-lift affordance of a
         // full dashboard card -- they read as small inline stats/chips, not
         // clickable-feeling panels.
         isCompact && "hover:translate-y-0 hover:shadow-[var(--shadow-card)]",
       )}
     >
-      {hero ? (
-        // Decorative corner glow: a blurred, low-opacity smear of the same
-        // signature gradient, clipped by the card's own `overflow-hidden`
-        // and taken out of layout flow entirely so it can never nudge the
-        // label/value beneath it (constraint: "must not affect the tile's
-        // actual content layout/spacing").
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -top-6 -right-6 h-20 w-20 rounded-full opacity-[0.18] blur-2xl"
-          style={{ background: "var(--brand-signature-gradient)" }}
-        />
-      ) : null}
-      <CardHeader className={cn("relative flex flex-row items-center gap-1", isCompact ? "p-2 pb-0.5" : "p-3 pb-1")}>
-        <CardTitle className={cn("leading-tight", isCompact ? "text-[10px]" : "text-[11px]")}>{label}</CardTitle>
+      <CardHeader className={cn("relative flex flex-row items-center gap-1", isCompact ? "p-3 pb-0.5" : "px-5 pt-4 pb-1")}>
+        <CardTitle
+          className={cn("leading-tight font-normal text-muted-foreground", isCompact ? "text-[11px]" : "text-[13px]")}
+        >
+          {label}
+        </CardTitle>
         {tooltip ? (
           <span tabIndex={0} className="group relative inline-flex shrink-0 outline-none">
             <Info className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
@@ -179,25 +160,13 @@ export function StatTile({
             </span>
           </span>
         ) : null}
-        {Icon ? (
-          <span
-            aria-hidden="true"
-            className={cn(
-              "ml-auto flex shrink-0 items-center justify-center rounded-full",
-              isCompact ? "h-5 w-5" : "h-6 w-6",
-              ICON_CHIP_CLASSES[iconColor],
-            )}
-          >
-            <Icon className={isCompact ? "h-3 w-3" : "h-3.5 w-3.5"} />
-          </span>
-        ) : null}
       </CardHeader>
-      <CardContent className={cn("relative", isCompact ? "p-2 pt-0" : "p-3 pt-0")}>
+      <CardContent className={cn("relative", isCompact ? "p-3 pt-0" : "px-5 pt-0 pb-4")}>
         {isLoading ? (
           <div
             role="status"
             aria-label={`Loading ${label}`}
-            className={cn("animate-pulse rounded bg-muted", isCompact ? "h-4 w-10" : "h-6 w-12")}
+            className={cn("animate-pulse rounded bg-muted", isCompact ? "h-5 w-10" : "h-8 w-16")}
           />
         ) : isEmpty ? (
           // "Not enough data yet" (not a bare "—") -- an em-dash alone reads
@@ -206,13 +175,19 @@ export function StatTile({
           <span className="text-xs font-medium text-muted-foreground">Not enough data yet</span>
         ) : (
           <>
-            <span className={cn("font-display font-bold tabular-nums", isCompact ? "text-sm" : "text-xl")}>
+            <span
+              className={cn(
+                "font-display font-extrabold tabular-nums",
+                ACCENT_TEXT[accent],
+                isCompact ? "text-lg" : "text-[28px] leading-tight",
+              )}
+            >
               {value}
             </span>
             {subLine ? (
-              <p className="mt-0.5 text-[10px] text-muted-foreground">{subLine}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{subLine}</p>
             ) : isZero && zeroCaption ? (
-              <p className="mt-0.5 text-[10px] text-muted-foreground">{zeroCaption}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{zeroCaption}</p>
             ) : null}
           </>
         )}
@@ -220,33 +195,11 @@ export function StatTile({
     </Card>
   );
 
-  // Wrapped BEFORE the hero ring below, so a hero tile is both linked and
-  // ringed rather than one clobbering the other.
-  const linked = to ? (
-    <Link to={to} className="block focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+  return to ? (
+    <Link to={to} className="block h-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
       {tile}
     </Link>
   ) : (
     tile
-  );
-
-  if (!hero) return linked;
-
-  // Gradient-ring technique: an outer padded wrapper painted with the
-  // signature gradient, with the card sitting flush inside it -- the same
-  // "padding = ring thickness" trick as the sidebar logo mark
-  // (AppShell.tsx), adapted from a circle to this card's own rounded-rect
-  // radius (--radius-card, index.css) so the ring traces the card's actual
-  // corners instead of a fixed pill/circle shape. Chosen over the mockup's
-  // `::before` + `mask-composite: exclude` approach because it stays plain
-  // Tailwind/inline-style (no extra global CSS rule needed for one call
-  // site) and composes cleanly with Card's own hover lift/shadow transition.
-  return (
-    <div
-      className="rounded-[var(--radius-card)] p-[2px]"
-      style={{ background: "var(--brand-signature-gradient)" }}
-    >
-      {linked}
-    </div>
   );
 }
