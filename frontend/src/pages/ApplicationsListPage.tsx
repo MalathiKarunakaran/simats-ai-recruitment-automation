@@ -35,7 +35,7 @@ const TOTAL_COLUMN_COUNT = 4;
 // every ApplicationStatus maps to exactly one bucket, so
 // inReview+selectedOrOffer+joined+rejectedOrWithdrawn+APPLIED always sums to
 // total (asserted in ApplicationsListPage.test.tsx).
-const IN_REVIEW_STATUSES: ApplicationStatus[] = ["SCREENING", "CALLED_FOR_INTERVIEW", "INTERVIEWED"];
+const IN_REVIEW_STATUSES: ApplicationStatus[] = ["SCREENING", "CALLED_FOR_INTERVIEW", "INTERVIEWED", "WAITLISTED"];
 const SELECTED_OR_OFFER_STATUSES: ApplicationStatus[] = ["SELECTED", "OFFER_SENT", "OFFER_ACCEPTED", "JOINING_CONFIRMED"];
 const JOINED_STATUSES: ApplicationStatus[] = [
   "JOINED",

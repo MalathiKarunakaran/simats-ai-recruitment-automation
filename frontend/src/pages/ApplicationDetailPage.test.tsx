@@ -17,6 +17,10 @@ import * as jobPostingLookup from "@/hooks/useJobPostingLookup";
 import { ApplicationDetailPage } from "@/pages/ApplicationDetailPage";
 
 vi.mock("@/api/applications");
+vi.mock("@/api/applicationOutcomes", () => ({
+  listWaitingList: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0, category_counts: {} }),
+}));
+vi.mock("@/api/auditLogs", () => ({ listAuditLogs: vi.fn().mockResolvedValue([]) }));
 vi.mock("@/api/candidates");
 vi.mock("@/api/interviews");
 vi.mock("@/api/offers");
@@ -67,6 +71,9 @@ function makeApplication(overrides: Partial<ApplicationRead> = {}): ApplicationR
     recorded_by_id: "u-1",
     rejection_reason: null,
     rejected_at: null,
+    rejection_category: null,
+    rejected_at_stage: null,
+    waitlist_rank: null,
     withdrawn_reason: null,
     withdrawn_at: null,
     panel_members: null,
@@ -211,7 +218,7 @@ describe("ApplicationDetailPage", () => {
     expect(screen.queryByText("Advance to")).not.toBeInTheDocument();
   });
 
-  it("submits a reject with the entered reason", async () => {
+  it("submits a reject with the picked reason and the entered remarks", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
@@ -226,11 +233,80 @@ describe("ApplicationDetailPage", () => {
     await waitFor(() => expect(screen.getByText("Reject")).toBeInTheDocument());
 
     await userEvent.click(screen.getByText("Reject"));
-    await userEvent.type(screen.getByLabelText("Reason"), "Not qualified");
+    await userEvent.type(screen.getByLabelText("Remarks"), "Not qualified");
+    // The reason from the list is required (2026-10-29): remarks alone do not submit.
+    expect(screen.getByText("Confirm reject")).toBeDisabled();
+    await userEvent.click(screen.getByRole("radio", { name: "Failed screening" }));
     await userEvent.click(screen.getByText("Confirm reject"));
 
     await waitFor(() =>
-      expect(mockedTransition).toHaveBeenCalledWith("app-1", { status: "REJECTED", reason: "Not qualified" }),
+      expect(mockedTransition).toHaveBeenCalledWith("app-1", {
+        status: "REJECTED",
+        reason: "Not qualified",
+        rejection_category: "FAILED_SCREENING",
+      }),
+    );
+  });
+
+  it("waitlists an interviewed application with a rank, and keeps WAITLISTED out of Advance to", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_COORDINATOR" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedGetApplication.mockResolvedValue(makeApplication({ status: "INTERVIEWED" }));
+    const mockedTransition = vi.mocked(applicationsApi.transitionApplicationStatus);
+    mockedTransition.mockResolvedValue(makeApplication({ status: "WAITLISTED", waitlist_rank: 2 }));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Waitlist")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Advance to" }));
+    expect(await screen.findByRole("option", { name: "SELECTED" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "WAITLISTED" })).not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.click(screen.getByText("Waitlist"));
+    await userEvent.type(screen.getByLabelText("Rank on the waiting list"), "0");
+    expect(screen.getByText("Confirm waitlist")).toBeDisabled();
+    await userEvent.clear(screen.getByLabelText("Rank on the waiting list"));
+    await userEvent.type(screen.getByLabelText("Rank on the waiting list"), "2");
+    await userEvent.click(screen.getByText("Confirm waitlist"));
+
+    await waitFor(() =>
+      expect(mockedTransition).toHaveBeenCalledWith("app-1", { status: "WAITLISTED", waitlist_rank: 2 }),
+    );
+  });
+
+  it("offers only Promote / Reject / Withdraw on a waitlisted application", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedGetApplication.mockResolvedValue(makeApplication({ status: "WAITLISTED", waitlist_rank: 1 }));
+    const mockedTransition = vi.mocked(applicationsApi.transitionApplicationStatus);
+    mockedTransition.mockResolvedValue(makeApplication({ status: "SELECTED" }));
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Promote from waiting list")).toBeInTheDocument());
+    expect(screen.queryByText("Advance to")).not.toBeInTheDocument();
+    expect(screen.queryByText("Waitlist")).not.toBeInTheDocument();
+    expect(screen.getByText("Reject")).toBeInTheDocument();
+    expect(screen.getByText("Waiting-list rank")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Promote from waiting list"));
+    expect(screen.getByText("Confirm promotion")).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Reason"), "Selected candidate declined");
+    await userEvent.click(screen.getByText("Confirm promotion"));
+
+    await waitFor(() =>
+      expect(mockedTransition).toHaveBeenCalledWith("app-1", {
+        status: "SELECTED",
+        reason: "Selected candidate declined",
+      }),
     );
   });
 

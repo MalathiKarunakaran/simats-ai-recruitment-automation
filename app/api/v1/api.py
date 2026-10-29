@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.routers import (
+    application_outcomes,
     applications,
     approved_vacancies,
     assistant,
@@ -78,6 +79,7 @@ api_router.include_router(job_postings.router)
 api_router.include_router(job_distribution.router)
 api_router.include_router(campaign_posters.router)
 api_router.include_router(candidates.router)
+api_router.include_router(application_outcomes.router)
 api_router.include_router(applications.router)
 api_router.include_router(offers.router)
 api_router.include_router(joining.router)

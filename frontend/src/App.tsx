@@ -7,6 +7,7 @@ import { ActivityLogPage } from "@/pages/ActivityLogPage";
 import { ApplicationCreatePage } from "@/pages/ApplicationCreatePage";
 import { ApplicationDetailPage } from "@/pages/ApplicationDetailPage";
 import { ApplicationsListPage } from "@/pages/ApplicationsListPage";
+import { RejectedWaitingListPage } from "@/pages/RejectedWaitingListPage";
 import { CandidateCreatePage } from "@/pages/CandidateCreatePage";
 import { CandidateDetailPage } from "@/pages/CandidateDetailPage";
 import { CandidatesListPage } from "@/pages/CandidatesListPage";
@@ -86,6 +87,7 @@ export function App() {
           <Route path="/candidates/new" element={<CandidateCreatePage />} />
           <Route path="/candidates/:id" element={<CandidateDetailPage />} />
           <Route path="/applications" element={<ApplicationsListPage />} />
+          <Route path="/rejected-waiting-list" element={<RejectedWaitingListPage />} />
           <Route path="/applications/new" element={<ApplicationCreatePage />} />
           <Route path="/applications/:id" element={<ApplicationDetailPage />} />
           <Route path="/interviews" element={<InterviewsListPage />} />

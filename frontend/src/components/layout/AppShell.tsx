@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   ListChecks,
+  ListOrdered,
   MapPin,
   Megaphone,
   Newspaper,
@@ -138,6 +139,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: "/candidates", label: "Candidates", icon: Users },
       { to: "/applications", label: "Applications", icon: Briefcase },
+      // No visibleForRoles: application_outcomes.py is gated like GET
+      // /applications (any staff member, campus-scoped).
+      { to: "/rejected-waiting-list", label: "Rejected & Waiting List", icon: ListOrdered },
     ],
   },
   {

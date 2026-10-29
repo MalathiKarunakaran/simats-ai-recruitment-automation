@@ -397,6 +397,19 @@ def _build_master_export_excel(
     return buf.getvalue()
 
 
+def build_application_outcome_export_excel(
+    *, sheet_title: str, headers: list[str], row_values: list[list], generated_at: datetime, scope_note: str
+) -> bytes:
+    """Rejected & Waiting List exports -- the router flattens the rows."""
+    return _build_master_export_excel(
+        sheet_title=sheet_title,
+        headers=headers,
+        row_values=row_values,
+        generated_at=generated_at,
+        scope_note=scope_note,
+    )
+
+
 def build_location_export_excel(rows: list[dict], generated_at: datetime, scope_note: str) -> bytes:
     return _build_master_export_excel(
         sheet_title="Locations",

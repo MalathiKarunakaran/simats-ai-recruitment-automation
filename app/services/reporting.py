@@ -201,6 +201,9 @@ _FUNNEL_BUCKET_ORDER: tuple[str, ...] = (
     "Offer",
     "Joined",
     "Rejected",
+    # Appended, not slotted in after Interview, so every existing bar keeps
+    # its position. WAITLISTED is deliberately NOT counted as Rejected.
+    "Waitlisted",
 )
 _FUNNEL_BUCKET_BY_STATUS: dict[ApplicationStatusEnum, str] = {
     ApplicationStatusEnum.APPLIED: "Applied",
@@ -217,6 +220,7 @@ _FUNNEL_BUCKET_BY_STATUS: dict[ApplicationStatusEnum, str] = {
     ApplicationStatusEnum.HANDED_OVER_TO_HOD: "Joined",
     ApplicationStatusEnum.REJECTED: "Rejected",
     ApplicationStatusEnum.WITHDRAWN: "Rejected",
+    ApplicationStatusEnum.WAITLISTED: "Waitlisted",
 }
 assert set(_FUNNEL_BUCKET_BY_STATUS) == set(ApplicationStatusEnum), (
     "application_pipeline_funnel's bucket map must cover every ApplicationStatusEnum member exactly once"
@@ -790,6 +794,19 @@ def get_dashboard_kpis(
 
     rejected_count = app_query.filter(Application.status == ApplicationStatusEnum.REJECTED).count()
     withdrawn_count = app_query.filter(Application.status == ApplicationStatusEnum.WITHDRAWN).count()
+    # Rejected & Waiting List tiles. Same scope and date narrowing as the two
+    # counts above. A rejection with no category (every one made before the
+    # category existed) is its own row, category None, so the rows still
+    # sum to rejected_count.
+    waitlisted_count = app_query.filter(Application.status == ApplicationStatusEnum.WAITLISTED).count()
+    rejected_by_reason = [
+        {"category": category.value if category else None, "count": count}
+        for category, count in app_query.filter(Application.status == ApplicationStatusEnum.REJECTED)
+        .with_entities(Application.rejection_category, func.count(Application.id))
+        .group_by(Application.rejection_category)
+        .order_by(func.count(Application.id).desc())
+        .all()
+    ]
 
     source_bucket = case(
         (Candidate.source.ilike("%referr%"), "Reference"),
@@ -1150,6 +1167,8 @@ def get_dashboard_kpis(
         "source_wise_breakdown": source_wise_breakdown,
         "rejected_count": rejected_count,
         "withdrawn_count": withdrawn_count,
+        "waitlisted_count": waitlisted_count,
+        "rejected_by_reason": rejected_by_reason,
         "sanctioned_approved_total": sanctioned_approved_total,
         "sanctioned_working_total": sanctioned_working_total,
         "sanctioned_vacancy_total": sanctioned_vacancy_total,

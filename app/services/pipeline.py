@@ -20,6 +20,7 @@ from app.models.enums import (
     APPLICATION_TERMINAL_STATUSES,
     ApplicationStatusEnum,
     HiringSlotStatusEnum,
+    RejectionCategoryEnum,
     UserRoleEnum,
     VacancyRequestStatusEnum,
 )
@@ -36,6 +37,9 @@ def _application_snapshot(application: Application) -> dict:
         "status": application.status.value,
         "rejection_reason": application.rejection_reason,
         "withdrawn_reason": application.withdrawn_reason,
+        "rejection_category": application.rejection_category.value if application.rejection_category else None,
+        "rejected_at_stage": application.rejected_at_stage.value if application.rejected_at_stage else None,
+        "waitlist_rank": application.waitlist_rank,
     }
 
 
@@ -201,6 +205,8 @@ def transition_application_status(
     reason: str | None = None,
     force: bool = False,
     eligibility_override_reason: str | None = None,
+    rejection_category: RejectionCategoryEnum | None = None,
+    waitlist_rank: int | None = None,
 ) -> Application:
     current = application.status
 
@@ -226,6 +232,37 @@ def transition_application_status(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="A reason is required when withdrawing an application",
         )
+
+    # Waiting list: entered only from INTERVIEWED, with a rank, and left only
+    # by promotion (which needs a reason, for the log), rejection or
+    # withdrawal -- never by skipping past SELECTED, which is where the
+    # hiring slot is reserved.
+    if not force and new_status == ApplicationStatusEnum.WAITLISTED:
+        if current != ApplicationStatusEnum.INTERVIEWED:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Only an INTERVIEWED application can be waitlisted (this one is {current.value})",
+            )
+        if waitlist_rank is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="A waiting-list rank is required when waitlisting an application",
+            )
+    if not force and current == ApplicationStatusEnum.WAITLISTED:
+        if new_status not in (
+            ApplicationStatusEnum.SELECTED,
+            ApplicationStatusEnum.REJECTED,
+            ApplicationStatusEnum.WITHDRAWN,
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A waitlisted application can only be promoted to SELECTED, rejected or withdrawn",
+            )
+        if new_status == ApplicationStatusEnum.SELECTED and not (reason or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="A reason is required when promoting from the waiting list",
+            )
 
     if not force and new_status not in (ApplicationStatusEnum.REJECTED, ApplicationStatusEnum.WITHDRAWN):
         if new_status not in APPLICATION_STATUS_ORDER:
@@ -269,9 +306,14 @@ def transition_application_status(
     before = _application_snapshot(application)
     application.status = new_status
 
+    if new_status == ApplicationStatusEnum.WAITLISTED:
+        application.waitlist_rank = waitlist_rank
+
     if new_status == ApplicationStatusEnum.REJECTED:
         application.rejection_reason = reason
         application.rejected_at = datetime.now(timezone.utc)
+        application.rejection_category = rejection_category
+        application.rejected_at_stage = current
         _release_slot_if_reserved(db, application, actor, request)
         notifications.notify(
             db,
@@ -347,6 +389,10 @@ def transition_application_status(
         before_state=before,
         after_state={
             **_application_snapshot(application),
+            # Every transition's remarks, not only reject/withdraw's (which
+            # the snapshot already carries) -- a waiting-list promotion's
+            # reason lives only here.
+            **({"reason": reason} if reason else {}),
             **(
                 {"eligibility_override_reason": eligibility_override_reason.strip(), "overridden_by": str(actor.id)}
                 if override_applied

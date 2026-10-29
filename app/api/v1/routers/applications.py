@@ -206,6 +206,8 @@ def transition_application_status(
         reason=payload.reason,
         force=payload.force,
         eligibility_override_reason=payload.eligibility_override_reason,
+        rejection_category=payload.rejection_category,
+        waitlist_rank=payload.waitlist_rank,
     )
     db.commit()
     db.refresh(application)

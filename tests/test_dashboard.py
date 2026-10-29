@@ -564,7 +564,9 @@ def test_application_pipeline_funnel_buckets_and_order(
     assert response.status_code == 200
     body = response.json()
 
-    # Always all 7 buckets, in this exact order, even when a count is 0.
+    # Always every bucket, in this exact order, even when a count is 0.
+    # "Waitlisted" (2026-10-29) is appended after the original seven, which
+    # keep their positions.
     assert [row["stage"] for row in body["application_pipeline_funnel"]] == [
         "Applied",
         "Screening",
@@ -573,6 +575,7 @@ def test_application_pipeline_funnel_buckets_and_order(
         "Offer",
         "Joined",
         "Rejected",
+        "Waitlisted",
     ]
     assert _funnel_map(body) == {
         "Applied": 1,
@@ -582,6 +585,7 @@ def test_application_pipeline_funnel_buckets_and_order(
         "Offer": 0,
         "Joined": 0,
         "Rejected": 2,  # REJECTED + WITHDRAWN collapse into one bucket
+        "Waitlisted": 0,
     }
 
 

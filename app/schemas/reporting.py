@@ -64,6 +64,10 @@ class DashboardKPIResponse(BaseModel):
     source_wise_breakdown: list[dict[str, Any]]
     rejected_count: int
     withdrawn_count: int
+    # Rejected & Waiting List (2026-10-29). rejected_by_reason rows are
+    # {category: RejectionCategoryEnum value or None, count}, largest first.
+    waitlisted_count: int
+    rejected_by_reason: list[dict[str, Any]]
     # Phase I (glowing-zooming-hamming.md) Sanctioned Strength dashboard
     # tile -- see app/services/reporting.py::_sanctioned_strength_totals for
     # the aggregation. Unlike category_wise_breakdown, these three DO

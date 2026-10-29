@@ -26,6 +26,16 @@ vi.mock("@/auth/AuthContext", async () => {
   return { ...actual, useAuth: vi.fn() };
 });
 vi.mock("@/api/dashboard");
+// The "Next on the waiting list" card (2026-10-29); empty unless a test says otherwise.
+vi.mock("@/api/applicationOutcomes", () => ({
+  listWaitingList: vi.fn().mockResolvedValue({
+    items: [],
+    total: 0,
+    limit: 3,
+    offset: 0,
+    category_counts: { TEACHING: 0, NON_TEACHING: 0, HOUSEKEEPING: 0, ALL: 0 },
+  }),
+}));
 vi.mock("@/api/vacancyRequests");
 // Filter-bar option lists (2026-08-30).
 vi.mock("@/api/departments");
@@ -183,6 +193,8 @@ function mockKpis(overrides: Partial<DashboardKpis> = {}): void {
     source_wise_breakdown: [{ source: "Reference", count: 10 }],
     rejected_count: 4,
     withdrawn_count: 1,
+    waitlisted_count: 3,
+    rejected_by_reason: [{ category: "NOT_ELIGIBLE", count: 3 }, { category: null, count: 1 }],
     // Sanctioned Strength dashboard tile (Phase I) -- these 3 DO narrow with
     // role_category, same as total_applications/open_positions above.
     sanctioned_approved_total: roleCategory ? 8 : 25,
@@ -361,11 +373,13 @@ describe("DashboardPage", () => {
 
     renderWithProviders();
 
-    // 3 CategoryBarChart instances now (source-wise, rejected-vs-withdrawn,
-    // and the recruitment pipeline funnel added in Step 3) -- category-wise
-    // split is a table, not a bar chart, so it never counts here.
-    await waitFor(() => expect(screen.getAllByTestId("category-bar-chart")).toHaveLength(3));
-    const [sourceChart, rejectedChart] = screen.getAllByTestId("category-bar-chart");
+    // 4 CategoryBarChart instances now (source-wise, rejected-vs-withdrawn,
+    // rejected-by-reason (2026-10-29), and the recruitment pipeline funnel
+    // added in Step 3) -- category-wise split is a table, not a bar chart,
+    // so it never counts here.
+    await waitFor(() => expect(screen.getAllByTestId("category-bar-chart")).toHaveLength(4));
+    // Rejected-by-reason sits near the top since the 2026-10-29 redesign.
+    const [byReasonChart, sourceChart, rejectedChart] = screen.getAllByTestId("category-bar-chart");
 
     expect(within(sourceChart).getByText("Reference")).toBeInTheDocument();
     expect(within(sourceChart).getByText("10")).toBeInTheDocument();
@@ -374,6 +388,11 @@ describe("DashboardPage", () => {
     expect(within(rejectedChart).getByText("4")).toBeInTheDocument();
     expect(within(rejectedChart).getByText("Withdrawn")).toBeInTheDocument();
     expect(within(rejectedChart).getByText("1")).toBeInTheDocument();
+
+    // A rejection with no reason from the list is "Not recorded", not dropped.
+    expect(within(byReasonChart).getByText("Not eligible")).toBeInTheDocument();
+    expect(within(byReasonChart).getByText("Not recorded")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Waiting list/ })).toHaveAttribute("href", "/rejected-waiting-list");
   });
 
   it("shows live application counts on the category tab labels, sourced from category_wise_breakdown", async () => {
@@ -508,6 +527,8 @@ describe("DashboardPage", () => {
       source_wise_breakdown: [],
       rejected_count: 0,
       withdrawn_count: 0,
+      waitlisted_count: 0,
+      rejected_by_reason: [],
       // Also zero the funnel out for this "everything is genuinely zero"
       // scenario -- otherwise the (non-overridden) REAL_SHAPE_FUNNEL default
       // would render a 3rd CategoryBarChart and break this test's own
@@ -577,6 +598,8 @@ describe("DashboardPage", () => {
       source_wise_breakdown: [],
       rejected_count: 0,
       withdrawn_count: 0,
+      waitlisted_count: 0,
+      rejected_by_reason: [],
       // Also zero the funnel out for this "everything is genuinely zero"
       // scenario -- otherwise the (non-overridden) REAL_SHAPE_FUNNEL default
       // would render a 3rd CategoryBarChart and break this test's own
@@ -599,6 +622,7 @@ describe("DashboardPage", () => {
     // both show the same reusable empty-state message here.
     expect(await screen.findAllByText("No applications in this scope yet.")).toHaveLength(2);
     expect(screen.getByText("No rejections or withdrawals in this scope yet.")).toBeInTheDocument();
+    expect(screen.getByText("No rejections in this scope yet.")).toBeInTheDocument();
     // Recruitment pipeline (Requested/Approved/Published all 0 from the
     // default empty vacancy-requests list, funnel stages all zeroed above)
     // shows its own distinct empty-state copy -- see recruitmentPipelineData.

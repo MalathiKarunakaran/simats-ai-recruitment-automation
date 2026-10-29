@@ -283,6 +283,10 @@ export interface DashboardKpis {
   source_wise_breakdown: SourceBreakdownRow[];
   rejected_count: number;
   withdrawn_count: number;
+  // Rejected & Waiting List tiles. rejected_by_reason sums to rejected_count;
+  // category null = rejected without a reason from the list.
+  waitlisted_count: number;
+  rejected_by_reason: { category: RejectionCategory | null; count: number }[];
   // Phase I (glowing-zooming-hamming.md) Sanctioned Strength dashboard tile.
   // Mirrors app/schemas/reporting.py::DashboardKPIResponse -- these DO
   // respect this same call's role_category param (unlike
@@ -1440,7 +1444,29 @@ export type ApplicationStatus =
   | "ORIENTATION_COMPLETE"
   | "HANDED_OVER_TO_HOD"
   | "REJECTED"
-  | "WITHDRAWN";
+  | "WITHDRAWN"
+  // Interviewed, held in ranked reserve for the same vacancy. Reached only
+  // from INTERVIEWED; left only by promotion to SELECTED, rejection or
+  // withdrawal (app/services/pipeline.py).
+  | "WAITLISTED";
+
+// Mirrors app/models/enums.py::RejectionCategoryEnum.
+export type RejectionCategory =
+  | "NOT_ELIGIBLE"
+  | "FAILED_SCREENING"
+  | "DID_NOT_ATTEND_INTERVIEW"
+  | "PANEL_NOT_RECOMMENDED"
+  | "SALARY_MISMATCH"
+  | "OTHER";
+
+export const REJECTION_CATEGORY_LABELS: Record<RejectionCategory, string> = {
+  NOT_ELIGIBLE: "Not eligible",
+  FAILED_SCREENING: "Failed screening",
+  DID_NOT_ATTEND_INTERVIEW: "Did not attend interview",
+  PANEL_NOT_RECOMMENDED: "Panel not recommended",
+  SALARY_MISMATCH: "Salary mismatch",
+  OTHER: "Other",
+};
 
 // Mirrors app/models/enums.py::APPLICATION_STATUS_ORDER -- forward-progression
 // order for the happy-path pipeline. REJECTED is deliberately excluded, same
@@ -1451,6 +1477,7 @@ export const APPLICATION_STATUS_ORDER: readonly ApplicationStatus[] = [
   "SCREENING",
   "CALLED_FOR_INTERVIEW",
   "INTERVIEWED",
+  "WAITLISTED",
   "SELECTED",
   "OFFER_SENT",
   "OFFER_ACCEPTED",
@@ -1484,6 +1511,11 @@ export interface ApplicationRead {
   rejected_at: string | null;
   withdrawn_reason: string | null;
   withdrawn_at: string | null;
+  // `rejection_reason` above is the free-text remarks; this is the reason
+  // picked from the fixed list, null on rejections made without one.
+  rejection_category: RejectionCategory | null;
+  rejected_at_stage: ApplicationStatus | null;
+  waitlist_rank: number | null;
   panel_members: string | null;
   panel_result: string | null;
   panel_remarks: string | null;
@@ -1519,6 +1551,44 @@ export interface ApplicationStatusTransitionPayload {
   // HR Admin / Super Admin only: call a candidate for interview although the
   // resume failed the campus PhD mandate (app/services/eligibility.py).
   eligibility_override_reason?: string | null;
+  rejection_category?: RejectionCategory | null;
+  // Required by the backend when status is WAITLISTED.
+  waitlist_rank?: number | null;
+}
+
+// Mirrors app/schemas/application_outcome.py::ApplicationOutcomeRow -- one
+// row of the Rejected & Waiting List page.
+export interface ApplicationOutcomeRow {
+  application_id: string;
+  candidate_id: string;
+  candidate_name: string;
+  candidate_email: string;
+  candidate_phone: string | null;
+  job_posting_id: string;
+  posting_number: string | null;
+  position_title: string;
+  department_name: string | null;
+  campus_code: string;
+  role_category: StaffRoleCategory;
+  status: ApplicationStatus;
+  waitlist_rank: number | null;
+  rejection_category: RejectionCategory | null;
+  rejected_at_stage: ApplicationStatus | null;
+  rejection_remarks: string | null;
+  rejected_at: string | null;
+  updated_at: string;
+  interview_date: string | null;
+  panel_remarks: string | null;
+  // The vacancy's posts: how many, how many are free for a promotion, and
+  // who holds the taken ones (RESERVED or FILLED slots).
+  vacancy_total_positions: number;
+  vacancy_open_slots: number;
+  vacancy_slot_holders: string[];
+}
+
+export interface ApplicationOutcomePage extends PaginatedResponse<ApplicationOutcomeRow> {
+  // {TEACHING, NON_TEACHING, HOUSEKEEPING, ALL}, ignoring the category filter.
+  category_counts: Record<string, number>;
 }
 
 // Mirrors app/schemas/application.py::ApplicationPipelineDetailsUpdate --

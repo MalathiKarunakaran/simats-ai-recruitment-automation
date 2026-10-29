@@ -30,10 +30,12 @@ import type {
   VacancyRequestRead,
   VacancyRequestStatus,
 } from "@/api/types";
+import { REJECTION_CATEGORY_LABELS } from "@/api/types";
 import { listVacancyRequests } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
 import { useCampus } from "@/campus/CampusContext";
 import { CampusHiringChart } from "@/components/dashboard/CampusHiringChart";
+import { CandidateOutcomes } from "@/components/dashboard/CandidateOutcomes";
 import { CategoryBarChart } from "@/components/dashboard/CategoryBarChart";
 import { CategorySummaryCard } from "@/components/dashboard/CategorySummaryCard";
 import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
@@ -41,6 +43,7 @@ import { EmptyState } from "@/components/dashboard/EmptyState";
 import { RecentActivityFeed, type VacancyLifecycleActivityRow } from "@/components/dashboard/RecentActivityFeed";
 import { StatTile, type StatAccent, type StatIconColor } from "@/components/dashboard/StatTile";
 import { StrengthTable } from "@/components/dashboard/StrengthTable";
+import { WaitingListPreview } from "@/components/dashboard/WaitingListPreview";
 import { CategoryTabs, type CategoryTabValue } from "@/components/domain/CategoryTabs";
 import { STATUS_DISPLAY } from "@/components/sanctionedStrength/TeachingStrengthTable";
 import { Badge } from "@/components/ui/badge";
@@ -258,8 +261,15 @@ export function DashboardPage() {
   // whose grants were backfilled from their old capabilities do not hold it,
   // and without this gate they fired five 403s on every visit and saw only
   // the raw error text.
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const canViewDashboard = hasPermission?.("SETTINGS") ?? false;
+  // Same gate as the Rejected & Waiting List page's Promote: PATCH
+  // /applications/{id}/status is require_permission(MANAGE_APPLICATIONS).
+  const canPromote = Boolean(
+    user &&
+      (["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"].includes(user.role) ||
+        (hasPermission?.("MANAGE_APPLICATIONS") ?? false)),
+  );
   const [dateRange, setDateRange] = useState<DateRangeValue>({ startDate: null, endDate: null });
   const [exportError, setExportError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -391,6 +401,12 @@ export function DashboardPage() {
     { label: "Rejected", value: data?.rejected_count ?? 0 },
     { label: "Withdrawn", value: data?.withdrawn_count ?? 0 },
   ];
+  // Rejected & Waiting List (2026-10-29). Rows sum to rejected_count; a
+  // rejection made without a reason from the list shows as "Not recorded".
+  const rejectedByReasonData = (data?.rejected_by_reason ?? []).map((row) => ({
+    label: row.category ? REJECTION_CATEGORY_LABELS[row.category] : "Not recorded",
+    value: row.count,
+  }));
 
   const criticalVacancies = data?.critical_vacancies ?? [];
   const recentJoins = data?.recent_joins ?? [];
@@ -504,6 +520,8 @@ export function DashboardPage() {
     { label: "Interview", value: funnelStageCount("Interview") },
     { label: "Selected", value: funnelStageCount("Selected") },
     { label: "Joined", value: funnelStageCount("Joined") },
+    // Appended after the original seven bars, which keep their order.
+    { label: "Waitlisted", value: funnelStageCount("Waitlisted") },
   ];
   const recruitmentPipelineIsLoading = isLoading || isVacancyRequestsLoading;
   const recruitmentPipelineIsEmpty = recruitmentPipelineData.every((row) => row.value === 0);
@@ -547,10 +565,9 @@ export function DashboardPage() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="font-display text-lg font-bold tracking-tight">Executive Dashboard</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">Recruitment and workforce overview</p>
-          <div className="gear-edge mt-1.5 w-20" />
-          <p className="mt-1 text-[11px] text-muted-foreground/80">{isLoading ? "Loading…" : data?.scope_note}</p>
+          <h1 className="font-display text-[28px] leading-tight font-extrabold tracking-tight">Executive Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Recruitment and workforce overview</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{isLoading ? "Loading…" : data?.scope_note}</p>
         </div>
         <div className="flex items-center gap-2">
           <DateRangeControl value={dateRange} onChange={setDateRange} />
@@ -724,6 +741,39 @@ export function DashboardPage() {
         />
       </div>
 
+      {/* Key-screens redesign (2026-10-29, approved mock-up): the candidate
+          sections sit directly under the headline numbers; every older card
+          follows unchanged under "More analytics". Nothing was removed. */}
+      <CandidateOutcomes
+        isLoading={isLoading}
+        counts={{
+          selected: funnelStageCount("Selected"),
+          joined: funnelStageCount("Joined"),
+          waitlisted: data?.waitlisted_count ?? 0,
+          rejected: data?.rejected_count ?? 0,
+          withdrawn: data?.withdrawn_count ?? 0,
+        }}
+      />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <WaitingListPreview canPromote={canPromote} />
+        <Card>
+          <CardHeader className="p-5 pb-2">
+            <CardTitle className="font-display text-base">Rejected by reason</CardTitle>
+          </CardHeader>
+          <CardContent className="p-5 pt-1">
+            {isLoading ? (
+              <div role="status" aria-label="Loading rejected by reason" className="h-14 animate-pulse rounded bg-muted" />
+            ) : rejectedByReasonData.length === 0 ? (
+              <EmptyState message="No rejections in this scope yet." />
+            ) : (
+              <CategoryBarChart ariaLabel="Rejected by reason" data={rejectedByReasonData} color="var(--color-chart-4)" />
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <h2 className="mt-4 font-display text-lg font-bold">More analytics</h2>
+
       {/* Secondary stat strip -- 7 lower-priority metrics, visually
           demoted below the primary 6 via StatTile's "compact" size, flowing
           in a wrap rather than a rigid grid. */}
@@ -863,6 +913,7 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
 
       {/* Recruitment pipeline -- Enterprise HRMS dashboard redesign
           (2026-08-23): a literal 7-stage view (Requested -> Approved ->

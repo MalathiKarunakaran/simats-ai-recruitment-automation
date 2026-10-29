@@ -61,7 +61,12 @@ SAMPLE_REQUEST_ID = "REQ-2026-001"
 SAMPLE_CANDIDATE_ID = "CAND-0001"
 
 SOURCE_VALUES = ("Reference", "Job Portal", "FacultyPlus", "Walk-in")
-VALID_APPLICATION_STATUSES = {s.value for s in APPLICATION_STATUS_ORDER} | {"REJECTED", "WITHDRAWN"}
+# WAITLISTED is left out on purpose: it needs a rank and is reached only
+# from INTERVIEWED through pipeline.py, and this import writes historical
+# statuses directly. The workbook accepts exactly what it did before it.
+VALID_APPLICATION_STATUSES = {
+    s.value for s in APPLICATION_STATUS_ORDER if s != ApplicationStatusEnum.WAITLISTED
+} | {"REJECTED", "WITHDRAWN"}
 
 # A candidate at or beyond SELECTED holds a reserved slot; at or beyond
 # JOINED, that slot is FILLED. Index-based, same comparison style as

@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 
+import { listWaitingList } from "@/api/applicationOutcomes";
 import { getApplication, transitionApplicationStatus, updateApplicationPipelineDetails } from "@/api/applications";
+import { listAuditLogs } from "@/api/auditLogs";
 import { getCandidate } from "@/api/candidates";
 import { ApiError } from "@/api/client";
 import { listInterviews } from "@/api/interviews";
@@ -11,9 +13,15 @@ import { getResumeScore, screenApplication } from "@/api/resumeScreening";
 import {
   APPLICATION_STATUS_ORDER,
   APPLICATION_TERMINAL_STATUSES,
+  REJECTION_CATEGORY_LABELS,
   type ApplicationStatus,
+  type RejectionCategory,
 } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { ApplicationActivity } from "@/components/applications/ApplicationActivity";
+import { ApplicationProgress } from "@/components/applications/ApplicationProgress";
+import { CandidateInitials } from "@/components/applications/CandidateInitials";
+import { PromoteFromWaitlistDialog } from "@/components/applications/PromoteFromWaitlistDialog";
 import { StatusBadge } from "@/components/applications/StatusBadge";
 import { StatusBadge as InterviewStatusBadge } from "@/components/interviews/StatusBadge";
 import { JoiningCard } from "@/components/joining/JoiningCard";
@@ -34,6 +42,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
+import { cn } from "@/lib/utils";
 
 const WRITE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 const CAN_VIEW_OFFERS_ROLES = ["HR_ADMIN", "SUPER_ADMIN", "MANAGEMENT", "RECRUITMENT_COORDINATOR"];
@@ -55,6 +64,10 @@ export function ApplicationDetailPage() {
   const [overrideReason, setOverrideReason] = useState("");
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [rejectCategory, setRejectCategory] = useState<RejectionCategory | "">("");
+  const [waitlistDialogOpen, setWaitlistDialogOpen] = useState(false);
+  const [waitlistRank, setWaitlistRank] = useState("");
+  const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
   const [withdrawDialogOpen, setWithdrawDialogOpen] = useState(false);
   const [withdrawReason, setWithdrawReason] = useState("");
   const [forceDialogOpen, setForceDialogOpen] = useState(false);
@@ -101,6 +114,25 @@ export function ApplicationDetailPage() {
   });
   const resumeScoreNotFound = resumeScoreError instanceof ApiError && resumeScoreError.status === 404;
 
+  // Waitlisted only: whether the vacancy has a free post, and who holds the
+  // taken ones -- the row for this application carries both.
+  const { data: vacancyWaitingList } = useQuery({
+    queryKey: ["application-outcomes", "WAITING_LIST", "posting", application?.job_posting_id],
+    queryFn: () => listWaitingList({ jobPostingId: application!.job_posting_id, limit: 200 }),
+    enabled: application?.status === "WAITLISTED",
+  });
+
+  // The status timeline reads GET /audit-logs, gated by ACTIVITY_LOG; users
+  // without it simply get no timeline card.
+  const canViewActivity = Boolean(
+    user && (user.role === "SUPER_ADMIN" || (hasPermission?.("ACTIVITY_LOG") ?? false)),
+  );
+  const { data: activity } = useQuery({
+    queryKey: ["audit-logs", "Application", id],
+    queryFn: () => listAuditLogs({ entityType: "Application", entityId: id, limit: 50 }),
+    enabled: Boolean(id) && canViewActivity,
+  });
+
   const { data: applicationInterviews } = useQuery({
     queryKey: ["interviews", { applicationId: id }],
     queryFn: () => listInterviews({ applicationId: id }),
@@ -117,6 +149,8 @@ export function ApplicationDetailPage() {
   function afterAction() {
     void queryClient.invalidateQueries({ queryKey: ["application", id] });
     void queryClient.invalidateQueries({ queryKey: ["applications"] });
+    void queryClient.invalidateQueries({ queryKey: ["application-outcomes"] });
+    void queryClient.invalidateQueries({ queryKey: ["audit-logs", "Application", id] });
   }
 
   const advanceMutation = useMutation({
@@ -134,14 +168,32 @@ export function ApplicationDetailPage() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: () => transitionApplicationStatus(id!, { status: "REJECTED", reason: rejectReason }),
+    mutationFn: () =>
+      transitionApplicationStatus(id!, {
+        status: "REJECTED",
+        reason: rejectReason,
+        rejection_category: rejectCategory || null,
+      }),
     onSuccess: () => {
       setError(null);
       setRejectDialogOpen(false);
       setRejectReason("");
+      setRejectCategory("");
       afterAction();
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Reject failed"),
+  });
+
+  const waitlistMutation = useMutation({
+    mutationFn: () =>
+      transitionApplicationStatus(id!, { status: "WAITLISTED", waitlist_rank: Number(waitlistRank) }),
+    onSuccess: () => {
+      setError(null);
+      setWaitlistDialogOpen(false);
+      setWaitlistRank("");
+      afterAction();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Waitlisting failed"),
   });
 
   const withdrawMutation = useMutation({
@@ -222,7 +274,14 @@ export function ApplicationDetailPage() {
 
   const isTerminal = APPLICATION_TERMINAL_STATUSES.has(application.status);
   const currentIndex = APPLICATION_STATUS_ORDER.indexOf(application.status);
-  const forwardStatuses = currentIndex >= 0 ? APPLICATION_STATUS_ORDER.slice(currentIndex + 1) : [];
+  // WAITLISTED has its own dialog (it needs a rank), and a waitlisted
+  // application leaves only through Promote / Reject / Withdraw -- the
+  // backend refuses anything else, so the dropdown does not offer it.
+  const isWaitlisted = application.status === "WAITLISTED";
+  const forwardStatuses =
+    currentIndex >= 0 && !isWaitlisted
+      ? APPLICATION_STATUS_ORDER.slice(currentIndex + 1).filter((s) => s !== "WAITLISTED")
+      : [];
 
   // Bug fix: OR'd with hasPermission("MANAGE_APPLICATIONS") -- applications.py's
   // update_pipeline_details/transition_application_status are gated by
@@ -232,6 +291,9 @@ export function ApplicationDetailPage() {
   const canAdvance = canWrite && !isTerminal && forwardStatuses.length > 0;
   const canReject = canWrite && !isTerminal;
   const canWithdraw = canWrite && !isTerminal;
+  const canWaitlist = canWrite && application.status === "INTERVIEWED";
+  const canPromote = canWrite && isWaitlisted;
+  const waitlistRankValid = /^[1-9]\d*$/.test(waitlistRank.trim());
   const canForce = user.role === "SUPER_ADMIN";
 
   const joiningConfirmedIndex = APPLICATION_STATUS_ORDER.indexOf("JOINING_CONFIRMED");
@@ -245,43 +307,303 @@ export function ApplicationDetailPage() {
 
   const label = getLabel(application.job_posting_id);
   const isBusy =
-    advanceMutation.isPending || rejectMutation.isPending || withdrawMutation.isPending || forceMutation.isPending;
+    advanceMutation.isPending ||
+    rejectMutation.isPending ||
+    withdrawMutation.isPending ||
+    forceMutation.isPending ||
+    waitlistMutation.isPending;
   const isPhdMandateFlag = Boolean(
     application?.qualification_mismatch && application.qualification_mismatch_reason?.startsWith("PhD is mandatory"),
   );
   const canOverridePhdMandate = Boolean(user && ["HR_ADMIN", "SUPER_ADMIN"].includes(user.role));
+  const ownWaitlistRow = vacancyWaitingList?.items.find((row) => row.application_id === application.id);
+  const promotionBlockedBy =
+    isWaitlisted && ownWaitlistRow && ownWaitlistRow.vacancy_open_slots === 0 ? ownWaitlistRow.vacancy_slot_holders : null;
 
   return (
-    <div className="flex max-w-2xl flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold">
-            <Link to={`/job-postings/${application.job_posting_id}`} className="hover:underline">
-              {label?.positionTitle ?? "Application"}
-            </Link>
-          </h1>
-          <div className="mt-1">
-            <StatusBadge status={application.status} />
-          </div>
-        </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link to="/applications">Back to list</Link>
-        </Button>
-      </div>
+    <div className="flex max-w-5xl flex-col gap-6">
+      <Link to="/applications" className="w-fit text-sm font-semibold text-primary hover:underline">
+        ← Back to applications
+      </Link>
 
+      {/* Key-screens redesign (2026-10-29): who, where they are, and every
+          action on them, in one card at the top. */}
       <Card>
-        <CardHeader>
-          <CardTitle>Candidate</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm">
-          {candidate ? (
-            <Link to={`/candidates/${candidate.id}`} className="font-medium hover:underline">
-              {candidate.full_name}
-            </Link>
-          ) : (
-            "—"
-          )}
-          <div className="text-muted-foreground">{candidate?.email}</div>
+        <CardContent className="flex flex-col gap-5 p-6">
+          <div className="flex flex-wrap items-center gap-4">
+            <CandidateInitials name={candidate?.full_name ?? "?"} size="lg" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="font-display text-2xl leading-tight font-extrabold">
+                  {candidate ? (
+                    <Link to={`/candidates/${candidate.id}`} className="hover:underline">
+                      {candidate.full_name}
+                    </Link>
+                  ) : (
+                    "Application"
+                  )}
+                </h1>
+                <StatusBadge status={application.status} />
+                {isWaitlisted && application.waitlist_rank != null ? (
+                  <Badge variant="outline">Rank {application.waitlist_rank}</Badge>
+                ) : null}
+              </div>
+              <span className="text-sm text-muted-foreground">
+                <Link to={`/job-postings/${application.job_posting_id}`} className="hover:underline">
+                  {label?.positionTitle ?? "Job posting"}
+                </Link>
+                {" · "}
+                {application.role_category.replace(/_/g, " ").toLowerCase()}
+                {candidate?.email ? ` · ${candidate.email}` : ""}
+              </span>
+            </div>
+          </div>
+
+          <ApplicationProgress application={application} />
+
+          {promotionBlockedBy ? (
+            <p className="rounded-lg bg-brand-warning/10 px-4 py-3 text-sm text-[#7c2d12] dark:text-amber-300">
+              Every post on this vacancy is held
+              {promotionBlockedBy.length > 0 ? ` by ${promotionBlockedBy.join(", ")}` : ""}. Promotion becomes
+              possible once one of them is rejected or withdraws.
+            </p>
+          ) : null}
+
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <div className="flex flex-wrap items-end gap-2">
+            {canAdvance ? (
+              <div className="flex flex-wrap items-end gap-2">
+                {isPhdMandateFlag && canOverridePhdMandate ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="eligibility_override_reason">PhD rule override reason (HR)</Label>
+                    <Input
+                      id="eligibility_override_reason"
+                      className="w-72"
+                      placeholder="Required to call for interview"
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                    />
+                  </div>
+                ) : null}
+                <div className="flex flex-col gap-1.5">
+                  <Label>Advance to</Label>
+                  <Select value={advanceTo} onValueChange={setAdvanceTo}>
+                    <SelectTrigger className="w-56" aria-label="Advance to">
+                      <SelectValue placeholder="Select next status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {forwardStatuses.map((status) => (
+                        <SelectItem key={status} value={status}>
+                          {status.replace(/_/g, " ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button disabled={isBusy || !advanceTo} onClick={() => advanceMutation.mutate()}>
+                  {advanceMutation.isPending ? "Updating…" : "Update status"}
+                </Button>
+              </div>
+            ) : null}
+
+            {canReject ? (
+              <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="destructive" disabled={isBusy}>
+                    Reject
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Reject application</DialogTitle>
+                  </DialogHeader>
+                  {application.qualification_mismatch ? (
+                    <div className="mb-4 flex flex-col gap-1 rounded-lg border border-brand-warning/30 bg-brand-warning/10 p-3 text-sm">
+                      <Badge variant="warning" className="w-fit">
+                        Qualification Mismatch
+                      </Badge>
+                      <p className="text-foreground/90">
+                        {application.qualification_mismatch_reason ??
+                          "This application's declared qualification does not match an active eligibility rule for its campus."}
+                      </p>
+                    </div>
+                  ) : null}
+                  <div className="flex flex-col gap-4">
+                    <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+                      <legend className="pb-2 text-sm font-medium">Reason</legend>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {(Object.keys(REJECTION_CATEGORY_LABELS) as RejectionCategory[]).map((key) => (
+                          <label
+                            key={key}
+                            className={cn(
+                              "flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border px-3 text-sm transition-colors",
+                              rejectCategory === key
+                                ? "border-2 border-destructive bg-destructive/10 font-semibold"
+                                : "border-border hover:bg-muted",
+                            )}
+                          >
+                            <input
+                              type="radio"
+                              name="reject_category"
+                              value={key}
+                              checked={rejectCategory === key}
+                              onChange={() => setRejectCategory(key)}
+                              className="accent-[var(--destructive)]"
+                            />
+                            {REJECTION_CATEGORY_LABELS[key]}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="reject_reason">Remarks</Label>
+                      <span className="text-xs text-muted-foreground">Saved in the activity log with your name.</span>
+                      <Textarea
+                        id="reject_reason"
+                        required
+                        value={rejectReason}
+                        onChange={(e) => setRejectReason(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="destructive"
+                      disabled={!rejectCategory || !rejectReason.trim() || rejectMutation.isPending}
+                      onClick={() => rejectMutation.mutate()}
+                    >
+                      {rejectMutation.isPending ? "Rejecting…" : "Confirm reject"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            ) : null}
+
+            {canWaitlist ? (
+              <Dialog open={waitlistDialogOpen} onOpenChange={setWaitlistDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" disabled={isBusy}>
+                    Waitlist
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add to waiting list</DialogTitle>
+                  </DialogHeader>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="waitlist_rank">Rank on the waiting list</Label>
+                    <Input
+                      id="waitlist_rank"
+                      inputMode="numeric"
+                      placeholder="1 = first to be offered"
+                      value={waitlistRank}
+                      onChange={(e) => setWaitlistRank(e.target.value)}
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      disabled={!waitlistRankValid || waitlistMutation.isPending}
+                      onClick={() => waitlistMutation.mutate()}
+                    >
+                      {waitlistMutation.isPending ? "Saving…" : "Confirm waitlist"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            ) : null}
+
+            {canPromote ? (
+              <>
+                <Button disabled={isBusy} onClick={() => setPromoteDialogOpen(true)}>
+                  Promote from waiting list
+                </Button>
+                <PromoteFromWaitlistDialog
+                  applicationId={application.id}
+                  candidateName={candidate?.full_name ?? "candidate"}
+                  open={promoteDialogOpen}
+                  onOpenChange={setPromoteDialogOpen}
+                  onPromoted={afterAction}
+                />
+              </>
+            ) : null}
+
+            {canWithdraw ? (
+              <Dialog open={withdrawDialogOpen} onOpenChange={setWithdrawDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" disabled={isBusy}>
+                    Withdraw
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Withdraw application</DialogTitle>
+                  </DialogHeader>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="withdraw_reason">Reason</Label>
+                    <Textarea
+                      id="withdraw_reason"
+                      required
+                      value={withdrawReason}
+                      onChange={(e) => setWithdrawReason(e.target.value)}
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      disabled={!withdrawReason.trim() || withdrawMutation.isPending}
+                      onClick={() => withdrawMutation.mutate()}
+                    >
+                      {withdrawMutation.isPending ? "Withdrawing…" : "Confirm withdraw"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            ) : null}
+
+            {canForce ? (
+              <Dialog open={forceDialogOpen} onOpenChange={setForceDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" disabled={isBusy}>
+                    Force correct status
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Force correct status</DialogTitle>
+                  </DialogHeader>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <Label>New status</Label>
+                      <Select value={forceStatus} onValueChange={setForceStatus}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ALL_STATUSES.map((status) => (
+                            <SelectItem key={status} value={status}>
+                              {status.replace(/_/g, " ")}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="force_reason">Reason (optional)</Label>
+                      <Textarea
+                        id="force_reason"
+                        value={forceReason}
+                        onChange={(e) => setForceReason(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button disabled={!forceStatus || forceMutation.isPending} onClick={() => forceMutation.mutate()}>
+                      {forceMutation.isPending ? "Applying…" : "Apply correction"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
 
@@ -380,10 +702,28 @@ export function ApplicationDetailPage() {
             <div className="text-muted-foreground">Applied</div>
             <div>{new Date(application.applied_at).toLocaleDateString()}</div>
           </div>
+          {application.status === "REJECTED" && application.rejection_category ? (
+            <div>
+              <div className="text-muted-foreground">Reason</div>
+              <div>{REJECTION_CATEGORY_LABELS[application.rejection_category]}</div>
+            </div>
+          ) : null}
+          {application.status === "REJECTED" && application.rejected_at_stage ? (
+            <div>
+              <div className="text-muted-foreground">Rejected at stage</div>
+              <div>{application.rejected_at_stage.replace(/_/g, " ")}</div>
+            </div>
+          ) : null}
           {application.status === "REJECTED" && application.rejection_reason ? (
             <div className="col-span-2">
               <div className="text-muted-foreground">Rejection reason</div>
               <div>{application.rejection_reason}</div>
+            </div>
+          ) : null}
+          {isWaitlisted ? (
+            <div>
+              <div className="text-muted-foreground">Waiting-list rank</div>
+              <div>{application.waitlist_rank ?? "—"}</div>
             </div>
           ) : null}
           {application.status === "WITHDRAWN" && application.withdrawn_reason ? (
@@ -394,6 +734,8 @@ export function ApplicationDetailPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {canViewActivity ? <ApplicationActivity entries={activity ?? []} /> : null}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -597,166 +939,6 @@ export function ApplicationDetailPage() {
       ) : null}
 
       {canViewJoining ? <JoiningCard application={application} /> : null}
-
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      <div className="flex flex-wrap items-end gap-2">
-        {canAdvance ? (
-          <div className="flex flex-wrap items-end gap-2">
-            {isPhdMandateFlag && canOverridePhdMandate ? (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="eligibility_override_reason">PhD rule override reason (HR)</Label>
-                <Input
-                  id="eligibility_override_reason"
-                  className="w-72"
-                  placeholder="Required to call for interview"
-                  value={overrideReason}
-                  onChange={(e) => setOverrideReason(e.target.value)}
-                />
-              </div>
-            ) : null}
-            <div className="flex flex-col gap-1.5">
-              <Label>Advance to</Label>
-              <Select value={advanceTo} onValueChange={setAdvanceTo}>
-                <SelectTrigger className="w-56" aria-label="Advance to">
-                  <SelectValue placeholder="Select next status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {forwardStatuses.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status.replace(/_/g, " ")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button disabled={isBusy || !advanceTo} onClick={() => advanceMutation.mutate()}>
-              {advanceMutation.isPending ? "Updating…" : "Update status"}
-            </Button>
-          </div>
-        ) : null}
-
-        {canReject ? (
-          <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="destructive" disabled={isBusy}>
-                Reject
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Reject application</DialogTitle>
-              </DialogHeader>
-              {application.qualification_mismatch ? (
-                <div className="mb-4 flex flex-col gap-1 rounded-lg border border-brand-warning/30 bg-brand-warning/10 p-3 text-sm">
-                  <Badge variant="warning" className="w-fit">
-                    Qualification Mismatch
-                  </Badge>
-                  <p className="text-foreground/90">
-                    {application.qualification_mismatch_reason ??
-                      "This application's declared qualification does not match an active eligibility rule for its campus."}
-                  </p>
-                </div>
-              ) : null}
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="reject_reason">Reason</Label>
-                <Textarea
-                  id="reject_reason"
-                  required
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                />
-              </div>
-              <DialogFooter>
-                <Button
-                  variant="destructive"
-                  disabled={!rejectReason.trim() || rejectMutation.isPending}
-                  onClick={() => rejectMutation.mutate()}
-                >
-                  {rejectMutation.isPending ? "Rejecting…" : "Confirm reject"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        ) : null}
-
-        {canWithdraw ? (
-          <Dialog open={withdrawDialogOpen} onOpenChange={setWithdrawDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" disabled={isBusy}>
-                Withdraw
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Withdraw application</DialogTitle>
-              </DialogHeader>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="withdraw_reason">Reason</Label>
-                <Textarea
-                  id="withdraw_reason"
-                  required
-                  value={withdrawReason}
-                  onChange={(e) => setWithdrawReason(e.target.value)}
-                />
-              </div>
-              <DialogFooter>
-                <Button
-                  disabled={!withdrawReason.trim() || withdrawMutation.isPending}
-                  onClick={() => withdrawMutation.mutate()}
-                >
-                  {withdrawMutation.isPending ? "Withdrawing…" : "Confirm withdraw"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        ) : null}
-
-        {canForce ? (
-          <Dialog open={forceDialogOpen} onOpenChange={setForceDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" disabled={isBusy}>
-                Force correct status
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Force correct status</DialogTitle>
-              </DialogHeader>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label>New status</Label>
-                  <Select value={forceStatus} onValueChange={setForceStatus}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ALL_STATUSES.map((status) => (
-                        <SelectItem key={status} value={status}>
-                          {status.replace(/_/g, " ")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="force_reason">Reason (optional)</Label>
-                  <Textarea
-                    id="force_reason"
-                    value={forceReason}
-                    onChange={(e) => setForceReason(e.target.value)}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button disabled={!forceStatus || forceMutation.isPending} onClick={() => forceMutation.mutate()}>
-                  {forceMutation.isPending ? "Applying…" : "Apply correction"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        ) : null}
-      </div>
     </div>
   );
 }

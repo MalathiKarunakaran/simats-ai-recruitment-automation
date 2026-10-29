@@ -1,9 +1,9 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import ApplicationStatusEnum, StaffRoleCategoryEnum
+from app.models.enums import ApplicationStatusEnum, RejectionCategoryEnum, StaffRoleCategoryEnum
 
 
 class ApplicationCreate(BaseModel):
@@ -18,6 +18,11 @@ class ApplicationStatusTransitionRequest(BaseModel):
     # HR Admin / Super Admin only: call a candidate for interview although the
     # resume failed the campus PhD mandate (eligibility.py). Audited.
     eligibility_override_reason: str | None = None
+    # Rejected & Waiting List. `rejection_category` is optional so callers
+    # that only send `reason` keep working; `waitlist_rank` is required when
+    # status is WAITLISTED (pipeline.py enforces it).
+    rejection_category: RejectionCategoryEnum | None = None
+    waitlist_rank: int | None = Field(None, ge=1)
 
 
 class ApplicationPipelineDetailsUpdate(BaseModel):
@@ -50,6 +55,9 @@ class ApplicationRead(BaseModel):
     rejected_at: datetime | None
     withdrawn_reason: str | None
     withdrawn_at: datetime | None
+    rejection_category: RejectionCategoryEnum | None
+    rejected_at_stage: ApplicationStatusEnum | None
+    waitlist_rank: int | None
     qualification_mismatch: bool
     qualification_mismatch_reason: str | None
     panel_members: str | None

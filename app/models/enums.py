@@ -231,6 +231,25 @@ class ApplicationStatusEnum(str, enum.Enum):
     HANDED_OVER_TO_HOD = "HANDED_OVER_TO_HOD"
     REJECTED = "REJECTED"
     WITHDRAWN = "WITHDRAWN"
+    # Interviewed, not selected yet, kept in ranked reserve for the same
+    # vacancy (migration 9c4d2e7f1a3b). Reached only from INTERVIEWED and
+    # left only by promotion to SELECTED, rejection or withdrawal -- see
+    # pipeline.transition_application_status.
+    WAITLISTED = "WAITLISTED"
+
+
+class RejectionCategoryEnum(str, enum.Enum):
+    """Why an application was rejected, picked from a fixed list so the
+    dashboard can count by reason. Optional on the API -- older callers
+    (the tracker import, scripts) still reject with free text only, which
+    stays in `Application.rejection_reason` as the remarks."""
+
+    NOT_ELIGIBLE = "NOT_ELIGIBLE"
+    FAILED_SCREENING = "FAILED_SCREENING"
+    DID_NOT_ATTEND_INTERVIEW = "DID_NOT_ATTEND_INTERVIEW"
+    PANEL_NOT_RECOMMENDED = "PANEL_NOT_RECOMMENDED"
+    SALARY_MISMATCH = "SALARY_MISMATCH"
+    OTHER = "OTHER"
 
 
 # Forward-progression order for the happy-path pipeline. REJECTED is
@@ -241,6 +260,7 @@ APPLICATION_STATUS_ORDER: tuple[ApplicationStatusEnum, ...] = (
     ApplicationStatusEnum.SCREENING,
     ApplicationStatusEnum.CALLED_FOR_INTERVIEW,
     ApplicationStatusEnum.INTERVIEWED,
+    ApplicationStatusEnum.WAITLISTED,
     ApplicationStatusEnum.SELECTED,
     ApplicationStatusEnum.OFFER_SENT,
     ApplicationStatusEnum.OFFER_ACCEPTED,

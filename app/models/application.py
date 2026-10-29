@@ -1,12 +1,12 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
-from app.models.enums import ApplicationStatusEnum, StaffRoleCategoryEnum
+from app.models.enums import ApplicationStatusEnum, RejectionCategoryEnum, StaffRoleCategoryEnum
 
 
 class Application(Base):
@@ -48,6 +48,21 @@ class Application(Base):
     rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     withdrawn_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Rejected & Waiting List (migration 9c4d2e7f1a3b). `rejection_reason`
+    # above stays the free-text remarks; `rejection_category` is the reason
+    # picked from a fixed list, NULL on every rejection made before it
+    # existed or by a caller that does not send one. `rejected_at_stage` is
+    # the status the application was in when it was rejected.
+    rejection_category: Mapped[RejectionCategoryEnum | None] = mapped_column(
+        Enum(RejectionCategoryEnum, name="rejection_category_enum"), nullable=True, index=True
+    )
+    rejected_at_stage: Mapped[ApplicationStatusEnum | None] = mapped_column(
+        Enum(ApplicationStatusEnum, name="application_status_enum"), nullable=True
+    )
+    # Position on the waiting list for this application's own vacancy (the
+    # job posting already identifies it). Kept after promotion, as history.
+    waitlist_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Non-blocking eligibility-rule-engine flag (Phase 8 addendum, Stage 1) --
     # set at creation time by app/services/eligibility.py, never blocks/
