@@ -1,0 +1,216 @@
+{
+  "name": "SIMATS talent pool sheet sync",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {},
+      "name": "Run now (test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z8clcWd3oMs_Ipm8UPpxzgz9ZyEdhinw5i7xdQ8Ek24/values/%27Final%20%27!A1%3AZ",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Read 'Final ' tab",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// docs/specs/talent-pool-sheet-sync.md section 2: one full snapshot of one tab.\n// n8n does no logic beyond reshaping Google's grid; the app works out what changed.\nfunction buildSnapshot(values, tab) {\n  const isFinal = tab === \"TEACHING_FINAL\";\n  const headerIndex = isFinal ? 1 : 0; // Final: row 2 is the header (row 1 is \"Last Date Update\")\n  const headers = (values[headerIndex] || []).map((h) => (h == null ? \"\" : String(h)));\n  const width = headers.length;\n  const rows = [];\n  for (let i = headerIndex + 1; i < values.length; i++) {\n    const raw = values[i] || [];\n    // The grid runs on far past the last candidate (NTS reports ~11,700\n    // rows); a row with nothing in it is not sent.\n    if (raw.every((c) => String(c ?? \"\").trim() === \"\")) continue;\n    const cells = [];\n    for (let j = 0; j < width; j++) cells.push(raw[j] == null ? \"\" : String(raw[j]));\n    rows.push({ row_number: i + 1, cells });\n  }\n  let sheetLastUpdate = null;\n  if (isFinal) {\n    const first = values[0] || [];\n    const parts = [first[2], first[3]].map((v) => String(v ?? \"\").trim()).filter(Boolean);\n    sheetLastUpdate = parts.length ? parts.join(\", \") : null;\n  }\n  return { source_tab: tab, sheet_last_update: sheetLastUpdate, headers, rows };\n}\n\nreturn [{ json: buildSnapshot($input.first().json.values || [], \"TEACHING_FINAL\") }];\n"
+      },
+      "name": "Build Final snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.malathi.io/api/v1/talent-pool/sync",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Send Final to app",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/1z8clcWd3oMs_Ipm8UPpxzgz9ZyEdhinw5i7xdQ8Ek24/values/NTS!A1%3AZ",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleSheetsOAuth2Api",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Read 'NTS' tab",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// docs/specs/talent-pool-sheet-sync.md section 2: one full snapshot of one tab.\n// n8n does no logic beyond reshaping Google's grid; the app works out what changed.\nfunction buildSnapshot(values, tab) {\n  const isFinal = tab === \"TEACHING_FINAL\";\n  const headerIndex = isFinal ? 1 : 0; // Final: row 2 is the header (row 1 is \"Last Date Update\")\n  const headers = (values[headerIndex] || []).map((h) => (h == null ? \"\" : String(h)));\n  const width = headers.length;\n  const rows = [];\n  for (let i = headerIndex + 1; i < values.length; i++) {\n    const raw = values[i] || [];\n    // The grid runs on far past the last candidate (NTS reports ~11,700\n    // rows); a row with nothing in it is not sent.\n    if (raw.every((c) => String(c ?? \"\").trim() === \"\")) continue;\n    const cells = [];\n    for (let j = 0; j < width; j++) cells.push(raw[j] == null ? \"\" : String(raw[j]));\n    rows.push({ row_number: i + 1, cells });\n  }\n  let sheetLastUpdate = null;\n  if (isFinal) {\n    const first = values[0] || [];\n    const parts = [first[2], first[3]].map((v) => String(v ?? \"\").trim()).filter(Boolean);\n    sheetLastUpdate = parts.length ? parts.join(\", \") : null;\n  }\n  return { source_tab: tab, sheet_last_update: sheetLastUpdate, headers, rows };\n}\n\nreturn [{ json: buildSnapshot($input.first().json.values || [], \"NTS\") }];\n"
+      },
+      "name": "Build NTS snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.malathi.io/api/v1/talent-pool/sync",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Send NTS to app",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Read 'Final ' tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read 'NTS' tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now (test)": {
+      "main": [
+        [
+          {
+            "node": "Read 'Final ' tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read 'NTS' tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read 'Final ' tab": {
+      "main": [
+        [
+          {
+            "node": "Build Final snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Final snapshot": {
+      "main": [
+        [
+          {
+            "node": "Send Final to app",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read 'NTS' tab": {
+      "main": [
+        [
+          {
+            "node": "Build NTS snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build NTS snapshot": {
+      "main": [
+        [
+          {
+            "node": "Send NTS to app",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
