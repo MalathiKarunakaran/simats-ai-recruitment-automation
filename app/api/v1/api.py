@@ -31,6 +31,7 @@ from app.api.v1.routers import (
     resume_screening,
     sanctioned_strength,
     talent_pool,
+    talent_pool_sync,
     users,
     vacancy_register,
     public_vacancy_requests,
@@ -67,6 +68,7 @@ api_router.include_router(inbound_emails.router)
 # Talent pool (2026-10-23). Read-only; the Google Sheet is the system of
 # record and the sync is the only writer -- see the router's docstring.
 api_router.include_router(talent_pool.router)
+api_router.include_router(talent_pool_sync.router)
 
 # qr_router first: its /vacancy-requests/qr/* paths would otherwise be
 # swallowed by /vacancy-requests/{vacancy_request_id} below.

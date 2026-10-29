@@ -369,3 +369,23 @@ def require_mail_intake_secret(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid mail intake secret"
         )
+
+
+def require_talent_pool_sync_secret(
+    x_talent_pool_sync_secret: str | None = Header(None, alias="X-Talent-Pool-Sync-Secret"),
+) -> None:
+    """Gate for the machine-only talent pool sync (2026-10-29), built exactly
+    like require_mail_intake_secret above and for the same reasons: n8n is
+    not a `User`, an unset secret closes the endpoint (503), and the
+    comparison is constant-time."""
+    if not settings.TALENT_POOL_SYNC_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Talent pool sync is not configured (TALENT_POOL_SYNC_SECRET is not set)",
+        )
+    if not x_talent_pool_sync_secret or not hmac.compare_digest(
+        x_talent_pool_sync_secret, settings.TALENT_POOL_SYNC_SECRET
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid talent pool sync secret"
+        )

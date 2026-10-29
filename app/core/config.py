@@ -121,6 +121,14 @@ class Settings(BaseSettings):
     # time; see app/core/deps.py's require_mail_intake_secret.
     MAIL_INTAKE_SECRET: str = ""
 
+    # --- Talent pool sheet sync (2026-10-29) ---
+    #
+    # The shared secret n8n sends as `X-Talent-Pool-Sync-Secret` with each
+    # tab snapshot (docs/specs/talent-pool-sheet-sync.md). Same rule as
+    # MAIL_INTAKE_SECRET: empty means POST /talent-pool/sync refuses every
+    # call with 503, never that it accepts anonymous writes.
+    TALENT_POOL_SYNC_SECRET: str = ""
+
     # --- Deployment environment (2026-09-03, audit H1) ---
     #
     # "development" (default), "test" or "production". The ONLY thing this

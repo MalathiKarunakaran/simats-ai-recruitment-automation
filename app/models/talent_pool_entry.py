@@ -21,13 +21,11 @@ status cell is a far worse failure than showing an unexpected status on a
 dashboard. `app/models/enums.py`'s TALENT_POOL_* tuples therefore fix only
 the display ORDER; a value outside them still appears, just last.
 
-There is deliberately NO unique constraint here. The natural key -- whether
-a row is identified by its sheet row number, its email, or a sheet-assigned
-id -- belongs to the sync that writes this table
-(docs/specs/talent-pool-sheet-sync.md, not yet in this repo), and guessing
-it would either block a legitimate upsert or let duplicates through. Reads
-do not need it. Whoever builds the sync adds the constraint it actually
-keys on.
+The natural key belongs to the sync that writes this table
+(docs/specs/talent-pool-sheet-sync.md section 5, built 2026-10-29): it keys
+on `row_key` -- person plus occurrence, not the sheet row number -- unique
+per `source_tab`. Rows with no `row_key` were not written by the sync and it
+leaves them alone.
 
 `is_active = false` means the row is no longer in the sheet (the sync
 deactivates rather than deletes, so a candidate removed by mistake is
@@ -38,7 +36,7 @@ filters it out unless `include_inactive` is asked for.
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -132,6 +130,13 @@ class TalentPoolEntry(Base):
     # ones without comparing every column. Written by the sync; reads ignore
     # it and the list endpoint deliberately does not return it.
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # The sync's identity for this row (2026-10-29, migration 3e5f7a9c1b2d):
+    # a digest of who the candidate is (email, else name + phone digits) and
+    # which repeat of them this is, in sheet order -- so a re-sorted sheet or
+    # an inserted row keeps every row's identity, which a row number would
+    # not. NULL on rows the sync did not write (hand-entered ones), and the
+    # sync never touches those: unique together with source_tab, NULLs apart.
+    row_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -145,6 +150,7 @@ class TalentPoolEntry(Base):
     # either column alone would not be used; the aggregations then group by
     # status, department or eligibility, and the register sorts by applied_on.
     __table_args__ = (
+        UniqueConstraint("source_tab", "row_key", name="uq_talent_pool_tab_row_key"),
         Index("ix_talent_pool_tab_active_status", "source_tab", "is_active", "sheet_status"),
         Index("ix_talent_pool_tab_active_dept", "source_tab", "is_active", "dept_group"),
         Index("ix_talent_pool_tab_active_elig", "source_tab", "is_active", "eligibility"),
