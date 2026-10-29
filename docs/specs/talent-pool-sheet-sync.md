@@ -155,10 +155,12 @@ does not move them.
 The full table is in Appendix A. Matching rules:
 - The lookup key is the spelling lower-cased, with punctuation turned into
   spaces.
-- Rules are checked in Appendix A's order and the **first match wins**. The
-  order matters: "B.ED - CSE" is Education, not CSE, and "E&I - BME" is
-  Biomedical.
-- A spelling no rule matches goes to "Not set" and is listed in the sync
+- Each listed spelling's key maps **exactly** to its group; there are no
+  substring rules. (Corrected 2026-10-29: this said "checked in order, first
+  match wins", which cannot produce the table below -- "B.ED - CSE" is
+  Education, "EEE / BME" Biomedical and "ECE.ME,Ph.D CSE" CSE, yet each
+  contains a group name listed earlier.)
+- A spelling not in the table goes to "Not set" and is listed in the sync
   response under `unmapped_departments`. A new spelling therefore shows up
   instead of quietly landing in the wrong group.
 
