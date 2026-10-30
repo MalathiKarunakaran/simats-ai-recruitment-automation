@@ -2,7 +2,7 @@
 
 Decided 2026-10-30: the app's email goes out through the self-hosted n8n
 (`/opt/n8n`, https://n8n.malathi.io), and **only the sign-in code is emailed
-for now**. n8n hands each email to an **Apps Script mail relay**
+for now** (password-reset links followed the same day). n8n hands each email to an **Apps Script mail relay**
 (`docs/apps-script/mail-relay.gs`) that sends it with Gmail as the
 saveetha.com account that deployed it. SMTP was the first plan, but
 saveetha.com has 2-Step Verification, and so app passwords, switched off;
@@ -17,7 +17,7 @@ actually becomes an email:
 | Path | Sent by | Payload | n8n today |
 |---|---|---|---|
 | `send-otp-email` | sign-in by emailed code (`auth.py`) | `to`, `full_name`, `code` | **`send-otp-email.workflow.json` has the mail relay email it** |
-| `send-password-reset-email` | password reset (`auth.py`) | `to`, `full_name`, `token` | no workflow; the app has no reset page yet, and answers 503 |
+| `send-password-reset-email` | "Forgot password?" on the login page (`auth.py`) | `to`, `full_name`, `token` | **`send-password-reset-email.workflow.json` has the relay email a link to `/reset-password#token=…`** (since 2026-10-30) |
 | `notify` | 16 workflow events (`notifications.py`) | `notification_type`, `channel`, `recipient_email`, `subject`, `body`, … | no workflow, so n8n answers 404 and the app records the notification FAILED — nothing is emailed until a reviewed workflow exists |
 | distribution paths | job-portal posting (`job_channels.py`, `channel_providers.py`) | posting details | no workflow, as before |
 
@@ -48,7 +48,7 @@ let anyone on the internet make the SIMATS mailbox send mail.
    domain and the relay cannot be reached from the server.
 
 The relay builds each message itself from a fixed template per `kind`
-(only `otp` today), so even a leaked secret can only send "your sign-in code
+(`otp` and `reset`), so even a leaked secret can only send "your sign-in code
 is NNNNNN"; it also caps 5 codes per address per 10 minutes and 200 sends an
 hour. Gmail's own limit for the account is about 1,500 recipients a day.
 
@@ -56,10 +56,15 @@ hour. Gmail's own limit for the account is about 1,500 recipients a day.
 
 1. **Credentials → Add credential → Custom Auth**, name
    `SIMATS mail relay secret`, JSON: `{"body": {"secret": "<RELAY_SECRET>"}}`.
-2. **Workflows → Import from File** → `docs/n8n/send-otp-email.workflow.json`.
-3. Open **Mail relay sends the code**: paste the Web app URL into *URL* and
-   pick the credential. Save.
-4. Switch the workflow **Active**.
+2. **Workflows → Import from File** → `docs/n8n/send-otp-email.workflow.json`,
+   and again for `docs/n8n/send-password-reset-email.workflow.json`.
+3. In each, open the **Mail relay sends …** box: paste the Web app URL into
+   *URL* and pick the credential. Save.
+4. Switch both workflows **Active**.
+
+After changing the relay's code, publish it: **Deploy → Manage deployments →
+(pencil) → Version: New version → Deploy**. The web app keeps serving the
+old version until then, and the URL stays the same.
 
 ### 3. On the server (once)
 

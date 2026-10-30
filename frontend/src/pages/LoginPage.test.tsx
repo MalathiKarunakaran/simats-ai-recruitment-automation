@@ -9,8 +9,9 @@ import { ApiError } from "@/api/client";
 import * as authContext from "@/auth/AuthContext";
 import { LoginPage } from "@/pages/LoginPage";
 
-vi.mock("@/api/auth", () => ({ getLoginOptions: vi.fn() }));
+vi.mock("@/api/auth", () => ({ getLoginOptions: vi.fn(), requestPasswordReset: vi.fn() }));
 const mockedGetLoginOptions = vi.mocked(authApi.getLoginOptions);
+const mockedRequestPasswordReset = vi.mocked(authApi.requestPasswordReset);
 
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
@@ -32,11 +33,11 @@ function mockAuth(overrides: Partial<ReturnType<typeof authContext.useAuth>> = {
   });
 }
 
-function renderPage() {
+function renderPage(initialEntry: string | { pathname: string; state: unknown } = "/login") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/login"]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard" element={<div>dashboard page</div>} />
@@ -185,5 +186,47 @@ describe("LoginPage", () => {
     renderPage();
 
     expect(screen.getByText("dashboard page")).toBeInTheDocument();
+  });
+
+  it("offers 'Forgot password?' only when the server can send email", async () => {
+    mockAuth();
+    mockedGetLoginOptions.mockResolvedValue({ password_login: true, otp_email_login: false });
+    renderPage();
+
+    await waitFor(() => expect(mockedGetLoginOptions).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Forgot password?" })).not.toBeInTheDocument();
+  });
+
+  it("asks for a reset link and answers the same whether or not the address exists", async () => {
+    mockAuth();
+    mockedRequestPasswordReset.mockResolvedValue(undefined);
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Forgot password?" }));
+    await userEvent.type(screen.getByLabelText("Email"), "someone@saveetha.com");
+    await userEvent.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    expect(mockedRequestPasswordReset).toHaveBeenCalledWith("someone@saveetha.com");
+    expect(await screen.findByRole("status")).toHaveTextContent("If that email is registered, a reset link is on its way");
+  });
+
+  it("shows the server's refusal instead of claiming a link was sent", async () => {
+    mockAuth();
+    mockedRequestPasswordReset.mockRejectedValue(new ApiError(503, "Password reset by email is currently unavailable."));
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Forgot password?" }));
+    await userEvent.type(screen.getByLabelText("Email"), "someone@saveetha.com");
+    await userEvent.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Password reset by email is currently unavailable.");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("confirms a finished reset when sent back from the reset page", () => {
+    mockAuth();
+    renderPage({ pathname: "/login", state: { passwordReset: true } });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Your password has been changed");
   });
 });

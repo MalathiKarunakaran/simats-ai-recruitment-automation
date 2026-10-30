@@ -39,6 +39,7 @@ import { SanctionedStrengthPage } from "@/pages/SanctionedStrengthPage";
 import { SetNewPasswordPage } from "@/pages/SetNewPasswordPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TalentPoolPage } from "@/pages/TalentPoolPage";
+import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { TrackerImportPage } from "@/pages/TrackerImportPage";
 import { UserCreatePage } from "@/pages/UserCreatePage";
 import { UserDetailPage } from "@/pages/UserDetailPage";
@@ -54,6 +55,8 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* The emailed password-reset link (2026-10-30); public like /login. */}
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       {/* Public QR intake -- deliberately OUTSIDE ProtectedRoute and
           outside AppShell. It renders no navigation and no link back
           into the authenticated app: a visitor who scans the poster

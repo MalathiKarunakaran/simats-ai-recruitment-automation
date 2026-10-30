@@ -51,3 +51,22 @@ export interface LoginOptions {
 export async function getLoginOptions(): Promise<LoginOptions> {
   return publicFetch<LoginOptions>("/auth/login-options", { method: "GET" });
 }
+
+/** Asks the server to email a reset link. The answer is the same whether or
+ * not the address is registered, so the page cannot be used to probe for
+ * accounts; a 503 means the server cannot send email at all right now. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await publicFetch<{ detail: string }>("/auth/password-reset-request", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+/** Sets a new password with the one-time token from the emailed link. The
+ * server signs the account out everywhere when this succeeds. */
+export async function confirmPasswordReset(token: string, newPassword: string): Promise<void> {
+  await publicFetch<void>("/auth/password-reset-confirm", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+}

@@ -4,7 +4,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { BarChart3, Briefcase, ClipboardList, ShieldCheck } from "lucide-react";
 
 import simatsSeal from "@/assets/simats-seal.png";
-import { getLoginOptions } from "@/api/auth";
+import { getLoginOptions, requestPasswordReset } from "@/api/auth";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,9 @@ import { PasswordInput } from "@/components/ui/password-input";
 // Email + one-time code is the default sign-in flow (2026-08-06, per the
 // user's request); password stays available as a fallback -- see
 // AuthContext.tsx's own comment on why both still exist.
-type Mode = "otp-email" | "otp-code" | "password";
+// "forgot" (2026-10-30) asks for a reset link; the link lands on
+// ResetPasswordPage, outside this page.
+type Mode = "otp-email" | "otp-code" | "password" | "forgot";
 
 // Split-screen login, refined 2026-08-29. UI ONLY: every handler, mode
 // transition, auth call and error string is carried over verbatim --
@@ -40,15 +42,12 @@ type Mode = "otp-email" | "otp-code" | "password";
 // secondary text #475569 (~7.5:1 on white -- the brief asks for secondary
 // text that stays clearly readable, so this is not a pale grey).
 //
-// Two deliberate omissions worth recording, both because the brief made them
-// conditional:
+// Two notes worth recording:
 //
-// 1. **No "Forgot password?" link.** app/api/v1/routers/auth.py's
-//    `/password-reset-request` is an explicit Phase 1 stub that only
-//    `print()`s the token to the server console (no email delivery -- that's
-//    the Notification Agent's later phase), and there is no /forgot-password
-//    route in App.tsx to land on. A link here would send a locked-out user
-//    into a dead end. Add it when email delivery lands.
+// 1. **"Forgot password?" appears only when the server can send email**
+//    (the same `otp_email_login` flag the code sign-in uses -- both go out
+//    through n8n). Added 2026-10-30, when production email went live;
+//    before that a link here led a locked-out user into a dead end.
 //
 // 2. **Button/link wording is unchanged.** These exact strings are the
 //    accessible names LoginPage.test.tsx queries by (getByRole("button",
@@ -109,7 +108,12 @@ export function LoginPage() {
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
+  // ResetPasswordPage sends people back here with `passwordReset: true`.
+  const [info, setInfo] = useState<string | null>(() =>
+    (location.state as { passwordReset?: boolean } | null)?.passwordReset
+      ? "Your password has been changed. Sign in with the new one."
+      : null,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isLoading && user) {
@@ -150,6 +154,20 @@ export function LoginPage() {
       navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Incorrect or expired code");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleForgotSubmit(event: FormEvent) {
+    event.preventDefault();
+    resetMessages();
+    setIsSubmitting(true);
+    try {
+      await requestPasswordReset(email);
+      setInfo("If that email is registered, a reset link is on its way. It expires in 30 minutes.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not send a reset link");
     } finally {
       setIsSubmitting(false);
     }
@@ -382,19 +400,72 @@ export function LoginPage() {
                       className={fieldClass}
                     />
                   </div>
+                  {info ? (
+                    <p role="status" className="text-sm text-[#475569]">
+                      {info}
+                    </p>
+                  ) : null}
                   {errorBanner}
                   <Button type="submit" className={primaryButtonClass} isLoading={isSubmitting}>
                     {isSubmitting ? "Signing in…" : "Sign in"}
                   </Button>
                   {otpAvailable ? (
-                    <button
-                      type="button"
-                      onClick={() => switchMode("otp-email")}
-                      className="rounded text-sm font-semibold text-[#1D4ED8] underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-[#2563EB] focus-visible:outline-none"
-                    >
-                      Sign in with a code instead
-                    </button>
+                    <div className="flex items-center justify-between text-sm font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => switchMode("otp-email")}
+                        className="rounded text-[#1D4ED8] underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-[#2563EB] focus-visible:outline-none"
+                      >
+                        Sign in with a code instead
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => switchMode("forgot")}
+                        className="rounded text-[#1D4ED8] underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-[#2563EB] focus-visible:outline-none"
+                      >
+                        Forgot password?
+                      </button>
+                    </div>
                   ) : null}
+                </form>
+              ) : null}
+
+              {mode === "forgot" ? (
+                <form onSubmit={handleForgotSubmit} className="flex flex-col gap-4">
+                  <p className="text-sm text-[#475569]">
+                    Enter your account email and we will send you a link to choose a new password.
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="forgot_email" className="text-[13px] font-semibold text-[#172033]">
+                      Email
+                    </Label>
+                    <Input
+                      id="forgot_email"
+                      type="email"
+                      autoComplete="username"
+                      placeholder="you@simats.ac.in"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className={fieldClass}
+                    />
+                  </div>
+                  {info ? (
+                    <p role="status" className="text-sm text-[#475569]">
+                      {info}
+                    </p>
+                  ) : null}
+                  {errorBanner}
+                  <Button type="submit" className={primaryButtonClass} isLoading={isSubmitting}>
+                    {isSubmitting ? "Sending…" : "Send reset link"}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => switchMode("password")}
+                    className="rounded text-sm font-semibold text-[#1D4ED8] underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-[#2563EB] focus-visible:outline-none"
+                  >
+                    Back to sign in
+                  </button>
                 </form>
               ) : null}
             </div>

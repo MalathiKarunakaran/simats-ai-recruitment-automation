@@ -159,5 +159,9 @@ export async function publicFetch<T>(path: string, options: RequestInit = {}): P
     const body = await response.json().catch(() => null);
     throw new ApiError(response.status, extractErrorMessage(body));
   }
+  // Same as apiFetch: the public password-reset confirm answers 204.
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return response.json() as Promise<T>;
 }

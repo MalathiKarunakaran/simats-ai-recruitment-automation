@@ -11,8 +11,8 @@
  * n8n posts {secret, kind, to, ...} here (docs/n8n/send-otp-email.workflow.json).
  * The relay builds every message itself from a fixed template per `kind`;
  * there is no free-text subject or body, so even a leaked secret can only
- * send "your sign-in code is NNNNNN". Sending is also capped per recipient
- * and per hour.
+ * send a sign-in code ("otp") or a password-reset link ("reset", added
+ * 2026-10-30). Sending is also capped per recipient and per hour.
  *
  * Web apps cannot read request headers, so the secret travels in the body.
  * A web app always answers HTTP 200; the result is in the JSON ({sent: ...}).
@@ -41,6 +41,7 @@ function doPost(e) {
 
   var message;
   if (request.kind === "otp") message = otpMessage_(request);
+  if (request.kind === "reset") message = resetMessage_(request);
   if (!message) return reply_({ sent: false, detail: "unknown kind or bad fields" });
 
   var limited = overLimit_(to);
@@ -80,6 +81,34 @@ function otpMessage_(request) {
       '<p style="font-size:28px;font-weight:bold;letter-spacing:6px;margin:16px 0">' + code + "</p>" +
       "<p>It works once and expires in <strong>10 minutes</strong>.</p>" +
       '<p style="color:#6b7280;font-size:13px">If you did not try to sign in, you can ignore this email; nobody can sign in without the code.</p>' +
+      '<p style="color:#6b7280;font-size:13px">' + SENDER_NAME + ' &middot; <a href="' + APP_URL + '">app.malathi.io</a></p>' +
+      "</div>",
+  };
+}
+
+// The token goes after "#" so it never reaches a server log or a Referer
+// header; the reset page reads it from the fragment.
+function resetMessage_(request) {
+  var token = String(request.token || "");
+  if (!/^[A-Za-z0-9_-]{40,100}$/.test(token)) return null;
+  var link = APP_URL + "/reset-password#token=" + token;
+  var name = String(request.full_name || "").slice(0, 120);
+  var hello = "Hello" + (name ? " " + name : "") + ",";
+  return {
+    subject: "Reset your SIMATS Recruitment password",
+    text:
+      hello + "\n\nSomeone asked to reset the password for your SIMATS Recruitment account.\n" +
+      "To choose a new password, open this link:\n\n" + link +
+      "\n\nThe link works once and expires in 30 minutes. Resetting signs you out everywhere.\n\n" +
+      "If you did not ask for this, ignore this email; your password stays as it is.\n\n" +
+      SENDER_NAME + "\n" + APP_URL,
+    html:
+      '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#1f2937;line-height:1.5">' +
+      "<p>" + escape_(hello) + "</p>" +
+      "<p>Someone asked to reset the password for your <strong>SIMATS Recruitment</strong> account.</p>" +
+      '<p style="margin:20px 0"><a href="' + link + '" style="background:#1D4ED8;color:#ffffff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Choose a new password</a></p>' +
+      "<p>The link works once and expires in <strong>30 minutes</strong>. Resetting signs you out everywhere.</p>" +
+      '<p style="color:#6b7280;font-size:13px">If you did not ask for this, ignore this email; your password stays as it is.</p>' +
       '<p style="color:#6b7280;font-size:13px">' + SENDER_NAME + ' &middot; <a href="' + APP_URL + '">app.malathi.io</a></p>' +
       "</div>",
   };
