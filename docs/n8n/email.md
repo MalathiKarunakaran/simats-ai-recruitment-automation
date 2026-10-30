@@ -69,7 +69,8 @@ hour. Gmail's own limit for the account is about 1,500 recipients a day.
   before `reverse_proxy` (done 2026-10-30).
 - `/opt/simats/app/.env`: `N8N_BASE_URL=http://n8n:5678/webhook` and
   `N8N_TIMEOUT_SECONDS=20` (Apps Script can take a few seconds to wake),
-  then `docker compose up -d --force-recreate backend`.
+  then `docker compose up -d --force-recreate backend` (done 2026-10-30;
+  `/auth/login-options` then reports `otp_email_login: true`).
 
 Do steps 1 and 2 before the `.env` lines: once `N8N_BASE_URL` is set the
 login page offers "email me a code", and without an active workflow every
