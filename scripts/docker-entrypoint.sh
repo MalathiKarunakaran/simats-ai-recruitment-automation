@@ -22,6 +22,14 @@ alembic upgrade head
 # in that module; keep in mind when raising this.
 WORKERS="${UVICORN_WORKERS:-4}"
 
+# Seconds a worker may go without answering the parent's health-check ping
+# before uvicorn kills it as hung. Uvicorn's default of 5 killed the worker
+# handling the talent pool sync's 7,772-row "Final " tab on this 2-CPU VPS
+# (2026-10-30: "Child process died" ~7 s in, 502 to Apps Script, every time),
+# although the same request finishes in ~1.5 s on a laptop. 60 still catches
+# a truly hung worker.
+HEALTHCHECK_TIMEOUT="${UVICORN_TIMEOUT_WORKER_HEALTHCHECK:-60}"
+
 # Which peer may set X-Forwarded-For / X-Forwarded-Proto. The container's
 # port is published on 127.0.0.1 only, so the ONLY thing that can ever
 # connect is a process on the host (Caddy), and from inside the container
@@ -50,4 +58,5 @@ echo "Starting server with ${WORKERS} worker(s)..."
 # own copy (default on, trusting 127.0.0.1) would be a second, differently
 # configured resolver in front of it.
 # --no-server-header: audit M5, do not advertise "Server: uvicorn".
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers "$WORKERS" --no-proxy-headers --no-server-header
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers "$WORKERS" \
+  --timeout-worker-healthcheck "$HEALTHCHECK_TIMEOUT" --no-proxy-headers --no-server-header
