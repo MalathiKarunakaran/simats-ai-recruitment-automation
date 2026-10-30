@@ -45,20 +45,46 @@
     },
     {
       "parameters": {
-        "fromEmail": "SIMATS Recruitment <CHANGE-ME@saveetha.com>",
-        "toEmail": "={{ $json.body.to }}",
-        "subject": "Your SIMATS Recruitment sign-in code: {{ $json.body.code }}",
-        "emailFormat": "both",
-        "text": "=Hello {{ $json.body.full_name || '' }},\n\nYour sign-in code for SIMATS Recruitment is:\n\n    {{ $json.body.code }}\n\nIt works once and expires in 10 minutes.\n\nIf you did not try to sign in, you can ignore this email; nobody can sign in without the code.\n\nSIMATS Recruitment\nhttps://app.malathi.io",
-        "html": "=<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#1f2937;line-height:1.5\"><p>Hello {{ $json.body.full_name || '' }},</p><p>Your sign-in code for <strong>SIMATS Recruitment</strong> is:</p><p style=\"font-size:28px;font-weight:bold;letter-spacing:6px;margin:16px 0\">{{ $json.body.code }}</p><p>It works once and expires in <strong>10 minutes</strong>.</p><p style=\"color:#6b7280;font-size:13px\">If you did not try to sign in, you can ignore this email; nobody can sign in without the code.</p><p style=\"color:#6b7280;font-size:13px\">SIMATS Recruitment &middot; <a href=\"https://app.malathi.io\">app.malathi.io</a></p></div>",
-        "options": { "appendAttribution": false }
+        "method": "POST",
+        "url": "PASTE-THE-MAIL-RELAY-WEB-APP-URL-HERE",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ kind: 'otp', to: $json.body.to, full_name: $json.body.full_name || '', code: String($json.body.code) }) }}",
+        "options": {
+          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } },
+          "timeout": 20000
+        }
       },
       "id": "b1f4c2a0-0003-4c1e-9d6a-5f2b7e0a1003",
-      "name": "Send the code",
-      "type": "n8n-nodes-base.emailSend",
-      "typeVersion": 2.1,
+      "name": "Mail relay sends the code",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [480, -100],
-      "credentials": { "smtp": { "id": "", "name": "SIMATS mailbox (SMTP)" } }
+      "credentials": { "httpCustomAuth": { "id": "", "name": "SIMATS mail relay secret" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2 },
+          "conditions": [
+            {
+              "id": "c3",
+              "leftValue": "={{ $json.sent === true }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1f4c2a0-0006-4c1e-9d6a-5f2b7e0a1006",
+      "name": "Relay says sent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [720, -100]
     },
     {
       "parameters": {
@@ -70,7 +96,19 @@
       "name": "Tell the app it was sent",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [720, -100]
+      "position": [960, -200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"sent\": false, \"detail\": $json.detail || 'mail relay did not send' } }}",
+        "options": { "responseCode": 502 }
+      },
+      "id": "b1f4c2a0-0007-4c1e-9d6a-5f2b7e0a1007",
+      "name": "Tell the app it failed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [960, 0]
     },
     {
       "parameters": {
@@ -89,11 +127,17 @@
     "App asks for a code email": { "main": [[{ "node": "Address and code look right?", "type": "main", "index": 0 }]] },
     "Address and code look right?": {
       "main": [
-        [{ "node": "Send the code", "type": "main", "index": 0 }],
+        [{ "node": "Mail relay sends the code", "type": "main", "index": 0 }],
         [{ "node": "Refuse a malformed request", "type": "main", "index": 0 }]
       ]
     },
-    "Send the code": { "main": [[{ "node": "Tell the app it was sent", "type": "main", "index": 0 }]] }
+    "Mail relay sends the code": { "main": [[{ "node": "Relay says sent?", "type": "main", "index": 0 }]] },
+    "Relay says sent?": {
+      "main": [
+        [{ "node": "Tell the app it was sent", "type": "main", "index": 0 }],
+        [{ "node": "Tell the app it failed", "type": "main", "index": 0 }]
+      ]
+    }
   },
   "active": false,
   "settings": { "executionOrder": "v1" },
