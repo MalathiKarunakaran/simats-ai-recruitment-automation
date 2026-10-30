@@ -311,3 +311,41 @@ def test_recruitment_officer_cannot_schedule_interview_for_other_campus(
         },
     )
     assert response.status_code == 404
+
+
+def test_panel_notification_names_the_candidate_and_reads_in_ist(
+    client, db_session, published_vacancy_factory, application_factory, user_factory
+):
+    """Panel members get this by email (2026-10-30): it must name who and
+    what, and give the time as a person reads it, not as UTC isoformat."""
+    from app.models.notification import Notification
+
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    panel_member = user_factory(UserRoleEnum.INTERVIEW_PANEL_MEMBER, campus_code="SSE")
+    when = (datetime.now(timezone.utc) + timedelta(days=3)).replace(hour=4, minute=30, second=0, microsecond=0)
+
+    response = client.post(
+        "/api/v1/interviews",
+        headers=auth_headers(client, vacancy.hr_admin),
+        json={
+            "application_id": str(application.id),
+            "interview_type": "TECHNICAL",
+            "scheduled_at": when.isoformat(),
+            "location": "Room 101",
+            "panel_member_ids": [str(panel_member.id)],
+        },
+    )
+    assert response.status_code == 201
+
+    note = (
+        db_session.query(Notification)
+        .filter(Notification.recipient_user_id == panel_member.id, Notification.notification_type == "INTERVIEW_SCHEDULED")
+        .one()
+    )
+    expected_when = when.astimezone(timezone(timedelta(hours=5, minutes=30))).strftime("%a %d %b %Y, 10:00 AM IST")
+    assert application.candidate.full_name in note.subject
+    assert expected_when in note.subject
+    assert vacancy.job_posting.position_title in note.body
+    assert "Where: Room 101." in note.body
+    assert "+00:00" not in note.subject + note.body

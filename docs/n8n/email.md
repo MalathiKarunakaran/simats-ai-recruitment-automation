@@ -18,7 +18,7 @@ actually becomes an email:
 |---|---|---|---|
 | `send-otp-email` | sign-in by emailed code (`auth.py`) | `to`, `full_name`, `code` | **`send-otp-email.workflow.json` has the mail relay email it** |
 | `send-password-reset-email` | "Forgot password?" on the login page (`auth.py`) | `to`, `full_name`, `token` | **`send-password-reset-email.workflow.json` has the relay email a link to `/reset-password#token=…`** (since 2026-10-30) |
-| `notify` | 16 workflow events (`notifications.py`) | `notification_type`, `channel`, `recipient_email`, `subject`, `body`, … | no workflow, so n8n answers 404 and the app records the notification FAILED — nothing is emailed until a reviewed workflow exists |
+| `notify` | 16 workflow events (`notifications.py`) | `notification_type`, `channel`, `recipient_email`, `recipient_user_id`, `subject`, `body`, … | **`send-staff-notifications.workflow.json` emails only staff**: an EMAIL notification addressed to an app user at @saveetha.com. Everything else (every candidate notification) gets 409 "not emailed" and the app records it FAILED, never sent |
 | distribution paths | job-portal posting (`job_channels.py`, `channel_providers.py`) | posting details | no workflow, as before |
 
 A path with no active workflow answers 404 and the app treats it as "not
@@ -48,7 +48,7 @@ let anyone on the internet make the SIMATS mailbox send mail.
    domain and the relay cannot be reached from the server.
 
 The relay builds each message itself from a fixed template per `kind`
-(`otp` and `reset`), so even a leaked secret can only send "your sign-in code
+(`otp` and `reset`; `notice` carries the app's own subject and body and is refused for any address outside saveetha.com), so even a leaked secret can only send "your sign-in code
 is NNNNNN"; it also caps 5 codes per address per 10 minutes and 200 sends an
 hour. Gmail's own limit for the account is about 1,500 recipients a day.
 
@@ -57,10 +57,12 @@ hour. Gmail's own limit for the account is about 1,500 recipients a day.
 1. **Credentials → Add credential → Custom Auth**, name
    `SIMATS mail relay secret`, JSON: `{"body": {"secret": "<RELAY_SECRET>"}}`.
 2. **Workflows → Import from File** → `docs/n8n/send-otp-email.workflow.json`,
-   and again for `docs/n8n/send-password-reset-email.workflow.json`.
+   and again for `docs/n8n/send-password-reset-email.workflow.json` and
+   `docs/n8n/send-staff-notifications.workflow.json`, each as its OWN new
+   workflow (+ → Workflow first; importing into an open workflow merges them).
 3. In each, open the **Mail relay sends …** box: paste the Web app URL into
    *URL* and pick the credential. Save.
-4. Switch both workflows **Active**.
+4. Switch all three workflows **Active**.
 
 After changing the relay's code, publish it: **Deploy → Manage deployments →
 (pencil) → Version: New version → Deploy**. The web app keeps serving the
@@ -87,8 +89,9 @@ On app.malathi.io's login page choose the email-code option with your own
 address. The code should arrive within a minute; n8n's execution list and
 the relay's Executions page both show the run.
 
-## Turning on notifications later
+## Candidate emails (not on)
 
-Write a `notify` workflow that maps `notification_type` to who gets what,
-review the wording of each of the 16 types first, and decide whether
-candidate-facing ones (selected / rejected / withdrawn) are emailed at all.
+Decided 2026-10-30: staff only. Before emailing candidates, reword the
+candidate-facing texts first: the rejected and withdrawn ones currently
+include the internal reason staff typed. Then widen the n8n condition and the
+relay's NOTICE_DOMAINS together.

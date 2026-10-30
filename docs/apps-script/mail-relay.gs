@@ -12,7 +12,9 @@
  * The relay builds every message itself from a fixed template per `kind`;
  * there is no free-text subject or body, so even a leaked secret can only
  * send a sign-in code ("otp") or a password-reset link ("reset", added
- * 2026-10-30). Sending is also capped per recipient and per hour.
+ * 2026-10-30). Staff notices ("notice", same day) do carry the app's own
+ * subject and body, so they are refused for any address outside
+ * NOTICE_DOMAINS. Sending is also capped per recipient and per hour.
  *
  * Web apps cannot read request headers, so the secret travels in the body.
  * A web app always answers HTTP 200; the result is in the JSON ({sent: ...}).
@@ -24,6 +26,9 @@ var SENDER_NAME = "SIMATS Recruitment";
 var APP_URL = "https://app.malathi.io";
 var MAX_PER_RECIPIENT_PER_10_MIN = 5;
 var MAX_PER_HOUR = 200;
+// Staff notices ("notice") carry the app's own wording, so they may only go
+// to these domains: a leaked secret still cannot email anyone outside SIMATS.
+var NOTICE_DOMAINS = ["saveetha.com"];
 
 function doPost(e) {
   var request;
@@ -42,6 +47,7 @@ function doPost(e) {
   var message;
   if (request.kind === "otp") message = otpMessage_(request);
   if (request.kind === "reset") message = resetMessage_(request);
+  if (request.kind === "notice") message = noticeMessage_(request, to);
   if (!message) return reply_({ sent: false, detail: "unknown kind or bad fields" });
 
   var limited = overLimit_(to);
@@ -110,6 +116,30 @@ function resetMessage_(request) {
       "<p>The link works once and expires in <strong>30 minutes</strong>. Resetting signs you out everywhere.</p>" +
       '<p style="color:#6b7280;font-size:13px">If you did not ask for this, ignore this email; your password stays as it is.</p>' +
       '<p style="color:#6b7280;font-size:13px">' + SENDER_NAME + ' &middot; <a href="' + APP_URL + '">app.malathi.io</a></p>' +
+      "</div>",
+  };
+}
+
+// A workflow notification for a staff member (2026-10-30). Subject and body
+// are the app's text, shown as plain text inside a fixed frame; HTML in them
+// is escaped, never rendered.
+function noticeMessage_(request, to) {
+  var domain = to.split("@")[1].toLowerCase();
+  if (NOTICE_DOMAINS.indexOf(domain) === -1) return null;
+  var subject = String(request.subject || "").replace(/[\r\n]+/g, " ").trim();
+  var body = String(request.body || "").trim();
+  if (!subject || subject.length > 200 || !body || body.length > 3000) return null;
+  return {
+    subject: "[SIMATS Recruitment] " + subject,
+    text:
+      body + "\n\nOpen SIMATS Recruitment: " + APP_URL + "\n\n" +
+      "You get this email because of your role in SIMATS Recruitment.",
+    html:
+      '<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#1f2937;line-height:1.5">' +
+      '<p style="font-size:17px;font-weight:bold;margin:0 0 12px">' + escape_(subject) + "</p>" +
+      "<p>" + escape_(body).replace(/\n/g, "<br>") + "</p>" +
+      '<p style="margin:20px 0"><a href="' + APP_URL + '" style="background:#1D4ED8;color:#ffffff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:bold">Open SIMATS Recruitment</a></p>' +
+      '<p style="color:#6b7280;font-size:13px">You get this email because of your role in SIMATS Recruitment.</p>' +
       "</div>",
   };
 }

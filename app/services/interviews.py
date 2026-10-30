@@ -5,7 +5,7 @@ are manually pasted by HR (no calendar/video API integration in this phase).
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -23,6 +23,19 @@ from app.models.user import User
 from app.schemas.interview import InterviewFeedbackCreate
 from app.services import notifications, pipeline
 from app.services.audit import log_create, log_update
+
+
+# India has no daylight saving, so a fixed offset is exact and needs no
+# tzdata in the image.
+_IST = timezone(timedelta(hours=5, minutes=30), "IST")
+
+
+def _when(scheduled_at: datetime) -> str:
+    """'Mon 02 Nov 2026, 10:00 AM IST' -- how a person reads a time, for
+    notification text (2026-10-30; it used to be the raw UTC isoformat)."""
+    if scheduled_at.tzinfo is None:
+        scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+    return scheduled_at.astimezone(_IST).strftime("%a %d %b %Y, %I:%M %p IST")
 
 
 def schedule_interview(
@@ -98,7 +111,7 @@ def schedule_interview(
         recipient_email=candidate.email,
         notification_type="INTERVIEW_SCHEDULED",
         subject=f"Interview scheduled: {interview_type.value}",
-        body=f"An interview has been scheduled for {scheduled_at.isoformat()}.",
+        body=f"An interview has been scheduled for {_when(scheduled_at)}.",
         campus_context_id=application.campus_id,
         related_entity_type="InterviewSchedule",
         related_entity_id=schedule.id,
@@ -109,8 +122,15 @@ def schedule_interview(
             db,
             recipient_user=member,
             notification_type="INTERVIEW_SCHEDULED",
-            subject=f"You are on the panel for an interview on {scheduled_at.isoformat()}",
-            body=f"Interview type: {interview_type.value}.",
+            subject=f"Interview panel: {candidate.full_name}, {_when(scheduled_at)}",
+            body=(
+                f"You are on the interview panel for {candidate.full_name} "
+                f"({application.job_posting.position_title}).\n"
+                f"When: {_when(scheduled_at)}, {duration_minutes} minutes.\n"
+                f"Type: {interview_type.value.replace('_', ' ').title()}.\n"
+                + (f"Where: {location}.\n" if location else "")
+                + (f"Meeting link: {meeting_link}\n" if meeting_link else "")
+            ).rstrip(),
             related_entity_type="InterviewSchedule",
             related_entity_id=schedule.id,
             request=request,
