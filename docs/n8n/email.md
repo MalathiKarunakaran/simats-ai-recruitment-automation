@@ -62,7 +62,10 @@ hour. Gmail's own limit for the account is about 1,500 recipients a day.
    workflow (+ → Workflow first; importing into an open workflow merges them).
 3. In each, open the **Mail relay sends …** box: paste the Web app URL into
    *URL* and pick the credential. Save.
-4. Switch all three workflows **Active**.
+4. In each **Mail relay sends …** box, **Settings → On Error → Continue**
+   (the files already say so). Without it a relay that cannot be reached
+   makes n8n answer an empty 200, which the app records as SENT.
+5. Switch all three workflows **Active**.
 
 After changing the relay's code, publish it: **Deploy → Manage deployments →
 (pencil) → Version: New version → Deploy**. The web app keeps serving the

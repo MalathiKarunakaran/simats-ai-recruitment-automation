@@ -12,25 +12,41 @@
       "name": "App asks for a code email",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "5d0f6c3e-7a51-4b2f-9a1e-0c4d8b2e6f11"
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
           "conditions": [
             {
               "id": "c1",
               "leftValue": "={{ /^[^@\\s]+@[^@\\s]+$/.test($json.body.to || '') }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             },
             {
               "id": "c2",
               "leftValue": "={{ /^\\d{6}$/.test(String($json.body.code || '')) }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             }
           ],
           "combinator": "and"
@@ -41,7 +57,10 @@
       "name": "Address and code look right?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [240, 0]
+      "position": [
+        240,
+        0
+      ]
     },
     {
       "parameters": {
@@ -53,7 +72,12 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ kind: 'otp', to: $json.body.to, full_name: $json.body.full_name || '', code: String($json.body.code) }) }}",
         "options": {
-          "redirect": { "redirect": { "followRedirects": true, "maxRedirects": 5 } },
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          },
           "timeout": 20000
         }
       },
@@ -61,19 +85,37 @@
       "name": "Mail relay sends the code",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [480, -100],
-      "credentials": { "httpCustomAuth": { "id": "", "name": "SIMATS mail relay secret" } }
+      "position": [
+        480,
+        -100
+      ],
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "",
+          "name": "SIMATS mail relay secret"
+        }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
           "conditions": [
             {
               "id": "c3",
               "leftValue": "={{ $json.sent === true }}",
               "rightValue": true,
-              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             }
           ],
           "combinator": "and"
@@ -84,62 +126,126 @@
       "name": "Relay says sent?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [720, -100]
+      "position": [
+        720,
+        -100
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ { \"sent\": true } }}",
-        "options": { "responseCode": 200 }
+        "options": {
+          "responseCode": 200
+        }
       },
       "id": "b1f4c2a0-0004-4c1e-9d6a-5f2b7e0a1004",
       "name": "Tell the app it was sent",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [960, -200]
+      "position": [
+        960,
+        -200
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ { \"sent\": false, \"detail\": $json.detail || 'mail relay did not send' } }}",
-        "options": { "responseCode": 502 }
+        "options": {
+          "responseCode": 502
+        }
       },
       "id": "b1f4c2a0-0007-4c1e-9d6a-5f2b7e0a1007",
       "name": "Tell the app it failed",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [960, 0]
+      "position": [
+        960,
+        0
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ { \"sent\": false, \"detail\": \"missing or malformed 'to' or 'code'\" } }}",
-        "options": { "responseCode": 422 }
+        "options": {
+          "responseCode": 422
+        }
       },
       "id": "b1f4c2a0-0005-4c1e-9d6a-5f2b7e0a1005",
       "name": "Refuse a malformed request",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [480, 100]
+      "position": [
+        480,
+        100
+      ]
     }
   ],
   "connections": {
-    "App asks for a code email": { "main": [[{ "node": "Address and code look right?", "type": "main", "index": 0 }]] },
-    "Address and code look right?": {
+    "App asks for a code email": {
       "main": [
-        [{ "node": "Mail relay sends the code", "type": "main", "index": 0 }],
-        [{ "node": "Refuse a malformed request", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Address and code look right?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Mail relay sends the code": { "main": [[{ "node": "Relay says sent?", "type": "main", "index": 0 }]] },
+    "Address and code look right?": {
+      "main": [
+        [
+          {
+            "node": "Mail relay sends the code",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Refuse a malformed request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail relay sends the code": {
+      "main": [
+        [
+          {
+            "node": "Relay says sent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Relay says sent?": {
       "main": [
-        [{ "node": "Tell the app it was sent", "type": "main", "index": 0 }],
-        [{ "node": "Tell the app it failed", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Tell the app it was sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tell the app it failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
   "active": false,
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "pinData": {}
 }
