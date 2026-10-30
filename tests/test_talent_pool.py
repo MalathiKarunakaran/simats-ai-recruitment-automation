@@ -187,17 +187,17 @@ def test_anonymous_gets_401_on_every_route(client, pool):
 @pytest.mark.parametrize(
     "role",
     [
-        UserRoleEnum.RECRUITMENT_COORDINATOR,
         UserRoleEnum.RECRUITMENT_OFFICER,
         UserRoleEnum.CAMPUS_HOD,
         UserRoleEnum.MANAGEMENT,
         UserRoleEnum.INTERVIEW_PANEL_MEMBER,
     ],
 )
-def test_only_hr_admin_and_super_admin_can_read(client, user_factory, pool, role):
+def test_only_admins_and_coordinators_can_read(client, user_factory, pool, role):
     """MANAGEMENT is in the list deliberately: it sees every campus
     elsewhere in this app, but the pool is unreviewed sheet data rather than
-    a reporting surface, and the spec gates it to the two admin roles."""
+    a reporting surface. The spec gated it to the two admin roles; the
+    recruitment coordinators were added 2026-10-30 at the user's request."""
     headers = auth_headers(client, user_factory(role, campus_code="SSE"))
     entry_id = pool[0].id
     for path, params in (
@@ -211,6 +211,23 @@ def test_only_hr_admin_and_super_admin_can_read(client, user_factory, pool, role
 def test_super_admin_can_read_too(client, user_factory, pool):
     headers = auth_headers(client, user_factory(UserRoleEnum.SUPER_ADMIN))
     assert _summary(client, headers)["total"] == 19
+
+
+def test_recruitment_coordinator_can_read(client, user_factory, pool):
+    headers = auth_headers(client, user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE"))
+    entry_id = pool[0].id
+    assert _summary(client, headers)["total"] == 19
+    assert client.get("/api/v1/talent-pool", params={"source_tab": TEACHING}, headers=headers).status_code == 200
+    assert client.get(f"/api/v1/talent-pool/{entry_id}", headers=headers).status_code == 200
+
+
+def test_every_reader_role_sees_all_campuses():
+    """The pool has no campus_id, so a single-campus role among the readers
+    would see other campuses' candidates."""
+    from app.api.v1.routers.talent_pool import _READERS
+    from app.models.enums import GLOBAL_SCOPE_ROLES
+
+    assert set(_READERS) <= set(GLOBAL_SCOPE_ROLES)
 
 
 def test_source_tab_is_required_and_validated(client, admin_headers):

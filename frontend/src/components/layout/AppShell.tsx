@@ -120,10 +120,11 @@ const NAV_GROUPS: NavGroup[] = [
         to: "/talent-pool",
         label: "Talent Pool",
         icon: Database,
-        // Mirrors talent_pool.py's own require_roles(HR_ADMIN, SUPER_ADMIN).
+        // Mirrors talent_pool.py's own require_roles(HR_ADMIN, SUPER_ADMIN,
+        // RECRUITMENT_COORDINATOR).
         // No visibleForPermission: that router is role-gated and adds no
         // PermissionEnum value, so there is nothing to grant individually.
-        visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN"],
+        visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
       },
       {
         to: "/campaign-poster",

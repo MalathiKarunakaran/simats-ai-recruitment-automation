@@ -6,7 +6,8 @@ sync is the only writer of `talent_pool_entries`, so there is deliberately
 no POST/PATCH/DELETE in this module -- a screen that could edit a pool entry
 would put the app and the sheet in disagreement with no way to settle it.
 
-Gated with `require_roles(HR_ADMIN, SUPER_ADMIN)` rather than a new
+Gated with `require_roles(HR_ADMIN, SUPER_ADMIN, RECRUITMENT_COORDINATOR)`
+(the coordinators were added 2026-10-30 at the user's request) rather than a new
 `PermissionEnum` value, following the mail log and the reopen/unpublish
 transitions: a tighter gate costs nothing and a new permission would need an
 ADD VALUE migration that cannot be undone.
@@ -14,9 +15,9 @@ ADD VALUE migration that cannot be undone.
 **Pool entries have no campus, so campus scoping does not apply here.** A
 sheet row records a person, not a posting, and nobody has yet decided which
 campus would hire them -- there is no `campus_id` on the row and nothing
-honest to filter on. As with the mail log, the two roles that can read this
-are both in `GLOBAL_SCOPE_ROLES`, so the absence of scoping is not a leak
-through a single-campus role.
+honest to filter on. As with the mail log, every role that can read this is
+in `GLOBAL_SCOPE_ROLES` (a test asserts it), so the absence of scoping is not
+a leak through a single-campus role.
 
 Every count below is computed by Postgres (`GROUP BY`, `FILTER (WHERE ...)`)
 and never by iterating rows in Python. The spec's budget is under 300 ms on
@@ -67,7 +68,7 @@ from app.schemas.talent_pool import (
 
 router = APIRouter(prefix="/talent-pool", tags=["talent-pool"])
 
-_READERS = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN)
+_READERS = (UserRoleEnum.HR_ADMIN, UserRoleEnum.SUPER_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR)
 
 _MONTHS_SHOWN = 12
 
