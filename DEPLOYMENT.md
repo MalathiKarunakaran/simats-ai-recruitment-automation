@@ -256,7 +256,10 @@ VPS as `/etc/cron.d/simats-backup` (the file in the repo is
 - 20:15 UTC daily: `scripts/backup_production.sh` takes a `pg_dump`
   (custom format, compressed) of the live database through `docker exec`
   and a tarball of the MinIO volume (`app_minio_data`: resumes and
-  bulk-upload originals), writes a sha256 for each, checks the archive's
+  bulk-upload originals), and since 2026-10-30 an `n8n-*.tar.gz` holding
+  n8n's own export of its workflows and (still encrypted) credentials plus
+  `/opt/n8n/.env`, whose `N8N_ENCRYPTION_KEY` is what decrypts them; writes
+  a sha256 for each, checks the archive's
   table of contents, applies retention (30 days; backups taken on the 1st
   are kept 400 days) and records `LAST_SUCCESS`.
 - 21:15 UTC on Sundays: `scripts/verify_backup_restore.sh` restores the

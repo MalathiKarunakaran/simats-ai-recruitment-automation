@@ -1,7 +1,8 @@
 #!/bin/bash
 # Nightly production backup: Postgres (pg_dump, custom format) + the MinIO
-# volume (uploaded resumes, bulk-upload originals), with checksums, an
-# archive-integrity check, retention, and an optional off-server copy.
+# volume (uploaded resumes, bulk-upload originals) + n8n (workflows and
+# credentials, since 2026-10-30), with checksums, an archive-integrity
+# check, retention, and an optional off-server copy.
 #
 # Runs on the VPS HOST as root from /etc/cron.d/simats-backup (see
 # scripts/simats-backup.cron). It never stops, restarts or recreates any
@@ -13,6 +14,9 @@
 # Output, per run, under $BACKUP_DIR (default /opt/simats/backups/nightly):
 #   simats_recruitment-YYYYmmdd-HHMMSS.dump    pg_dump --format=custom (compressed)
 #   minio_data-YYYYmmdd-HHMMSS.tar.gz          the MinIO volume
+#   n8n-YYYYmmdd-HHMMSS.tar.gz                 n8n's exported workflows and
+#                                              credentials, plus /opt/n8n's
+#                                              .env and docker-compose.yml
 #   <each>.sha256                              checksum, verified by verify_backup_restore.sh
 #   LAST_SUCCESS                               timestamp of the last fully successful run
 #
@@ -36,6 +40,8 @@ APP_DIR="${APP_DIR:-/opt/simats/app}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/simats/backups/nightly}"
 PG_CONTAINER="${PG_CONTAINER:-simats_recruitment_postgres}"
 MINIO_VOLUME="${MINIO_VOLUME:-app_minio_data}"
+N8N_CONTAINER="${N8N_CONTAINER:-n8n}"
+N8N_DIR="${N8N_DIR:-/opt/n8n}"
 RETAIN_DAYS="${RETAIN_DAYS:-30}"
 RETAIN_MONTHLY_DAYS="${RETAIN_MONTHLY_DAYS:-400}"
 BACKUP_REMOTE="${BACKUP_REMOTE:-}"
@@ -57,6 +63,7 @@ chmod 700 "$BACKUP_DIR"
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 DUMP="$BACKUP_DIR/${PGDB_VALUE}-${STAMP}.dump"
 MINIO_TAR="$BACKUP_DIR/minio_data-${STAMP}.tar.gz"
+N8N_TAR="$BACKUP_DIR/n8n-${STAMP}.tar.gz"
 
 log "backup start -> $BACKUP_DIR"
 
@@ -93,9 +100,39 @@ else
   MINIO_TAR=""
 fi
 
+# --- 2b. n8n: its own export, not a copy of the live SQLite file ---
+# Copying database.sqlite while n8n writes to it (WAL mode) can capture a
+# torn file; `n8n export` reads it through n8n and writes plain JSON.
+# Credentials stay encrypted in the export, and the key that decrypts them
+# (N8N_ENCRYPTION_KEY) lives in $N8N_DIR/.env -- which is why that file is
+# in the archive: without it a restore gets workflows but no credentials.
+# Restore: copy .env/docker-compose.yml back to $N8N_DIR, `docker compose up
+# -d`, then `n8n import:credentials --input=...` and
+# `n8n import:workflow --input=...` inside the container.
+if [ "$(docker inspect -f '{{.State.Running}}' "$N8N_CONTAINER" 2>/dev/null)" = "true" ]; then
+  N8N_STAGE="$(mktemp -d)"
+  docker exec "$N8N_CONTAINER" sh -c 'rm -rf /tmp/n8n-backup && mkdir -p /tmp/n8n-backup &&
+      n8n export:workflow --all --output=/tmp/n8n-backup/workflows.json >/dev/null &&
+      n8n export:credentials --all --output=/tmp/n8n-backup/credentials.json >/dev/null' \
+    || { rm -rf "$N8N_STAGE"; fail "n8n export failed"; }
+  docker cp -q "$N8N_CONTAINER":/tmp/n8n-backup/. "$N8N_STAGE"/ || { rm -rf "$N8N_STAGE"; fail "n8n export copy failed"; }
+  docker exec "$N8N_CONTAINER" rm -rf /tmp/n8n-backup
+  cp -p "$N8N_DIR/.env" "$N8N_DIR/docker-compose.yml" "$N8N_STAGE"/ || { rm -rf "$N8N_STAGE"; fail "n8n config copy failed"; }
+  [ -s "$N8N_STAGE/workflows.json" ] || { rm -rf "$N8N_STAGE"; fail "n8n export has no workflows"; }
+  tar czf "$N8N_TAR.part" -C "$N8N_STAGE" . || { rm -rf "$N8N_STAGE"; fail "n8n tar failed"; }
+  rm -rf "$N8N_STAGE"
+  mv "$N8N_TAR.part" "$N8N_TAR"
+  chmod 600 "$N8N_TAR"
+  log "n8n ok: $(basename "$N8N_TAR") ($(du -h "$N8N_TAR" | cut -f1))"
+else
+  log "WARNING: container $N8N_CONTAINER not running, skipping n8n"
+  N8N_TAR=""
+fi
+
 # --- 3. checksums ---
 ( cd "$BACKUP_DIR" && sha256sum "$(basename "$DUMP")" > "$(basename "$DUMP").sha256" )
 [ -n "$MINIO_TAR" ] && ( cd "$BACKUP_DIR" && sha256sum "$(basename "$MINIO_TAR")" > "$(basename "$MINIO_TAR").sha256" )
+[ -n "$N8N_TAR" ] && ( cd "$BACKUP_DIR" && sha256sum "$(basename "$N8N_TAR")" > "$(basename "$N8N_TAR").sha256" )
 
 # --- 4. retention ---
 # Monthly keepers: anything taken on the 1st. Everything else: RETAIN_DAYS.
