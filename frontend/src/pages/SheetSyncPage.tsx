@@ -24,6 +24,7 @@ const CARDS: SourceCard[] = [
   { code: "S4", label: "Provisional Orders", sheet: "Pro App Order tab", sources: ["PRO_APP_ORDER"] },
   { code: "S5", label: "New Departments", sheet: "Approved_Depts tab", sources: ["NEW_DEPARTMENTS"] },
   { code: "S6", label: "Department Faculty", sheet: "Faculty tab", sources: ["DEPARTMENT_FACULTY"] },
+  { code: "S7", label: "Provisional Order Register", sheet: "Provisional Appointment Order sheet", sources: ["ORDER_REGISTER"] },
 ];
 
 const PRIMARY_COUNTS = ["received", "inserted", "updated", "unchanged", "deactivated", "flagged"];

@@ -11,6 +11,7 @@ class SheetSyncSource(str, Enum):
     PRO_APP_ORDER = "PRO_APP_ORDER"
     NEW_DEPARTMENTS = "NEW_DEPARTMENTS"
     DEPARTMENT_FACULTY = "DEPARTMENT_FACULTY"
+    ORDER_REGISTER = "ORDER_REGISTER"
 
 
 class SheetSyncRow(BaseModel):

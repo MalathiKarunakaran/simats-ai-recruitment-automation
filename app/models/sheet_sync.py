@@ -24,6 +24,7 @@ SOURCE_NEW_JOINEES = "NEW_JOINEES"
 SOURCE_PRO_APP_ORDER = "PRO_APP_ORDER"
 SOURCE_NEW_DEPARTMENTS = "NEW_DEPARTMENTS"
 SOURCE_DEPARTMENT_FACULTY = "DEPARTMENT_FACULTY"
+SOURCE_ORDER_REGISTER = "ORDER_REGISTER"
 
 # SheetJoinee.category
 CATEGORY_TEACHING = "TEACHING"
@@ -213,6 +214,49 @@ class DepartmentFaculty(Base):
     new_department_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("new_departments.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    sheet_joinee_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sheet_joinees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    raw: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class OrderRegisterEntry(Base):
+    """One row of the paper register of provisional appointment orders, kept in
+    the Google Sheet "Provisional Appointment Order" (tab Sheet1). Read-only
+    mirror; its only consumer is `reference_numbers.register_floor`, which
+    continues the register's numbering per campus. Only the eight allowlisted
+    columns are stored (never Address or Quali). Row key =
+    campus + order number + BioID (else name) + occurrence, because the row
+    position is not stable and the register reuses numbers."""
+
+    __tablename__ = "order_register_entries"
+    __table_args__ = (UniqueConstraint("row_key", name="uq_order_register_entries_row_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    row_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sheet_row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true", index=True)
+
+    order_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    order_date_raw: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    order_no_raw: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    order_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    college_raw: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    campus_code: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)
+    bio_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    emp_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    dept_raw: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    grade_raw: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     sheet_joinee_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("sheet_joinees.id", ondelete="SET NULL"), nullable=True, index=True
     )

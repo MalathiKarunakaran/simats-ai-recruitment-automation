@@ -1,7 +1,7 @@
 """New Joinees + Pro App Order + New Departments sync (docs/specs/joinee-order-sync.md).
 
 The only writer of `sheet_joinees`, `provisional_orders`, `new_departments`,
-`department_faculty` and `sheet_sync_runs`. Built the same way as `talent_pool_sync.py` (headers
+`department_faculty`, `order_register_entries` and `sheet_sync_runs`. Built the same way as `talent_pool_sync.py` (headers
 found by name, row_key = person + occurrence, content_hash, deactivate and
 never delete, one snapshot applied in the caller's transaction); read that
 module's docstring for why. What is different here:
@@ -48,12 +48,14 @@ from app.models.sheet_sync import (
     SOURCE_DEPARTMENT_FACULTY,
     SOURCE_NEW_DEPARTMENTS,
     SOURCE_NEW_JOINEES,
+    SOURCE_ORDER_REGISTER,
     SOURCE_PRO_APP_ORDER,
     STATE_ACTIVE,
     STATE_LEFT,
     STATE_REJOINED,
     DepartmentFaculty,
     NewDepartment,
+    OrderRegisterEntry,
     ProvisionalOrder,
     SheetJoinee,
     SheetSyncRun,
@@ -139,6 +141,19 @@ _FACULTY_COLUMNS = {
     "vacancy": ("Vacancy",),
     "active": ("Active",),
 }
+# The paper register of provisional appointment orders. Address, Quali, Month,
+# Year, Principal, Collegename and the AutoCrat columns are deliberately NOT
+# listed: Address is personal data and none of them is needed.
+_REGISTER_COLUMNS = {
+    "order_on": ("Date",),
+    "order_no": ("Order No",),
+    "college": ("College",),
+    "bio_id": ("BioID", "BIO ID"),
+    "emp_id": ("EMPID", "EMP ID"),
+    "name": ("Name",),
+    "dept": ("Dept",),
+    "grade": ("Grade",),
+}
 
 _LIMIT = 255
 
@@ -198,6 +213,9 @@ def m_d_yyyy(cell: str | None) -> tuple[date | None, bool]:
 _CATEGORIES = {"ts": CATEGORY_TEACHING, "nts": CATEGORY_NON_TEACHING, "hk": CATEGORY_HOUSEKEEPING}
 _CAMPUSES = {c.lower(): c for c in ("SSE", "SCLAS", "SCAD", "SSPE", "STUDIO", "SPIER", "SHIFT")}
 _CAMPUSES["scals"] = "SCLAS"
+# The register's own spellings, over and above the campus codes. SHOTS is not
+# an app campus; a register row for it is kept and simply never matched.
+_REGISTER_COLLEGES = {**_CAMPUSES, "simats engg": "SSE", "shots": "SHOTS"}
 _STATES = {
     "new": (STATE_ACTIVE, False),
     "long leave": (STATE_ACTIVE, True),
@@ -222,6 +240,10 @@ def category(cell: str | None) -> str | None:
 
 def campus_code(cell: str | None) -> str | None:
     return _CAMPUSES.get(_squash(cell))
+
+
+def register_campus_code(cell: str | None) -> str | None:
+    return _REGISTER_COLLEGES.get(_squash(cell))
 
 
 def employment_state(cell: str | None) -> tuple[str | None, bool]:
@@ -467,6 +489,61 @@ def _parse_faculty(get, label_of, report: _Report, row_number: int) -> _Parsed |
                    content_hash=_hash(raw))
 
 
+def _parse_register(get, label_of, report: _Report, row_number: int) -> _Parsed | None:
+    order_no = _text(get("order_no"), 100)
+    bio = _text(get("bio_id"), 100)
+    name = _text(get("name"))
+    if not (order_no or bio or name):
+        if any((get(f) or "").strip() for f in _REGISTER_COLUMNS):
+            report.skipped += 1
+            report.flag(row_number, None, "no key (no Order No, BioID or Name)")
+        return None
+    flag_key = order_no or bio or name
+    values: dict = {
+        "order_no_raw": order_no,
+        "college_raw": _text(get("college"), 100),
+        "bio_id": bio,
+        "emp_id": _text(get("emp_id"), 100),
+        "full_name": name,
+        "dept_raw": _text(get("dept")),
+        "grade_raw": _text(get("grade")),
+    }
+    # Digits only: "93" and "093" are the same number. Nine digits at most so
+    # the value always fits the integer column.
+    seq = int(order_no) if order_no and order_no.isascii() and order_no.isdigit() and len(order_no) <= 9 else None
+    values["order_seq"] = seq
+    if seq is None:
+        report.flag(row_number, flag_key, "Order No is blank" if not order_no else "Order No is not a number")
+    values["campus_code"] = register_campus_code(get("college"))
+    if values["campus_code"] is None:
+        report.flag(row_number, flag_key, "College not recognised (no campus)")
+    values["order_date"], ok = dd_mm_yyyy(get("order_on"))
+    values["order_date_raw"] = _text(get("order_on"), 100)
+    if not ok:
+        report.flag(row_number, flag_key, "Date is not DD-MM-YYYY")
+    number = str(seq) if seq is not None else "raw:" + _squash(order_no)
+    person = f"register:{values['campus_code'] or '-'}|{number}|" + (f"bio:{bio.lower()}" if bio else f"name:{_squash(name)}")
+    raw = {label_of[f]: get(f) for f in label_of}
+    return _Parsed(
+        row_number=row_number, person=person, flag_key=flag_key, values=values, raw=raw, content_hash=_hash(raw)
+    )
+
+
+def _flag_reused_numbers(parsed: list[_Parsed], report: _Report) -> None:
+    """The register reuses numbers (SSE 059 for two people). Keep both rows,
+    flag every later one."""
+    first_row: dict[tuple, int] = {}
+    for item in parsed:
+        seq = item.values["order_seq"]
+        if seq is None or item.values["campus_code"] is None:
+            continue
+        pair = (item.values["campus_code"], seq)
+        if pair in first_row:
+            report.flag(item.row_number, item.flag_key, f"order number used twice (same as row {first_row[pair]})")
+        else:
+            first_row[pair] = item.row_number
+
+
 def _sync_rows(db: Session, model, parsed: list[_Parsed], report: _Report, counts: dict, link) -> dict:
     """Insert/update/reactivate/deactivate keyed rows of `model`. `link(item)`
     returns extra column values to keep current on every run (links to other
@@ -545,6 +622,7 @@ _SOURCES = {
     SOURCE_PRO_APP_ORDER: (_ORDER_COLUMNS, ("bio_id", "BioID"), _parse_order),
     SOURCE_NEW_DEPARTMENTS: (_DEPARTMENT_COLUMNS, ("name", "Approved Department"), _parse_department),
     SOURCE_DEPARTMENT_FACULTY: (_FACULTY_COLUMNS, ("bio_id", "Bio ID"), _parse_faculty),
+    SOURCE_ORDER_REGISTER: (_REGISTER_COLUMNS, ("order_no", "Order No"), _parse_register),
 }
 
 
@@ -606,6 +684,18 @@ def _run_entities(db: Session, source: str, payload: SheetSyncRequest, report: _
         counts["unlinked"] = len(seen) - counts["linked_joinee"]
     elif source == SOURCE_NEW_DEPARTMENTS:
         _sync_rows(db, NewDepartment, parsed, report, counts, lambda item: {})
+    elif source == SOURCE_ORDER_REGISTER:
+        db.flush()
+        joiners = _joiner_index(db)
+        _flag_reused_numbers(parsed, report)
+
+        def link(item: _Parsed) -> dict:
+            bio = item.values["bio_id"]
+            return {"sheet_joinee_id": joiners.get(bio.lower()) if bio else None}
+
+        seen = _sync_rows(db, OrderRegisterEntry, parsed, report, counts, link)
+        counts["linked_joinee"] = sum(1 for e in seen.values() if e.sheet_joinee_id is not None)
+        counts["unlinked"] = len(seen) - counts["linked_joinee"]
     else:
         db.flush()
         joiners = _joiner_index(db)

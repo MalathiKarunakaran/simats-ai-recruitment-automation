@@ -10,7 +10,7 @@ from openpyxl import load_workbook
 from app.core.config import settings
 from app.models.audit_log import AuditLog
 from app.models.enums import TalentPoolSourceTabEnum, UserRoleEnum
-from app.models.sheet_sync import ProvisionalOrder, SheetJoinee, SheetSyncRun
+from app.models.sheet_sync import OrderRegisterEntry, ProvisionalOrder, SheetJoinee, SheetSyncRun
 from app.models.talent_pool_entry import TalentPoolEntry
 
 from tests.conftest import auth_headers
@@ -493,3 +493,176 @@ def test_faculty_dry_run_changes_nothing_and_runs_list_has_new_sources(client, d
 def test_s5_secret_gate(client, db_session):
     assert post5(client, "DEPARTMENT_FACULTY", [frow(1)]).status_code == 200
     assert post(client, "NEW_DEPARTMENTS", [drow(1)], headers=D_HEADERS, secret="wrong").status_code == 401
+
+
+# --- ORDER_REGISTER: the paper register of provisional orders -----------------
+
+R_HEADERS = [
+    "S.No", "Date", "Order No", "College", "BioID", "EMPID", "Name", "Quali", "Address", "Month", "Year",
+    "Principal", "Collegename", "Dept", "Grade", "Merged Doc ID - AutoCrat", "Document Merge Status - AutoCrat",
+]  # fmt: skip
+
+
+def rrow(n, **vals):
+    base = {"Date": "15-07-2025", "Order No": f"{n:03d}", "College": "SSE", "BioID": f"R{n}", "EMPID": f"E{n}",
+            "Name": f"Person {n}", "Dept": "CSE", "Grade": "A"}  # fmt: skip
+    base.update(vals)
+    return {"row_number": n + 1, "cells": [base.get(h, "") for h in R_HEADERS]}
+
+
+def postr(client, rows, dry_run=False):
+    return post(client, "ORDER_REGISTER", rows, headers=R_HEADERS, dry_run=dry_run)
+
+
+def register(db):
+    db.expire_all()
+    return db.query(OrderRegisterEntry).order_by(OrderRegisterEntry.sheet_row_number).all()
+
+
+@pytest.mark.parametrize(
+    "cell,expected",
+    [("SIMATS Engg", "SSE"), ("SSE", "SSE"), ("SCLAS", "SCLAS"), ("SCAD", "SCAD"), ("SSPE", "SSPE"),
+     ("STUDIO", "STUDIO"), ("SHoTS", "SHOTS"), ("SHOTS", "SHOTS"), ("SPIER", "SPIER"), ("SHIFT", "SHIFT"),
+     ("  simats   engg ", "SSE"), ("Elsewhere", None), ("", None)],
+)  # fmt: skip
+def test_register_college_normalisation(client, db_session, cell, expected):
+    assert postr(client, [rrow(1, College=cell)]).status_code == 200
+    row = register(db_session)[0]
+    assert row.campus_code == expected
+    assert row.college_raw == (" ".join(cell.split()) or None)
+    flags = client.post(
+        "/api/v1/sheet-sync/ORDER_REGISTER", json={"headers": R_HEADERS, "rows": [rrow(1, College=cell)], "dry_run": True},
+        headers=HEADERS,
+    ).json()["flagged"]
+    assert any(f["reason"].startswith("College not recognised") for f in flags) == (expected is None)
+
+
+@pytest.mark.parametrize(
+    "cell,seq,flagged",
+    [("001", 1, False), ("2", 2, False), ("93", 93, False), ("093", 93, False), ("230", 230, False),
+     ("A12", None, True), ("12/1", None, True), ("", None, True)],
+)  # fmt: skip
+def test_register_order_number(client, db_session, cell, seq, flagged):
+    r = postr(client, [rrow(1, **{"Order No": cell, "Name": "Someone"})])
+    assert r.status_code == 200
+    row = register(db_session)[0]
+    assert row.order_seq == seq
+    assert row.order_no_raw == (cell or None)
+    assert any("Order No" in f["reason"] for f in r.json()["flagged"]) == flagged
+
+
+def test_register_date_and_fields(client, db_session):
+    r = postr(client, [rrow(1, Date="15-07-2025"), rrow(2, Date="2025/07/15"), rrow(3, Date="")])
+    rows = register(db_session)
+    assert rows[0].order_date == date(2025, 7, 15) and rows[0].order_date_raw == "15-07-2025"
+    assert rows[1].order_date is None and rows[1].order_date_raw == "2025/07/15"
+    assert rows[2].order_date is None
+    assert [f["row_number"] for f in r.json()["flagged"] if "Date" in f["reason"]] == [3]
+    a = rows[0]
+    assert (a.bio_id, a.emp_id, a.full_name, a.dept_raw, a.grade_raw) == ("R1", "E1", "Person 1", "CSE", "A")
+
+
+def test_register_reused_number_keeps_both_rows_and_flags(client, db_session):
+    rows = [rrow(1, **{"Order No": "059", "BioID": "X1", "Name": "First"}),
+            rrow(2, **{"Order No": "59", "BioID": "X2", "Name": "Second"}),
+            rrow(3, **{"Order No": "059", "College": "SCLAS", "BioID": "X3"})]  # other campus: fine
+    r = postr(client, rows)
+    assert r.json()["counts"]["inserted"] == 3
+    reasons = [(f["row_number"], f["reason"]) for f in r.json()["flagged"]]
+    assert reasons == [(3, "order number used twice (same as row 2)")]
+    assert [e.order_seq for e in register(db_session)] == [59, 59, 59]
+    # stable and idempotent, and the same person on the same number is a repeat too
+    c = postr(client, rows).json()["counts"]
+    assert (c["inserted"], c["updated"], c["unchanged"]) == (0, 0, 3)
+    twin = postr(client, rows + [rrow(4, **{"Order No": "059", "BioID": "X1", "Name": "First"})])
+    assert twin.json()["counts"]["inserted"] == 1 and twin.json()["counts"]["duplicates"] == 1
+
+
+def test_register_key_ignores_row_position_and_uses_name_fallback(client, db_session):
+    a = rrow(1, **{"BioID": "", "Name": "No Bio"})
+    postr(client, [a, rrow(2)])
+    moved = {**a, "row_number": 40}
+    c = postr(client, [rrow(2), moved]).json()["counts"]
+    assert (c["inserted"], c["unchanged"], c["deactivated"]) == (0, 2, 0)
+    assert len(register(db_session)) == 2
+
+
+def test_register_lifecycle_dry_run_and_gate(client, db_session):
+    assert postr(client, [rrow(1), rrow(2)]).json()["counts"]["inserted"] == 2
+    d = postr(client, [rrow(1, Dept="ECE")], dry_run=True)
+    assert d.json()["counts"]["updated"] == 1 and d.json()["counts"]["deactivated"] == 1
+    assert [(e.dept_raw, e.is_active) for e in register(db_session)] == [("CSE", True), ("CSE", True)]
+    assert db_session.query(SheetSyncRun).filter_by(source="ORDER_REGISTER", dry_run=True).count() == 1
+    c = postr(client, [rrow(1, Dept="ECE")]).json()["counts"]
+    assert (c["updated"], c["deactivated"]) == (1, 1)
+    assert [(e.dept_raw, e.is_active) for e in register(db_session)] == [("ECE", True), ("CSE", False)]
+    assert postr(client, [rrow(1, Dept="ECE"), rrow(2)]).json()["counts"]["reactivated"] == 1
+    bad = client.post("/api/v1/sheet-sync/ORDER_REGISTER", json={"headers": R_HEADERS, "rows": []})
+    assert bad.status_code == 401
+    no_col = post(client, "ORDER_REGISTER", [{"row_number": 2, "cells": ["x"]}], headers=["Name"])
+    assert no_col.status_code == 422
+
+
+def test_register_no_key_row_skipped(client, db_session):
+    r = postr(client, [rrow(1, **{"Order No": "", "BioID": "", "Name": "", "Dept": "CSE"})])
+    assert r.json()["counts"]["skipped"] == 1 and register(db_session) == []
+
+
+def test_register_links_joiner_by_bio_id(client, db_session):
+    post(client, "NEW_JOINEES", [jrow(1, **{"BIO ID": "R1"})])
+    r = postr(client, [rrow(1), rrow(2)])
+    assert (r.json()["counts"]["linked_joinee"], r.json()["counts"]["unlinked"]) == (1, 1)
+    rows = register(db_session)
+    assert rows[0].sheet_joinee_id is not None and rows[1].sheet_joinee_id is None
+
+
+def test_register_ignores_address_and_quali_everywhere(client, db_session, user_factory, caplog):
+    sentinels = {"Address": "ADDRSENTINEL4471", "Quali": "QUALISENTINEL8820", "Principal": "PRINCSENTINEL1",
+                 "Month": "MONTHSENTINEL2", "Merged Doc ID - AutoCrat": "AUTOSENTINEL3"}  # fmt: skip
+    caplog.set_level(logging.DEBUG)
+    rows = [rrow(1, **sentinels, **{"College": "Unknownville", "Order No": "x"}), rrow(2, **sentinels)]
+    r = postr(client, rows)
+    assert r.status_code == 200, r.text
+    dry = postr(client, rows, dry_run=True)
+    bad = post(client, "ORDER_REGISTER", [{"row_number": 2, "cells": list(sentinels.values())}], headers=["Address", "Quali"])
+    assert bad.status_code == 422
+
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    x = client.get(f"/api/v1/sheet-sync/runs/{r.json()['run_id']}/flagged.xlsx", headers=auth_headers(client, admin))
+    assert x.status_code == 200
+    ws = load_workbook(io.BytesIO(x.content)).active
+    assert ws.max_row > 1
+    runs = client.get("/api/v1/sheet-sync/runs", headers=auth_headers(client, admin))
+
+    db_session.expire_all()
+    blobs = [repr([(c.name, getattr(e, c.name)) for c in OrderRegisterEntry.__table__.columns])
+             for e in db_session.query(OrderRegisterEntry)]
+    blobs += [repr((s.counts, s.flagged, s.missing_headers)) for s in db_session.query(SheetSyncRun)]
+    blobs += [repr((a.before_state, a.after_state)) for a in db_session.query(AuditLog)]
+    blobs += [r.text, dry.text, bad.text, runs.text, repr(x.content), caplog.text]
+    blobs.append(repr([[c.value for c in row_] for row_ in ws.iter_rows()]))
+    haystack = "\n".join(blobs)
+    for label, value in sentinels.items():
+        assert value not in haystack, label
+    for h in ("Address", "Quali"):
+        assert f"'{h}'" not in repr([e.raw for e in register(db_session)])
+
+
+def test_register_floor_uses_synced_max_then_falls_back(client, db_session):
+    from app.services.reference_numbers import PROVISIONAL_ORDER_FLOORS, register_floor
+
+    # nothing synced: the constants
+    assert register_floor(db_session, "SSE") == PROVISIONAL_ORDER_FLOORS["SSE"] == 230
+    assert register_floor(db_session, "NOPE") == 0
+    postr(client, [rrow(1, **{"Order No": "250"}), rrow(2, **{"Order No": "7"}),
+                   rrow(3, **{"Order No": "11", "College": "SCLAS"}), rrow(4, **{"Order No": "A9"})])
+    assert register_floor(db_session, "SSE") == 250
+    assert register_floor(db_session, "sse") == 250
+    assert register_floor(db_session, "SCLAS") == 11
+    assert register_floor(db_session, "SCAD") == 22  # no synced rows for it: constant
+    # only ACTIVE rows count: drop the 250 row from the sheet
+    postr(client, [rrow(2, **{"Order No": "7"}), rrow(3, **{"Order No": "11", "College": "SCLAS"})])
+    assert register_floor(db_session, "SSE") == 7
+    # every SSE row gone: back to the constant
+    postr(client, [rrow(3, **{"Order No": "11", "College": "SCLAS"})])
+    assert register_floor(db_session, "SSE") == 230

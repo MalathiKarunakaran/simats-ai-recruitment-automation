@@ -87,3 +87,16 @@ spreadsheet's `New Joinees` and `Pro App Order` tabs to
 `DEPARTMENT_FACULTY`) — departments first, because a faculty row links to
 its department. Only the listed columns are read; `New_Employees` and
 `Allotment_Log` are not.
+
+## Provisional order register (ORDER_REGISTER, added 2026-10-31)
+
+`syncJoineeSheets` / `previewJoineeSheets` (and so `syncAll`) also send the
+"Provisional Appointment Order" spreadsheet's `Sheet1` tab as
+`ORDER_REGISTER`. It is the paper register of provisional orders; the app
+reads it only to continue the per-campus order numbering
+(`reference_numbers.register_floor`: the highest synced number per campus,
+falling back to a fixed figure until the first sync). Only `Date`,
+`Order No`, `College`, `BioID`, `EMPID`, `Name`, `Dept` and `Grade` are read;
+`Address`, `Quali` and the AutoCrat columns never leave Google. After pasting
+the updated script, run `previewJoineeSheets` once and check the log before
+the schedule picks it up.

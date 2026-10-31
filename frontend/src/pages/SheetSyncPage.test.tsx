@@ -55,7 +55,7 @@ describe("SheetSyncPage", () => {
     expect(mockedList).not.toHaveBeenCalled();
   });
 
-  it("renders six cards, counts, warnings, and the flagged download rules", async () => {
+  it("renders seven cards, counts, warnings, and the flagged download rules", async () => {
     mockUser("SUPER_ADMIN");
     const items: SheetSyncStatusItem[] = [
       { source: "TALENT_POOL_TEACHING_FINAL", last_run: run("TALENT_POOL_TEACHING_FINAL", { id: null }), last_dry_run: null },
@@ -72,8 +72,10 @@ describe("SheetSyncPage", () => {
     expect(screen.getByText("Provisional Orders")).toBeInTheDocument();
     expect(screen.getByText("New Departments")).toBeInTheDocument();
     expect(screen.getByText("Department Faculty")).toBeInTheDocument();
+    expect(screen.getByText("Provisional Order Register")).toBeInTheDocument();
+    expect(screen.getByText("from the Provisional Appointment Order sheet")).toBeInTheDocument();
     expect(screen.queryByText(/Waiting for mapping approval/)).not.toBeInTheDocument();
-    expect(screen.getAllByText("Not synced yet")).toHaveLength(2); // NTS + Faculty
+    expect(screen.getAllByText("Not synced yet")).toHaveLength(3); // NTS + Faculty + Register
     expect(screen.getAllByText("Not in Employees").length).toBeGreaterThan(0);
     expect(screen.getByText(/Missing headers in the sheet: Dept New/)).toBeInTheDocument();
     expect(screen.getByText(/Last dry run/)).toBeInTheDocument();

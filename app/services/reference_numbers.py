@@ -15,12 +15,13 @@ rule (per campus, never restarting) -- see its own comment.
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.appointment_order import AppointmentOrder
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.job_posting import JobPosting
+from app.models.sheet_sync import OrderRegisterEntry
 
 _SEQUENCE_WIDTH = 6
 
@@ -48,8 +49,10 @@ def next_posting_number(db: Session, *, today: date | None = None) -> str:
 # user's paper/sheet register, which is still in use: the next number is one
 # past whichever is higher, the app's own last number or the register's.
 #
-# Last number in the register, per campus code, as of 31-Oct-2026. Stand-in
-# until `register_floor` reads a synced copy of the register sheet.
+# Last number in the register, per campus code, as of 31-Oct-2026. Now only
+# the FALLBACK: `register_floor` prefers the synced register (ORDER_REGISTER)
+# and uses these when no synced rows exist for the campus yet -- first deploy,
+# or the sync not having run -- so numbering never restarts from 1.
 PROVISIONAL_ORDER_FLOORS: dict[str, int] = {
     "SSE": 230,
     "SCLAS": 27,
@@ -63,9 +66,18 @@ PROVISIONAL_ORDER_FLOORS: dict[str, int] = {
 
 def register_floor(db: Session, campus_code: str) -> int:
     """The last order number the register shows for this campus at the time
-    of issuing. The ONE place the register is consulted: point this at the
-    synced register when it exists. Campuses not listed start from 0."""
-    return PROVISIONAL_ORDER_FLOORS.get(campus_code.upper(), 0)
+    of issuing. The ONE place the register is consulted: the highest order_seq
+    among ACTIVE synced register rows for the campus, else the constant above
+    (campuses not listed there start from 0)."""
+    code = campus_code.upper()
+    synced = db.execute(
+        select(func.max(OrderRegisterEntry.order_seq)).where(
+            OrderRegisterEntry.campus_code == code, OrderRegisterEntry.is_active.is_(True)
+        )
+    ).scalar()
+    if synced is not None:
+        return synced
+    return PROVISIONAL_ORDER_FLOORS.get(code, 0)
 
 
 def next_provisional_order_number(

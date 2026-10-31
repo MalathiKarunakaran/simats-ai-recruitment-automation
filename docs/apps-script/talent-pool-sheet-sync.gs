@@ -159,6 +159,9 @@ function checkSecret() {
 var JOINEE_SHEET_ID = "1uYmjS-Wu4OlflinrGCmftDr_nXP01eVItCqqXfXi7pU";
 // "New Departments_Nov 2025 to Oct 2026 - Updated" (S5, added 2026-10-31).
 var NEW_DEPTS_SHEET_ID = "12nFzIytIPoPX71hZa1Uw0rlqEacAfbsOXphWm28dKY0";
+// "Provisional Appointment Order" -- the paper register of provisional orders
+// (ORDER_REGISTER, added 2026-10-31). Read for numbering only.
+var ORDER_REGISTER_SHEET_ID = "1OKk4UdYxFJDLNqFihlX3-_NmL123xFCXYPdwRRKiAg0";
 var SHEET_SYNC_URL = "https://api.malathi.io/api/v1/sheet-sync/";
 
 var JOINEE_TABS = [
@@ -198,6 +201,15 @@ var JOINEE_TABS = [
     tab: "Faculty", // the tab is named "Faculty " with a trailing space; matched trimmed
     headerRow: 1,
     columns: ["Bio ID", "Name", "Dept", "Remark", "Status", "Top 25", "Vacancy", "Active"],
+  },
+  // After New Joinees: a register row links to its joiner by BioID. Address
+  // and Quali sit in this tab too and are deliberately NOT listed.
+  {
+    source: "ORDER_REGISTER",
+    sheetId: ORDER_REGISTER_SHEET_ID,
+    tab: "Sheet1",
+    headerRow: 1,
+    columns: ["Date", "Order No", "College", "BioID", "EMPID", "Name", "Dept", "Grade"],
   },
 ];
 
@@ -286,8 +298,8 @@ function runJoineeSheets_(dryRun) {
   if (failures.length) throw new Error("Joinee sheet sync failed -- " + failures.join(" ; "));
 }
 
-// Syncs New Joinees, Pro App Order, and the New Departments sheet's two tabs
-// (also run by syncAll on the schedule).
+// Syncs New Joinees, Pro App Order, the New Departments sheet's two tabs and
+// the Provisional Appointment Order register (also run by syncAll on the schedule).
 function syncJoineeSheets() {
   runJoineeSheets_(false);
 }

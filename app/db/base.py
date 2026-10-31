@@ -38,6 +38,7 @@ from app.models.talent_pool_entry import TalentPoolEntry  # noqa: F401
 from app.models.sheet_sync import (  # noqa: F401
     DepartmentFaculty,
     NewDepartment,
+    OrderRegisterEntry,
     ProvisionalOrder,
     SheetJoinee,
     SheetSyncRun,
