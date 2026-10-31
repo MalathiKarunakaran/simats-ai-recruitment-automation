@@ -1,6 +1,6 @@
 # Selection list to the University (pipeline brief Phase 3)
 
-Status: DRAFT 2026-10-31 — decisions D1–D2 taken, D3–D6 proposed.
+Status: AGREED 2026-10-31 — all decisions taken by the user.
 
 ## Why this differs from the brief
 
@@ -14,10 +14,10 @@ Applications would be empty. So:
 |---|---|
 | D1 (user, 31-Oct) | A Selection Batch picks **Talent Pool rows whose sheet status is Selected**. No Application is created; the sheet stays the source of each person's status. |
 | D2 (user, CONFIRM-2) | The University returns a formal approval: a batch records **University approved** with its reference number and date. |
-| D3 (proposed) | Batch status lives on the batch (`SENT_TO_UNIVERSITY` → `UNIVERSITY_APPROVED`, or `WITHDRAWN`), as strings in a new table. **No new `ApplicationStatusEnum` value** — nothing irreversible is added, since no Application is involved. |
-| D4 (proposed) | A person can be in only one batch that is not withdrawn; the picker shows "already in SB-2026-004" instead of letting them be sent twice. |
-| D5 (proposed) | Who can create a batch and record the approval: Super Admin, HR Admin, Recruitment Coordinator (the coordinators work these sheets). |
-| D6 (proposed, CONFIRM-3) | **Intimation to candidates is deferred.** The brief reuses the Offer flow, which needs an Application; with Talent Pool rows there is none. Revisit when Phase 4 decides how a selected person becomes an employee record. |
+| D3 (user, 31-Oct) | Batch status lives on the batch (`SENT_TO_UNIVERSITY` → `UNIVERSITY_APPROVED`, or `WITHDRAWN`), as strings in a new table. **No new `ApplicationStatusEnum` value** — nothing irreversible is added, since no Application is involved. |
+| D4 (user, 31-Oct) | A person can be in only one batch that is not withdrawn; the picker shows "already in SB-2026-004" instead of letting them be sent twice. |
+| D5 (user, 31-Oct) | Who can create a batch and record the approval: Super Admin, HR Admin, Recruitment Coordinator (the coordinators work these sheets). |
+| D6 (user, CONFIRM-3) | **Intimation to candidates is deferred.** The brief reuses the Offer flow, which needs an Application; with Talent Pool rows there is none. Revisit when Phase 4 decides how a selected person becomes an employee record. |
 
 ## Data
 

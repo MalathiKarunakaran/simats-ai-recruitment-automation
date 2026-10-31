@@ -94,7 +94,7 @@ last dry run. S5 shows "waiting for mapping approval".
 5. Deploy (needs the user's go-ahead), then the user updates the script.
 6. S5, after its mapping is approved.
 
-## S5 — New Departments (proposed mapping, 31-Oct-2026)
+## S5 — New Departments (mapping approved by the user 31-Oct-2026)
 
 The brief's sheet ID `1xJdo8p1…` is not reachable; the user confirmed the
 sheet is **"New Departments_Nov 2025 to Oct 2026 - Updated"**
