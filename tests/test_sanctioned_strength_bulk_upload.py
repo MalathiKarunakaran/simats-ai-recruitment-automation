@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.models.bulk_upload_log import BulkUploadLog
-from app.models.enums import BulkUploadStatusEnum, StaffRoleCategoryEnum, UserRoleEnum
+from app.models.enums import BulkUploadStatusEnum, PermissionEnum, StaffRoleCategoryEnum, UserRoleEnum
 from app.models.sanctioned_strength import SanctionedStrength, SanctionedStrengthHistory
 from app.services import sanctioned_strength_import as ssi
 
@@ -547,6 +547,27 @@ def test_undo_forbidden_for_non_write_role(client, bulk_upload_setup, user_facto
 
     response = client.post(f"{ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, hod))
     assert response.status_code == 403
+
+
+def test_undo_refused_for_coordinator_even_with_the_upload_grant(
+    client, bulk_upload_setup, user_factory, grant_permission
+):
+    """Undo is held to the delete rule (user decision, 31-Oct-2026): a
+    coordinator gets the Super Admin message even holding the grant that
+    would otherwise let them through; HR Admin keeps undo."""
+    commit_response = _upload_commit(client, bulk_upload_setup["hr_admin"], [_row(bulk_upload_setup)])
+    log_id = commit_response.json()["bulk_upload_log_id"]
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR, campus_code="SSE")
+    grant_permission(coordinator, PermissionEnum.BULK_UPLOAD_SANCTIONED_STRENGTH)
+
+    response = client.post(f"{ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, coordinator))
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Only a Super Admin can delete"
+
+    allowed = client.post(
+        f"{ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, bulk_upload_setup["hr_admin"])
+    )
+    assert allowed.status_code == 200
 
 
 def test_undo_unknown_id_is_404(client, bulk_upload_setup):

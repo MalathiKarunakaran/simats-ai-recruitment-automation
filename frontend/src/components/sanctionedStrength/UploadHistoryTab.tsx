@@ -7,6 +7,8 @@ import {
   listSanctionedStrengthBulkUploads,
 } from "@/api/sanctionedStrength";
 import type { BulkUploadEntityType, BulkUploadLogRead } from "@/api/types";
+import { useAuth } from "@/auth/AuthContext";
+import { roleMayDelete } from "@/auth/deleteRights";
 import { UndoBulkUploadDialog } from "@/components/sanctionedStrength/UndoBulkUploadDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,6 +60,9 @@ export interface UploadHistoryTabProps {
 
 export function UploadHistoryTab({ entityType }: UploadHistoryTabProps) {
   const [page, setPage] = useState(0);
+  // Undo is held to the delete rule (refuse_coordinator_delete on the route).
+  const { user } = useAuth();
+  const mayUndo = roleMayDelete(user?.role);
 
   const { data, isLoading, isError, error } = useQuery({
     // entityType is part of the query key (not just the queryFn's own
@@ -119,7 +124,7 @@ export function UploadHistoryTab({ entityType }: UploadHistoryTabProps) {
                   <TableCell>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <DownloadOriginalFileButton log={log} />
-                      {isWithinUndoWindow(log) ? (
+                      {mayUndo && isWithinUndoWindow(log) ? (
                         <UndoBulkUploadDialog
                           bulkUploadLogId={log.id}
                           filename={log.filename}

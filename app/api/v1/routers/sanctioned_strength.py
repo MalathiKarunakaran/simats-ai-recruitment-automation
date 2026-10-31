@@ -1499,6 +1499,9 @@ def undo_bulk_upload(
     bulk_upload_log_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    # Undo removes or reverts the batch's rows, so it is held to the same
+    # rule as deleting (user decision, 31-Oct-2026): not for coordinators.
+    _coordinator_refused: None = Depends(refuse_coordinator_delete),
     current_user: User = Depends(_shared_bulk_upload_actor),
 ) -> BulkUploadUndoResponse:
     """Only within the stored 24h `undo_deadline`. Dispatches on

@@ -10,6 +10,13 @@ import { UploadHistoryTab } from "@/components/sanctionedStrength/UploadHistoryT
 
 vi.mock("@/api/sanctionedStrength");
 
+// Undo follows the delete rule (coordinators may not), so the tab reads the
+// signed-in user; an HR Admin by default, switched per test where needed.
+const authState = vi.hoisted(() => ({ role: "HR_ADMIN" }));
+vi.mock("@/auth/AuthContext", () => ({
+  useAuth: () => ({ user: { id: "u-1", role: authState.role } }),
+}));
+
 const mockedList = vi.mocked(sanctionedStrengthApi.listSanctionedStrengthBulkUploads);
 const mockedDownloadOriginal = vi.mocked(sanctionedStrengthApi.downloadSanctionedStrengthBulkUploadOriginalFile);
 const mockedUndo = vi.mocked(sanctionedStrengthApi.undoSanctionedStrengthBulkUpload);
@@ -94,6 +101,19 @@ describe("UploadHistoryTab", () => {
     expect(screen.queryByRole("button", { name: "Undo upload batch-2.xlsx" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Undo upload batch-3.xlsx" })).not.toBeInTheDocument();
     expect(screen.getByText("Undone")).toBeInTheDocument();
+  });
+
+  it("hides Undo from a Recruitment Coordinator (undo is held to the delete rule)", async () => {
+    authState.role = "RECRUITMENT_COORDINATOR";
+    try {
+      mockedList.mockResolvedValue(paginated([WITHIN_WINDOW]));
+      renderTab();
+      await screen.findByText("batch-1.xlsx");
+      expect(screen.queryByRole("button", { name: "Undo upload batch-1.xlsx" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Download original file" })).toBeInTheDocument();
+    } finally {
+      authState.role = "HR_ADMIN";
+    }
   });
 
   it("downloads the original file for a row", async () => {
