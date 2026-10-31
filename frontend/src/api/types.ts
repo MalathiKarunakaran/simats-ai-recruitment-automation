@@ -2846,7 +2846,7 @@ export interface TalentPoolListParams {
   offset?: number;
 }
 
-// app/schemas/sheet_sync.py -- Google Sheet Sync status page.
+// app/schemas/sheet_sync.py -- Data Sync Status page.
 export interface SheetSyncRun {
   id: string | null; // null for the talent pool tabs (no stored run)
   source: string;

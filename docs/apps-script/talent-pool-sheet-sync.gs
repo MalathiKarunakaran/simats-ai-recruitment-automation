@@ -260,7 +260,7 @@ function syncJoineeSheets() {
 }
 
 // Shows what a sync WOULD do -- counts and flagged rows -- and changes
-// nothing. The preview also appears on the app's Google Sheet Sync page.
+// nothing. The preview also appears on the app's Data Sync Status page.
 function previewJoineeSheets() {
   runJoineeSheets_(true);
 }

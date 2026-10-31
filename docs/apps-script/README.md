@@ -71,7 +71,7 @@ spreadsheet's `New Joinees` and `Pro App Order` tabs to
   more so the schedule points at `syncAll`.
 - `previewJoineeSheets` is the dry run: it logs what a sync would insert,
   update and flag, changes nothing, and the preview also shows on the app's
-  Google Sheet Sync page. `syncJoineeSheets` runs them for real.
+  Data Sync Status page. `syncJoineeSheets` runs them for real.
 - **Privacy:** for `New Joinees` the script reads the header row (row 2),
   picks the allowlisted columns by name, and reads only those. Salary, bank
   account, allowance, gender, current work and S. No are never read, so they

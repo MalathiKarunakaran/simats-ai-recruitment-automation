@@ -179,7 +179,7 @@ const NAV_GROUPS: NavGroup[] = [
       },
       {
         to: "/sheet-sync",
-        label: "Google Sheet Sync",
+        label: "Data Sync Status",
         icon: RefreshCw,
         // Mirrors sheet_sync.py's GET /sheet-sync/runs: require_roles(SUPER_ADMIN).
         visibleForRoles: ["SUPER_ADMIN"],

@@ -119,17 +119,17 @@ describe("AppShell nav", () => {
     expect(adminLinkLabels).not.toContain("Sanctioned Strength");
   });
 
-  it("shows Google Sheet Sync to SUPER_ADMIN only", async () => {
+  it("shows Data Sync Status to SUPER_ADMIN only", async () => {
     mockAuth("SUPER_ADMIN");
     renderShell();
-    await waitFor(() => expect(screen.getByRole("link", { name: /Google Sheet Sync/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("link", { name: /Data Sync Status/ })).toBeInTheDocument());
   });
 
-  it("hides Google Sheet Sync from HR_ADMIN", async () => {
+  it("hides Data Sync Status from HR_ADMIN", async () => {
     mockAuth("HR_ADMIN");
     renderShell();
     await waitFor(() => expect(screen.getByRole("navigation")).toBeInTheDocument());
-    expect(screen.queryByRole("link", { name: /Google Sheet Sync/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Data Sync Status/ })).not.toBeInTheDocument();
   });
 
   it("points the Sanctioned Strength nav link at /sanctioned-strength", async () => {

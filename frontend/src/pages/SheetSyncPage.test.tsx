@@ -66,10 +66,10 @@ describe("SheetSyncPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("New Joinees")).toBeInTheDocument());
-    expect(screen.getByText("Final (Teaching applicants)")).toBeInTheDocument();
-    expect(screen.getByText("NTS (Non-teaching applicants)")).toBeInTheDocument();
-    expect(screen.getByText("Pro App Order")).toBeInTheDocument();
-    expect(screen.getByText("New Depts Updated")).toBeInTheDocument();
+    expect(screen.getByText("Teaching Applicants")).toBeInTheDocument();
+    expect(screen.getByText("Non-Teaching Applicants")).toBeInTheDocument();
+    expect(screen.getByText("Provisional Orders")).toBeInTheDocument();
+    expect(screen.getByText("New Departments")).toBeInTheDocument();
     expect(screen.getByText(/Waiting for mapping approval/)).toBeInTheDocument();
     expect(screen.getByText("Not synced yet")).toBeInTheDocument(); // NTS
     expect(screen.getAllByText("Not in Employees").length).toBeGreaterThan(0);

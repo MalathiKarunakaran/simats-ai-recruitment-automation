@@ -78,7 +78,7 @@ own rows, never merged), "not in Employees" (D3, reported as a count).
 
 ## Status page (Super Admin)
 
-Administration → **Google Sheet Sync**: one card per source S1–S5 with the
+Administration → **Data Sync Status**: one card per source S1–S5 with the
 last run (time, counts, flagged), a flagged-rows Excel download, and the
 last dry run. S5 shows "waiting for mapping approval".
 

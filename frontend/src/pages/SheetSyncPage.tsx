@@ -5,24 +5,25 @@ import { useState } from "react";
 import { downloadFlaggedRows, listSheetSyncRuns } from "@/api/sheetSync";
 import type { SheetSyncRun } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface SourceCard {
   code: string;
   label: string;
+  /** Where it comes from, shown small under the name. */
+  sheet: string;
   // Backend source strings that feed this card (first match wins).
   sources: string[];
   waiting?: boolean;
 }
 
 const CARDS: SourceCard[] = [
-  { code: "S1", label: "Final (Teaching applicants)", sources: ["TALENT_POOL_TEACHING_FINAL", "TEACHING_FINAL"] },
-  { code: "S2", label: "NTS (Non-teaching applicants)", sources: ["TALENT_POOL_NTS", "NTS"] },
-  { code: "S3", label: "New Joinees", sources: ["NEW_JOINEES"] },
-  { code: "S4", label: "Pro App Order", sources: ["PRO_APP_ORDER"] },
-  { code: "S5", label: "New Depts Updated", sources: [], waiting: true },
+  { code: "S1", label: "Teaching Applicants", sheet: "Final tab", sources: ["TALENT_POOL_TEACHING_FINAL", "TEACHING_FINAL"] },
+  { code: "S2", label: "Non-Teaching Applicants", sheet: "NTS tab", sources: ["TALENT_POOL_NTS", "NTS"] },
+  { code: "S3", label: "New Joinees", sheet: "New Joinees tab", sources: ["NEW_JOINEES"] },
+  { code: "S4", label: "Provisional Orders", sheet: "Pro App Order tab", sources: ["PRO_APP_ORDER"] },
+  { code: "S5", label: "New Departments", sheet: "New Departments sheet", sources: [], waiting: true },
 ];
 
 const PRIMARY_COUNTS = ["received", "inserted", "updated", "unchanged", "deactivated", "flagged"];
@@ -92,10 +93,10 @@ function SyncCard({ card, runs }: { card: SourceCard; runs: { last_run: SheetSyn
   const [error, setError] = useState<string | null>(null);
 
   const title = (
-    <CardTitle className="flex items-center gap-2 text-base">
-      <Badge variant="outline">{card.code}</Badge>
-      {card.label}
-    </CardTitle>
+    <div>
+      <CardTitle className="text-base">{card.label}</CardTitle>
+      <p className="mt-0.5 text-xs text-muted-foreground">from the {card.sheet}</p>
+    </div>
   );
 
   if (card.waiting) {
@@ -166,7 +167,7 @@ export function SheetSyncPage() {
   const query = useQuery({ queryKey: ["sheet-sync-runs"], queryFn: listSheetSyncRuns, enabled: allowed });
 
   if (!allowed) {
-    return <p className="text-sm text-muted-foreground">You are not allowed to view Google Sheet Sync. This page is for Super Admins only.</p>;
+    return <p className="text-sm text-muted-foreground">You are not allowed to view Data Sync Status. This page is for Super Admins only.</p>;
   }
 
   const bySource = new Map((query.data ?? []).map((item) => [item.source, item]));
@@ -174,7 +175,7 @@ export function SheetSyncPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Google Sheet Sync</h1>
+        <h1 className="text-2xl font-semibold">Data Sync Status</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Syncs run automatically every 15 minutes from the Google Apps Script. A dry run is started from the script's
           previewJoineeSheets. This page is read-only.
