@@ -30,6 +30,7 @@ from app.api.v1.routers import (
     reports,
     resume_screening,
     sanctioned_strength,
+    selection_batches,
     talent_pool,
     sheet_sync,
     talent_pool_sync,
@@ -73,6 +74,9 @@ api_router.include_router(talent_pool_sync.router)
 
 # Joinee + provisional order sheet sync (2026-10-30). Machine POST plus Super Admin reads.
 api_router.include_router(sheet_sync.router)
+
+# Selection batches (2026-10-31): Talent Pool Selected people sent to the University.
+api_router.include_router(selection_batches.router)
 
 # qr_router first: its /vacancy-requests/qr/* paths would otherwise be
 # swallowed by /vacancy-requests/{vacancy_request_id} below.
