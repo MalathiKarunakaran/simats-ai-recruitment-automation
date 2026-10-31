@@ -19,7 +19,14 @@ const STEPS: Step[] = [
   { label: "Offer", statuses: ["OFFER_SENT", "OFFER_ACCEPTED"] },
   {
     label: "Joined",
-    statuses: ["JOINING_CONFIRMED", "JOINED", "DEPARTMENT_ROOM_ALLOTTED", "ORIENTATION_COMPLETE", "HANDED_OVER_TO_HOD"],
+    statuses: [
+      "JOINING_CONFIRMED",
+      "JOINED",
+      "PROVISIONAL_ORDER_ISSUED",
+      "DEPARTMENT_ROOM_ALLOTTED",
+      "ORIENTATION_COMPLETE",
+      "HANDED_OVER_TO_HOD",
+    ],
   },
 ];
 

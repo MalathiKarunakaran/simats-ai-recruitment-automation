@@ -1440,6 +1440,9 @@ export type ApplicationStatus =
   | "OFFER_ACCEPTED"
   | "JOINING_CONFIRMED"
   | "JOINED"
+  // Provisional appointment order issued; the only status department
+  // allotment can be made from (docs/specs/provisional-order-and-allotment.md).
+  | "PROVISIONAL_ORDER_ISSUED"
   | "DEPARTMENT_ROOM_ALLOTTED"
   | "ORIENTATION_COMPLETE"
   | "HANDED_OVER_TO_HOD"
@@ -1483,6 +1486,7 @@ export const APPLICATION_STATUS_ORDER: readonly ApplicationStatus[] = [
   "OFFER_ACCEPTED",
   "JOINING_CONFIRMED",
   "JOINED",
+  "PROVISIONAL_ORDER_ISSUED",
   "DEPARTMENT_ROOM_ALLOTTED",
   "ORIENTATION_COMPLETE",
   "HANDED_OVER_TO_HOD",
@@ -1609,6 +1613,50 @@ export interface ApplicationPipelineDetailsUpdatePayload {
 export interface DepartmentRoomAllotmentPayload {
   department_id: string;
   room_allotted?: string | null;
+  // Super Admin only, required when the department has no vacancy.
+  override_reason?: string | null;
+}
+
+// Mirrors app/schemas/joining.py::AppointmentOrderRead.
+export interface AppointmentOrderRead {
+  id: string;
+  application_id: string;
+  order_number: string;
+  sequence: number;
+  order_date: string;
+  status: string;
+  issued_by_id: string;
+  issued_at: string;
+  candidate_name: string;
+  designation: string;
+  category: string;
+  campus_code: string;
+  college_name: string;
+  principal_name: string;
+  department_name: string;
+  joining_date: string | null;
+  probation_end_date: string;
+  signed_copy_content_type: string | null;
+  signed_copy_size: number | null;
+  signed_copy_uploaded_at: string | null;
+}
+
+// Mirrors app/schemas/joining.py::DepartmentOption / DepartmentOptionsResponse.
+export interface DepartmentOption {
+  department_id: string;
+  department_name: string;
+  sanctioned: number;
+  working: number;
+  reserved: number;
+  vacancy: number;
+  suggested: boolean;
+}
+
+export interface DepartmentOptionsResponse {
+  designation_id: string | null;
+  suggestion_basis: "RESUME_QUALIFICATION" | "VACANCY";
+  suggestion_text: string;
+  options: DepartmentOption[];
 }
 
 // Mirrors app/schemas/joining.py::OrientationCompleteRequest.

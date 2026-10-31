@@ -39,8 +39,11 @@ XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 STAFF_CATEGORIES = ("Teaching", "Non-Teaching", "Housekeeping")
 SOURCES = ("Reference", "Job Portal", "FacultyPlus", "Walk-in")
 PRIORITIES = ("LOW", "NORMAL", "HIGH", "URGENT")
-# Same list tracker_import.py accepts -- WAITLISTED excluded there, so here.
-STATUSES = tuple(s.value for s in APPLICATION_STATUS_ORDER if s.value != "WAITLISTED") + ("REJECTED", "WITHDRAWN")
+# Same list tracker_import.py accepts -- WAITLISTED and PROVISIONAL_ORDER_ISSUED
+# excluded there, so here.
+STATUSES = tuple(
+    s.value for s in APPLICATION_STATUS_ORDER if s.value not in ("WAITLISTED", "PROVISIONAL_ORDER_ISSUED")
+) + ("REJECTED", "WITHDRAWN")
 
 VACANCY_HEADERS = (
     "Request ID",

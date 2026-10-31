@@ -10,12 +10,22 @@ when a candidate joined. Production had zero employees, which is why nobody
 had seen it.
 """
 
+import pytest
+
 from app.models.employee import Employee
-from app.models.enums import StaffRoleCategoryEnum
+from app.models.enums import StaffRoleCategoryEnum, UserRoleEnum
 from app.models.housekeeping_staff import HousekeepingStaff
 from app.services.sanctioned_strength import working_count_for
 from tests.conftest import auth_headers
-from tests.test_joining_onboarding import _drive_to_joining_confirmed, _mark_all_documents_received
+from tests.test_joining_onboarding import _drive_to_joining_confirmed, _issue_order, _mark_all_documents_received
+
+
+_SUPER_ADMIN: list = []
+
+
+@pytest.fixture(autouse=True)
+def _super_admin_for_allotment(user_factory):
+    _SUPER_ADMIN[:] = [user_factory(UserRoleEnum.SUPER_ADMIN)]
 
 
 def _drive_to_orientation_complete(client, vacancy, application):
@@ -23,11 +33,15 @@ def _drive_to_orientation_complete(client, vacancy, application):
     _drive_to_joining_confirmed(client, vacancy, application)
     assert client.post(f"/api/v1/applications/{application.id}/joining/mark-joined", headers=headers).status_code == 200
     _mark_all_documents_received(client, vacancy, application.id)
+    _issue_order(client, vacancy, application)
+    # These tests are about the hand-over, and several deliberately leave the
+    # vacancy without a designation (so without a Sanctioned Strength seat):
+    # a Super Admin override gets past the allotment's vacancy rule.
     assert (
         client.post(
             f"/api/v1/applications/{application.id}/joining/allot-department-room",
-            headers=headers,
-            json={"department_id": str(vacancy.department.id)},
+            headers=auth_headers(client, _SUPER_ADMIN[0]),
+            json={"department_id": str(vacancy.department.id), "override_reason": "Test: no seat set up"},
         ).status_code
         == 200
     )

@@ -26,6 +26,11 @@ describe("ApplicationProgress", () => {
     expect(screen.getByText("Selected").closest("li")).toHaveAttribute("aria-current", "step");
   });
 
+  it("counts a provisional order as part of the Joined step", () => {
+    render(<ApplicationProgress application={app({ status: "PROVISIONAL_ORDER_ISSUED" })} />);
+    expect(screen.getByText("Joined").closest("li")).toHaveAttribute("aria-current", "step");
+  });
+
   it("marks Waitlisted as the current step, and keeps it after promotion", () => {
     const { rerender } = render(<ApplicationProgress application={app({ status: "WAITLISTED", waitlist_rank: 1 })} />);
     expect(screen.getByText("Waitlisted").closest("li")).toHaveAttribute("aria-current", "step");

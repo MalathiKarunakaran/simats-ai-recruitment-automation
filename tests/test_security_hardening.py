@@ -8,7 +8,7 @@ from app.models.audit_log import AuditLog
 from app.models.enums import UserRoleEnum
 
 from tests.conftest import auth_headers, refresh_session, session_cookie
-from tests.test_joining_onboarding import _drive_to_joining_confirmed, _mark_all_documents_received
+from tests.test_joining_onboarding import _drive_to_joining_confirmed, _issue_order, _mark_all_documents_received
 
 
 def _fake_request(ip: str = "9.9.9.9"):
@@ -100,15 +100,17 @@ def test_mark_joined_writes_joining_record_audit_row(client, published_vacancy_f
 
 
 def test_complete_onboarding_writes_joining_record_audit_row(
-    client, published_vacancy_factory, application_factory, db_session
+    client, published_vacancy_factory, application_factory, db_session, allotment_seat_factory
 ):
     vacancy = published_vacancy_factory(slot_count=1)
+    allotment_seat_factory(vacancy)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
     _drive_to_joining_confirmed(client, vacancy, application)
     client.post(
         f"/api/v1/applications/{application.id}/joining/mark-joined", headers=auth_headers(client, vacancy.hr_admin)
     )
     _mark_all_documents_received(client, vacancy, application.id)
+    _issue_order(client, vacancy, application)
 
     response = client.post(
         f"/api/v1/applications/{application.id}/joining/allot-department-room",

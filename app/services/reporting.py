@@ -215,6 +215,7 @@ _FUNNEL_BUCKET_BY_STATUS: dict[ApplicationStatusEnum, str] = {
     ApplicationStatusEnum.OFFER_ACCEPTED: "Offer",
     ApplicationStatusEnum.JOINING_CONFIRMED: "Joined",
     ApplicationStatusEnum.JOINED: "Joined",
+    ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED: "Joined",
     ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED: "Joined",
     ApplicationStatusEnum.ORIENTATION_COMPLETE: "Joined",
     ApplicationStatusEnum.HANDED_OVER_TO_HOD: "Joined",
@@ -1684,6 +1685,7 @@ def build_ad_briefing_summary(
 
 _JOINED_OR_LATER_STATUSES = {
     ApplicationStatusEnum.JOINED,
+    ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED,
     ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
     ApplicationStatusEnum.ORIENTATION_COMPLETE,
     ApplicationStatusEnum.HANDED_OVER_TO_HOD,

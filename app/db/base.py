@@ -43,5 +43,6 @@ from app.models.sheet_sync import (  # noqa: F401
     SheetSyncRun,
 )
 from app.models.selection_batch import SelectionBatch, SelectionBatchMember  # noqa: F401
+from app.models.appointment_order import AppointmentOrder  # noqa: F401
 
 __all__ = ["Base"]

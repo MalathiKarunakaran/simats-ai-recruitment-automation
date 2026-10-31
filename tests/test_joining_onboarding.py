@@ -31,6 +31,15 @@ def _mark_all_documents_received(client, vacancy, application_id):
         )
 
 
+def _issue_order(client, vacancy, application, user=None):
+    response = client.post(
+        f"/api/v1/applications/{application.id}/provisional-order",
+        headers=auth_headers(client, user or vacancy.hr_admin),
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def test_mark_joined_requires_joining_confirmed(client, published_vacancy_factory, application_factory):
     vacancy = published_vacancy_factory(slot_count=1)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
@@ -121,9 +130,10 @@ def test_hand_over_to_hod_requires_orientation_complete(client, published_vacanc
 
 
 def test_full_joining_flow_creates_employee_and_sets_status(
-    client, published_vacancy_factory, application_factory
+    client, published_vacancy_factory, application_factory, allotment_seat_factory
 ):
     vacancy = published_vacancy_factory(slot_count=1)
+    allotment_seat_factory(vacancy)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
     _drive_to_joining_confirmed(client, vacancy, application)
 
@@ -131,6 +141,7 @@ def test_full_joining_flow_creates_employee_and_sets_status(
         f"/api/v1/applications/{application.id}/joining/mark-joined", headers=auth_headers(client, vacancy.hr_admin)
     )
     _mark_all_documents_received(client, vacancy, application.id)
+    _issue_order(client, vacancy, application)
 
     allotment = client.post(
         f"/api/v1/applications/{application.id}/joining/allot-department-room",
@@ -215,7 +226,7 @@ def test_recruitment_coordinator_forbidden_from_joining_entirely(
 
 
 def test_recruitment_officer_can_complete_full_onboarding_flow(
-    client, published_vacancy_factory, application_factory
+    client, published_vacancy_factory, application_factory, allotment_seat_factory
 ):
     # Phase 2 of the permission-matrix epic deliberately closed a known
     # frontend/backend drift: AppShell's nav has always shown /onboarding to
@@ -225,6 +236,7 @@ def test_recruitment_officer_can_complete_full_onboarding_flow(
     # so every step here should now succeed for a plain RECRUITMENT_OFFICER,
     # not just HR_ADMIN -- confirmed with the user before this change.
     vacancy = published_vacancy_factory(slot_count=1)
+    allotment_seat_factory(vacancy)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
     _drive_to_joining_confirmed(client, vacancy, application)
     officer_headers = auth_headers(client, vacancy.recruitment_officer)
@@ -242,6 +254,8 @@ def test_recruitment_officer_can_complete_full_onboarding_flow(
             f"/api/v1/joining-documents/{doc['id']}", headers=officer_headers, json={"status": "RECEIVED"}
         )
         assert updated.status_code == 200
+
+    _issue_order(client, vacancy, application, user=vacancy.recruitment_officer)
 
     allotment = client.post(
         f"/api/v1/applications/{application.id}/joining/allot-department-room",
@@ -279,8 +293,14 @@ def test_campus_hod_still_forbidden_from_joining(client, user_factory, published
     assert response.status_code == 403
 
 
-def test_employee_codes_are_sequential_per_campus(client, published_vacancy_factory, application_factory):
+def test_employee_codes_are_sequential_per_campus(
+    client, published_vacancy_factory, application_factory, allotment_seat_factory
+):
     vacancy = published_vacancy_factory(slot_count=2)
+    allotment_seat_factory(vacancy)
+    # One login for the whole test: the login rate limiter counts every
+    # auth_headers() call, and this test drives two hires end to end.
+    headers = auth_headers(client, vacancy.hr_admin)
 
     codes = []
     for _ in range(2):
@@ -288,22 +308,23 @@ def test_employee_codes_are_sequential_per_campus(client, published_vacancy_fact
         _drive_to_joining_confirmed(client, vacancy, application)
         client.post(
             f"/api/v1/applications/{application.id}/joining/mark-joined",
-            headers=auth_headers(client, vacancy.hr_admin),
+            headers=headers,
         )
         _mark_all_documents_received(client, vacancy, application.id)
+        _issue_order(client, vacancy, application)
         client.post(
             f"/api/v1/applications/{application.id}/joining/allot-department-room",
-            headers=auth_headers(client, vacancy.hr_admin),
+            headers=headers,
             json={"department_id": str(vacancy.department.id)},
         )
         client.post(
             f"/api/v1/applications/{application.id}/joining/complete-orientation",
-            headers=auth_headers(client, vacancy.hr_admin),
+            headers=headers,
             json={},
         )
         employee = client.post(
             f"/api/v1/applications/{application.id}/joining/hand-over-to-hod",
-            headers=auth_headers(client, vacancy.hr_admin),
+            headers=headers,
             json={"hod_assigned": "Dr. Test HOD"},
         ).json()
         codes.append(employee["employee_code"])

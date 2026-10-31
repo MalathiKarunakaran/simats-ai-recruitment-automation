@@ -203,6 +203,39 @@ describe("OnboardingListPage", () => {
     expect(mockedListApplications).toHaveBeenCalledTimes(callCountBeforeFilter);
   });
 
+  it("lists the provisional-order stage in its place and filters by it", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockByStatus({
+      JOINED: [makeApplication({ id: "app-1", status: "JOINED" })],
+      PROVISIONAL_ORDER_ISSUED: [
+        makeApplication({ id: "app-2", candidate_id: "cand-2", status: "PROVISIONAL_ORDER_ISSUED" }),
+      ],
+    });
+    mockedListCandidates.mockResolvedValue([CANDIDATE_JANE, makeCandidate({ id: "cand-2", full_name: "John Smith" })]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Stage filter" }));
+    const options = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(options.indexOf("PROVISIONAL ORDER ISSUED")).toBe(options.indexOf("JOINED") + 1);
+    await userEvent.click(screen.getByRole("option", { name: "PROVISIONAL ORDER ISSUED" }));
+
+    expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+    expect(screen.getByText("John Smith")).toBeInTheDocument();
+  });
+
   it("narrows the list client-side by campus", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

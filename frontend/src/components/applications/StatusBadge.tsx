@@ -4,6 +4,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 const SUCCESS_STATUSES = new Set<ApplicationStatus>([
   "HANDED_OVER_TO_HOD",
   "JOINED",
+  "PROVISIONAL_ORDER_ISSUED",
   "OFFER_ACCEPTED",
   "DEPARTMENT_ROOM_ALLOTTED",
   "ORIENTATION_COMPLETE",

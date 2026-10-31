@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.application import Application
+from app.models.appointment_order import APPOINTMENT_ORDER_ISSUED, AppointmentOrder
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.enums import (
     APPLICATION_STATUS_ORDER,
@@ -195,6 +196,18 @@ def _fill_slot_and_maybe_autoclose(
     )
 
 
+def _has_issued_appointment_order(db: Session, application: Application) -> bool:
+    return (
+        db.execute(
+            select(AppointmentOrder.id).where(
+                AppointmentOrder.application_id == application.id,
+                AppointmentOrder.status == APPOINTMENT_ORDER_ISSUED,
+            )
+        ).first()
+        is not None
+    )
+
+
 def transition_application_status(
     db: Session,
     *,
@@ -262,6 +275,37 @@ def transition_application_status(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="A reason is required when promoting from the waiting list",
+            )
+
+    # Provisional appointment order (docs/specs/provisional-order-and-
+    # allotment.md): PROVISIONAL_ORDER_ISSUED is entered only from JOINED and
+    # only once an ISSUED appointment order exists (services/
+    # appointment_orders.py creates it first), and no move may jump over it
+    # from JOINED or earlier -- so allotment, orientation and hand-over all
+    # need the order. Applications already past it (allotted before the step
+    # existed) never cross it again, so they are untouched.
+    if not force and new_status in APPLICATION_STATUS_ORDER and current in APPLICATION_STATUS_ORDER:
+        order_index = APPLICATION_STATUS_ORDER.index(ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED)
+        current_pos = APPLICATION_STATUS_ORDER.index(current)
+        new_pos = APPLICATION_STATUS_ORDER.index(new_status)
+        if new_status == ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED:
+            if current != ApplicationStatusEnum.JOINED:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"A provisional order can only be issued at JOINED (this application is {current.value})",
+                )
+            if not _has_issued_appointment_order(db, application):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Issue the provisional order first (POST /applications/{id}/provisional-order)",
+                )
+        elif current_pos < order_index < new_pos:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Cannot move from {current.value} to {new_status.value}: "
+                    "the provisional order must be issued first"
+                ),
             )
 
     if not force and new_status not in (ApplicationStatusEnum.REJECTED, ApplicationStatusEnum.WITHDRAWN):

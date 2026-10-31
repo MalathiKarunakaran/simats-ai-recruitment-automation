@@ -8,7 +8,9 @@ by the column's unique constraint, not here -- this only produces a good
 first guess, and the callers run inside the same transaction that inserts
 the row, so a race surfaces as an IntegrityError rather than a duplicate.
 
-RQ = recruitment requisition (`ApprovedVacancy`), JP = job posting.
+RQ = recruitment requisition (`ApprovedVacancy`), JP = job posting. The
+provisional appointment order number at the bottom follows a different
+rule (per campus, never restarting) -- see its own comment.
 """
 
 from datetime import date, datetime, timezone
@@ -16,6 +18,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.appointment_order import AppointmentOrder
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.job_posting import JobPosting
 
@@ -35,3 +38,46 @@ def next_requisition_number(db: Session, *, today: date | None = None) -> str:
 
 def next_posting_number(db: Session, *, today: date | None = None) -> str:
     return _next(db, JobPosting.posting_number, "JP", today)
+
+
+# --- Provisional appointment order numbers ----------------------------------
+# Format from the user's letters (31-Oct-2026): "SSE / PA/ 231/ 10/ 2026" --
+# college code as printed, a 3-digit running number PER CAMPUS that does NOT
+# restart by year (SSE ran 001 -> 230 across 2025-2026), then the order's
+# month (2 digits) and year. Unlike RQ/JP above, the number continues the
+# user's paper/sheet register, which is still in use: the next number is one
+# past whichever is higher, the app's own last number or the register's.
+#
+# Last number in the register, per campus code, as of 31-Oct-2026. Stand-in
+# until `register_floor` reads a synced copy of the register sheet.
+PROVISIONAL_ORDER_FLOORS: dict[str, int] = {
+    "SSE": 230,
+    "SCLAS": 27,
+    "SCAD": 22,
+    "STUDIO": 9,
+    "SSPE": 3,
+    "SHOTS": 3,
+    "SPIER": 1,
+}
+
+
+def register_floor(db: Session, campus_code: str) -> int:
+    """The last order number the register shows for this campus at the time
+    of issuing. The ONE place the register is consulted: point this at the
+    synced register when it exists. Campuses not listed start from 0."""
+    return PROVISIONAL_ORDER_FLOORS.get(campus_code.upper(), 0)
+
+
+def next_provisional_order_number(
+    db: Session, *, campus_id, campus_code: str, printed_code: str, order_date: date
+) -> tuple[int, str]:
+    """(sequence, formatted number) for the next order on this campus:
+    max(highest app-issued sequence, register_floor) + 1. Called in the same
+    transaction as the insert; the (campus_id, sequence) unique constraint
+    is the guarantee."""
+    used = (
+        db.query(func.max(AppointmentOrder.sequence)).filter(AppointmentOrder.campus_id == campus_id).scalar() or 0
+    )
+    sequence = max(used, register_floor(db, campus_code)) + 1
+    number = f"{printed_code} / PA/ {sequence:03d}/ {order_date.month:02d}/ {order_date.year}"
+    return sequence, number

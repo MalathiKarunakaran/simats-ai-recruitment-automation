@@ -10,21 +10,26 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_permission
 from app.models.application import Application
+from app.models.appointment_order import AppointmentOrder
 from app.models.enums import ApplicationStatusEnum, JoiningDocumentStatusEnum, PermissionEnum
 from app.models.joining import JoiningDocument, JoiningRecord
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.employee import EmployeeRead
 from app.schemas.joining import (
+    AppointmentOrderRead,
+    DepartmentOptionsResponse,
     DepartmentRoomAllotmentRequest,
     HandoverToHodRequest,
     JoiningDocumentRead,
     JoiningDocumentUpdate,
     JoiningRecordRead,
     OrientationCompleteRequest,
+    ProvisionalOrderCreate,
 )
+from app.services import appointment_orders, department_allotment, pipeline, storage
 from app.services import joining as joining_service
-from app.services import pipeline, storage
+from app.services.provisional_order_letter import render_letter_pdf
 from app.services.audit import log_update
 from app.services.storage import get_minio_client
 
@@ -280,6 +285,132 @@ def mark_joined(
     return joining_record
 
 
+# --- Provisional appointment order (docs/specs/provisional-order-and-
+# allotment.md) ------------------------------------------------------------
+
+
+def _get_order_or_404(db: Session, application: Application) -> AppointmentOrder:
+    order = appointment_orders.current_order(db, application)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No provisional order has been issued")
+    return order
+
+
+@router.post(
+    "/applications/{application_id}/provisional-order",
+    response_model=AppointmentOrderRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def issue_provisional_order(
+    application_id: uuid.UUID,
+    request: Request,
+    payload: ProvisionalOrderCreate | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> AppointmentOrder:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    order = appointment_orders.issue_provisional_order(
+        db,
+        application=application,
+        actor=current_user,
+        request=request,
+        order_date=payload.order_date if payload else None,
+    )
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+@router.get("/applications/{application_id}/provisional-order", response_model=AppointmentOrderRead)
+def get_provisional_order(
+    application_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> AppointmentOrder:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    return _get_order_or_404(db, application)
+
+
+@router.get("/applications/{application_id}/provisional-order/letter.pdf")
+def download_provisional_order_letter(
+    application_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> StreamingResponse:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    order = _get_order_or_404(db, application)
+    filename = f"provisional-order-{order.campus_code}-{order.sequence:03d}.pdf"
+    return StreamingResponse(
+        io.BytesIO(render_letter_pdf(order)),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.post("/applications/{application_id}/provisional-order/signed-copy", response_model=AppointmentOrderRead)
+def upload_provisional_order_signed_copy(
+    application_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
+    scope: CampusScope = Depends(get_campus_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> AppointmentOrder:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    order = _get_order_or_404(db, application)
+    data = file.file.read()
+    content_type = _validate_document_file(content_type=file.content_type, data=data)
+    appointment_orders.store_signed_copy(
+        db,
+        order=order,
+        minio_client=minio_client,
+        filename=file.filename or "signed-order",
+        data=data,
+        content_type=content_type,
+        actor=current_user,
+        request=request,
+    )
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+@router.get("/applications/{application_id}/provisional-order/signed-copy")
+def download_provisional_order_signed_copy(
+    application_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
+    scope: CampusScope = Depends(get_campus_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> StreamingResponse:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    order = _get_order_or_404(db, application)
+    if not order.signed_copy_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No signed copy has been uploaded")
+    data = storage.download_joining_document_bytes(minio_client, order.signed_copy_key)
+    filename = order.signed_copy_key.rsplit("/", 1)[-1]
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type=order.signed_copy_content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get("/applications/{application_id}/department-options", response_model=DepartmentOptionsResponse)
+def get_department_options(
+    application_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission(PermissionEnum.ONBOARDING)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> dict:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    return department_allotment.department_options(db, application)
+
+
 @router.post("/applications/{application_id}/joining/allot-department-room", response_model=JoiningRecordRead)
 def allot_department_room(
     application_id: uuid.UUID,
@@ -290,12 +421,24 @@ def allot_department_room(
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JoiningRecord:
     application = _get_application_or_404_scoped(db, application_id, scope)
-    if application.status != ApplicationStatusEnum.JOINED:
+    if application.status != ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot allot department/room from status {application.status.value} (must be JOINED)",
+            detail=(
+                f"Cannot allot department/room from status {application.status.value} "
+                "(must be PROVISIONAL_ORDER_ISSUED)"
+            ),
         )
     joining_record = _get_joining_record_or_404(db, application)
+    # Vacancy > 0, or a Super Admin override with a reason (audited).
+    department_allotment.check_allotment(
+        db,
+        application=application,
+        department_id=payload.department_id,
+        override_reason=payload.override_reason,
+        actor=current_user,
+        request=request,
+    )
 
     # Same "documents must be received first" guard the old collapsed
     # "complete onboarding" step enforced -- still real, just gates the

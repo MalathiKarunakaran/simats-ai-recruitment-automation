@@ -2,12 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { ApiError } from "@/api/client";
-import { listDepartments } from "@/api/departments";
 import { listEmployees } from "@/api/employees";
 import { listLocations } from "@/api/locations";
 import {
   allotDepartmentRoom,
   completeOrientation,
+  getDepartmentOptions,
   getJoiningRecord,
   handOverToHod,
   listJoiningDocuments,
@@ -19,12 +19,15 @@ import {
 import { JOINING_DOCUMENT_ACCEPT } from "@/api/types";
 import type { ApplicationRead, HousekeepingShift, JoiningDocumentStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { DepartmentOptionsPicker } from "@/components/joining/DepartmentOptionsPicker";
+import { ProvisionalOrderSection } from "@/components/joining/ProvisionalOrderSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { locationLabel } from "@/lib/locationDisplay";
 
 const READ_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
@@ -43,6 +46,7 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
   const [error, setError] = useState<string | null>(null);
   const [departmentId, setDepartmentId] = useState("");
   const [roomAllotted, setRoomAllotted] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
   const [orientationDate, setOrientationDate] = useState("");
   const [hodAssigned, setHodAssigned] = useState("");
   const [designation, setDesignation] = useState("");
@@ -77,12 +81,16 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
     enabled: canRead,
   });
 
-  const { data: departments } = useQuery({
-    queryKey: ["departments"],
-    queryFn: listDepartments,
-    enabled: canWrite && application.status === "JOINED",
+  // Allotment choices with their vacancy (department-options endpoint),
+  // replacing the plain campus department list.
+  const { data: departmentOptions } = useQuery({
+    queryKey: ["department-options", application.id],
+    queryFn: () => getDepartmentOptions(application.id),
+    enabled: canWrite && application.status === "PROVISIONAL_ORDER_ISSUED",
   });
-  const departmentOptions = (departments ?? []).filter((d) => d.campus_id === application.campus_id);
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const chosenOption = departmentOptions?.options.find((o) => o.department_id === departmentId);
+  const needsOverride = Boolean(chosenOption && chosenOption.vacancy <= 0);
 
   const { data: locations } = useQuery({
     queryKey: ["locations"],
@@ -104,6 +112,7 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
     void queryClient.invalidateQueries({ queryKey: ["application", application.id] });
     void queryClient.invalidateQueries({ queryKey: ["applications"] });
     void queryClient.invalidateQueries({ queryKey: ["employees"] });
+    void queryClient.invalidateQueries({ queryKey: ["department-options", application.id] });
   }
 
   const toggleDocumentMutation = useMutation({
@@ -143,7 +152,11 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
 
   const allotDepartmentRoomMutation = useMutation({
     mutationFn: () =>
-      allotDepartmentRoom(application.id, { department_id: departmentId, room_allotted: roomAllotted || null }),
+      allotDepartmentRoom(application.id, {
+        department_id: departmentId,
+        room_allotted: roomAllotted || null,
+        ...(needsOverride ? { override_reason: overrideReason.trim() } : {}),
+      }),
     onSuccess: () => {
       setError(null);
       afterAction();
@@ -282,32 +295,58 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
           </Button>
         ) : null}
 
-        {application.status === "JOINED" && canWrite ? (
+        <ProvisionalOrderSection application={application} canWrite={canWrite} onChanged={afterAction} />
+
+        {application.status === "PROVISIONAL_ORDER_ISSUED" && canWrite ? (
           <div className="flex flex-col gap-2">
-            <div className="grid grid-cols-2 gap-4">
+            {departmentOptions ? (
+              <DepartmentOptionsPicker
+                options={departmentOptions.options}
+                value={departmentId}
+                onChange={setDepartmentId}
+                allowZeroVacancy={isSuperAdmin}
+              />
+            ) : null}
+            {departmentOptions?.options.some((o) => o.suggested) ? (
+              <p className="text-xs text-muted-foreground">
+                Suggested from{" "}
+                {departmentOptions.suggestion_basis === "RESUME_QUALIFICATION"
+                  ? "the candidate's qualification"
+                  : "the vacancy's own department (no screened qualification)"}
+                : {departmentOptions.suggestion_text}
+              </p>
+            ) : null}
+            {needsOverride ? (
               <div className="flex flex-col gap-1.5">
-                <Label>Department</Label>
-                <Select value={departmentId} onValueChange={setDepartmentId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departmentOptions.map((department) => (
-                      <SelectItem key={department.id} value={department.id}>
-                        {department.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="override_reason">Override reason (Super Admin)</Label>
+                <Textarea
+                  id="override_reason"
+                  required
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  This department has no vacancy for the designation. The override and its reason are logged.
+                </p>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="room_allotted">Room (optional)</Label>
-                <Input id="room_allotted" value={roomAllotted} onChange={(e) => setRoomAllotted(e.target.value)} />
-              </div>
+            ) : null}
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="room_allotted">Room (optional)</Label>
+              <Input
+                id="room_allotted"
+                value={roomAllotted}
+                onChange={(e) => setRoomAllotted(e.target.value)}
+                className="max-w-xs"
+              />
             </div>
             <Button
               className="w-fit"
-              disabled={allotDepartmentRoomMutation.isPending || hasPendingDocuments || !departmentId}
+              disabled={
+                allotDepartmentRoomMutation.isPending ||
+                hasPendingDocuments ||
+                !departmentId ||
+                (needsOverride && !overrideReason.trim())
+              }
               onClick={() => allotDepartmentRoomMutation.mutate()}
             >
               {allotDepartmentRoomMutation.isPending ? "Confirming…" : "Confirm department & room allotment"}

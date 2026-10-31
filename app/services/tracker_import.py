@@ -64,8 +64,12 @@ SOURCE_VALUES = ("Reference", "Job Portal", "FacultyPlus", "Walk-in")
 # WAITLISTED is left out on purpose: it needs a rank and is reached only
 # from INTERVIEWED through pipeline.py, and this import writes historical
 # statuses directly. The workbook accepts exactly what it did before it.
+# PROVISIONAL_ORDER_ISSUED is left out for the same reason: it stands for an
+# `appointment_orders` row (number, letter) that only the order endpoint
+# creates.
+_NOT_IMPORTABLE = {ApplicationStatusEnum.WAITLISTED, ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED}
 VALID_APPLICATION_STATUSES = {
-    s.value for s in APPLICATION_STATUS_ORDER if s != ApplicationStatusEnum.WAITLISTED
+    s.value for s in APPLICATION_STATUS_ORDER if s not in _NOT_IMPORTABLE
 } | {"REJECTED", "WITHDRAWN"}
 
 # A candidate at or beyond SELECTED holds a reserved slot; at or beyond

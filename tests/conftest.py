@@ -65,7 +65,7 @@ from app.models.user_department_scope import user_department_scope
 from app.models.user_permission_grant import UserPermissionGrant
 from app.models.vacancy_request import VacancyRequest
 from app.services import joining as joining_service
-from app.services import job_postings, pipeline, vacancy_workflow
+from app.services import appointment_orders, job_postings, pipeline, vacancy_workflow
 from app.services.ai_client import get_ai_client, get_image_ai_client, get_jd_ai_client, get_openai_client
 from app.services.permissions import seed_default_permissions
 from app.services.storage import get_minio_client
@@ -779,6 +779,30 @@ def sanctioned_strength_factory(db_session, campus_factory):
 
 
 @pytest.fixture()
+def allotment_seat_factory(db_session, designation_factory, sanctioned_strength_factory):
+    """Gives a published vacancy a Designation and a Sanctioned Strength row
+    in its own department, so department allotment (which refuses a
+    department with no vacancy -- docs/specs/provisional-order-and-
+    allotment.md) has a seat to allot. Returns the designation."""
+
+    def _make(vacancy, *, approved_strength: int = 5, name: str = "Assistant Professor"):
+        category = vacancy.vacancy_request.role_category
+        designation = designation_factory(category=category, name=name, department=vacancy.department)
+        vacancy.vacancy_request.designation_id = designation.id
+        db_session.flush()
+        sanctioned_strength_factory(
+            campus=vacancy.campus,
+            department=vacancy.department,
+            designation=designation,
+            approved_strength=approved_strength,
+            created_by=vacancy.hr_admin,
+        )
+        return designation
+
+    return _make
+
+
+@pytest.fixture()
 def location_factory(db_session, campus_factory):
     def _make(
         campus_code: str,
@@ -1015,6 +1039,7 @@ def hired_employee_factory(db_session, candidate_factory):
         joining_service.complete_onboarding(
             db_session, application=application, joining_record=joining_record, actor=actor
         )
+        appointment_orders.issue_provisional_order(db_session, application=application, actor=actor)
         joining_service.allot_department_room(
             db_session, application=application, department_id=vacancy.department.id, room_allotted="R-101", actor=actor
         )

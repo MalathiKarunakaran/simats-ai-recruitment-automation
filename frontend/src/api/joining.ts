@@ -1,5 +1,7 @@
 import { apiFetch, apiFetchBlob } from "@/api/client";
 import type {
+  AppointmentOrderRead,
+  DepartmentOptionsResponse,
   DepartmentRoomAllotmentPayload,
   EmployeeRead,
   HandoverToHodPayload,
@@ -61,6 +63,47 @@ export async function allotDepartmentRoom(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+// --- Provisional appointment order (docs/specs/provisional-order-and-allotment.md)
+
+export async function issueProvisionalOrder(applicationId: string): Promise<AppointmentOrderRead> {
+  return apiFetch<AppointmentOrderRead>(`/applications/${applicationId}/provisional-order`, { method: "POST" });
+}
+
+export async function getProvisionalOrder(applicationId: string): Promise<AppointmentOrderRead> {
+  return apiFetch<AppointmentOrderRead>(`/applications/${applicationId}/provisional-order`);
+}
+
+async function openBlob(path: string): Promise<void> {
+  const blob = await apiFetchBlob(path);
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener");
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export function openProvisionalOrderLetter(applicationId: string): Promise<void> {
+  return openBlob(`/applications/${applicationId}/provisional-order/letter.pdf`);
+}
+
+export function openProvisionalOrderSignedCopy(applicationId: string): Promise<void> {
+  return openBlob(`/applications/${applicationId}/provisional-order/signed-copy`);
+}
+
+export async function uploadProvisionalOrderSignedCopy(
+  applicationId: string,
+  file: File,
+): Promise<AppointmentOrderRead> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<AppointmentOrderRead>(`/applications/${applicationId}/provisional-order/signed-copy`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function getDepartmentOptions(applicationId: string): Promise<DepartmentOptionsResponse> {
+  return apiFetch<DepartmentOptionsResponse>(`/applications/${applicationId}/department-options`);
 }
 
 export async function completeOrientation(

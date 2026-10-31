@@ -8,7 +8,9 @@ import * as employeesApi from "@/api/employees";
 import * as joiningApi from "@/api/joining";
 import * as locationsApi from "@/api/locations";
 import type {
+  AppointmentOrderRead,
   ApplicationRead,
+  DepartmentOptionsResponse,
   DepartmentRead,
   EmployeeRead,
   JoiningDocumentRead,
@@ -34,6 +36,57 @@ const mockedListEmployees = vi.mocked(employeesApi.listEmployees);
 const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
 const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedHandOverToHod = vi.mocked(joiningApi.handOverToHod);
+const mockedGetProvisionalOrder = vi.mocked(joiningApi.getProvisionalOrder);
+const mockedGetDepartmentOptions = vi.mocked(joiningApi.getDepartmentOptions);
+
+const ORDER: AppointmentOrderRead = {
+  id: "ord-1",
+  application_id: "app-1",
+  order_number: "SSE / PA/ 231/ 10/ 2026",
+  sequence: 231,
+  order_date: "2026-10-31",
+  status: "ISSUED",
+  issued_by_id: "u-1",
+  issued_at: "2026-10-31T05:00:00Z",
+  candidate_name: "Jane Doe",
+  designation: "Assistant Professor",
+  category: "TEACHING",
+  campus_code: "SSE",
+  college_name: "SIMATS Engineering",
+  principal_name: "Dr. B. Ramesh",
+  department_name: "Computer Science",
+  joining_date: "2026-11-02",
+  probation_end_date: "2027-01-31",
+  signed_copy_content_type: null,
+  signed_copy_size: null,
+  signed_copy_uploaded_at: null,
+};
+
+const OPTIONS: DepartmentOptionsResponse = {
+  designation_id: "des-1",
+  suggestion_basis: "RESUME_QUALIFICATION",
+  suggestion_text: "M.E. Computer Science",
+  options: [
+    {
+      department_id: "dept-cse",
+      department_name: "Computer Science",
+      sanctioned: 3,
+      working: 1,
+      reserved: 0,
+      vacancy: 2,
+      suggested: true,
+    },
+    {
+      department_id: "dept-civil",
+      department_name: "Civil Engineering",
+      sanctioned: 1,
+      working: 0,
+      reserved: 1,
+      vacancy: 0,
+      suggested: false,
+    },
+  ],
+};
 
 function makeApplication(overrides: Partial<ApplicationRead> = {}): ApplicationRead {
   return {
@@ -124,6 +177,9 @@ function renderCard(application: ApplicationRead) {
 describe("JoiningCard", () => {
   beforeEach(() => {
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+    mockedGetProvisionalOrder.mockReset();
+    mockedGetProvisionalOrder.mockResolvedValue(ORDER);
+    mockedGetDepartmentOptions.mockResolvedValue(OPTIONS);
   });
 
   it("renders nothing for a role outside the read roles", () => {
@@ -238,40 +294,114 @@ describe("JoiningCard", () => {
     expect(mockedOpen).toHaveBeenCalledWith("doc-1");
   });
 
-  it("disables the department/room allotment confirm button while a document is still pending", async () => {
+  const authAs = (role: UserRead["role"]) =>
     mockedUseAuth.mockReturnValue({
-      user: { role: "HR_ADMIN" } as UserRead,
+      user: { role } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
+
+  it("offers Issue provisional order at JOINED instead of the department picker", async () => {
+    authAs("HR_ADMIN");
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
-    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "PENDING" })]);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
+    const mockedIssue = vi.mocked(joiningApi.issueProvisionalOrder);
+    mockedIssue.mockResolvedValue(ORDER);
 
     renderCard(makeApplication({ status: "JOINED" }));
 
+    await userEvent.click(await screen.findByRole("button", { name: "Issue provisional order" }));
+    expect(mockedIssue).toHaveBeenCalledWith("app-1");
+    expect(screen.queryByText("Confirm department & room allotment")).not.toBeInTheDocument();
+    expect(mockedGetDepartmentOptions).not.toHaveBeenCalled();
+  });
+
+  it("shows the order with Download letter and Upload signed copy once issued", async () => {
+    authAs("HR_ADMIN");
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
+    const mockedOpenLetter = vi.mocked(joiningApi.openProvisionalOrderLetter);
+    mockedOpenLetter.mockResolvedValue(undefined);
+    const mockedUploadSigned = vi.mocked(joiningApi.uploadProvisionalOrderSignedCopy);
+    mockedUploadSigned.mockResolvedValue({ ...ORDER, signed_copy_uploaded_at: "2026-10-31T06:00:00Z" });
+
+    renderCard(makeApplication({ status: "PROVISIONAL_ORDER_ISSUED" }));
+
+    expect(await screen.findByText("SSE / PA/ 231/ 10/ 2026")).toBeInTheDocument();
+    expect(screen.getByText("31-10-2026")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Download letter" }));
+    expect(mockedOpenLetter).toHaveBeenCalledWith("app-1");
+
+    const file = new File(["%PDF-1.4"], "signed.pdf", { type: "application/pdf" });
+    await userEvent.upload(screen.getByLabelText("Upload signed copy"), file);
+    await waitFor(() => expect(mockedUploadSigned).toHaveBeenCalledWith("app-1", file));
+  });
+
+  it("lists departments with vacancy, suggested first, and disables a full one", async () => {
+    authAs("HR_ADMIN");
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
+    const mockedAllot = vi.mocked(joiningApi.allotDepartmentRoom);
+    mockedAllot.mockResolvedValue(RECORD);
+
+    renderCard(makeApplication({ status: "PROVISIONAL_ORDER_ISSUED" }));
+
+    const radios = await screen.findAllByRole("radio");
+    expect(radios).toHaveLength(2);
+    expect(radios[0]).toHaveAccessibleName(/Computer Science/);
+    expect(screen.getByText("Suggested")).toBeInTheDocument();
+    expect(screen.getByText(/2 vacant/)).toBeInTheDocument();
+    expect(screen.getByText(/reserved 1/)).toBeInTheDocument();
+    expect(radios[1]).toBeDisabled();
+
+    const confirm = screen.getByText("Confirm department & room allotment");
+    expect(confirm).toBeDisabled();
+    await userEvent.click(radios[0]);
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
     await waitFor(() =>
-      expect(screen.getByText("Confirm department & room allotment")).toBeInTheDocument(),
+      expect(mockedAllot).toHaveBeenCalledWith("app-1", { department_id: "dept-cse", room_allotted: null }),
     );
+  });
+
+  it("disables the allotment confirm button while a document is still pending", async () => {
+    authAs("HR_ADMIN");
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "PENDING" })]);
+
+    renderCard(makeApplication({ status: "PROVISIONAL_ORDER_ISSUED" }));
+
+    await userEvent.click((await screen.findAllByRole("radio"))[0]);
     expect(screen.getByText("Confirm department & room allotment")).toBeDisabled();
     expect(screen.getByText("All documents must be received first.")).toBeInTheDocument();
   });
 
-  it("enables the department/room allotment confirm button once all documents are received and a department is picked", async () => {
-    mockedUseAuth.mockReturnValue({
-      user: { role: "HR_ADMIN" } as UserRead,
-      isLoading: false,
-      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
-      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
-    });
+  it("lets a Super Admin pick a full department only with a reason", async () => {
+    authAs("SUPER_ADMIN");
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
+    const mockedAllot = vi.mocked(joiningApi.allotDepartmentRoom);
+    mockedAllot.mockReset();
+    mockedAllot.mockResolvedValue(RECORD);
 
-    renderCard(makeApplication({ status: "JOINED" }));
+    renderCard(makeApplication({ status: "PROVISIONAL_ORDER_ISSUED" }));
 
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeInTheDocument());
-    // No department selected yet -- still disabled even with docs received.
-    expect(screen.getByText("Confirm department & room allotment")).toBeDisabled();
+    const radios = await screen.findAllByRole("radio");
+    expect(radios[1]).toBeEnabled();
+    await userEvent.click(radios[1]);
+    const confirm = screen.getByText("Confirm department & room allotment");
+    expect(confirm).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Override reason (Super Admin)"), "Principal asked");
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
+    await waitFor(() =>
+      expect(mockedAllot).toHaveBeenCalledWith("app-1", {
+        department_id: "dept-civil",
+        room_allotted: null,
+        override_reason: "Principal asked",
+      }),
+    );
   });
 
   it("shows the orientation date input at DEPARTMENT_ROOM_ALLOTTED", async () => {
