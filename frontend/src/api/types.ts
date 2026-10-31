@@ -2837,3 +2837,19 @@ export interface TalentPoolListParams {
   limit?: number;
   offset?: number;
 }
+
+// app/schemas/sheet_sync.py -- Google Sheet Sync status page.
+export interface SheetSyncRun {
+  id: string | null; // null for the talent pool tabs (no stored run)
+  source: string;
+  dry_run: boolean;
+  created_at: string | null;
+  counts: Record<string, number>;
+  missing_headers: string[];
+}
+
+export interface SheetSyncStatusItem {
+  source: string;
+  last_run: SheetSyncRun | null;
+  last_dry_run: SheetSyncRun | null;
+}

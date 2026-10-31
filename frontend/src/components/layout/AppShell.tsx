@@ -21,6 +21,7 @@ import {
   Newspaper,
   Plus,
   Printer,
+  RefreshCw,
   Settings,
   Sparkles,
   Upload,
@@ -175,6 +176,13 @@ const NAV_GROUPS: NavGroup[] = [
         icon: Upload,
         // Mirrors POST /migration/import-tracker-workbook (HR_ADMIN/SUPER_ADMIN only).
         visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN"],
+      },
+      {
+        to: "/sheet-sync",
+        label: "Google Sheet Sync",
+        icon: RefreshCw,
+        // Mirrors sheet_sync.py's GET /sheet-sync/runs: require_roles(SUPER_ADMIN).
+        visibleForRoles: ["SUPER_ADMIN"],
       },
       {
         to: "/users",
