@@ -67,3 +67,27 @@ Same look as Talent Pool (reuse its components where they fit).
 
 Also fixes: opening `/talent-pool?...#register` directly (a fresh page
 load, not an in-page click) must scroll to the list once it has loaded.
+
+## Step A2 — marking the Provisional Orders checklist in the app (31-Oct-2026)
+
+User decision: Super Admin, HR Admin and Recruitment Coordinators can mark
+each provisional order's checklist **in the app**. The **app mark wins**
+over the sheet; the sheet is never written to (CONFIRM-1 stays one-way) and
+the sync never overwrites an app mark, so the two may differ until someone
+updates the sheet.
+
+Items: ID Card, Food App, Arms, 360 App, File Submitted to ADFA (Done / Not
+done, labelled like the sheet: Collected, Created, Filled, YES), Room
+allotted (text), Provision Order (Issued / Pending), Probation outcome
+(Permanent order received / Extend probation / Not satisfied / Left /
+Rejoin / TRA / Family way / No submit PG / Long leave), and two items the
+sheet does not have: **Final appointment order from the Registrar's office**
+(issued yes/no + date) and **Orientation conducted** (yes/no + date).
+
+Stored in a new app-owned table keyed to the provisional order (one row per
+order; each field nullable = "use the sheet's value"), with who/when per
+mark and an audit row per change. Every screen, tile and filter on the
+Provisional Orders page uses the **effective** value (app mark if set, else
+the sheet), shows a small "marked in app by ‹name›, ‹date›" note where the
+app mark applies, and lets a marker clear an app mark (back to the sheet's
+value). Read access unchanged.
