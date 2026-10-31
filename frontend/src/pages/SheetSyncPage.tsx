@@ -15,7 +15,6 @@ interface SourceCard {
   sheet: string;
   // Backend source strings that feed this card (first match wins).
   sources: string[];
-  waiting?: boolean;
 }
 
 const CARDS: SourceCard[] = [
@@ -23,7 +22,8 @@ const CARDS: SourceCard[] = [
   { code: "S2", label: "Non-Teaching Applicants", sheet: "NTS tab", sources: ["TALENT_POOL_NTS", "NTS"] },
   { code: "S3", label: "New Joinees", sheet: "New Joinees tab", sources: ["NEW_JOINEES"] },
   { code: "S4", label: "Provisional Orders", sheet: "Pro App Order tab", sources: ["PRO_APP_ORDER"] },
-  { code: "S5", label: "New Departments", sheet: "New Departments sheet", sources: [], waiting: true },
+  { code: "S5", label: "New Departments", sheet: "Approved_Depts tab", sources: ["NEW_DEPARTMENTS"] },
+  { code: "S6", label: "Department Faculty", sheet: "Faculty tab", sources: ["DEPARTMENT_FACULTY"] },
 ];
 
 const PRIMARY_COUNTS = ["received", "inserted", "updated", "unchanged", "deactivated", "flagged"];
@@ -98,17 +98,6 @@ function SyncCard({ card, runs }: { card: SourceCard; runs: { last_run: SheetSyn
       <p className="mt-0.5 text-xs text-muted-foreground">from the {card.sheet}</p>
     </div>
   );
-
-  if (card.waiting) {
-    return (
-      <Card>
-        <CardHeader>{title}</CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">Waiting for mapping approval — not synced yet.</p>
-        </CardContent>
-      </Card>
-    );
-  }
 
   const run = runs?.last_run ?? null;
   const dry = runs?.last_dry_run ?? null;

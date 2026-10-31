@@ -2861,3 +2861,57 @@ export interface SheetSyncStatusItem {
   last_run: SheetSyncRun | null;
   last_dry_run: SheetSyncRun | null;
 }
+
+// ---- Selection batches (app/schemas/selection_batch.py) ----
+export type SelectionBatchStatus = "SENT_TO_UNIVERSITY" | "UNIVERSITY_APPROVED" | "WITHDRAWN";
+
+export interface SelectionBatchMemberIn {
+  talent_pool_entry_id: string;
+  designation?: string | null;
+  proposed_salary?: string | null;
+}
+
+export interface SelectionBatchCreatePayload {
+  members: SelectionBatchMemberIn[];
+  campus_id?: string | null;
+  note?: string | null;
+  sent_on?: string | null;
+}
+
+export interface UniversityApprovalPayload {
+  university_ref_no: string;
+  university_approved_on: string;
+}
+
+export interface SelectionBatchMember {
+  id: string;
+  talent_pool_entry_id: string;
+  full_name: string;
+  designation: string | null;
+  department: string | null;
+  category: string | null;
+  qualification: string | null;
+  experience: string | null;
+  panel_remarks: string | null;
+  proposed_salary: string | null;
+}
+
+export interface SelectionBatch {
+  id: string;
+  batch_no: string;
+  status: SelectionBatchStatus;
+  campus_id: string | null;
+  campus_code: string | null;
+  note: string | null;
+  sent_on: string;
+  university_ref_no: string | null;
+  university_approved_on: string | null;
+  created_by_id: string;
+  approval_recorded_by_id: string | null;
+  member_count: number;
+  created_at: string;
+}
+
+export interface SelectionBatchDetail extends SelectionBatch {
+  members: SelectionBatchMember[];
+}

@@ -128,6 +128,14 @@ const NAV_GROUPS: NavGroup[] = [
         visibleForRoles: ["HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
       },
       {
+        to: "/selection-batches",
+        label: "Selection Batches",
+        icon: ListChecks,
+        // Mirrors selection_batches.py's require_roles(SUPER_ADMIN, HR_ADMIN,
+        // RECRUITMENT_COORDINATOR); no PermissionEnum value to grant.
+        visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"],
+      },
+      {
         to: "/campaign-poster",
         label: "Campaign Poster",
         icon: Printer,

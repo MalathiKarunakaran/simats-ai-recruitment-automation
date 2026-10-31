@@ -9,6 +9,12 @@ import type { TalentPoolEntryRead, TalentPoolSummary } from "@/api/types";
 import { TalentPoolPage } from "@/pages/TalentPoolPage";
 
 vi.mock("@/api/talentPool");
+// The register reads the role to decide whether to offer batch checkboxes;
+// MANAGEMENT is not one of the three batch roles, so this file's tests see
+// the plain read-only register. Checkbox behaviour: TalentPoolRegister.test.tsx.
+vi.mock("@/auth/AuthContext", () => ({
+  useAuth: () => ({ user: { role: "MANAGEMENT" } }),
+}));
 
 const mockedGetSummary = vi.mocked(talentPoolApi.getTalentPoolSummary);
 const mockedListPool = vi.mocked(talentPoolApi.listTalentPool);

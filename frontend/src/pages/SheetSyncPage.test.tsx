@@ -55,11 +55,12 @@ describe("SheetSyncPage", () => {
     expect(mockedList).not.toHaveBeenCalled();
   });
 
-  it("renders five cards, counts, warnings, and the flagged download rules", async () => {
+  it("renders six cards, counts, warnings, and the flagged download rules", async () => {
     mockUser("SUPER_ADMIN");
     const items: SheetSyncStatusItem[] = [
       { source: "TALENT_POOL_TEACHING_FINAL", last_run: run("TALENT_POOL_TEACHING_FINAL", { id: null }), last_dry_run: null },
       { source: "NEW_JOINEES", last_run: run("NEW_JOINEES", { missing_headers: ["Dept New"] }), last_dry_run: run("NEW_JOINEES", { id: "r-2", dry_run: true }) },
+      { source: "NEW_DEPARTMENTS", last_run: run("NEW_DEPARTMENTS", { counts: { received: 30, inserted: 30, flagged: 0 } }), last_dry_run: null },
       { source: "PRO_APP_ORDER", last_run: run("PRO_APP_ORDER", { counts: { received: 10, flagged: 0 } }), last_dry_run: null },
     ];
     mockedList.mockResolvedValue(items);
@@ -70,8 +71,9 @@ describe("SheetSyncPage", () => {
     expect(screen.getByText("Non-Teaching Applicants")).toBeInTheDocument();
     expect(screen.getByText("Provisional Orders")).toBeInTheDocument();
     expect(screen.getByText("New Departments")).toBeInTheDocument();
-    expect(screen.getByText(/Waiting for mapping approval/)).toBeInTheDocument();
-    expect(screen.getByText("Not synced yet")).toBeInTheDocument(); // NTS
+    expect(screen.getByText("Department Faculty")).toBeInTheDocument();
+    expect(screen.queryByText(/Waiting for mapping approval/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("Not synced yet")).toHaveLength(2); // NTS + Faculty
     expect(screen.getAllByText("Not in Employees").length).toBeGreaterThan(0);
     expect(screen.getByText(/Missing headers in the sheet: Dept New/)).toBeInTheDocument();
     expect(screen.getByText(/Last dry run/)).toBeInTheDocument();

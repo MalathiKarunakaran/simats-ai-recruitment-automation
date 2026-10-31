@@ -125,6 +125,17 @@ describe("AppShell nav", () => {
     await waitFor(() => expect(screen.getByRole("link", { name: /Data Sync Status/ })).toBeInTheDocument());
   });
 
+  it("shows Selection Batches to the three batch roles only", async () => {
+    mockAuth("RECRUITMENT_COORDINATOR");
+    const { unmount } = renderShell();
+    expect(await screen.findByRole("link", { name: /Selection Batches/ })).toHaveAttribute("href", "/selection-batches");
+    unmount();
+    mockAuth("MANAGEMENT");
+    renderShell();
+    await waitFor(() => expect(screen.getByRole("navigation")).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: /Selection Batches/ })).not.toBeInTheDocument();
+  });
+
   it("hides Data Sync Status from HR_ADMIN", async () => {
     mockAuth("HR_ADMIN");
     renderShell();

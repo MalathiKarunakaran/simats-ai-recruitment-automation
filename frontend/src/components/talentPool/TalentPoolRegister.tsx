@@ -1,9 +1,13 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
+import { getBatchMembership } from "@/api/selectionBatches";
 import { listTalentPool } from "@/api/talentPool";
-import type { TalentPoolEntryRead, TalentPoolSourceTab, TalentPoolSummary } from "@/api/types";
+import type { SelectionBatchDetail, TalentPoolEntryRead, TalentPoolSourceTab, TalentPoolSummary } from "@/api/types";
+import { useAuth } from "@/auth/AuthContext";
+import { SendToUniversityDialog } from "@/components/talentPool/SendToUniversityDialog";
 import { CLEARED_FILTERS, describeFilters } from "@/components/talentPool/filterHref";
 import { eligibilityTone, statusTone, toneVariant } from "@/components/talentPool/statusTone";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +32,9 @@ import { Switch } from "@/components/ui/switch";
 
 const PAGE_SIZE = 25;
 const ALL = "__all__";
+// Mirrors selection_batches.py: every route is require_roles(SUPER_ADMIN,
+// HR_ADMIN, RECRUITMENT_COORDINATOR).
+const BATCH_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 export interface RegisterFilters {
   q: string;
@@ -65,6 +72,17 @@ export function TalentPoolRegister({
   onOpenEntry,
 }: TalentPoolRegisterProps) {
   const teaching = tab === "TEACHING_FINAL";
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  // Selecting people for the University only makes sense on the Selected
+  // list, and only for the roles the batch endpoints admit.
+  const canSelect = filters.status === "Selected" && !!user && BATCH_ROLES.includes(user.role);
+  const [picked, setPicked] = useState<Map<string, TalentPoolEntryRead>>(new Map());
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [createdBatch, setCreatedBatch] = useState<SelectionBatchDetail | null>(null);
+  useEffect(() => {
+    if (!canSelect) setPicked(new Map());
+  }, [canSelect]);
 
   // Typed text is local and debounced; the URL (and the request) only moves
   // 300ms after typing stops, so a search does not fire a request per key.
@@ -116,12 +134,42 @@ export function TalentPoolRegister({
     placeholderData: keepPreviousData,
   });
 
+  const pageIds = useMemo(() => (canSelect ? (listQuery.data?.items ?? []).map((e) => e.id) : []), [canSelect, listQuery.data]);
+  const membershipQuery = useQuery({
+    queryKey: ["selection-batches", "membership", pageIds],
+    queryFn: () => getBatchMembership(pageIds),
+    enabled: canSelect && pageIds.length > 0,
+  });
+  const membership = membershipQuery.data ?? {};
+  const selectableOnPage = (listQuery.data?.items ?? []).filter((e) => e.is_active && !membership[e.id]);
+  const allOnPagePicked = selectableOnPage.length > 0 && selectableOnPage.every((e) => picked.has(e.id));
+
+  function togglePicked(entry: TalentPoolEntryRead) {
+    setPicked((current) => {
+      const next = new Map(current);
+      if (next.has(entry.id)) next.delete(entry.id);
+      else next.set(entry.id, entry);
+      return next;
+    });
+  }
+
+  function togglePage() {
+    setPicked((current) => {
+      const next = new Map(current);
+      for (const entry of selectableOnPage) {
+        if (allOnPagePicked) next.delete(entry.id);
+        else next.set(entry.id, entry);
+      }
+      return next;
+    });
+  }
+
   const statusOptions = Object.keys(summary.by_status).sort();
   const departmentOptions = summary.by_department.map((row) => row.department);
   const eligibilityOptions = Object.keys(summary.by_eligibility).sort();
 
   const data = listQuery.data;
-  const columnCount = teaching ? 8 : 6;
+  const columnCount = (teaching ? 8 : 6) + (canSelect ? 1 : 0);
   const activeFilters = describeFilters(filters, teaching);
 
   return (
@@ -218,6 +266,16 @@ export function TalentPoolRegister({
         {data ? `${data.total.toLocaleString("en-IN")} ${data.total === 1 ? "candidate" : "candidates"}` : "\u2026"}
       </p>
 
+      {createdBatch ? (
+        <p role="status" className="rounded-md border border-brand-success/40 bg-brand-success/10 px-3 py-2 text-xs">
+          Selection batch{" "}
+          <Link to={`/selection-batches/${createdBatch.id}`} className="font-semibold text-brand-primary underline">
+            {createdBatch.batch_no}
+          </Link>{" "}
+          created with {createdBatch.member_count} {createdBatch.member_count === 1 ? "person" : "people"}.
+        </p>
+      ) : null}
+
       {listQuery.isError ? (
         <p className="text-xs text-brand-danger">
           {listQuery.error instanceof Error ? listQuery.error.message : "Could not load the register"}
@@ -227,6 +285,17 @@ export function TalentPoolRegister({
           <table data-testid="talent-pool-register-table" className="w-full min-w-[42rem] text-xs">
             <thead className="bg-card">
               <tr className="border-b border-border text-left">
+                {canSelect ? (
+                  <th scope="col" className="w-8 px-2 py-1.5">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all on this page"
+                      checked={allOnPagePicked}
+                      disabled={selectableOnPage.length === 0}
+                      onChange={togglePage}
+                    />
+                  </th>
+                ) : null}
                 <th scope="col" className="px-2 py-1.5 font-medium">Name</th>
                 {teaching ? (
                   <>
@@ -271,6 +340,20 @@ export function TalentPoolRegister({
                   }}
                   className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
                 >
+                  {canSelect ? (
+                    <td className="px-2 py-1.5" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                      {membership[entry.id] ? (
+                        <Badge variant="info" className="whitespace-nowrap">In {membership[entry.id]}</Badge>
+                      ) : entry.is_active ? (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${entry.full_name}`}
+                          checked={picked.has(entry.id)}
+                          onChange={() => togglePicked(entry)}
+                        />
+                      ) : null}
+                    </td>
+                  ) : null}
                   <td className="px-2 py-1.5">
                     <span className="flex flex-wrap items-center gap-1.5">
                       <span className="font-medium">{entry.full_name}</span>
@@ -348,6 +431,30 @@ export function TalentPoolRegister({
           </table>
         </div>
       )}
+
+      {canSelect && picked.size > 0 ? (
+        <div className="sticky bottom-2 z-10 flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-xs shadow-lg">
+          <span className="font-medium">{picked.size} selected</span>
+          <span className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPicked(new Map())}>Clear</Button>
+            <Button size="sm" onClick={() => setDialogOpen(true)}>Send to University</Button>
+          </span>
+        </div>
+      ) : null}
+
+      {canSelect ? (
+        <SendToUniversityDialog
+          entries={[...picked.values()]}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onCreated={(batch) => {
+            setDialogOpen(false);
+            setPicked(new Map());
+            setCreatedBatch(batch);
+            void queryClient.invalidateQueries({ queryKey: ["selection-batches"] });
+          }}
+        />
+      ) : null}
 
       {data && data.total > PAGE_SIZE ? (
         <Pagination
