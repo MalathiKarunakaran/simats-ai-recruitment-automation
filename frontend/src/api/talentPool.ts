@@ -32,6 +32,11 @@ export async function listTalentPool(
   if (input.dept_mode) params.set("dept_mode", input.dept_mode);
   if (input.department) params.set("department", input.department);
   if (input.eligibility) params.set("eligibility", input.eligibility);
+  if (input.source) params.set("source", input.source);
+  if (input.called_by) params.set("called_by", input.called_by);
+  if (input.applied_post) params.set("applied_post", input.applied_post);
+  if (input.month) params.set("month", input.month);
+  if (input.undecided) params.set("undecided", "true");
   if (input.include_inactive) params.set("include_inactive", "true");
   params.set("limit", String(input.limit ?? 25));
   params.set("offset", String(input.offset ?? 0));

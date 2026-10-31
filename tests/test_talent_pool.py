@@ -651,3 +651,109 @@ def test_freshness_comes_from_the_latest_sync_audit_row(client, admin_headers, p
     assert data["sheet_last_update"] == "14-10-2026, 04.51 pm"
     assert data["last_sync_counts"]["inserted"] == 12
     assert data["last_sync_at"].startswith("2026-10-21")
+
+# --- breakdown filters: every clickable count lists exactly its people -------
+#
+# Each test below asks the summary for a number and then asks the register
+# for the rows behind it, and asserts the two agree. That equality is the
+# whole point of these filters: a count on the dashboard that opens a list of
+# a different length is worse than a count that opens nothing.
+
+
+def _breakdown_counts_match(client, headers, tab, panel, param):
+    data = _summary(client, headers, tab=tab)
+    items = [i for i in data["breakdowns"][panel] if i["label"] != "Others"]
+    assert items, f"fixture gives the {panel} panel nothing to check"
+    for item in items:
+        listed = _list(client, headers, tab=tab, limit=100, **{param: item["label"]})
+        assert listed["total"] == item["count"], (panel, item)
+
+
+def test_source_filter_equals_each_source_breakdown_count(client, admin_headers, pool):
+    # Includes "Mam Data" (7 = 6 + one "mam data") and "Not set" (5 blanks).
+    _breakdown_counts_match(client, admin_headers, TEACHING, "source", "source")
+    assert _list(client, admin_headers, source="Mam Data")["total"] == 7
+    assert _list(client, admin_headers, source="Not set")["total"] == 5
+
+
+def test_nts_source_filter_equals_its_breakdown(client, admin_headers, pool):
+    _breakdown_counts_match(client, admin_headers, NTS, "source", "source")
+
+
+def test_called_by_filter_equals_each_called_by_breakdown_count(client, admin_headers, pool):
+    _breakdown_counts_match(client, admin_headers, TEACHING, "called_by", "called_by")
+    assert _list(client, admin_headers, called_by="Narmada")["total"] == 2
+
+
+def test_applied_post_filter_equals_each_applied_post_breakdown_count(client, admin_headers, pool):
+    # "Lab Assistant" is 3 across two spellings.
+    _breakdown_counts_match(client, admin_headers, NTS, "applied_post", "applied_post")
+    assert _list(client, admin_headers, tab=NTS, applied_post="Lab Assistant")["total"] == 3
+
+
+def test_eligibility_filter_equals_each_eligibility_breakdown_count(client, admin_headers, pool):
+    # "Not set" used to match nothing: the summary labels blanks "Not set"
+    # but the filter compared against the stored value, which is NULL or "".
+    _breakdown_counts_match(client, admin_headers, TEACHING, "eligibility", "eligibility")
+    assert _list(client, admin_headers, eligibility="Not set")["total"] == 2
+
+
+def test_call_outcome_counts_equal_the_status_filter(client, admin_headers, pool):
+    _breakdown_counts_match(client, admin_headers, NTS, "call_outcomes", "sheet_status")
+
+
+def test_month_filter_equals_each_monthly_bar(client, admin_headers, pool):
+    data = _summary(client, admin_headers)
+    assert sum(p["added"] for p in data["monthly"]) == 17
+    for point in data["monthly"]:
+        listed = _list(client, admin_headers, month=point["month"], limit=100)
+        assert listed["total"] == point["added"], point
+
+
+def test_month_undated_equals_the_undated_note(client, admin_headers, pool):
+    data = _summary(client, admin_headers)
+    listed = _list(client, admin_headers, month="undated", limit=100)
+    assert listed["total"] == data["undated"] == 2
+    assert all(i["applied_on"] is None for i in listed["items"])
+
+
+@pytest.mark.parametrize("bad", ["2026-13", "2026-1", "October", "2026-00"])
+def test_a_month_that_is_not_a_month_is_422(client, admin_headers, pool, bad):
+    response = client.get(
+        "/api/v1/talent-pool",
+        params={"source_tab": TEACHING, "month": bad},
+        headers=admin_headers,
+    )
+    assert response.status_code == 422
+
+
+def test_undecided_filter_equals_the_open_column(client, admin_headers, pool, db_session):
+    # An unexpected status is not a decision, so it must land here exactly
+    # as it lands in the department table's `open` column.
+    _entry(db_session, sheet_status="Called Twice", dept_group="ECE", dept_raw="ECE")
+    db_session.commit()
+
+    for tab in (TEACHING, NTS):
+        data = _summary(client, admin_headers, tab=tab)
+        open_total = sum(r["open"] for r in data["by_department"])
+        assert _list(client, admin_headers, tab=tab, undecided="true")["total"] == open_total
+        for row in data["by_department"]:
+            listed = _list(
+                client, admin_headers, tab=tab, undecided="true", department=row["department"]
+            )
+            assert listed["total"] == row["open"], row
+
+    assert _list(client, admin_headers, undecided="true")["total"] == 8
+
+
+def test_eligible_and_undecided_matches_eligible_pending_when_every_open_row_is_pending(
+    client, admin_headers, pool
+):
+    data = _summary(client, admin_headers)
+    listed = _list(client, admin_headers, eligibility="With Ph.D", undecided="true")
+    assert listed["total"] == data["eligible_pending"] == 3
+
+
+def test_the_new_filters_are_optional_and_change_nothing_when_absent(client, admin_headers, pool):
+    assert _list(client, admin_headers)["total"] == 19
+    assert _list(client, admin_headers, undecided="false")["total"] == 19

@@ -241,8 +241,6 @@ describe("TalentPoolPage", () => {
     await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
     expect(tileLink("Selected")!.getAttribute("href")).toContain("status=Selected");
     expect(tileLink("Rejected")!.getAttribute("href")).toContain("status=Rejected");
-    // "Total candidates" has no click action, so it is not a link at all.
-    expect(tileLink("Total candidates")).toBeNull();
   });
 
   it("the tab toggle switches source_tab and clears the register filters", async () => {
@@ -919,5 +917,209 @@ describe("TalentPoolPage", () => {
 
       expect(await screen.findByRole("dialog")).toBeInTheDocument();
     });
+  });
+});
+
+function panel(title: string): HTMLElement {
+  return screen.getByText(title).closest("div")!.parentElement!;
+}
+
+function hrefParams(link: Element | null): URLSearchParams {
+  const href = link!.getAttribute("href")!;
+  expect(href.endsWith("#register")).toBe(true);
+  return new URLSearchParams(href.slice(href.indexOf("?") + 1, href.indexOf("#")));
+}
+
+describe("every count opens the list behind it (2026-10-31)", () => {
+  it("the Total tile is a link that clears status and eligibility but keeps the department", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage("/talent-pool?status=Selected&eligibility=With+Ph.D&undecided=true&department=ECE&offset=50");
+
+    await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
+    const params = hrefParams(tileLink("Total candidates"));
+    expect(params.get("status")).toBeNull();
+    expect(params.get("eligibility")).toBeNull();
+    expect(params.get("undecided")).toBeNull();
+    expect(params.get("offset")).toBeNull();
+    expect(params.get("department")).toBe("ECE");
+  });
+
+  it("a tile replaces a breakdown filter rather than stacking on it", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage("/talent-pool?source=Mam+Data");
+
+    await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
+    const params = hrefParams(tileLink("Selected"));
+    expect(params.get("status")).toBe("Selected");
+    expect(params.get("source")).toBeNull();
+  });
+
+  it("the NTS Total tile is a link too, and In follow-up (three statuses) is not", async () => {
+    mockedGetSummary.mockResolvedValue(ntsSummary());
+    renderPage("/talent-pool?tab=nts");
+
+    await waitFor(() => expect(screen.getByText("in the NTS sheet")).toBeInTheDocument());
+    expect(hrefParams(tileLink("Total candidates")).get("tab")).toBe("nts");
+    expect(tileLink("In follow-up")).toBeNull();
+  });
+
+  it("each teaching breakdown row links to its own filter, composed with the department", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage("/talent-pool?department=CSE");
+
+    await waitFor(() => expect(screen.getByText("Data source")).toBeInTheDocument());
+
+    const source = within(panel("Data source")).getByRole("link", { name: /^Mam Data: 7/ });
+    expect(hrefParams(source).get("source")).toBe("Mam Data");
+    expect(hrefParams(source).get("department")).toBe("CSE");
+
+    const notSet = within(panel("PhD / eligibility")).getByRole("link", { name: /^Not set: 2/ });
+    expect(hrefParams(notSet).get("eligibility")).toBe("Not set");
+
+    const calledBy = within(panel("Interviews called by")).getByRole("link", { name: /^Narmada: 2/ });
+    expect(hrefParams(calledBy).get("called_by")).toBe("Narmada");
+  });
+
+  it("each NTS breakdown row links to applied_post, source or status", async () => {
+    mockedGetSummary.mockResolvedValue(ntsSummary());
+    renderPage("/talent-pool?tab=nts");
+
+    await waitFor(() => expect(screen.getByText("Call outcomes")).toBeInTheDocument());
+    // "Applied post" is also a register column header, so find the panel by its heading.
+    const postPanel = screen.getByRole("heading", { name: "Applied post" }).closest("div")!.parentElement!;
+    const post = within(postPanel).getByRole("link", { name: /^Lab Assistant: 3/ });
+    expect(hrefParams(post).get("applied_post")).toBe("Lab Assistant");
+
+    const referral = within(panel("Reference source")).getByRole("link", { name: /^Referral: 9/ });
+    expect(hrefParams(referral).get("source")).toBe("Referral");
+
+    const rnr = within(panel("Call outcomes")).getByRole("link", { name: /^RNR: 2/ });
+    expect(hrefParams(rnr).get("status")).toBe("RNR");
+    expect(hrefParams(rnr).get("tab")).toBe("nts");
+  });
+
+  it("never links the Others bucket, which is not a value anyone can filter on", async () => {
+    mockedGetSummary.mockResolvedValue(
+      summary({
+        breakdowns: {
+          ...summary().breakdowns,
+          source: [
+            { label: "Our Data", count: 7 },
+            { label: "Others", count: 4 },
+          ],
+        },
+      }),
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Data source")).toBeInTheDocument());
+    const sourcePanel = within(panel("Data source"));
+    expect(sourcePanel.getByRole("link", { name: /^Our Data: 7/ })).toBeInTheDocument();
+    expect(sourcePanel.getByText("Others").closest("a")).toBeNull();
+  });
+
+  it("each month has a keyboard-reachable link, and the undated note links to undated", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("talent-pool-monthly-chart")).toBeInTheDocument());
+    const months = within(screen.getByRole("list", { name: "Candidates by month" })).getAllByRole("link");
+    expect(months).toHaveLength(12);
+    expect(hrefParams(months[9]).get("month")).toBe("2026-10");
+
+    const undated = screen.getByText(/2 rows have no readable date/).closest("a");
+    expect(hrefParams(undated).get("month")).toBe("undated");
+  });
+
+  it("asks the API with the new filters the URL carries", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage(
+      "/talent-pool?source=Mam+Data&called_by=Narmada&applied_post=Driver&month=2026-10&undecided=true",
+    );
+
+    await waitFor(() =>
+      expect(mockedListPool).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: "Mam Data",
+          called_by: "Narmada",
+          applied_post: "Driver",
+          month: "2026-10",
+          undecided: true,
+          offset: 0,
+        }),
+      ),
+    );
+  });
+
+  it("says what the list is showing and how many people, with a Clear filters button", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    mockedListPool.mockResolvedValue(page([entry()], 454));
+    renderPage("/talent-pool?status=Selected&department=ECE");
+
+    const line = await screen.findByTestId("talent-pool-active-filters");
+    await waitFor(() =>
+      expect(line).toHaveTextContent("Showing: Selected \u00b7 Department: ECE \u2014 454 people"),
+    );
+
+    mockedListPool.mockClear();
+    await userEvent.click(within(line).getByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() =>
+      expect(mockedListPool).toHaveBeenCalledWith(
+        expect.objectContaining({ sheet_status: undefined, department: undefined, offset: 0 }),
+      ),
+    );
+    expect(screen.queryByTestId("talent-pool-active-filters")).not.toBeInTheDocument();
+  });
+
+  it("names the breakdown and month filters in words", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage("/talent-pool?source=Mam+Data&month=undated");
+
+    const line = await screen.findByTestId("talent-pool-active-filters");
+    expect(line).toHaveTextContent("Data source: Mam Data \u00b7 No readable date");
+  });
+
+  it("shows no filter line when nothing is filtered", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Candidate register")).toBeInTheDocument());
+    expect(screen.queryByTestId("talent-pool-active-filters")).not.toBeInTheDocument();
+  });
+
+  it("scrolls the register into view when the URL says #register, and again on the next click", async () => {
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage("/talent-pool?status=Selected#register");
+
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
+    expect(scroll.mock.contexts.at(-1)).toBe(document.getElementById("register"));
+
+    scroll.mockClear();
+    await userEvent.click(tileLink("Rejected")!);
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    scroll.mockRestore();
+  });
+
+  it("does not scroll on a plain visit with no #register", async () => {
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Candidate register")).toBeInTheDocument());
+    expect(scroll).not.toHaveBeenCalled();
+    scroll.mockRestore();
+  });
+
+  it("a department row click scrolls to the register as well", async () => {
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("By department")).toBeInTheDocument());
+    await userEvent.click(within(departmentTable()).getByText("ECE"));
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
+    scroll.mockRestore();
   });
 });

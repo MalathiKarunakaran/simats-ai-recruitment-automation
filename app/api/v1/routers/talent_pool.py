@@ -32,6 +32,7 @@ envelope. Those two cannot both hold -- this repo's `PaginatedResponse` is
 into an offset.
 """
 
+import re
 import uuid
 from datetime import date
 
@@ -97,6 +98,41 @@ def _escape_like(term: str) -> str:
     The ILIKE below declares `escape="\\"` to match.
     """
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _label_match(column, value: str):
+    """Match a breakdown label exactly the way `_ranked` built it.
+
+    `_ranked` groups on `lower(trim(x))` and labels each group with its most
+    common spelling, so "Mam Data" in the panel stands for "Mam Data" AND
+    "mam data" in the rows. Matching the label case-sensitively would return
+    fewer people than the number that was clicked. "Not set" is the label a
+    blank gets, so it has to match blanks here, as the department filter
+    already does.
+    """
+    if value == TALENT_POOL_NOT_SET_LABEL:
+        return column.is_(None) | (func.btrim(column) == "")
+    return func.lower(func.btrim(column)) == value.strip().lower()
+
+
+_MONTH_PATTERN = re.compile(r"^(\d{4})-(\d{2})$")
+_UNDATED = "undated"
+
+
+def _month_bounds(month: str) -> tuple[date, date]:
+    """First day of `YYYY-MM` and first day of the month after, so the
+    filter is a range on `applied_on` (index-friendly) rather than a
+    to_char() of every row. 422 for a month that is not a month."""
+    match = _MONTH_PATTERN.match(month)
+    if not match or not 1 <= int(match.group(2)) <= 12:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="month must be YYYY-MM or 'undated'",
+        )
+    year, mon = int(match.group(1)), int(match.group(2))
+    start = date(year, mon, 1)
+    end = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
+    return start, end
 
 
 def _ranked(
@@ -365,6 +401,11 @@ def list_talent_pool(
     dept_mode: str = Query("group", pattern="^(group|raw)$"),
     department: str | None = Query(None),
     eligibility: str | None = Query(None),
+    source: str | None = Query(None),
+    called_by: str | None = Query(None),
+    applied_post: str | None = Query(None),
+    month: str | None = Query(None),
+    undecided: bool = Query(False),
     include_inactive: bool = Query(False),
     limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -376,7 +417,34 @@ def list_talent_pool(
     if sheet_status:
         stmt = stmt.where(TalentPoolEntry.sheet_status == sheet_status)
     if eligibility:
-        stmt = stmt.where(TalentPoolEntry.eligibility == eligibility)
+        # "Not set" is what the summary calls a blank eligibility, so it
+        # matches blanks rather than a literal "Not set" nobody stored.
+        if eligibility == TALENT_POOL_NOT_SET_LABEL:
+            stmt = stmt.where(
+                TalentPoolEntry.eligibility.is_(None) | (func.btrim(TalentPoolEntry.eligibility) == "")
+            )
+        else:
+            stmt = stmt.where(TalentPoolEntry.eligibility == eligibility)
+    # The breakdown panels' filters (2026-10-31): each takes the label the
+    # summary shows, so clicking a breakdown row lists exactly that row's
+    # count. There is deliberately no filter for "Others" -- it is a fold of
+    # whatever fell below the top N, not a value anybody can name.
+    if source:
+        stmt = stmt.where(_label_match(TalentPoolEntry.source, source))
+    if called_by:
+        stmt = stmt.where(_label_match(TalentPoolEntry.called_by, called_by))
+    if applied_post:
+        stmt = stmt.where(_label_match(TalentPoolEntry.applied_post, applied_post))
+    if month:
+        if month == _UNDATED:
+            stmt = stmt.where(TalentPoolEntry.applied_on.is_(None))
+        else:
+            start, end = _month_bounds(month)
+            stmt = stmt.where(TalentPoolEntry.applied_on >= start, TalentPoolEntry.applied_on < end)
+    if undecided:
+        # The same definition as the summary's `open` column: anything that
+        # is not one of the decided statuses, unexpected spellings included.
+        stmt = stmt.where(TalentPoolEntry.sheet_status.not_in(TALENT_POOL_DECIDED_STATUSES))
     if department:
         # Matched exactly, against whichever column the caller is viewing,
         # so a department row click filters to precisely that row's count.

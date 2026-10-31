@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 
 import { listTalentPool } from "@/api/talentPool";
 import type { TalentPoolEntryRead, TalentPoolSourceTab, TalentPoolSummary } from "@/api/types";
+import { CLEARED_FILTERS, describeFilters } from "@/components/talentPool/filterHref";
 import { eligibilityTone, statusTone, toneVariant } from "@/components/talentPool/statusTone";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -32,6 +34,15 @@ export interface RegisterFilters {
   status: string;
   department: string;
   eligibility: string;
+  /** Breakdown and chart filters (2026-10-31). No dropdown sets these -- a
+   * clicked count does -- so the "Showing:" line below is how a reader sees
+   * and clears them. */
+  source: string;
+  calledBy: string;
+  appliedPost: string;
+  /** `YYYY-MM`, or "undated". */
+  month: string;
+  undecided: boolean;
   includeInactive: boolean;
   offset: number;
 }
@@ -75,6 +86,11 @@ export function TalentPoolRegister({
       filters.status,
       filters.department,
       filters.eligibility,
+      filters.source,
+      filters.calledBy,
+      filters.appliedPost,
+      filters.month,
+      filters.undecided,
       filters.includeInactive,
       filters.offset,
     ],
@@ -86,6 +102,11 @@ export function TalentPoolRegister({
         dept_mode: deptMode,
         department: filters.department || undefined,
         eligibility: filters.eligibility || undefined,
+        source: filters.source || undefined,
+        called_by: filters.calledBy || undefined,
+        applied_post: filters.appliedPost || undefined,
+        month: filters.month || undefined,
+        undecided: filters.undecided,
         include_inactive: filters.includeInactive,
         limit: PAGE_SIZE,
         offset: filters.offset,
@@ -101,6 +122,7 @@ export function TalentPoolRegister({
 
   const data = listQuery.data;
   const columnCount = teaching ? 8 : 6;
+  const activeFilters = describeFilters(filters, teaching);
 
   return (
     <section id="register" className="space-y-3 scroll-mt-4">
@@ -171,6 +193,26 @@ export function TalentPoolRegister({
           Show removed rows
         </label>
       </div>
+
+      {activeFilters.length > 0 ? (
+        <div
+          data-testid="talent-pool-active-filters"
+          aria-live="polite"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs"
+        >
+          <p>
+            <span className="font-semibold">Showing:</span> {activeFilters.join(" \u00b7 ")}
+            {data ? (
+              <span className="font-semibold">
+                {` \u2014 ${data.total.toLocaleString("en-IN")} ${data.total === 1 ? "person" : "people"}`}
+              </span>
+            ) : null}
+          </p>
+          <Button variant="outline" size="sm" className="h-7" onClick={() => onFiltersChange(CLEARED_FILTERS)}>
+            Clear filters
+          </Button>
+        </div>
+      ) : null}
 
       <p className="text-[11px] text-muted-foreground">
         {data ? `${data.total.toLocaleString("en-IN")} ${data.total === 1 ? "candidate" : "candidates"}` : "\u2026"}

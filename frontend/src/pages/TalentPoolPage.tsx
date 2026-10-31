@@ -1,12 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Database, RefreshCw } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { getTalentPoolSummary } from "@/api/talentPool";
 import type { TalentPoolEntryRead, TalentPoolSourceTab } from "@/api/types";
 import { BreakdownList } from "@/components/talentPool/BreakdownList";
 import { DepartmentTable } from "@/components/talentPool/DepartmentTable";
+import { filterHref, type MeaningParam } from "@/components/talentPool/filterHref";
 import { MonthlyAddedChart } from "@/components/talentPool/MonthlyAddedChart";
 import { TalentPoolEntrySheet } from "@/components/talentPool/TalentPoolEntrySheet";
 import { TalentPoolRegister, type RegisterFilters } from "@/components/talentPool/TalentPoolRegister";
@@ -81,8 +82,18 @@ function minutesSince(iso: string): number {
   return (Date.now() - new Date(iso).getTime()) / 60000;
 }
 
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  } catch {
+    return false;
+  }
+}
+
 export function TalentPoolPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const tab = tabFromParam(searchParams.get("tab"));
@@ -104,6 +115,11 @@ export function TalentPoolPage() {
       status: searchParams.get("status") ?? "",
       department: searchParams.get("department") ?? "",
       eligibility: searchParams.get("eligibility") ?? "",
+      source: searchParams.get("source") ?? "",
+      calledBy: searchParams.get("called_by") ?? "",
+      appliedPost: searchParams.get("applied_post") ?? "",
+      month: searchParams.get("month") ?? "",
+      undecided: searchParams.get("undecided") === "true",
       includeInactive: searchParams.get("include_inactive") === "true",
       offset: Math.max(0, Number(searchParams.get("offset") ?? 0) || 0),
     }),
@@ -126,6 +142,11 @@ export function TalentPoolPage() {
       write("status", next.status);
       write("department", next.department);
       write("eligibility", next.eligibility);
+      write("source", next.source);
+      write("called_by", next.calledBy);
+      write("applied_post", next.appliedPost);
+      write("month", next.month);
+      write("undecided", next.undecided);
       write("include_inactive", next.includeInactive);
       write("offset", next.offset);
       setSearchParams(params, { replace: true });
@@ -172,9 +193,11 @@ export function TalentPoolPage() {
       // Back to page one: staying on page 4 of the old filter would show an
       // empty table and look like the filter found nothing.
       params.delete("offset");
-      setSearchParams(params);
+      // With the #register hash, so the list scrolls into view like it does
+      // for every other clickable count on this page.
+      navigate({ pathname: location.pathname, search: `?${params.toString()}`, hash: "register" });
     },
-    [deptMode, searchParams, setSearchParams],
+    [deptMode, searchParams, navigate, location.pathname],
   );
 
   /** Re-fetches what is on screen. It does NOT trigger a sync -- the n8n
@@ -185,6 +208,26 @@ export function TalentPoolPage() {
   }, [queryClient]);
 
   const summary = summaryQuery.data;
+
+  /** Every clickable count links to `#register`, but React Router does not
+   * scroll to a hash -- and the register is at the very bottom, so without
+   * this a click changed the list far out of sight and looked like it did
+   * nothing. Keyed on `location.key` so clicking the same count twice (same
+   * URL, new navigation) scrolls again. Waits for the summary, because the
+   * register is not rendered until it arrives. */
+  const registerShown = Boolean(summary && summary.total > 0);
+  useEffect(() => {
+    if (location.hash !== "#register" || !registerShown) return;
+    const register = document.getElementById("register");
+    if (!register || typeof register.scrollIntoView !== "function") return;
+    register.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+  }, [location.key, location.hash, registerShown]);
+
+  /** A breakdown row's link: that row's label as the one filter it means. */
+  const linkFor = useCallback(
+    (param: MeaningParam) => (label: string) => filterHref(tab, { [param]: label }, searchParams),
+    [tab, searchParams],
+  );
 
   const freshness = useMemo(() => {
     if (!summary) return null;
@@ -325,7 +368,13 @@ export function TalentPoolPage() {
             <Card>
               <CardContent className="p-3">
                 <h2 className="mb-2 text-sm font-semibold">Candidates per month</h2>
-                <MonthlyAddedChart data={summary.monthly} undated={summary.undated} tab={tab} />
+                <MonthlyAddedChart
+                  data={summary.monthly}
+                  undated={summary.undated}
+                  tab={tab}
+                  monthHref={linkFor("month")}
+                  undatedHref={linkFor("month")("undated")}
+                />
               </CardContent>
             </Card>
 
@@ -352,12 +401,13 @@ export function TalentPoolPage() {
                       title="PhD / eligibility"
                       items={summary.breakdowns.eligibility}
                       subLine={`Eligible = ${summary.eligible_definition.join(" / ")}.`}
+                      hrefFor={linkFor("eligibility")}
                     />
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-3">
-                    <BreakdownList title="Data source" items={summary.breakdowns.source} />
+                    <BreakdownList title="Data source" items={summary.breakdowns.source} hrefFor={linkFor("source")} />
                   </CardContent>
                 </Card>
                 <Card>
@@ -366,6 +416,7 @@ export function TalentPoolPage() {
                       title="Interviews called by"
                       items={summary.breakdowns.called_by}
                       emptyMessage="No interviewer recorded against any candidate yet."
+                      hrefFor={linkFor("called_by")}
                     />
                   </CardContent>
                 </Card>
@@ -374,17 +425,29 @@ export function TalentPoolPage() {
               <>
                 <Card>
                   <CardContent className="p-3">
-                    <BreakdownList title="Applied post" items={summary.breakdowns.applied_post} />
+                    <BreakdownList
+                      title="Applied post"
+                      items={summary.breakdowns.applied_post}
+                      hrefFor={linkFor("applied_post")}
+                    />
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-3">
-                    <BreakdownList title="Reference source" items={summary.breakdowns.source} />
+                    <BreakdownList
+                      title="Reference source"
+                      items={summary.breakdowns.source}
+                      hrefFor={linkFor("source")}
+                    />
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-3">
-                    <BreakdownList title="Call outcomes" items={summary.breakdowns.call_outcomes} />
+                    <BreakdownList
+                      title="Call outcomes"
+                      items={summary.breakdowns.call_outcomes}
+                      hrefFor={linkFor("status")}
+                    />
                   </CardContent>
                 </Card>
               </>

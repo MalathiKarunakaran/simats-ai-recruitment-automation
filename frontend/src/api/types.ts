@@ -2833,6 +2833,14 @@ export interface TalentPoolListParams {
   dept_mode?: "group" | "raw";
   department?: string;
   eligibility?: string;
+  // Breakdown filters (2026-10-31): each takes the label the summary shows.
+  source?: string;
+  called_by?: string;
+  applied_post?: string;
+  /** `YYYY-MM` against applied_on, or "undated" for no date. */
+  month?: string;
+  /** Status is not Selected / Waiting List / Rejected. */
+  undecided?: boolean;
   include_inactive?: boolean;
   limit?: number;
   offset?: number;

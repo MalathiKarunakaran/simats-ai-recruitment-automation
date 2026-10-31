@@ -2,6 +2,7 @@ import { Award, CheckCircle2, Clock, HelpCircle, PhoneOff, Users, XCircle } from
 
 import { StatTile } from "@/components/dashboard/StatTile";
 import type { TalentPoolSourceTab, TalentPoolSummary } from "@/api/types";
+import { filterHref } from "@/components/talentPool/filterHref";
 
 /**
  * The tile row (spec 1.2). Seven tiles per tab, different on each.
@@ -23,34 +24,6 @@ interface TalentPoolTilesProps {
    * already applied instead of discarding them. */
   currentParams?: URLSearchParams;
   isLoading?: boolean;
-}
-
-/** The register's filters live in the URL, so a tile is just a link to this
- * page with those filters already set. The `#register` anchor is the scroll
- * target the register itself supplies (step D); until then the query
- * parameters still apply correctly and the anchor is simply inert.
- *
- * A tile COMPOSES with the department filter rather than replacing the whole
- * query: having narrowed to ECE, clicking Selected should mean "selected, in
- * ECE" -- that is what drilling into a dashboard means, and silently
- * dropping the department would make the number on screen disagree with the
- * tile that was clicked. Status and eligibility ARE replaced, because each
- * tile's row in spec 1.2 names every filter it sets, so leaving a previous
- * one in place would stack two tiles' meanings. */
-function filterHref(
-  tab: TalentPoolSourceTab,
-  filters: { status?: string; eligibility?: string },
-  currentParams?: URLSearchParams,
-): string {
-  const params = new URLSearchParams(currentParams ?? undefined);
-  params.delete("status");
-  params.delete("eligibility");
-  if (tab === "NTS") params.set("tab", "nts");
-  else params.delete("tab");
-  if (filters.status) params.set("status", filters.status);
-  if (filters.eligibility) params.set("eligibility", filters.eligibility);
-  const query = params.toString();
-  return `/talent-pool${query ? `?${query}` : ""}#register`;
 }
 
 /** Rounded percentage, or undefined when the denominator is zero -- "0% of
@@ -87,6 +60,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
           icon={Users}
           iconColor="blue"
           accent="blue"
+          to={filterHref(tab, {}, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -142,6 +116,10 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
           icon={Award}
           iconColor="orange"
           accent="gold"
+          // status=Pending, not undecided=true: the number on this tile is
+          // `eligible_pending`, which the API counts as status == "Pending".
+          // A teaching row with an unexpected status is undecided but not
+          // Pending, so undecided=true could list more people than it shows.
           to={filterHref(tab, { eligibility: summary.eligible_definition[0], status: "Pending" }, currentParams)}
           isLoading={isLoading}
         />
@@ -164,6 +142,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
         icon={Users}
         iconColor="blue"
         accent="blue"
+        to={filterHref(tab, {}, currentParams)}
         isLoading={isLoading}
       />
       <StatTile
@@ -197,6 +176,8 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
       <StatTile
         label="In follow-up"
         value={followUp}
+        // Not a link: it is three statuses added together, and the register
+        // filters on one status at a time.
         subLine={`RNR ${rnr} \u00b7 On hold ${onHold}`}
         icon={Clock}
         iconColor="orange"

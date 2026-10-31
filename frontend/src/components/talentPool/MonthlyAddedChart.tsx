@@ -1,3 +1,4 @@
+import { Link, useNavigate } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import type { TalentPoolMonthlyPoint, TalentPoolSourceTab } from "@/api/types";
@@ -17,6 +18,11 @@ import type { TalentPoolMonthlyPoint, TalentPoolSourceTab } from "@/api/types";
  *
  * The legend is hand-written rather than recharts' own, which would label
  * the series "selected" and "remainder" after the stack's dataKeys.
+ *
+ * With `monthHref`, clicking a bar opens the register filtered to that month
+ * (2026-10-31). An SVG bar is not keyboard-reachable, so each month also has
+ * a real link that stays visually hidden until it is focused -- a keyboard
+ * user tabs through the twelve months and sees the one they are on.
  */
 
 interface MonthlyAddedChartProps {
@@ -25,6 +31,10 @@ interface MonthlyAddedChartProps {
    * are in the total above and deliberately not in any bar. */
   undated: number;
   tab: TalentPoolSourceTab;
+  /** Where a month's bar goes, given its `YYYY-MM`. Omitted = not clickable. */
+  monthHref?: (month: string) => string;
+  /** Where the "N rows have no readable date" note goes. */
+  undatedHref?: string;
 }
 
 const ADDED_COLOR = "var(--color-chart-1)";
@@ -66,8 +76,16 @@ function MonthTooltip({ active, payload }: { active?: boolean; payload?: Tooltip
   );
 }
 
-export function MonthlyAddedChart({ data, undated, tab }: MonthlyAddedChartProps) {
+export function MonthlyAddedChart({ data, undated, tab, monthHref, undatedHref }: MonthlyAddedChartProps) {
+  const navigate = useNavigate();
   const rows = toRows(data);
+  const openMonth = monthHref
+    ? (_: unknown, index: number) => {
+        const row = rows[index];
+        if (row) navigate(monthHref(row.month));
+      }
+    : undefined;
+  const barCursor = monthHref ? "pointer" : undefined;
   const dateSource =
     tab === "TEACHING_FINAL"
       ? "Dates come from Applied Date."
@@ -103,8 +121,23 @@ export function MonthlyAddedChart({ data, undated, tab }: MonthlyAddedChartProps
             />
             <YAxis hide />
             <Tooltip cursor={{ fill: "var(--color-muted)", opacity: 0.4 }} content={<MonthTooltip />} />
-            <Bar dataKey="selected" stackId="month" fill={SELECTED_COLOR} isAnimationActive={false} />
-            <Bar dataKey="remainder" stackId="month" fill={ADDED_COLOR} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+            <Bar
+              dataKey="selected"
+              stackId="month"
+              fill={SELECTED_COLOR}
+              isAnimationActive={false}
+              cursor={barCursor}
+              onClick={openMonth}
+            />
+            <Bar
+              dataKey="remainder"
+              stackId="month"
+              fill={ADDED_COLOR}
+              radius={[3, 3, 0, 0]}
+              isAnimationActive={false}
+              cursor={barCursor}
+              onClick={openMonth}
+            >
               {/* Reads `added` from the datum -- this bar's own value is the
                   remainder, which is not a number worth showing. */}
               <LabelList dataKey="added" position="top" className="fill-foreground text-[10px] tabular-nums" />
@@ -113,10 +146,36 @@ export function MonthlyAddedChart({ data, undated, tab }: MonthlyAddedChartProps
         </ResponsiveContainer>
       </div>
 
+      {monthHref ? (
+        <ul aria-label="Candidates by month" className="flex flex-wrap gap-1">
+          {rows.map((row) => (
+            <li key={row.month}>
+              <Link
+                to={monthHref(row.month)}
+                className="sr-only rounded-sm px-1.5 py-0.5 text-[11px] underline focus:not-sr-only focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                {row.longMonth}: {row.added} added
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       <p className="text-[11px] text-muted-foreground">
-        {undated > 0
-          ? `${undated.toLocaleString("en-IN")} ${undated === 1 ? "row has" : "rows have"} no readable date and ${undated === 1 ? "is" : "are"} not counted here. `
-          : ""}
+        {undated > 0 && undatedHref ? (
+          <>
+            <Link
+              to={undatedHref}
+              className="rounded-sm text-foreground underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+            >
+              {`${undated.toLocaleString("en-IN")} ${undated === 1 ? "row has" : "rows have"} no readable date and ${undated === 1 ? "is" : "are"} not counted here.`}
+            </Link>{" "}
+          </>
+        ) : undated > 0 ? (
+          `${undated.toLocaleString("en-IN")} ${undated === 1 ? "row has" : "rows have"} no readable date and ${undated === 1 ? "is" : "are"} not counted here. `
+        ) : (
+          ""
+        )}
         {dateSource}
       </p>
     </div>
