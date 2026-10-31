@@ -504,4 +504,63 @@ describe("ApplicationDetailPage", () => {
       expect(screen.queryByLabelText("PhD rule override reason (HR)")).not.toBeInTheDocument();
     });
   });
+  describe("after hand-over (HOD review + permanent order)", () => {
+    beforeEach(() => {
+      vi.mocked(joiningApi.listHodReviews).mockResolvedValue({
+        items: [],
+        probation_end_date: "2027-01-31",
+        provisional_probation_end_date: "2027-01-31",
+        hod_assigned: "Dr. Test HOD",
+      });
+    });
+
+    it("hides the generic advance/reject/withdraw controls at HANDED_OVER_TO_HOD", async () => {
+      mockedUseAuth.mockReturnValue({
+        user: { role: "HR_ADMIN" } as UserRead,
+        isLoading: false,
+        login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+        logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      });
+      mockedGetApplication.mockResolvedValue(makeApplication({ status: "HANDED_OVER_TO_HOD" }));
+
+      renderPage();
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Record HOD review" })).toBeInTheDocument());
+      expect(screen.queryByText("Reject")).not.toBeInTheDocument();
+      expect(screen.queryByText("Advance to")).not.toBeInTheDocument();
+      expect(screen.queryByText("Withdraw")).not.toBeInTheDocument();
+    });
+
+    it("gives a Campus HOD the review card, without the Joining card", async () => {
+      mockedUseAuth.mockReturnValue({
+        user: { role: "CAMPUS_HOD" } as UserRead,
+        isLoading: false,
+        login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+        logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      });
+      mockedGetApplication.mockResolvedValue(makeApplication({ status: "HANDED_OVER_TO_HOD" }));
+      mockedGetJoiningRecord.mockClear();
+
+      renderPage();
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Record HOD review" })).toBeInTheDocument());
+      expect(screen.queryByText("Joining")).not.toBeInTheDocument();
+      expect(mockedGetJoiningRecord).not.toHaveBeenCalled();
+    });
+
+    it("gives a Campus HOD nothing before hand-over", async () => {
+      mockedUseAuth.mockReturnValue({
+        user: { role: "CAMPUS_HOD" } as UserRead,
+        isLoading: false,
+        login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+        logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      });
+      mockedGetApplication.mockResolvedValue(makeApplication({ status: "ORIENTATION_COMPLETE" }));
+
+      renderPage();
+
+      await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+      expect(screen.queryByText("HOD review")).not.toBeInTheDocument();
+    });
+  });
 });

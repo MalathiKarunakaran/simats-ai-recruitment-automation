@@ -1447,6 +1447,11 @@ export type ApplicationStatus =
   | "PROVISIONAL_ORDER_ISSUED"
   | "ORIENTATION_COMPLETE"
   | "HANDED_OVER_TO_HOD"
+  // After hand-over (docs/specs/hod-review-and-permanent-order.md): reached
+  // only by recording a "Recommend for permanent" HOD review, then by
+  // recording the Registrar's permanent order (terminal).
+  | "HOD_REVIEW_COMPLETE"
+  | "PERMANENT_ORDER_ISSUED"
   | "REJECTED"
   | "WITHDRAWN"
   // Interviewed, held in ranked reserve for the same vacancy. Reached only
@@ -1491,14 +1496,26 @@ export const APPLICATION_STATUS_ORDER: readonly ApplicationStatus[] = [
   "PROVISIONAL_ORDER_ISSUED",
   "ORIENTATION_COMPLETE",
   "HANDED_OVER_TO_HOD",
+  "HOD_REVIEW_COMPLETE",
+  "PERMANENT_ORDER_ISSUED",
 ];
 
 // Mirrors app/models/enums.py::APPLICATION_TERMINAL_STATUSES.
 export const APPLICATION_TERMINAL_STATUSES: ReadonlySet<ApplicationStatus> = new Set([
-  "HANDED_OVER_TO_HOD",
+  "PERMANENT_ORDER_ISSUED",
   "REJECTED",
   "WITHDRAWN",
 ]);
+
+// Mirrors app/models/enums.py::APPLICATION_POST_HANDOVER_STATUSES: handed
+// over, permanent order still to come. Moved on only by recording the HOD
+// review / permanent order, never rejected or withdrawn (leaving is
+// offboarding), so the generic status controls stay hidden here.
+export const APPLICATION_POST_HANDOVER_STATUSES: ReadonlySet<ApplicationStatus> = new Set([
+  "HANDED_OVER_TO_HOD",
+  "HOD_REVIEW_COMPLETE",
+]);
+
 
 // Mirrors app/schemas/application.py::ApplicationRead.
 export interface ApplicationRead {
@@ -1641,6 +1658,73 @@ export interface AppointmentOrderRead {
   signed_copy_content_type: string | null;
   signed_copy_size: number | null;
   signed_copy_uploaded_at: string | null;
+  // Latest "Extend probation" date, else probation_end_date. Only on GET.
+  current_probation_end_date?: string | null;
+}
+
+// --- HOD review + permanent order (docs/specs/hod-review-and-permanent-order.md)
+
+// Mirrors app/models/enums.py::HodRecommendationEnum.
+export type HodRecommendation = "RECOMMEND_PERMANENT" | "EXTEND_PROBATION" | "NOT_RECOMMENDED";
+
+export const HOD_RECOMMENDATION_LABELS: Record<HodRecommendation, string> = {
+  RECOMMEND_PERMANENT: "Recommend for permanent",
+  EXTEND_PROBATION: "Extend probation",
+  NOT_RECOMMENDED: "Not recommended",
+};
+
+// Mirrors app/schemas/joining.py::HodReviewRead.
+export interface HodReviewRead {
+  id: string;
+  application_id: string;
+  hod_name: string;
+  review_date: string;
+  recommendation: HodRecommendation;
+  new_probation_end_date: string | null;
+  remarks: string | null;
+  file_content_type: string | null;
+  file_size: number | null;
+  recorded_by_id: string;
+  recorded_at: string;
+}
+
+// Mirrors app/schemas/joining.py::HodReviewHistory.
+export interface HodReviewHistory {
+  items: HodReviewRead[];
+  probation_end_date: string | null;
+  provisional_probation_end_date: string | null;
+  hod_assigned: string | null;
+}
+
+// Mirrors app/schemas/joining.py::PermanentOrderCreate / PermanentOrderRead.
+export interface PermanentOrderPayload {
+  registrar_ref_no: string;
+  order_date: string;
+  issued_to_faculty_on: string;
+}
+
+export interface PermanentOrderRead {
+  id: string;
+  application_id: string;
+  registrar_ref_no: string;
+  order_date: string;
+  issued_to_faculty_on: string;
+  file_content_type: string | null;
+  file_size: number | null;
+  file_uploaded_at: string | null;
+  recorded_by_id: string;
+  recorded_at: string;
+}
+
+// Mirrors app/schemas/joining.py::OnboardingProbationRow.
+export interface OnboardingProbationRow {
+  application_id: string;
+  status: ApplicationStatus;
+  joining_date: string | null;
+  days_since_joining: number | null;
+  probation_end_date: string | null;
+  latest_recommendation: HodRecommendation | null;
+  past_probation_without_recommendation: boolean;
 }
 
 // Mirrors app/schemas/joining.py::DepartmentOption / DepartmentOptionsResponse.

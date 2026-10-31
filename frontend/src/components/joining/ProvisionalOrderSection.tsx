@@ -12,6 +12,7 @@ import {
 } from "@/api/joining";
 import { JOINING_DOCUMENT_ACCEPT } from "@/api/types";
 import type { ApplicationRead, ApplicationStatus } from "@/api/types";
+import { formatDate } from "@/components/joining/postHandover";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,12 +23,10 @@ const ORDER_STATUSES = new Set<ApplicationStatus>([
   "PROVISIONAL_ORDER_ISSUED",
   "ORIENTATION_COMPLETE",
   "HANDED_OVER_TO_HOD",
+  "HOD_REVIEW_COMPLETE",
+  "PERMANENT_ORDER_ISSUED",
 ]);
 
-function formatDate(value: string): string {
-  const [year, month, day] = value.split("-");
-  return `${day}-${month}-${year}`;
-}
 
 /** Provisional appointment order (docs/specs/provisional-order-and-allotment.md):
  * issued at DEPARTMENT_ROOM_ALLOTTED (the letter prints the allotted
@@ -136,7 +135,13 @@ export function ProvisionalOrderSection({
         </div>
         <div>
           <div className="text-muted-foreground">Probation ends</div>
-          <div>{formatDate(order.probation_end_date)}</div>
+          {/* The latest "Extend probation" HOD review wins over the order's. */}
+          <div>{formatDate(order.current_probation_end_date ?? order.probation_end_date)}</div>
+          {order.current_probation_end_date && order.current_probation_end_date !== order.probation_end_date ? (
+            <div className="text-xs text-muted-foreground">
+              Extended; the order said {formatDate(order.probation_end_date)}
+            </div>
+          ) : null}
         </div>
         <div>
           <div className="text-muted-foreground">Signed copy</div>

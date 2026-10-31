@@ -66,8 +66,14 @@ SOURCE_VALUES = ("Reference", "Job Portal", "FacultyPlus", "Walk-in")
 # statuses directly. The workbook accepts exactly what it did before it.
 # PROVISIONAL_ORDER_ISSUED is left out for the same reason: it stands for an
 # `appointment_orders` row (number, letter) that only the order endpoint
-# creates.
-_NOT_IMPORTABLE = {ApplicationStatusEnum.WAITLISTED, ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED}
+# creates. HOD_REVIEW_COMPLETE and PERMANENT_ORDER_ISSUED likewise stand for
+# an `hod_reviews` / `permanent_orders` row only their endpoints create.
+_NOT_IMPORTABLE = {
+    ApplicationStatusEnum.WAITLISTED,
+    ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED,
+    ApplicationStatusEnum.HOD_REVIEW_COMPLETE,
+    ApplicationStatusEnum.PERMANENT_ORDER_ISSUED,
+}
 VALID_APPLICATION_STATUSES = {
     s.value for s in APPLICATION_STATUS_ORDER if s not in _NOT_IMPORTABLE
 } | {"REJECTED", "WITHDRAWN"}

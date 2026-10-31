@@ -20,6 +20,9 @@ import { JOINING_DOCUMENT_ACCEPT } from "@/api/types";
 import type { ApplicationRead, HousekeepingShift, JoiningDocumentStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { DepartmentOptionsPicker } from "@/components/joining/DepartmentOptionsPicker";
+import { HodReviewSection } from "@/components/joining/HodReviewSection";
+import { PermanentOrderSection } from "@/components/joining/PermanentOrderSection";
+import { HOD_REVIEW_ROLES, HOD_REVIEW_STATUSES, PERMANENT_ORDER_ROLES } from "@/components/joining/postHandover";
 import { ProvisionalOrderSection } from "@/components/joining/ProvisionalOrderSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,6 +71,11 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
   const hasOnboardingPermission = hasPermission?.("ONBOARDING") ?? false;
   const canRead = Boolean(user && (READ_ROLES.includes(user.role) || hasOnboardingPermission));
   const canWrite = Boolean(user && (HR_ONLY_ROLES.includes(user.role) || hasOnboardingPermission));
+  // Role-gated on the backend (joining.py), not ONBOARDING-gated.
+  const canRecordHodReview = Boolean(user && HOD_REVIEW_ROLES.includes(user.role));
+  const canRecordPermanentOrder = Boolean(user && PERMANENT_ORDER_ROLES.includes(user.role));
+  // Handed over or later: the employee exists.
+  const isHandedOver = HOD_REVIEW_STATUSES.has(application.status);
 
   const { data: record } = useQuery({
     queryKey: ["joining-record", application.id],
@@ -102,7 +110,7 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
   const { data: employees } = useQuery({
     queryKey: ["employees"],
     queryFn: listEmployees,
-    enabled: canRead && application.status === "HANDED_OVER_TO_HOD",
+    enabled: canRead && isHandedOver,
   });
   const employee = employees?.find((e) => e.application_id === application.id);
 
@@ -465,7 +473,7 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
           </div>
         ) : null}
 
-        {application.status === "HANDED_OVER_TO_HOD" ? (
+        {isHandedOver ? (
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <div className="text-muted-foreground">Room allotted</div>
@@ -497,6 +505,13 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
             ) : null}
           </div>
         ) : null}
+
+        <HodReviewSection application={application} canRecord={canRecordHodReview} onChanged={afterAction} />
+        <PermanentOrderSection
+          application={application}
+          canWrite={canRecordPermanentOrder}
+          onChanged={afterAction}
+        />
       </CardContent>
     </Card>
   );

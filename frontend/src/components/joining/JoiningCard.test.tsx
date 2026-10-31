@@ -499,6 +499,12 @@ describe("JoiningCard", () => {
   });
 
   it("shows employee fields inline once HANDED_OVER_TO_HOD", async () => {
+    vi.mocked(joiningApi.listHodReviews).mockResolvedValue({
+      items: [],
+      probation_end_date: null,
+      provisional_probation_end_date: null,
+      hod_assigned: "Dr. Test HOD",
+    });
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
@@ -541,6 +547,58 @@ describe("JoiningCard", () => {
     await waitFor(() => expect(screen.getByText("SSE-0001")).toBeInTheDocument());
     expect(screen.getByText("R-305")).toBeInTheDocument();
     expect(screen.getByText("Dr. Test HOD")).toBeInTheDocument();
+  });
+
+  it("offers the HOD review to HR at HANDED_OVER_TO_HOD but not to a Recruitment Officer", async () => {
+    vi.mocked(joiningApi.listHodReviews).mockResolvedValue({
+      items: [],
+      probation_end_date: "2027-01-31",
+      provisional_probation_end_date: "2027-01-31",
+      hod_assigned: "Dr. Test HOD",
+    });
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([]);
+    mockedListEmployees.mockResolvedValue([]);
+    const auth = (role: UserRead["role"]) =>
+      mockedUseAuth.mockReturnValue({
+        user: { role } as UserRead,
+        isLoading: false,
+        login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+        logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      });
+
+    auth("HR_ADMIN");
+    const { unmount } = renderCard(makeApplication({ status: "HANDED_OVER_TO_HOD", hod_assigned: "Dr. Test HOD" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Record HOD review" })).toBeInTheDocument());
+    unmount();
+
+    auth("RECRUITMENT_OFFICER");
+    renderCard(makeApplication({ status: "HANDED_OVER_TO_HOD", hod_assigned: "Dr. Test HOD" }));
+    await waitFor(() => expect(screen.getByText("No HOD review recorded yet.")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Record HOD review" })).not.toBeInTheDocument();
+  });
+
+  it("offers the permanent order at HOD_REVIEW_COMPLETE", async () => {
+    vi.mocked(joiningApi.listHodReviews).mockResolvedValue({
+      items: [],
+      probation_end_date: "2027-01-31",
+      provisional_probation_end_date: "2027-01-31",
+      hod_assigned: "Dr. Test HOD",
+    });
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([]);
+    mockedListEmployees.mockResolvedValue([]);
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_COORDINATOR" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+
+    renderCard(makeApplication({ status: "HOD_REVIEW_COMPLETE" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Record permanent order" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Record HOD review" })).not.toBeInTheDocument();
   });
   describe("Housekeeping hand-over adds the hire to the roster", () => {
     const hrAuth = () =>

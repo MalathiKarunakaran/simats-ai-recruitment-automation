@@ -1,18 +1,35 @@
 import io
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from minio import Minio
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
-from app.core.deps import CampusScope, enforce_campus_match, get_campus_scope, get_db, require_permission
+from app.core.deps import (
+    CampusScope,
+    enforce_campus_match,
+    get_campus_scope,
+    get_db,
+    require_permission,
+    require_roles,
+    require_roles_or_permission,
+)
 from app.models.application import Application
 from app.models.appointment_order import AppointmentOrder
-from app.models.enums import ApplicationStatusEnum, JoiningDocumentStatusEnum, PermissionEnum
+from app.models.enums import (
+    APPLICATION_STATUS_ORDER,
+    ApplicationStatusEnum,
+    HodRecommendationEnum,
+    JoiningDocumentStatusEnum,
+    PermissionEnum,
+    UserRoleEnum,
+)
+from app.models.hod_review import HodReview
 from app.models.joining import JoiningDocument, JoiningRecord
+from app.models.permanent_order import PermanentOrder
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.employee import EmployeeRead
@@ -21,13 +38,25 @@ from app.schemas.joining import (
     DepartmentOptionsResponse,
     DepartmentRoomAllotmentRequest,
     HandoverToHodRequest,
+    HodReviewHistory,
+    HodReviewRead,
     JoiningDocumentRead,
     JoiningDocumentUpdate,
     JoiningRecordRead,
+    OnboardingProbationRow,
     OrientationCompleteRequest,
+    PermanentOrderCreate,
+    PermanentOrderRead,
     ProvisionalOrderCreate,
 )
-from app.services import appointment_orders, department_allotment, pipeline, storage
+from app.services import (
+    appointment_orders,
+    department_allotment,
+    hod_reviews,
+    permanent_orders,
+    pipeline,
+    storage,
+)
 from app.services import joining as joining_service
 from app.services.provisional_order_letter import render_letter_pdf
 from app.services.audit import log_update
@@ -331,7 +360,10 @@ def get_provisional_order(
     scope: CampusScope = Depends(get_campus_scope),
 ) -> AppointmentOrder:
     application = _get_application_or_404_scoped(db, application_id, scope)
-    return _get_order_or_404(db, application)
+    order = _get_order_or_404(db, application)
+    # Not a column: the extension-aware end, for showing next to the order.
+    order.current_probation_end_date = hod_reviews.probation_end_for(db, application)
+    return order
 
 
 @router.get("/applications/{application_id}/provisional-order/letter.pdf")
@@ -560,3 +592,226 @@ def hand_over_to_hod(
     db.commit()
     db.refresh(employee)
     return employee
+
+
+# --- HOD review + permanent order (docs/specs/hod-review-and-permanent-
+# order.md) ----------------------------------------------------------------
+# Role-gated, not ONBOARDING-gated (decision H2): a Campus HOD records the
+# review for their own campus -- get_campus_scope makes another campus's
+# application a 404 -- and Recruitment Coordinators, HR Admin and Super Admin
+# record it on the HOD's behalf. The permanent order is the office's job, so
+# not the HOD's. Reads also let ONBOARDING holders (the Recruitment Officers
+# who already see the onboarding card) see what was recorded.
+
+_HOD_REVIEW_ROLES = (
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+    UserRoleEnum.CAMPUS_HOD,
+)
+_PERMANENT_ORDER_ROLES = (
+    UserRoleEnum.SUPER_ADMIN,
+    UserRoleEnum.HR_ADMIN,
+    UserRoleEnum.RECRUITMENT_COORDINATOR,
+)
+
+
+def _stream_stored_file(minio_client: Minio, key: str, content_type: str | None) -> StreamingResponse:
+    data = storage.download_joining_document_bytes(minio_client, key)
+    filename = key.rsplit("/", 1)[-1]
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type=content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.post(
+    "/applications/{application_id}/hod-reviews",
+    response_model=HodReviewRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_hod_review(
+    application_id: uuid.UUID,
+    request: Request,
+    hod_name: str = Form(..., max_length=150),
+    review_date: date = Form(...),
+    recommendation: HodRecommendationEnum = Form(...),
+    new_probation_end_date: date | None = Form(None),
+    remarks: str | None = Form(None, max_length=2000),
+    file: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_HOD_REVIEW_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> HodReview:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    stored_file = None
+    if file is not None and file.filename:
+        data = file.file.read()
+        content_type = _validate_document_file(content_type=file.content_type, data=data)
+        stored_file = (file.filename, data, content_type)
+    review = hod_reviews.record_review(
+        db,
+        application=application,
+        actor=current_user,
+        hod_name=hod_name,
+        review_date=review_date,
+        recommendation=recommendation,
+        new_probation_end_date=new_probation_end_date,
+        remarks=remarks,
+        file=stored_file,
+        minio_client=minio_client,
+        request=request,
+    )
+    db.commit()
+    db.refresh(review)
+    return review
+
+
+@router.get("/applications/{application_id}/hod-reviews", response_model=HodReviewHistory)
+def list_hod_reviews(
+    application_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles_or_permission(PermissionEnum.ONBOARDING, *_HOD_REVIEW_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> dict:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    reviews = hod_reviews.list_reviews(db, application)
+    order = appointment_orders.current_order(db, application)
+    return {
+        "items": reviews,
+        "probation_end_date": hod_reviews.probation_end_for(db, application, reviews),
+        "provisional_probation_end_date": order.probation_end_date if order is not None else None,
+        "hod_assigned": application.hod_assigned,
+    }
+
+
+@router.get("/applications/{application_id}/hod-reviews/{review_id}/file")
+def download_hod_review_file(
+    application_id: uuid.UUID,
+    review_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles_or_permission(PermissionEnum.ONBOARDING, *_HOD_REVIEW_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> StreamingResponse:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    review = db.get(HodReview, review_id)
+    if review is None or review.application_id != application.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    if not review.file_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No file was uploaded with this review")
+    return _stream_stored_file(minio_client, review.file_key, review.file_content_type)
+
+
+def _get_permanent_order_or_404(db: Session, application: Application) -> PermanentOrder:
+    order = permanent_orders.get_order(db, application)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No permanent order has been recorded")
+    return order
+
+
+@router.post(
+    "/applications/{application_id}/permanent-order",
+    response_model=PermanentOrderRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_permanent_order(
+    application_id: uuid.UUID,
+    payload: PermanentOrderCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_PERMANENT_ORDER_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> PermanentOrder:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    order = permanent_orders.record_order(
+        db,
+        application=application,
+        actor=current_user,
+        registrar_ref_no=payload.registrar_ref_no,
+        order_date=payload.order_date,
+        issued_to_faculty_on=payload.issued_to_faculty_on,
+        request=request,
+    )
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+@router.get("/applications/{application_id}/permanent-order", response_model=PermanentOrderRead)
+def get_permanent_order(
+    application_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles_or_permission(PermissionEnum.ONBOARDING, *_PERMANENT_ORDER_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> PermanentOrder:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    return _get_permanent_order_or_404(db, application)
+
+
+@router.post("/applications/{application_id}/permanent-order/file", response_model=PermanentOrderRead)
+def upload_permanent_order_file(
+    application_id: uuid.UUID,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(*_PERMANENT_ORDER_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> PermanentOrder:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    order = _get_permanent_order_or_404(db, application)
+    data = file.file.read()
+    content_type = _validate_document_file(content_type=file.content_type, data=data)
+    permanent_orders.store_signed_order(
+        db,
+        order=order,
+        minio_client=minio_client,
+        filename=file.filename or "permanent-order",
+        data=data,
+        content_type=content_type,
+        actor=current_user,
+        request=request,
+    )
+    db.commit()
+    db.refresh(order)
+    return order
+
+
+@router.get("/applications/{application_id}/permanent-order/file")
+def download_permanent_order_file(
+    application_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles_or_permission(PermissionEnum.ONBOARDING, *_PERMANENT_ORDER_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+    minio_client: Minio = Depends(get_minio_client),
+) -> StreamingResponse:
+    application = _get_application_or_404_scoped(db, application_id, scope)
+    order = _get_permanent_order_or_404(db, application)
+    if not order.file_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No signed order has been uploaded")
+    return _stream_stored_file(minio_client, order.file_key, order.file_content_type)
+
+
+# Onboarding page figures: everything from JOINING_CONFIRMED on.
+_ONBOARDING_STATUSES = APPLICATION_STATUS_ORDER[APPLICATION_STATUS_ORDER.index(ApplicationStatusEnum.JOINING_CONFIRMED) :]
+
+
+@router.get("/onboarding/probation", response_model=list[OnboardingProbationRow])
+def onboarding_probation(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles_or_permission(PermissionEnum.ONBOARDING, *_HOD_REVIEW_ROLES)),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> list[dict]:
+    """Days since joining and probation status for every application in the
+    onboarding stages the caller can see. Probation end = latest "Extend
+    probation" review, else the provisional order's; "past probation with no
+    recommendation" = that end is before today and no "Recommend for
+    permanent" review exists."""
+    query = db.query(Application).filter(Application.status.in_(_ONBOARDING_STATUSES))
+    if not scope.is_global:
+        query = query.filter(Application.campus_id == scope.campus_id)
+    applications = query.all()
+    return hod_reviews.probation_rows(db, applications, today=datetime.now(timezone.utc).date())

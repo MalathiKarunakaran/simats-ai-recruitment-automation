@@ -17,16 +17,20 @@ from app.models.application import Application
 from app.models.appointment_order import APPOINTMENT_ORDER_ISSUED, AppointmentOrder
 from app.models.approved_vacancy import ApprovedVacancy
 from app.models.enums import (
+    APPLICATION_POST_HANDOVER_STATUSES,
     APPLICATION_STATUS_ORDER,
     APPLICATION_TERMINAL_STATUSES,
     ApplicationStatusEnum,
     HiringSlotStatusEnum,
+    HodRecommendationEnum,
     RejectionCategoryEnum,
     UserRoleEnum,
     VacancyRequestStatusEnum,
 )
 from app.models.hiring_slot import HiringSlot
+from app.models.hod_review import HodReview
 from app.models.job_posting import JobPosting
+from app.models.permanent_order import PermanentOrder
 from app.models.user import User
 from app.models.vacancy_request import VacancyRequest
 from app.services import eligibility, job_channels, notifications
@@ -208,6 +212,47 @@ def _has_issued_appointment_order(db: Session, application: Application) -> bool
     )
 
 
+def _has_recommend_review(db: Session, application: Application) -> bool:
+    return (
+        db.execute(
+            select(HodReview.id).where(
+                HodReview.application_id == application.id,
+                HodReview.recommendation == HodRecommendationEnum.RECOMMEND_PERMANENT.value,
+            )
+        ).first()
+        is not None
+    )
+
+
+def _has_permanent_order(db: Session, application: Application) -> bool:
+    return (
+        db.execute(select(PermanentOrder.id).where(PermanentOrder.application_id == application.id)).first()
+        is not None
+    )
+
+
+# HOD review + permanent order (docs/specs/hod-review-and-permanent-order.md):
+# each stage is entered only from the one before it and only once its record
+# exists (services/hod_reviews.py and services/permanent_orders.py write the
+# record first), and no move may jump over it.
+_RECORD_GATED_STAGES = (
+    (
+        ApplicationStatusEnum.HOD_REVIEW_COMPLETE,
+        ApplicationStatusEnum.HANDED_OVER_TO_HOD,
+        _has_recommend_review,
+        "Record a 'Recommend for permanent' HOD review first (POST /applications/{id}/hod-reviews)",
+        "the HOD review must be recorded first",
+    ),
+    (
+        ApplicationStatusEnum.PERMANENT_ORDER_ISSUED,
+        ApplicationStatusEnum.HOD_REVIEW_COMPLETE,
+        _has_permanent_order,
+        "Record the permanent order first (POST /applications/{id}/permanent-order)",
+        "the permanent order must be recorded first",
+    ),
+)
+
+
 def transition_application_status(
     db: Session,
     *,
@@ -232,6 +277,23 @@ def transition_application_status(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Application is already in a terminal status ({current.value})",
+        )
+
+    # Handed over = an employee already. Leaving from here is the offboarding
+    # action on the employee record, not rejecting or withdrawing the
+    # application (these stages were terminal before 31-Oct, so this keeps
+    # their hiring slot and the working count exactly as they were).
+    if (
+        current in APPLICATION_POST_HANDOVER_STATUSES
+        and new_status in (ApplicationStatusEnum.REJECTED, ApplicationStatusEnum.WITHDRAWN)
+        and not force
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"An application at {current.value} cannot be rejected or withdrawn; "
+                "use offboarding on the employee record instead"
+            ),
         )
 
     if new_status == ApplicationStatusEnum.REJECTED and not reason:
@@ -312,6 +374,27 @@ def transition_application_status(
                     "the provisional order must be issued first"
                 ),
             )
+
+    if not force and new_status in APPLICATION_STATUS_ORDER and current in APPLICATION_STATUS_ORDER:
+        current_pos = APPLICATION_STATUS_ORDER.index(current)
+        new_pos = APPLICATION_STATUS_ORDER.index(new_status)
+        for gated, from_status, has_record, missing_detail, skip_reason in _RECORD_GATED_STAGES:
+            if new_status == gated:
+                if current != from_status:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=(
+                            f"{gated.value} can only be reached from {from_status.value} "
+                            f"(this application is {current.value})"
+                        ),
+                    )
+                if not has_record(db, application):
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=missing_detail)
+            elif current_pos < APPLICATION_STATUS_ORDER.index(gated) < new_pos:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Cannot move from {current.value} to {new_status.value}: {skip_reason}",
+                )
 
     if not force and new_status not in (ApplicationStatusEnum.REJECTED, ApplicationStatusEnum.WITHDRAWN):
         if new_status not in APPLICATION_STATUS_ORDER:

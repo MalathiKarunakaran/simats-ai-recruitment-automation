@@ -135,7 +135,7 @@ from app.models.candidate import Candidate
 from app.models.department import Department
 from app.models.employee import Employee
 from app.models.enums import (
-    APPLICATION_TERMINAL_STATUSES,
+    APPLICATION_SETTLED_STATUSES,
     CAMPUS_CODES,
     VACANCY_REQUEST_IN_FLIGHT_STATUSES,
     ApplicationStatusEnum,
@@ -219,6 +219,8 @@ _FUNNEL_BUCKET_BY_STATUS: dict[ApplicationStatusEnum, str] = {
     ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED: "Joined",
     ApplicationStatusEnum.ORIENTATION_COMPLETE: "Joined",
     ApplicationStatusEnum.HANDED_OVER_TO_HOD: "Joined",
+    ApplicationStatusEnum.HOD_REVIEW_COMPLETE: "Joined",
+    ApplicationStatusEnum.PERMANENT_ORDER_ISSUED: "Joined",
     ApplicationStatusEnum.REJECTED: "Rejected",
     ApplicationStatusEnum.WITHDRAWN: "Rejected",
     ApplicationStatusEnum.WAITLISTED: "Waitlisted",
@@ -922,7 +924,7 @@ def get_dashboard_kpis(
         db.query(Campus.code, func.count(Application.id))
         .select_from(Application)
         .join(Campus, Application.campus_id == Campus.id)
-        .filter(~Application.status.in_(APPLICATION_TERMINAL_STATUSES))
+        .filter(~Application.status.in_(APPLICATION_SETTLED_STATUSES))
     )
     if role_category is not None:
         in_progress_by_campus_query = (
@@ -1652,7 +1654,7 @@ def build_ad_briefing_summary(
         .join(ApprovedVacancy, JobPosting.approved_vacancy_id == ApprovedVacancy.id)
         .join(VacancyRequest, ApprovedVacancy.vacancy_request_id == VacancyRequest.id)
         .join(Campus, Application.campus_id == Campus.id)
-        .filter(~Application.status.in_(APPLICATION_TERMINAL_STATUSES))
+        .filter(~Application.status.in_(APPLICATION_SETTLED_STATUSES))
     )
     if campus_id_filter is not None:
         pipeline_query = pipeline_query.filter(Application.campus_id == campus_id_filter)
@@ -1689,6 +1691,8 @@ _JOINED_OR_LATER_STATUSES = {
     ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
     ApplicationStatusEnum.ORIENTATION_COMPLETE,
     ApplicationStatusEnum.HANDED_OVER_TO_HOD,
+    ApplicationStatusEnum.HOD_REVIEW_COMPLETE,
+    ApplicationStatusEnum.PERMANENT_ORDER_ISSUED,
 }
 _NTS_ROLE_CATEGORIES = (StaffRoleCategoryEnum.NON_TEACHING, StaffRoleCategoryEnum.HOUSEKEEPING)
 
@@ -1763,7 +1767,7 @@ def build_weekly_recruitment_status(
 
     # Upcoming Join (NTS rows only) -- a point-in-time snapshot, not
     # restricted to the weekly interview cohort.
-    excluded_statuses = _JOINED_OR_LATER_STATUSES | APPLICATION_TERMINAL_STATUSES
+    excluded_statuses = _JOINED_OR_LATER_STATUSES | APPLICATION_SETTLED_STATUSES
     upcoming_query = (
         db.query(VacancyRequest.position_title, func.count(Application.id))
         .select_from(Application)

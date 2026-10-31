@@ -1,13 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { listApplications } from "@/api/applications";
 import { listCampuses } from "@/api/campuses";
 import { listCandidates } from "@/api/candidates";
+import { listOnboardingProbation } from "@/api/joining";
 import type { ApplicationStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { StatusBadge } from "@/components/applications/StatusBadge";
+import { formatDate } from "@/components/joining/postHandover";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -21,15 +23,25 @@ import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 // page's own canView gate then blocked them, a stale role list rather than
 // a missing-permission-fallback bug (this page's data, GET /applications,
 // is broadly staff-readable on the backend, not require_permission-gated).
-const CAN_VIEW_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
-const TOTAL_COLUMN_COUNT = 4;
+//
+// CAMPUS_HOD added 31-Oct-2026 (docs/specs/hod-review-and-permanent-order.md,
+// decision H2): an HOD records the probation review for their own campus,
+// so they see just the HOD-review stages here (GET /applications and GET
+// /onboarding/probation are both campus-scoped for them).
+const CAN_VIEW_ROLES = ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR", "CAMPUS_HOD"];
+const TOTAL_COLUMN_COUNT = 5;
 const ONBOARDING_STATUSES: ApplicationStatus[] = [
   "JOINING_CONFIRMED",
   "JOINED",
   "DEPARTMENT_ROOM_ALLOTTED",
   "PROVISIONAL_ORDER_ISSUED",
   "ORIENTATION_COMPLETE",
+  // No longer the end (31-Oct): awaiting the HOD's probation review.
+  "HANDED_OVER_TO_HOD",
+  "HOD_REVIEW_COMPLETE",
+  "PERMANENT_ORDER_ISSUED",
 ];
+const HOD_STATUSES: ApplicationStatus[] = ["HANDED_OVER_TO_HOD", "HOD_REVIEW_COMPLETE"];
 
 // Onboarding isn't a separate backend concept -- it's the same Application
 // data filtered to the joining-stage statuses, reusing the existing
@@ -43,34 +55,26 @@ export function OnboardingListPage() {
   const { data: candidates } = useQuery({ queryKey: ["candidates", ""], queryFn: () => listCandidates() });
 
   const canView = Boolean(user && CAN_VIEW_ROLES.includes(user.role));
+  const stages = user?.role === "CAMPUS_HOD" ? HOD_STATUSES : ONBOARDING_STATUSES;
 
   const [stageFilter, setStageFilter] = useState<ApplicationStatus | "ALL">("ALL");
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
 
-  const joiningConfirmedQuery = useQuery({
-    queryKey: ["applications", { status: "JOINING_CONFIRMED" }],
-    queryFn: () => listApplications({ status: "JOINING_CONFIRMED" }),
-    enabled: canView,
+  // GET /applications takes one status at a time, so one query per stage.
+  const stageQueries = useQueries({
+    queries: stages.map((status) => ({
+      queryKey: ["applications", { status }],
+      queryFn: () => listApplications({ status }),
+      enabled: canView,
+    })),
   });
-  const joinedQuery = useQuery({
-    queryKey: ["applications", { status: "JOINED" }],
-    queryFn: () => listApplications({ status: "JOINED" }),
-    enabled: canView,
-  });
-  const departmentRoomAllottedQuery = useQuery({
-    queryKey: ["applications", { status: "DEPARTMENT_ROOM_ALLOTTED" }],
-    queryFn: () => listApplications({ status: "DEPARTMENT_ROOM_ALLOTTED" }),
-    enabled: canView,
-  });
-  const provisionalOrderIssuedQuery = useQuery({
-    queryKey: ["applications", { status: "PROVISIONAL_ORDER_ISSUED" }],
-    queryFn: () => listApplications({ status: "PROVISIONAL_ORDER_ISSUED" }),
-    enabled: canView,
-  });
-  const orientationCompleteQuery = useQuery({
-    queryKey: ["applications", { status: "ORIENTATION_COMPLETE" }],
-    queryFn: () => listApplications({ status: "ORIENTATION_COMPLETE" }),
+  // Joining date and probation per application, computed on the server
+  // (GET /onboarding/probation): GET /applications carries neither.
+  const { data: probationRows } = useQuery({
+    queryKey: ["onboarding-probation"],
+    queryFn: listOnboardingProbation,
     enabled: canView,
   });
   const { data: campuses } = useQuery({ queryKey: ["campuses"], queryFn: listCampuses, enabled: canView });
@@ -78,28 +82,20 @@ export function OnboardingListPage() {
   if (!canView) {
     return (
       <p className="text-sm text-muted-foreground">
-        Only a Recruitment Officer, HR Admin, Recruitment Coordinator, or Super Admin can view onboarding.
+        Only a Recruitment Officer, HR Admin, Recruitment Coordinator, Campus HOD, or Super Admin can view
+        onboarding.
       </p>
     );
   }
 
-  const isLoading =
-    joiningConfirmedQuery.isLoading ||
-    joinedQuery.isLoading ||
-    departmentRoomAllottedQuery.isLoading ||
-    provisionalOrderIssuedQuery.isLoading ||
-    orientationCompleteQuery.isLoading;
-  const applications = [
-    ...(joiningConfirmedQuery.data ?? []),
-    ...(joinedQuery.data ?? []),
-    ...(departmentRoomAllottedQuery.data ?? []),
-    ...(provisionalOrderIssuedQuery.data ?? []),
-    ...(orientationCompleteQuery.data ?? []),
-  ];
+  const isLoading = stageQueries.some((query) => query.isLoading);
+  const applications = stageQueries.flatMap((query) => query.data ?? []);
+  const probationById = new Map((probationRows ?? []).map((row) => [row.application_id, row]));
 
   const normalizedSearch = search.trim().toLowerCase();
   const filteredApplications = applications.filter((application) => {
     if (stageFilter !== "ALL" && application.status !== stageFilter) return false;
+    if (overdueOnly && !probationById.get(application.id)?.past_probation_without_recommendation) return false;
     if (campusFilter !== "ALL" && application.campus_id !== campusFilter) return false;
     if (!normalizedSearch) return true;
     const candidate = candidates?.find((c) => c.id === application.candidate_id);
@@ -134,7 +130,7 @@ export function OnboardingListPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All stages</SelectItem>
-              {ONBOARDING_STATUSES.map((status) => (
+              {stages.map((status) => (
                 <SelectItem key={status} value={status}>
                   {status.replace(/_/g, " ")}
                 </SelectItem>
@@ -157,6 +153,10 @@ export function OnboardingListPage() {
             </SelectContent>
           </Select>
         </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} />
+          Past probation, no HOD recommendation
+        </label>
       </div>
 
       {/* UI redesign Phase 3 -- one Card boundary shared by the loading/
@@ -169,6 +169,7 @@ export function OnboardingListPage() {
                 <TableHead>Candidate</TableHead>
                 <TableHead>Position</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Days since joining</TableHead>
                 <TableHead>Last updated</TableHead>
               </TableRow>
             </TableHeader>
@@ -185,8 +186,14 @@ export function OnboardingListPage() {
                 filteredApplications.map((application) => {
                   const candidate = candidates?.find((c) => c.id === application.candidate_id);
                   const label = getLabel(application.job_posting_id);
+                  const probation = probationById.get(application.id);
+                  const overdue = Boolean(probation?.past_probation_without_recommendation);
                   return (
-                    <TableRow key={application.id}>
+                    <TableRow
+                      key={application.id}
+                      data-overdue={overdue || undefined}
+                      className={overdue ? "bg-brand-warning/10" : undefined}
+                    >
                       <TableCell>
                         <Link to={`/applications/${application.id}`} className="font-medium hover:underline">
                           {candidate?.full_name ?? "Unknown candidate"}
@@ -194,8 +201,16 @@ export function OnboardingListPage() {
                       </TableCell>
                       <TableCell>{label?.positionTitle ?? "—"}</TableCell>
                       <TableCell>
-                        <StatusBadge status={application.status} />
+                        <div className="flex flex-col items-start gap-1">
+                          <StatusBadge status={application.status} />
+                          {overdue && probation?.probation_end_date ? (
+                            <span className="text-xs font-medium text-brand-warning">
+                              Probation ended {formatDate(probation.probation_end_date)}, no HOD recommendation
+                            </span>
+                          ) : null}
+                        </div>
                       </TableCell>
+                      <TableCell>{probation?.days_since_joining ?? "—"}</TableCell>
                       <TableCell>{new Date(application.updated_at).toLocaleDateString()}</TableCell>
                     </TableRow>
                   );

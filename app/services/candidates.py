@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models.application import Application
 from app.models.candidate import Candidate
-from app.models.enums import APPLICATION_TERMINAL_STATUSES, ApplicationStatusEnum
+from app.models.enums import APPLICATION_SETTLED_STATUSES, ApplicationStatusEnum
 from app.models.user import User
 from app.services import pipeline
 from app.services.audit import log_update
@@ -66,7 +66,9 @@ def withdraw_candidate(
 
     applications = db.query(Application).filter(Application.candidate_id == candidate.id).all()
     for application in applications:
-        if application.status in APPLICATION_TERMINAL_STATUSES:
+        # Settled, not just terminal: a handed-over hire is an employee and
+        # leaves through offboarding, not by withdrawing the application.
+        if application.status in APPLICATION_SETTLED_STATUSES:
             continue
         pipeline.transition_application_status(
             db,

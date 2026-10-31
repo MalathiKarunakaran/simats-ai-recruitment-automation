@@ -26,6 +26,8 @@ const STEPS: Step[] = [
       "PROVISIONAL_ORDER_ISSUED",
       "ORIENTATION_COMPLETE",
       "HANDED_OVER_TO_HOD",
+      "HOD_REVIEW_COMPLETE",
+      "PERMANENT_ORDER_ISSUED",
     ],
   },
 ];

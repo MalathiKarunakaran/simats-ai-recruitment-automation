@@ -2,12 +2,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as applicationsApi from "@/api/applications";
 import * as campusesApi from "@/api/campuses";
 import * as candidatesApi from "@/api/candidates";
-import type { ApplicationRead, ApplicationStatus, CandidateRead, UserRead } from "@/api/types";
+import * as joiningApi from "@/api/joining";
+import type {
+  ApplicationRead,
+  ApplicationStatus,
+  CandidateRead,
+  OnboardingProbationRow,
+  UserRead,
+} from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import * as jobPostingLookup from "@/hooks/useJobPostingLookup";
 import { OnboardingListPage } from "@/pages/OnboardingListPage";
@@ -15,6 +22,7 @@ import { OnboardingListPage } from "@/pages/OnboardingListPage";
 vi.mock("@/api/applications");
 vi.mock("@/api/candidates");
 vi.mock("@/api/campuses");
+vi.mock("@/api/joining");
 vi.mock("@/hooks/useJobPostingLookup");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
@@ -26,6 +34,11 @@ const mockedListApplications = vi.mocked(applicationsApi.listApplications);
 const mockedListCandidates = vi.mocked(candidatesApi.listCandidates);
 const mockedListCampuses = vi.mocked(campusesApi.listCampuses);
 const mockedUseJobPostingLookup = vi.mocked(jobPostingLookup.useJobPostingLookup);
+const mockedListOnboardingProbation = vi.mocked(joiningApi.listOnboardingProbation);
+
+beforeEach(() => {
+  mockedListOnboardingProbation.mockResolvedValue([]);
+});
 
 function makeCandidate(overrides: Partial<CandidateRead>): CandidateRead {
   return {
@@ -107,7 +120,7 @@ const CANDIDATE_JANE = makeCandidate({});
 describe("OnboardingListPage", () => {
   it("blocks the page for a role without view access", () => {
     mockedUseAuth.mockReturnValue({
-      user: { role: "CAMPUS_HOD" } as UserRead,
+      user: { role: "INTERVIEW_PANEL_MEMBER" } as UserRead,
       isLoading: false,
       login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
       logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
@@ -119,7 +132,7 @@ describe("OnboardingListPage", () => {
     renderPage();
 
     expect(
-      screen.getByText(/Only a Recruitment Officer, HR Admin, Recruitment Coordinator, or Super Admin/),
+      screen.getByText(/Only a Recruitment Officer, HR Admin, Recruitment Coordinator, Campus HOD, or Super Admin/),
     ).toBeInTheDocument();
   });
 
@@ -329,5 +342,99 @@ describe("OnboardingListPage", () => {
     expect(
       await screen.findByText("No one in the onboarding pipeline matches these filters."),
     ).toBeInTheDocument();
+  });
+  function hrAdmin() {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+  }
+
+  function probationRow(overrides: Partial<OnboardingProbationRow>): OnboardingProbationRow {
+    return {
+      application_id: "app-1",
+      status: "HANDED_OVER_TO_HOD",
+      joining_date: "2026-06-01",
+      days_since_joining: 152,
+      probation_end_date: "2026-09-01",
+      latest_recommendation: null,
+      past_probation_without_recommendation: false,
+      ...overrides,
+    };
+  }
+
+  it("lists the HOD-review stages after orientation, in order", async () => {
+    hrAdmin();
+    mockByStatus({ HOD_REVIEW_COMPLETE: [makeApplication({ id: "app-1", status: "HOD_REVIEW_COMPLETE" })] });
+    mockedListCandidates.mockResolvedValue([CANDIDATE_JANE]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Stage filter" }));
+    const options = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    const at = options.indexOf("ORIENTATION COMPLETE");
+    expect(options.slice(at + 1)).toEqual(["HANDED OVER TO HOD", "HOD REVIEW COMPLETE", "PERMANENT ORDER ISSUED"]);
+  });
+
+  it("shows days since joining and highlights and filters past-probation rows", async () => {
+    hrAdmin();
+    mockByStatus({
+      HANDED_OVER_TO_HOD: [
+        makeApplication({ id: "app-1", status: "HANDED_OVER_TO_HOD" }),
+        makeApplication({ id: "app-2", candidate_id: "cand-2", status: "HANDED_OVER_TO_HOD" }),
+      ],
+    });
+    mockedListCandidates.mockResolvedValue([CANDIDATE_JANE, makeCandidate({ id: "cand-2", full_name: "John Smith" })]);
+    mockedListOnboardingProbation.mockResolvedValue([
+      probationRow({ application_id: "app-1", days_since_joining: 152, past_probation_without_recommendation: true }),
+      probationRow({ application_id: "app-2", days_since_joining: 20, probation_end_date: "2027-01-31" }),
+    ]);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("152")).toBeInTheDocument());
+    expect(screen.getByRole("columnheader", { name: "Days since joining" })).toBeInTheDocument();
+    expect(screen.getByText("20")).toBeInTheDocument();
+
+    const janeRow = screen.getByText("Jane Doe").closest("tr")!;
+    const johnRow = screen.getByText("John Smith").closest("tr")!;
+    expect(janeRow).toHaveAttribute("data-overdue", "true");
+    expect(janeRow).toHaveTextContent("Probation ended 01-09-2026, no HOD recommendation");
+    expect(johnRow).not.toHaveAttribute("data-overdue");
+
+    await userEvent.click(screen.getByLabelText("Past probation, no HOD recommendation"));
+    expect(screen.getByText("Jane Doe")).toBeInTheDocument();
+    expect(screen.queryByText("John Smith")).not.toBeInTheDocument();
+  });
+
+  it("gives a Campus HOD just the HOD-review stages", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "CAMPUS_HOD" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+    mockedListCandidates.mockResolvedValue([CANDIDATE_JANE]);
+    mockedListApplications.mockClear();
+    mockByStatus({ HANDED_OVER_TO_HOD: [makeApplication({ id: "app-1", status: "HANDED_OVER_TO_HOD" })] });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+
+    const requested = mockedListApplications.mock.calls.map(([filters]) => filters?.status);
+    expect(new Set(requested)).toEqual(new Set(["HANDED_OVER_TO_HOD", "HOD_REVIEW_COMPLETE"]));
+    await userEvent.click(screen.getByRole("combobox", { name: "Stage filter" }));
+    const options = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(options).toEqual(["All stages", "HANDED OVER TO HOD", "HOD REVIEW COMPLETE"]);
   });
 });

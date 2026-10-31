@@ -5,11 +5,17 @@ import type {
   DepartmentRoomAllotmentPayload,
   EmployeeRead,
   HandoverToHodPayload,
+  HodRecommendation,
+  HodReviewHistory,
+  HodReviewRead,
   JoiningDocumentRead,
   JoiningDocumentUpdatePayload,
   JoiningRecordRead,
+  OnboardingProbationRow,
   OrientationCompletePayload,
   PaginatedResponse,
+  PermanentOrderPayload,
+  PermanentOrderRead,
 } from "@/api/types";
 
 export async function getJoiningRecord(applicationId: string): Promise<JoiningRecordRead> {
@@ -134,4 +140,67 @@ export async function handOverToHod(applicationId: string, payload: HandoverToHo
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+// --- HOD review + permanent order (docs/specs/hod-review-and-permanent-order.md)
+
+export interface HodReviewPayload {
+  hod_name: string;
+  review_date: string;
+  recommendation: HodRecommendation;
+  new_probation_end_date?: string | null;
+  remarks?: string | null;
+  file?: File | null;
+}
+
+/** Multipart: the signed review is optional. Empty optional fields are left
+ * out rather than sent as "". */
+export async function recordHodReview(applicationId: string, payload: HodReviewPayload): Promise<HodReviewRead> {
+  const formData = new FormData();
+  formData.append("hod_name", payload.hod_name);
+  formData.append("review_date", payload.review_date);
+  formData.append("recommendation", payload.recommendation);
+  if (payload.new_probation_end_date) formData.append("new_probation_end_date", payload.new_probation_end_date);
+  if (payload.remarks) formData.append("remarks", payload.remarks);
+  if (payload.file) formData.append("file", payload.file);
+  return apiFetch<HodReviewRead>(`/applications/${applicationId}/hod-reviews`, { method: "POST", body: formData });
+}
+
+export async function listHodReviews(applicationId: string): Promise<HodReviewHistory> {
+  return apiFetch<HodReviewHistory>(`/applications/${applicationId}/hod-reviews`);
+}
+
+export function openHodReviewFile(applicationId: string, reviewId: string): Promise<void> {
+  return openBlob(`/applications/${applicationId}/hod-reviews/${reviewId}/file`);
+}
+
+export async function recordPermanentOrder(
+  applicationId: string,
+  payload: PermanentOrderPayload,
+): Promise<PermanentOrderRead> {
+  return apiFetch<PermanentOrderRead>(`/applications/${applicationId}/permanent-order`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getPermanentOrder(applicationId: string): Promise<PermanentOrderRead> {
+  return apiFetch<PermanentOrderRead>(`/applications/${applicationId}/permanent-order`);
+}
+
+export async function uploadPermanentOrderFile(applicationId: string, file: File): Promise<PermanentOrderRead> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<PermanentOrderRead>(`/applications/${applicationId}/permanent-order/file`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export function openPermanentOrderFile(applicationId: string): Promise<void> {
+  return openBlob(`/applications/${applicationId}/permanent-order/file`);
+}
+
+export async function listOnboardingProbation(): Promise<OnboardingProbationRow[]> {
+  return apiFetch<OnboardingProbationRow[]>("/onboarding/probation");
 }

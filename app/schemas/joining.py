@@ -3,7 +3,12 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import HousekeepingShiftEnum, JoiningDocumentStatusEnum
+from app.models.enums import (
+    ApplicationStatusEnum,
+    HodRecommendationEnum,
+    HousekeepingShiftEnum,
+    JoiningDocumentStatusEnum,
+)
 
 
 class JoiningRecordRead(BaseModel):
@@ -99,6 +104,10 @@ class AppointmentOrderRead(BaseModel):
     signed_copy_content_type: str | None
     signed_copy_size: int | None
     signed_copy_uploaded_at: datetime | None
+    # The probation end in force: the latest "Extend probation" HOD review's
+    # date, else probation_end_date (docs/specs/hod-review-and-permanent-
+    # order.md). Filled in by GET /provisional-order; None elsewhere.
+    current_probation_end_date: date | None = None
 
 
 class DepartmentOption(BaseModel):
@@ -117,3 +126,69 @@ class DepartmentOptionsResponse(BaseModel):
     suggestion_basis: str
     suggestion_text: str
     options: list[DepartmentOption]
+
+
+# --- HOD review + permanent order (2026-10-31) ------------------------------
+
+
+class HodReviewRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    application_id: uuid.UUID
+    hod_name: str
+    review_date: date
+    recommendation: HodRecommendationEnum
+    new_probation_end_date: date | None
+    remarks: str | None
+    file_content_type: str | None
+    file_size: int | None
+    recorded_by_id: uuid.UUID
+    recorded_at: datetime
+
+
+class HodReviewHistory(BaseModel):
+    # Latest first; the first item is the one shown as "the" review.
+    items: list[HodReviewRead]
+    # In force: latest extension, else the provisional order's.
+    probation_end_date: date | None
+    # The provisional order's own, for showing what an extension replaced.
+    provisional_probation_end_date: date | None
+    # Prefill for the form: the HOD typed at hand-over.
+    hod_assigned: str | None
+
+
+class PermanentOrderCreate(BaseModel):
+    registrar_ref_no: str = Field(min_length=1, max_length=100)
+    order_date: date
+    issued_to_faculty_on: date
+
+
+class PermanentOrderRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    application_id: uuid.UUID
+    registrar_ref_no: str
+    order_date: date
+    issued_to_faculty_on: date
+    file_content_type: str | None
+    file_size: int | None
+    file_uploaded_at: datetime | None
+    recorded_by_id: uuid.UUID
+    recorded_at: datetime
+
+
+class OnboardingProbationRow(BaseModel):
+    """Per-application figures for the Onboarding page that GET /applications
+    does not carry (joining date, probation), computed on the server."""
+
+    application_id: uuid.UUID
+    status: ApplicationStatusEnum
+    joining_date: date | None
+    # None until the person has actually joined (status JOINED or later).
+    days_since_joining: int | None
+    probation_end_date: date | None
+    latest_recommendation: HodRecommendationEnum | None
+    # Probation end before today and no "Recommend for permanent" review.
+    past_probation_without_recommendation: bool

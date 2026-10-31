@@ -235,6 +235,13 @@ class ApplicationStatusEnum(str, enum.Enum):
     PROVISIONAL_ORDER_ISSUED = "PROVISIONAL_ORDER_ISSUED"
     ORIENTATION_COMPLETE = "ORIENTATION_COMPLETE"
     HANDED_OVER_TO_HOD = "HANDED_OVER_TO_HOD"
+    # HOD review + permanent order (docs/specs/hod-review-and-permanent-order.md,
+    # migration 6b2d4f8a0c13). HOD_REVIEW_COMPLETE is reached only from
+    # HANDED_OVER_TO_HOD once a "Recommend for permanent" review exists;
+    # PERMANENT_ORDER_ISSUED only from HOD_REVIEW_COMPLETE once the Registrar's
+    # order is recorded -- see pipeline.transition_application_status.
+    HOD_REVIEW_COMPLETE = "HOD_REVIEW_COMPLETE"
+    PERMANENT_ORDER_ISSUED = "PERMANENT_ORDER_ISSUED"
     REJECTED = "REJECTED"
     WITHDRAWN = "WITHDRAWN"
     # Interviewed, not selected yet, kept in ranked reserve for the same
@@ -276,13 +283,41 @@ APPLICATION_STATUS_ORDER: tuple[ApplicationStatusEnum, ...] = (
     ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED,
     ApplicationStatusEnum.ORIENTATION_COMPLETE,
     ApplicationStatusEnum.HANDED_OVER_TO_HOD,
+    ApplicationStatusEnum.HOD_REVIEW_COMPLETE,
+    ApplicationStatusEnum.PERMANENT_ORDER_ISSUED,
 )
 
+# HANDED_OVER_TO_HOD stopped being terminal on 31-Oct-2026 (HOD review +
+# permanent order): the permanent order is now the end of an in-app hire.
 APPLICATION_TERMINAL_STATUSES = {
-    ApplicationStatusEnum.HANDED_OVER_TO_HOD,
+    ApplicationStatusEnum.PERMANENT_ORDER_ISSUED,
     ApplicationStatusEnum.REJECTED,
     ApplicationStatusEnum.WITHDRAWN,
 }
+
+# Handed over, permanent order still to come. The person is an employee by
+# now, so these move only forward through their own endpoints: never
+# rejected or withdrawn (leaving is the offboarding action on the employee).
+APPLICATION_POST_HANDOVER_STATUSES = {
+    ApplicationStatusEnum.HANDED_OVER_TO_HOD,
+    ApplicationStatusEnum.HOD_REVIEW_COMPLETE,
+}
+
+# Out of the recruitment pipeline: hired (handed over or later) or ended.
+# This is what APPLICATION_TERMINAL_STATUSES meant before 31-Oct, and what
+# "in progress" counts and candidate withdrawal still need, so those readers
+# use this set and see no change from the two new stages.
+APPLICATION_SETTLED_STATUSES = APPLICATION_TERMINAL_STATUSES | APPLICATION_POST_HANDOVER_STATUSES
+
+
+class HodRecommendationEnum(str, enum.Enum):
+    """An HOD review's outcome (docs/specs/hod-review-and-permanent-order.md).
+    Stored as a plain string with a CHECK constraint, not a native enum, so
+    nothing irreversible is added to Postgres for it."""
+
+    RECOMMEND_PERMANENT = "RECOMMEND_PERMANENT"
+    EXTEND_PROBATION = "EXTEND_PROBATION"
+    NOT_RECOMMENDED = "NOT_RECOMMENDED"
 
 
 class OfferStatusEnum(str, enum.Enum):

@@ -196,8 +196,15 @@ const NAV_GROUPS: NavGroup[] = [
         to: "/onboarding",
         label: "Onboarding",
         icon: UserPlus,
-        // Mirrors OnboardingListPage's own CAN_VIEW_ROLES.
-        visibleForRoles: ["HR_ADMIN", "RECRUITMENT_OFFICER", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"],
+        // Mirrors OnboardingListPage's own CAN_VIEW_ROLES. CAMPUS_HOD sees
+        // only the HOD-review stages there (joining.py's review endpoints).
+        visibleForRoles: [
+          "HR_ADMIN",
+          "RECRUITMENT_OFFICER",
+          "SUPER_ADMIN",
+          "RECRUITMENT_COORDINATOR",
+          "CAMPUS_HOD",
+        ],
       },
     ],
   },

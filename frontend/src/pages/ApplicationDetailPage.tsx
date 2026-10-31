@@ -11,6 +11,7 @@ import { listInterviews } from "@/api/interviews";
 import { listOffers } from "@/api/offers";
 import { getResumeScore, screenApplication } from "@/api/resumeScreening";
 import {
+  APPLICATION_POST_HANDOVER_STATUSES,
   APPLICATION_STATUS_ORDER,
   APPLICATION_TERMINAL_STATUSES,
   REJECTION_CATEGORY_LABELS,
@@ -24,7 +25,9 @@ import { CandidateInitials } from "@/components/applications/CandidateInitials";
 import { PromoteFromWaitlistDialog } from "@/components/applications/PromoteFromWaitlistDialog";
 import { StatusBadge } from "@/components/applications/StatusBadge";
 import { StatusBadge as InterviewStatusBadge } from "@/components/interviews/StatusBadge";
+import { HodReviewSection } from "@/components/joining/HodReviewSection";
 import { JoiningCard } from "@/components/joining/JoiningCard";
+import { HOD_REVIEW_STATUSES } from "@/components/joining/postHandover";
 import { StatusBadge as OfferStatusBadge } from "@/components/offers/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -272,7 +275,10 @@ export function ApplicationDetailPage() {
     setPipelineDialogOpen(true);
   }
 
-  const isTerminal = APPLICATION_TERMINAL_STATUSES.has(application.status);
+  // Handed over = an employee: moved on only by recording the HOD review /
+  // permanent order, never by the generic controls (pipeline.py refuses).
+  const isTerminal =
+    APPLICATION_TERMINAL_STATUSES.has(application.status) || APPLICATION_POST_HANDOVER_STATUSES.has(application.status);
   const currentIndex = APPLICATION_STATUS_ORDER.indexOf(application.status);
   // WAITLISTED has its own dialog (it needs a rank), and a waitlisted
   // application leaves only through Promote / Reject / Withdraw -- the
@@ -280,7 +286,9 @@ export function ApplicationDetailPage() {
   const isWaitlisted = application.status === "WAITLISTED";
   const forwardStatuses =
     currentIndex >= 0 && !isWaitlisted
-      ? APPLICATION_STATUS_ORDER.slice(currentIndex + 1).filter((s) => s !== "WAITLISTED")
+      ? APPLICATION_STATUS_ORDER.slice(currentIndex + 1).filter(
+          (s) => s !== "WAITLISTED" && s !== "HOD_REVIEW_COMPLETE" && s !== "PERMANENT_ORDER_ISSUED",
+        )
       : [];
 
   // Bug fix: OR'd with hasPermission("MANAGE_APPLICATIONS") -- applications.py's
@@ -304,6 +312,11 @@ export function ApplicationDetailPage() {
   const canViewJoining =
     (CAN_VIEW_JOINING_ROLES.includes(user.role) || (hasPermission?.("ONBOARDING") ?? false)) &&
     currentIndex >= joiningConfirmedIndex;
+  // A Campus HOD holds no ONBOARDING, so has no Joining card: they get just
+  // the HOD review for their own campus (joining.py's review endpoints admit
+  // CAMPUS_HOD; another campus's application is already a 404 here).
+  const showHodReviewCard =
+    !canViewJoining && user.role === "CAMPUS_HOD" && HOD_REVIEW_STATUSES.has(application.status);
 
   const label = getLabel(application.job_posting_id);
   const isBusy =
@@ -939,6 +952,23 @@ export function ApplicationDetailPage() {
       ) : null}
 
       {canViewJoining ? <JoiningCard application={application} /> : null}
+      {showHodReviewCard ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>HOD review</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <HodReviewSection
+              application={application}
+              canRecord
+              onChanged={() => {
+                void queryClient.invalidateQueries({ queryKey: ["application", id] });
+                void queryClient.invalidateQueries({ queryKey: ["applications"] });
+              }}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }
