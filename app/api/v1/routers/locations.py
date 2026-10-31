@@ -41,6 +41,7 @@ from app.core.deps import (
     get_campus_scope,
     get_current_active_user,
     get_db,
+    refuse_coordinator_delete,
     require_permission,
 )
 from app.models.bulk_upload_log import BulkUploadLog
@@ -271,6 +272,7 @@ def delete_location(
     location_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    _coordinator_refused: None = Depends(refuse_coordinator_delete),
     current_user: User = Depends(require_permission(PermissionEnum.MANAGE_LOCATIONS)),
     scope: CampusScope = Depends(get_campus_scope),
 ) -> None:

@@ -16,6 +16,7 @@ import {
 } from "@/api/departments";
 import { DEPARTMENT_MANAGEMENT_ROLES, type DepartmentRead, type StaffRoleCategory } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { roleMayDelete } from "@/auth/deleteRights";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { CategoryBadge } from "@/components/domain/CategoryBadge";
 import { DepartmentBulkUploadDialog } from "@/components/departments/DepartmentBulkUploadDialog";
@@ -95,10 +96,12 @@ function DepartmentRowActions({
   department,
   onEdit,
   onChanged,
+  canDelete,
 }: {
   department: DepartmentRead;
   onEdit: () => void;
   onChanged: () => void;
+  canDelete: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // Kept as a sibling of <Popover>, NOT nested inside <PopoverContent> --
@@ -151,18 +154,20 @@ function DepartmentRowActions({
               Edit
             </Button>
             {department.is_active ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="justify-start text-destructive hover:text-destructive"
-                onClick={() => {
-                  setOpen(false);
-                  setDeleteOpen(true);
-                }}
-              >
-                Delete
-              </Button>
+              canDelete ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="justify-start text-destructive hover:text-destructive"
+                  onClick={() => {
+                    setOpen(false);
+                    setDeleteOpen(true);
+                  }}
+                >
+                  Delete
+                </Button>
+              ) : null
             ) : (
               <Button
                 type="button"
@@ -762,6 +767,7 @@ export function DepartmentsPage() {
                         <DepartmentRowActions
                           department={department}
                           onEdit={() => openEditDialog(department)}
+                          canDelete={roleMayDelete(user?.role)}
                           onChanged={() => void queryClient.invalidateQueries({ queryKey: ["departments"] })}
                         />
                       </TableCell>

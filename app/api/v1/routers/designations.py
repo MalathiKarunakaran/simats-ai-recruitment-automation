@@ -8,7 +8,7 @@ from minio import Minio
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.deps import get_current_active_user, get_db, require_roles
+from app.core.deps import get_current_active_user, get_db, refuse_coordinator_delete, require_roles
 from app.models.bulk_upload_log import BulkUploadLog
 from app.models.department import Department
 from app.models.designation import Designation
@@ -304,6 +304,7 @@ def delete_designation(
     designation_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    _coordinator_refused: None = Depends(refuse_coordinator_delete),
     current_user: User = Depends(require_roles(*DESIGNATION_WRITE_ROLES)),
 ) -> None:
     designation = db.get(Designation, designation_id)

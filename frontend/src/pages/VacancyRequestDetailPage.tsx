@@ -21,6 +21,7 @@ import {
   updateSlotCount,
 } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
+import { roleMayDelete } from "@/auth/deleteRights";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -189,7 +190,7 @@ export function VacancyRequestDetailPage() {
     ((role === "CAMPUS_HOD" || role === "SUPER_ADMIN") || (hasPermission?.("EDIT_VACANCY_REQUEST") ?? false)) &&
     vr.status === "DRAFT";
   const canEdit = canSubmit;
-  const canDelete = canSubmit;
+  const canDelete = canSubmit && roleMayDelete(role);
   const canDeanApprove =
     ((role === "ASSOCIATE_DEAN_RECRUITMENT" || role === "SUPER_ADMIN") ||
       (hasPermission?.("APPROVE_VACANCY") ?? false)) &&

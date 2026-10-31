@@ -75,3 +75,10 @@ class ApplicationRead(BaseModel):
     hod_assigned: str | None
     created_at: datetime
     updated_at: datetime
+    # "Last updated by" (pipeline brief Phase 6): the newest audit row on the
+    # application or its joining-stage records -- app/services/last_updated.py.
+    # Filled by GET /applications and GET /applications/{id} only; None
+    # elsewhere and when no audit row exists. A row with no actor (system /
+    # sync) has last_updated_at set and last_updated_by_name None.
+    last_updated_by_name: str | None = None
+    last_updated_at: datetime | None = None

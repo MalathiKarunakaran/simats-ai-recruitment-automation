@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,3 +51,14 @@ class AuditLog(Base):
 
     def __repr__(self) -> str:
         return f"<AuditLog {self.action} {self.entity_type}:{self.entity_id}>"
+
+
+# "Last updated by" (pipeline brief Phase 6): app/services/last_updated.py
+# looks up the newest row per (entity_type, entity_id) for many entities at
+# once. entity_id had no index at all before this.
+Index(
+    "ix_audit_logs_entity_type_entity_id_created_at",
+    AuditLog.entity_type,
+    AuditLog.entity_id,
+    AuditLog.created_at.desc(),
+)

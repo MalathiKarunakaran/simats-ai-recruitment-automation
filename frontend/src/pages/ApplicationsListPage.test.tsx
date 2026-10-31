@@ -124,6 +124,31 @@ describe("ApplicationsListPage", () => {
     expect(screen.getByText("Assistant Professor")).toBeInTheDocument();
   });
 
+  it("shows a Last updated by column, reading System for an actorless audit row", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedListApplications.mockResolvedValue([
+      { ...APPLICATION, last_updated_by_name: null, last_updated_at: new Date().toISOString() },
+    ]);
+    mockedListCandidates.mockResolvedValue([CANDIDATE]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({
+      getLabel: () => ({ positionTitle: "Assistant Professor", campusId: "c-sse", slug: "slug-1" }),
+      jobPostings: [],
+      isLoading: false,
+    });
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+    expect(screen.getByRole("columnheader", { name: "Last updated by" })).toBeInTheDocument();
+    expect(screen.getByText("System · just now")).toBeInTheDocument();
+  });
+
   it("re-fetches with the selected status when the filter changes", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,

@@ -8,6 +8,7 @@ import { listCandidates } from "@/api/candidates";
 import { listOnboardingProbation } from "@/api/joining";
 import type { ApplicationStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { LastUpdatedBy } from "@/components/applications/LastUpdatedBy";
 import { StatusBadge } from "@/components/applications/StatusBadge";
 import { formatDate } from "@/components/joining/postHandover";
 import { Card, CardContent } from "@/components/ui/card";
@@ -170,7 +171,7 @@ export function OnboardingListPage() {
                 <TableHead>Position</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Days since joining</TableHead>
-                <TableHead>Last updated</TableHead>
+                <TableHead>Last updated by</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -211,7 +212,9 @@ export function OnboardingListPage() {
                         </div>
                       </TableCell>
                       <TableCell>{probation?.days_since_joining ?? "—"}</TableCell>
-                      <TableCell>{new Date(application.updated_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        <LastUpdatedBy name={application.last_updated_by_name} at={application.last_updated_at} />
+                      </TableCell>
                     </TableRow>
                   );
                 })

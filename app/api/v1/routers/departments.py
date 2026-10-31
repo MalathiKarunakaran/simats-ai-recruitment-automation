@@ -26,7 +26,14 @@ from minio import Minio
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.deps import CampusScope, get_campus_scope, get_current_active_user, get_db, require_permission
+from app.core.deps import (
+    CampusScope,
+    get_campus_scope,
+    get_current_active_user,
+    get_db,
+    refuse_coordinator_delete,
+    require_permission,
+)
 from app.models.bulk_upload_log import BulkUploadLog
 from app.models.campus import Campus
 from app.models.department import Department
@@ -383,6 +390,7 @@ def delete_department(
     department_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    _coordinator_refused: None = Depends(refuse_coordinator_delete),
     current_user: User = Depends(require_permission(PermissionEnum.MANAGE_DEPARTMENTS)),
 ) -> None:
     department = db.get(Department, department_id)

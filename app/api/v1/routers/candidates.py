@@ -7,7 +7,7 @@ from minio import Minio
 from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_active_user, get_db, require_permission
+from app.core.deps import get_current_active_user, get_db, refuse_coordinator_delete, require_permission
 from app.models.application import Application
 from app.models.candidate import Candidate
 from app.models.enums import PermissionEnum, UserRoleEnum
@@ -268,6 +268,7 @@ def delete_candidate(
     candidate_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    _coordinator_refused: None = Depends(refuse_coordinator_delete),
     current_user: User = Depends(require_permission(PermissionEnum.DELETE_CANDIDATE)),
 ) -> None:
     """Nobody has DELETE_CANDIDATE by default per Phase 1 -- deliberately

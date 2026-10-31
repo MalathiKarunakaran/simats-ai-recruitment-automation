@@ -217,6 +217,22 @@ describe("VacancyRequestDetailPage", () => {
     await waitFor(() => expect(screen.getByText("Submit")).toBeInTheDocument());
   });
 
+  it("hides Delete on a draft from a Recruitment Coordinator even with EDIT_VACANCY_REQUEST", async () => {
+    mockedGetVacancyRequest.mockResolvedValue(baseVr({ status: "DRAFT" }));
+    mockedUseAuth.mockReturnValue({
+      user: { role: "RECRUITMENT_COORDINATOR" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "EDIT_VACANCY_REQUEST",
+    });
+
+    renderDetail();
+
+    await waitFor(() => expect(screen.getByText("Submit")).toBeInTheDocument());
+    expect(screen.queryByText("Delete")).not.toBeInTheDocument();
+  });
+
   it("clicking Submit calls the mutation and the status updates", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD", campus_id: "c-sse" } as UserRead,

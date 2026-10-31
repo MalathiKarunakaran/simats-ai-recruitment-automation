@@ -6,6 +6,7 @@ import { listCampuses } from "@/api/campuses";
 import { createLocation, deleteLocation, exportLocations, listLocations, updateLocation } from "@/api/locations";
 import { GLOBAL_SCOPE_ROLES, LOCATION_MANAGEMENT_ROLES, type LocationRead, type StaffRoleCategory } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { roleMayDelete } from "@/auth/deleteRights";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { LocationBulkUploadDialog } from "@/components/locations/LocationBulkUploadDialog";
 import { Badge } from "@/components/ui/badge";
@@ -490,19 +491,21 @@ export function LocationsPage() {
                           <Button variant="outline" size="sm" onClick={() => openEditDialog(location)}>
                             Edit
                           </Button>
-                          <DeleteConfirmDialog
-                            triggerAriaLabel={`Delete location ${location.name}`}
-                            title="Delete location"
-                            description={
-                              <>
-                                Remove <span className="font-medium text-foreground">{location.name}</span>? This
-                                is a soft delete -- the location stays visible (as Inactive) and can be
-                                reactivated later.
-                              </>
-                            }
-                            onDelete={() => deleteLocation(location.id)}
-                            onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["locations"] })}
-                          />
+                          {roleMayDelete(user?.role) ? (
+                            <DeleteConfirmDialog
+                              triggerAriaLabel={`Delete location ${location.name}`}
+                              title="Delete location"
+                              description={
+                                <>
+                                  Remove <span className="font-medium text-foreground">{location.name}</span>? This
+                                  is a soft delete -- the location stays visible (as Inactive) and can be
+                                  reactivated later.
+                                </>
+                              }
+                              onDelete={() => deleteLocation(location.id)}
+                              onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["locations"] })}
+                            />
+                          ) : null}
                         </div>
                       </TableCell>
                     ) : null}

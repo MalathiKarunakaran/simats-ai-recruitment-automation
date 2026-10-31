@@ -21,6 +21,7 @@ import {
   type StaffRoleCategory,
 } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { roleMayDelete } from "@/auth/deleteRights";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { BulkUploadDialog } from "@/components/sanctionedStrength/BulkUploadDialog";
 import { DeleteSanctionedStrengthDialog } from "@/components/sanctionedStrength/DeleteSanctionedStrengthDialog";
@@ -382,7 +383,9 @@ export function SanctionedStrengthPage() {
   // what this page renders.
   const canEditStrength = Boolean(user && hasPermission?.("EDIT_SANCTIONED_STRENGTH"));
   const canCreateStrength = Boolean(user && hasPermission?.("CREATE_SANCTIONED_STRENGTH"));
-  const canDeleteStrength = Boolean(user && hasPermission?.("DELETE_SANCTIONED_STRENGTH"));
+  const canDeleteStrength = Boolean(
+    user && hasPermission?.("DELETE_SANCTIONED_STRENGTH") && roleMayDelete(user.role),
+  );
   const canBulkUploadStrength = Boolean(user && hasPermission?.("BULK_UPLOAD_SANCTIONED_STRENGTH"));
   const canViewUploadHistory = Boolean(user && hasPermission?.("VIEW_SANCTIONED_STRENGTH_UPLOAD_HISTORY"));
   // Phase G: HousekeepingStrengthTable's own Actions/roster-expand mutations

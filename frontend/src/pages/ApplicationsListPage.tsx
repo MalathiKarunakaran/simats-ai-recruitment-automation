@@ -9,6 +9,7 @@ import { listCandidates } from "@/api/candidates";
 import { APPLICATION_STATUS_ORDER } from "@/api/types";
 import type { ApplicationRead, ApplicationStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { LastUpdatedBy } from "@/components/applications/LastUpdatedBy";
 import { StatusBadge } from "@/components/applications/StatusBadge";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import { useJobPostingLookup } from "@/hooks/useJobPostingLookup";
 
 const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
 
-const TOTAL_COLUMN_COUNT = 4;
+const TOTAL_COLUMN_COUNT = 5;
 
 // Step 6 KPI strip's funnel buckets -- a fresh, page-local grouping over
 // ApplicationStatus (mirrors APPLICATION_STATUS_ORDER's own forward
@@ -188,6 +189,7 @@ export function ApplicationsListPage() {
                 <TableHead>Position</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Applied</TableHead>
+                <TableHead>Last updated by</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -216,6 +218,9 @@ export function ApplicationsListPage() {
                         <StatusBadge status={application.status} />
                       </TableCell>
                       <TableCell>{new Date(application.applied_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        <LastUpdatedBy name={application.last_updated_by_name} at={application.last_updated_at} />
+                      </TableCell>
                     </TableRow>
                   );
                 })

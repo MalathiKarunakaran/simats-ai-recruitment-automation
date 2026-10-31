@@ -207,6 +207,28 @@ describe("JoiningCard", () => {
     mockedGetDepartmentOptions.mockResolvedValue(OPTIONS);
   });
 
+  it("shows who last updated the application and its joining records in the card header", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+      hasPermission: (permission) => permission === "ONBOARDING",
+    });
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument()]);
+
+    renderCard(
+      makeApplication({
+        status: "JOINING_CONFIRMED",
+        last_updated_by_name: null,
+        last_updated_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      }),
+    );
+
+    expect(await screen.findByText("Last updated by System · 3 hr ago")).toBeInTheDocument();
+  });
+
   it("renders nothing for a role outside the read roles", () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "CAMPUS_HOD" } as UserRead,

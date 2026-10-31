@@ -315,7 +315,7 @@ describe("OnboardingListPage", () => {
     expect(screen.getByText("John Smith")).toBeInTheDocument();
   });
 
-  it("shows a filters-specific empty state and a last-updated date column", async () => {
+  it("shows a filters-specific empty state and a last-updated-by column", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
@@ -323,7 +323,14 @@ describe("OnboardingListPage", () => {
       logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
     mockByStatus({
-      JOINING_CONFIRMED: [makeApplication({ id: "app-1", status: "JOINING_CONFIRMED", updated_at: "2026-02-10T00:00:00Z" })],
+      JOINING_CONFIRMED: [
+        makeApplication({
+          id: "app-1",
+          status: "JOINING_CONFIRMED",
+          last_updated_by_name: "Asha Rao",
+          last_updated_at: "2026-02-10T04:30:00Z",
+        }),
+      ],
     });
     mockedListCandidates.mockResolvedValue([CANDIDATE_JANE]);
     mockedListCampuses.mockResolvedValue([]);
@@ -335,7 +342,9 @@ describe("OnboardingListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
-    expect(screen.getByText(new Date("2026-02-10T00:00:00Z").toLocaleDateString())).toBeInTheDocument();
+    const cell = screen.getByText(/^Asha Rao · /);
+    expect(cell).toHaveAttribute("title", expect.stringContaining("IST"));
+    expect(cell).toHaveAttribute("title", expect.stringContaining("10:00"));
 
     await userEvent.type(screen.getByPlaceholderText("Search by candidate or position"), "nonexistent");
 

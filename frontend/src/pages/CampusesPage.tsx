@@ -5,6 +5,7 @@ import { ApiError } from "@/api/client";
 import { createCampus, deleteCampus, listCampuses, updateCampus } from "@/api/campuses";
 import { CAMPUS_CODES, type CampusCode, type CampusRead } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { roleMayDelete } from "@/auth/deleteRights";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -257,19 +258,21 @@ export function CampusesPage() {
                           <Button variant="outline" size="sm" onClick={() => openEditDialog(campus)}>
                             Edit
                           </Button>
-                          <DeleteConfirmDialog
-                            triggerAriaLabel={`Delete campus ${campus.code}`}
-                            title="Delete campus"
-                            description={
-                              <>
-                                Remove <span className="font-medium text-foreground">{campus.name}</span> (
-                                {campus.code})? This is a soft delete -- the campus stays visible (as Inactive)
-                                and can be reactivated later.
-                              </>
-                            }
-                            onDelete={() => deleteCampus(campus.id)}
-                            onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["campuses"] })}
-                          />
+                          {roleMayDelete(user?.role) ? (
+                            <DeleteConfirmDialog
+                              triggerAriaLabel={`Delete campus ${campus.code}`}
+                              title="Delete campus"
+                              description={
+                                <>
+                                  Remove <span className="font-medium text-foreground">{campus.name}</span> (
+                                  {campus.code})? This is a soft delete -- the campus stays visible (as Inactive)
+                                  and can be reactivated later.
+                                </>
+                              }
+                              onDelete={() => deleteCampus(campus.id)}
+                              onDeleted={() => void queryClient.invalidateQueries({ queryKey: ["campuses"] })}
+                            />
+                          ) : null}
                         </div>
                       </TableCell>
                     ) : null}

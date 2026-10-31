@@ -76,6 +76,7 @@ from app.core.deps import (
     get_current_active_user,
     get_db,
     get_department_scope,
+    refuse_coordinator_delete,
     require_permission,
     require_roles,
 )
@@ -917,6 +918,7 @@ def delete_sanctioned_strength(
     sanctioned_strength_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    _coordinator_refused: None = Depends(refuse_coordinator_delete),
     current_user: User = Depends(require_permission(PermissionEnum.DELETE_SANCTIONED_STRENGTH)),
     scope: CampusScope = Depends(get_campus_scope),
     scope_dept: DepartmentScope = Depends(get_department_scope),

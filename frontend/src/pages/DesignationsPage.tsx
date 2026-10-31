@@ -24,6 +24,7 @@ import {
   type StaffRoleCategory,
 } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { roleMayDelete } from "@/auth/deleteRights";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -457,10 +458,12 @@ function DesignationRowActions({
   designation,
   onEdit,
   onChanged,
+  canDelete,
 }: {
   designation: DesignationRead;
   onEdit: () => void;
   onChanged: () => void;
+  canDelete: boolean;
 }) {
   const toast = useToast();
 
@@ -479,18 +482,20 @@ function DesignationRowActions({
         Edit
       </Button>
       {designation.is_active ? (
-        <DeleteConfirmDialog
-          triggerAriaLabel={`Delete designation ${designation.name}`}
-          title="Delete designation"
-          description={
-            <>
-              Remove <span className="font-medium text-foreground">{designation.name}</span>? This is a soft
-              delete -- the designation stays visible (as Inactive) and can be reactivated later.
-            </>
-          }
-          onDelete={() => deleteDesignation(designation.id)}
-          onDeleted={onChanged}
-        />
+        canDelete ? (
+          <DeleteConfirmDialog
+            triggerAriaLabel={`Delete designation ${designation.name}`}
+            title="Delete designation"
+            description={
+              <>
+                Remove <span className="font-medium text-foreground">{designation.name}</span>? This is a soft
+                delete -- the designation stays visible (as Inactive) and can be reactivated later.
+              </>
+            }
+            onDelete={() => deleteDesignation(designation.id)}
+            onDeleted={onChanged}
+          />
+        ) : null
       ) : (
         <Button
           type="button"
@@ -1105,6 +1110,7 @@ export function DesignationsPage() {
                         <DesignationRowActions
                           designation={designation}
                           onEdit={() => openEditDialog(designation)}
+                          canDelete={roleMayDelete(user?.role)}
                           onChanged={() => void queryClient.invalidateQueries({ queryKey: ["designations"] })}
                         />
                       </TableCell>

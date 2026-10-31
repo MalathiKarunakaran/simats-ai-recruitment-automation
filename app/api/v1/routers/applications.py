@@ -25,6 +25,7 @@ from app.schemas.application import (
 )
 from app.schemas.common import PaginatedResponse
 from app.services import eligibility, pipeline
+from app.services.last_updated import last_updated_by
 from app.services.audit import log_create, log_update
 
 router = APIRouter(prefix="/applications", tags=["applications"])
@@ -42,6 +43,19 @@ def _get_or_404_scoped(db: Session, application_id: uuid.UUID, scope: CampusScop
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     enforce_campus_match(scope, application.campus_id)
     return application
+
+
+def _with_last_updated(db: Session, applications: list[Application]) -> list[ApplicationRead]:
+    last = last_updated_by(db, [application.id for application in applications])
+    out = []
+    for application in applications:
+        name, at = last.get(application.id, (None, None))
+        out.append(
+            ApplicationRead.model_validate(application).model_copy(
+                update={"last_updated_by_name": name, "last_updated_at": at}
+            )
+        )
+    return out
 
 
 @router.post("", response_model=ApplicationRead, status_code=status.HTTP_201_CREATED)
@@ -141,7 +155,7 @@ def list_applications(
         query = query.filter(Application.job_posting_id == job_posting_id)
     total = query.count()
     rows = query.order_by(Application.applied_at.desc()).offset(offset).limit(limit).all()
-    return PaginatedResponse(items=rows, total=total, limit=limit, offset=offset)
+    return PaginatedResponse(items=_with_last_updated(db, rows), total=total, limit=limit, offset=offset)
 
 
 @router.get("/{application_id}", response_model=ApplicationRead)
@@ -150,8 +164,8 @@ def get_application(
     db: Session = Depends(get_db),
     current_user: User = Depends(_staff_only),
     scope: CampusScope = Depends(get_campus_scope),
-) -> Application:
-    return _get_or_404_scoped(db, application_id, scope)
+) -> ApplicationRead:
+    return _with_last_updated(db, [_get_or_404_scoped(db, application_id, scope)])[0]
 
 
 @router.patch("/{application_id}/pipeline-details", response_model=ApplicationRead)

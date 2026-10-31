@@ -1557,6 +1557,11 @@ export interface ApplicationRead {
   qualification_mismatch_reason: string | null;
   created_at: string;
   updated_at: string;
+  // Phase 6 "last updated by": newest audit row on the application or its
+  // joining-stage records. Set on GET /applications and GET /applications/{id}
+  // only. last_updated_at set + name null = a system/sync write ("System").
+  last_updated_by_name?: string | null;
+  last_updated_at?: string | null;
 }
 
 // Mirrors app/schemas/application.py::ApplicationCreate.

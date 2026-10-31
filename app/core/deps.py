@@ -220,6 +220,17 @@ def require_permission(*permissions: PermissionEnum):
     return _checker
 
 
+def refuse_coordinator_delete(current_user: User = Depends(get_current_active_user)) -> None:
+    """Deleting stays with Super Admin (user decision, 31-Oct-2026): a
+    RECRUITMENT_COORDINATOR is refused on every DELETE route even when an
+    individually-granted permission (MANAGE_DEPARTMENTS, DELETE_CANDIDATE...)
+    would otherwise let them through. Declared BEFORE the route's own gate so
+    a coordinator always gets this message, not the generic one. Only the
+    coordinator is narrowed -- every other role keeps the gate it had."""
+    if current_user.role == UserRoleEnum.RECRUITMENT_COORDINATOR:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a Super Admin can delete")
+
+
 @dataclass
 class CampusScope:
     is_global: bool

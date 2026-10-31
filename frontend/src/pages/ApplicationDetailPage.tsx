@@ -22,6 +22,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { ApplicationActivity } from "@/components/applications/ApplicationActivity";
 import { ApplicationProgress } from "@/components/applications/ApplicationProgress";
 import { CandidateInitials } from "@/components/applications/CandidateInitials";
+import { LastUpdatedBy } from "@/components/applications/LastUpdatedBy";
 import { PromoteFromWaitlistDialog } from "@/components/applications/PromoteFromWaitlistDialog";
 import { StatusBadge } from "@/components/applications/StatusBadge";
 import { StatusBadge as InterviewStatusBadge } from "@/components/interviews/StatusBadge";
@@ -369,6 +370,12 @@ export function ApplicationDetailPage() {
                 {application.role_category.replace(/_/g, " ").toLowerCase()}
                 {candidate?.email ? ` · ${candidate.email}` : ""}
               </span>
+              <LastUpdatedBy
+                withLabel
+                name={application.last_updated_by_name}
+                at={application.last_updated_at}
+                className="text-xs text-muted-foreground"
+              />
             </div>
           </div>
 

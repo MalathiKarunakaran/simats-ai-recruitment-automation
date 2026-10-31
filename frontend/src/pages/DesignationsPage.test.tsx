@@ -745,6 +745,18 @@ describe("DesignationsPage", () => {
     expect(screen.queryByRole("button", { name: "Delete designation Assistant Professor" })).not.toBeInTheDocument();
   });
 
+  it("hides Delete (but keeps Edit) for a Recruitment Coordinator -- deleting is Super Admin only", async () => {
+    mockUser("RECRUITMENT_COORDINATOR");
+    mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));
+    mockedListDepartments.mockResolvedValue([DEPARTMENT]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Assistant Professor")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete designation Assistant Professor" })).not.toBeInTheDocument();
+  });
+
   it("deletes a designation via the confirm dialog and refreshes the list", async () => {
     mockUser("SUPER_ADMIN");
     mockedListDesignationsWithCounts.mockResolvedValue(withCounts([DESIGNATION]));

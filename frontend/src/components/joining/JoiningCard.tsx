@@ -19,6 +19,7 @@ import {
 import { JOINING_DOCUMENT_ACCEPT } from "@/api/types";
 import type { ApplicationRead, HousekeepingShift, JoiningDocumentStatus } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
+import { LastUpdatedBy } from "@/components/applications/LastUpdatedBy";
 import { DepartmentOptionsPicker } from "@/components/joining/DepartmentOptionsPicker";
 import { HodReviewSection } from "@/components/joining/HodReviewSection";
 import { PermanentOrderSection } from "@/components/joining/PermanentOrderSection";
@@ -210,8 +211,14 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-2">
         <CardTitle>Joining</CardTitle>
+        <LastUpdatedBy
+          withLabel
+          name={application.last_updated_by_name}
+          at={application.last_updated_at}
+          className="text-xs font-normal text-muted-foreground"
+        />
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {record ? (

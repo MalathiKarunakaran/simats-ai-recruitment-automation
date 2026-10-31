@@ -152,6 +152,28 @@ describe("ApplicationDetailPage", () => {
     expect(screen.queryByText("Force correct status")).not.toBeInTheDocument();
   });
 
+  it("shows who last updated the application in the header", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockedGetApplication.mockResolvedValue(
+      makeApplication({
+        last_updated_by_name: "Asha Rao",
+        last_updated_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      }),
+    );
+
+    renderPage();
+
+    expect(await screen.findByText("Last updated by Asha Rao · 5 min ago")).toHaveAttribute(
+      "title",
+      expect.stringMatching(/IST$/),
+    );
+  });
+
   it("shows force-correct for Super Admin", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "SUPER_ADMIN" } as UserRead,

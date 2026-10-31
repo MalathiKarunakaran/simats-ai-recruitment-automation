@@ -405,6 +405,18 @@ describe("LocationsPage", () => {
     expect(screen.queryByRole("button", { name: "Delete location Central Library" })).not.toBeInTheDocument();
   });
 
+  it("hides Delete (but keeps Edit) for a Recruitment Coordinator granted MANAGE_LOCATIONS", async () => {
+    mockUser("RECRUITMENT_COORDINATOR", null, (permission) => permission === "MANAGE_LOCATIONS");
+    mockedListCampuses.mockResolvedValue([SSE]);
+    mockedListLocations.mockResolvedValue([LIBRARY]);
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Central Library")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete location Central Library" })).not.toBeInTheDocument();
+  });
+
   it("deletes a location via the confirm dialog and refreshes the list", async () => {
     mockUser("HR_ADMIN");
     mockedListCampuses.mockResolvedValue([SSE]);

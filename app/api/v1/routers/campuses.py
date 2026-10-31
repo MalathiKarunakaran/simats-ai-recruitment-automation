@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_active_user, get_db, require_permission
+from app.core.deps import get_current_active_user, get_db, refuse_coordinator_delete, require_permission
 from app.models.campus import Campus
 from app.models.department import Department
 from app.models.enums import PermissionEnum
@@ -115,6 +115,7 @@ def delete_campus(
     campus_id: uuid.UUID,
     request: Request,
     db: Session = Depends(get_db),
+    _coordinator_refused: None = Depends(refuse_coordinator_delete),
     current_user: User = Depends(require_permission(PermissionEnum.MANAGE_CAMPUSES)),
 ) -> None:
     campus = db.get(Campus, campus_id)
