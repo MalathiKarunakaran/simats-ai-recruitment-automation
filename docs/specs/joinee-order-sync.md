@@ -93,3 +93,30 @@ last dry run. S5 shows "waiting for mapping approval".
 4. Status page + runs endpoint + flagged Excel.
 5. Deploy (needs the user's go-ahead), then the user updates the script.
 6. S5, after its mapping is approved.
+
+## S5 — New Departments (proposed mapping, 31-Oct-2026)
+
+The brief's sheet ID `1xJdo8p1…` is not reachable; the user confirmed the
+sheet is **"New Departments_Nov 2025 to Oct 2026 - Updated"**
+(`12nFzIytIPoPX71hZa1Uw0rlqEacAfbsOXphWm28dKY0`). Its tabs: `Faculty `
+(trailing space), `Approved_Depts`, `New_Employees` (2 test rows — skipped),
+`Allotment_Log` (skipped). Header row 1 everywhere.
+
+**`Approved_Depts`** → `new_departments` (32 rows): `Approved Department`
+(name, the key), `Notes` (raw: "Top Dept", "Top Dept As Added"),
+`Count`, `Additional Count` (integers; a non-number is kept raw + flagged).
+
+**`Faculty `** → `department_faculty` (~650 rows), key **Bio ID**:
+
+| Column | Rule |
+|---|---|
+| Bio ID, Name | key + display |
+| Dept | as typed + matched to a `new_departments` name by exact lookup after case/space folding; a near-miss ("Additive Manufacuring Engineering") is flagged, never guessed |
+| Remark | HOD / HoD → HOD, Member / mEmber → MEMBER, else flag |
+| Status | "Addtional Faculty" (sic) → `is_additional = true` |
+| Top 25 | the column mixes two things: "Top Dept" → `top_dept = true`; LEFT / ;LEFT / RESIGNED → `state = LEFT`; LEAVE / MATERNITY → `state = ON_LEAVE`; CSE / ECE / MATHS … → `parent_dept_note` (raw); raw always kept |
+| Vacancy, Active, S.No | empty in every row today; Vacancy/Active stored raw, S.No ignored |
+
+Links: a faculty row links to the `sheet_joinees` / `provisional_orders` row
+with the same Bio ID when one exists. A per-department summary (approved
+count + additional vs. active members) is derived on read, not stored.
