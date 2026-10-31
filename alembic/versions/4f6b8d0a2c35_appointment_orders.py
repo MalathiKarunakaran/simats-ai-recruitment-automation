@@ -7,6 +7,10 @@ Create Date: 2026-10-31
 docs/specs/provisional-order-and-allotment.md: one new table for the
 provisional appointment orders issued in the app. Status is a plain string,
 so downgrade is a clean drop.
+
+`address` (the letter's address snapshot) was added here in place on 31-Oct,
+before this revision had run anywhere but throwaway databases; the matching
+`candidates.address` is its own revision, 5a1c3e7b9d42.
 """
 from typing import Sequence, Union
 
@@ -38,6 +42,7 @@ def upgrade() -> None:
         _uuid("issued_by_id", nullable=False),
         sa.Column("issued_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("candidate_name", sa.String(length=150), nullable=False),
+        sa.Column("address", sa.Text(), nullable=True),
         sa.Column("designation", sa.String(length=150), nullable=False),
         sa.Column("category", sa.String(length=20), nullable=False),
         sa.Column("campus_code", sa.String(length=10), nullable=False),

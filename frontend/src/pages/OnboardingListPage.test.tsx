@@ -33,6 +33,7 @@ function makeCandidate(overrides: Partial<CandidateRead>): CandidateRead {
     full_name: "Jane Doe",
     email: "jane@example.com",
     phone_number: null,
+    address: null,
     resume_storage_key: null,
     source: null,
     reference_name: null,
@@ -229,7 +230,8 @@ describe("OnboardingListPage", () => {
 
     await userEvent.click(screen.getByRole("combobox", { name: "Stage filter" }));
     const options = (await screen.findAllByRole("option")).map((o) => o.textContent);
-    expect(options.indexOf("PROVISIONAL ORDER ISSUED")).toBe(options.indexOf("JOINED") + 1);
+    // After department allotment (the letter prints the allotted department).
+    expect(options.indexOf("PROVISIONAL ORDER ISSUED")).toBe(options.indexOf("DEPARTMENT ROOM ALLOTTED") + 1);
     await userEvent.click(screen.getByRole("option", { name: "PROVISIONAL ORDER ISSUED" }));
 
     expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();

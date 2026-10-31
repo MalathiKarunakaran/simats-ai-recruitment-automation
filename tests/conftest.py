@@ -1039,7 +1039,6 @@ def hired_employee_factory(db_session, candidate_factory):
         joining_service.complete_onboarding(
             db_session, application=application, joining_record=joining_record, actor=actor
         )
-        appointment_orders.issue_provisional_order(db_session, application=application, actor=actor)
         joining_service.allot_department_room(
             db_session, application=application, department_id=vacancy.department.id, room_allotted="R-101", actor=actor
         )
@@ -1049,6 +1048,7 @@ def hired_employee_factory(db_session, candidate_factory):
             new_status=ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
             actor=actor,
         )
+        appointment_orders.issue_provisional_order(db_session, application=application, actor=actor)
         joining_service.complete_orientation(
             db_session, application=application, orientation_date=joining_date, actor=actor
         )

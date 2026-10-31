@@ -86,7 +86,7 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
   const { data: departmentOptions } = useQuery({
     queryKey: ["department-options", application.id],
     queryFn: () => getDepartmentOptions(application.id),
-    enabled: canWrite && application.status === "PROVISIONAL_ORDER_ISSUED",
+    enabled: canWrite && application.status === "JOINED",
   });
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
   const chosenOption = departmentOptions?.options.find((o) => o.department_id === departmentId);
@@ -295,9 +295,9 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
           </Button>
         ) : null}
 
-        <ProvisionalOrderSection application={application} canWrite={canWrite} onChanged={afterAction} />
-
-        {application.status === "PROVISIONAL_ORDER_ISSUED" && canWrite ? (
+        {/* Department first, then the order: the letter prints the allotted
+            department (user decision 31-Oct). */}
+        {application.status === "JOINED" && canWrite ? (
           <div className="flex flex-col gap-2">
             {departmentOptions ? (
               <DepartmentOptionsPicker
@@ -354,10 +354,15 @@ export function JoiningCard({ application }: { application: ApplicationRead }) {
             {hasPendingDocuments ? (
               <p className="text-xs text-muted-foreground">All documents must be received first.</p>
             ) : null}
+            <p className="text-xs text-muted-foreground">
+              The provisional order is issued after allotment and prints this department.
+            </p>
           </div>
         ) : null}
 
-        {application.status === "DEPARTMENT_ROOM_ALLOTTED" && canWrite ? (
+        <ProvisionalOrderSection application={application} canWrite={canWrite} onChanged={afterAction} />
+
+        {application.status === "PROVISIONAL_ORDER_ISSUED" && canWrite ? (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="orientation_date">Orientation date</Label>
             <Input

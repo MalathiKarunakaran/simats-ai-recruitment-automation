@@ -15,6 +15,7 @@ class CandidateCreate(BaseModel):
     full_name: str
     email: EmailStr
     phone_number: str | None = None
+    address: str | None = Field(default=None, max_length=1000)
     source: CandidateSource | None = None
     reference_name: str | None = None
 
@@ -32,6 +33,7 @@ class CandidateRead(BaseModel):
     full_name: str
     email: EmailStr
     phone_number: str | None
+    address: str | None
     resume_storage_key: str | None
     source: str | None
     reference_name: str | None
@@ -58,5 +60,6 @@ class CandidateUpdate(BaseModel):
     full_name: str | None = None
     email: EmailStr | None = None
     phone_number: str | None = None
+    address: str | None = Field(default=None, max_length=1000)
     source: CandidateSource | None = None
     reference_name: str | None = None

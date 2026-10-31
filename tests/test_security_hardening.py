@@ -110,7 +110,6 @@ def test_complete_onboarding_writes_joining_record_audit_row(
         f"/api/v1/applications/{application.id}/joining/mark-joined", headers=auth_headers(client, vacancy.hr_admin)
     )
     _mark_all_documents_received(client, vacancy, application.id)
-    _issue_order(client, vacancy, application)
 
     response = client.post(
         f"/api/v1/applications/{application.id}/joining/allot-department-room",

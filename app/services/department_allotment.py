@@ -31,7 +31,11 @@ from app.services.joining import _resolve_designation_id
 
 # Allotted but not yet handed over: the seat is taken, the Employee row (and
 # so the working count) does not exist yet.
-RESERVING_STATUSES = (ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED, ApplicationStatusEnum.ORIENTATION_COMPLETE)
+RESERVING_STATUSES = (
+    ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
+    ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED,
+    ApplicationStatusEnum.ORIENTATION_COMPLETE,
+)
 
 SUGGESTION_FROM_RESUME = "RESUME_QUALIFICATION"
 SUGGESTION_FROM_VACANCY = "VACANCY"

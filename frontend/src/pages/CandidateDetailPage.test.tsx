@@ -41,6 +41,7 @@ const CANDIDATE: CandidateRead = {
   full_name: "Jane Doe",
   email: "jane@example.com",
   phone_number: "+91 9876543210",
+  address: null,
   resume_storage_key: null,
   source: "Referral",
   reference_name: null,
@@ -248,9 +249,36 @@ describe("CandidateDetailPage", () => {
         full_name: "Jane A. Doe",
         email: "jane@example.com",
         phone_number: "+91 9876543210",
+        address: null,
         source: "Referral",
         reference_name: null,
       }),
+    );
+  });
+
+  it("shows the address and edits it in a multi-line box", async () => {
+    mockUser("HR_ADMIN");
+    mockedGetCandidate.mockResolvedValue({ ...CANDIDATE, address: "12, Anna Salai\nChennai" });
+    mockedListApplications.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+    mockedUpdateCandidate.mockReset();
+    mockedUpdateCandidate.mockResolvedValue(CANDIDATE);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/12, Anna Salai/)).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const addressBox = screen.getByLabelText("Address (optional)");
+    expect(addressBox.tagName).toBe("TEXTAREA");
+    expect(addressBox).toHaveValue("12, Anna Salai\nChennai");
+    await userEvent.type(addressBox, "{enter}600002");
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(mockedUpdateCandidate).toHaveBeenCalledWith(
+        "cand-1",
+        expect.objectContaining({ address: "12, Anna Salai\nChennai\n600002" }),
+      ),
     );
   });
 

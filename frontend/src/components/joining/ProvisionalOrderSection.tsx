@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { getCandidate } from "@/api/candidates";
 import { ApiError } from "@/api/client";
 import {
   getProvisionalOrder,
@@ -12,12 +13,13 @@ import {
 import { JOINING_DOCUMENT_ACCEPT } from "@/api/types";
 import type { ApplicationRead, ApplicationStatus } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
-// Statuses at which an order can exist. Applications allotted before the
+// Statuses at which an order can exist. Applications oriented before the
 // order step existed have none -- the GET 404s and nothing is shown.
 const ORDER_STATUSES = new Set<ApplicationStatus>([
   "PROVISIONAL_ORDER_ISSUED",
-  "DEPARTMENT_ROOM_ALLOTTED",
   "ORIENTATION_COMPLETE",
   "HANDED_OVER_TO_HOD",
 ]);
@@ -28,8 +30,10 @@ function formatDate(value: string): string {
 }
 
 /** Provisional appointment order (docs/specs/provisional-order-and-allotment.md):
- * issued at JOINED, then the letter can be downloaded and the signed copy
- * uploaded. */
+ * issued at DEPARTMENT_ROOM_ALLOTTED (the letter prints the allotted
+ * department -- user decision 31-Oct), with the address to print prefilled
+ * from the candidate and editable; then the letter can be downloaded and the
+ * signed copy uploaded. */
 export function ProvisionalOrderSection({
   application,
   canWrite,
@@ -42,6 +46,15 @@ export function ProvisionalOrderSection({
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const hasOrder = ORDER_STATUSES.has(application.status);
+  const canIssue = canWrite && application.status === "DEPARTMENT_ROOM_ALLOTTED";
+  // null = not touched yet, so the box shows the candidate's address.
+  const [address, setAddress] = useState<string | null>(null);
+
+  const { data: candidate } = useQuery({
+    queryKey: ["candidate", application.candidate_id],
+    queryFn: () => getCandidate(application.candidate_id),
+    enabled: canIssue,
+  });
 
   const { data: order } = useQuery({
     queryKey: ["provisional-order", application.id],
@@ -53,11 +66,14 @@ export function ProvisionalOrderSection({
   function refresh() {
     setError(null);
     void queryClient.invalidateQueries({ queryKey: ["provisional-order", application.id] });
+    // Issuing can save the typed address to a candidate who had none.
+    void queryClient.invalidateQueries({ queryKey: ["candidate", application.candidate_id] });
     onChanged();
   }
 
   const issueMutation = useMutation({
-    mutationFn: () => issueProvisionalOrder(application.id),
+    // Untouched box: leave address out and the backend uses the candidate's.
+    mutationFn: () => issueProvisionalOrder(application.id, address === null ? {} : { address }),
     onSuccess: refresh,
     onError: (err) => setError(err instanceof ApiError ? err.message : "Could not issue the provisional order"),
   });
@@ -75,16 +91,27 @@ export function ProvisionalOrderSection({
     onError: (err) => setError(err instanceof ApiError ? err.message : "Upload failed"),
   });
 
-  if (application.status === "JOINED") {
-    if (!canWrite) return null;
+  if (application.status === "DEPARTMENT_ROOM_ALLOTTED") {
+    if (!canIssue) return null;
     return (
       <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="order_address">Address on the letter</Label>
+          <Textarea
+            id="order_address"
+            rows={3}
+            className="max-w-md"
+            value={address ?? candidate?.address ?? ""}
+            onChange={(e) => setAddress(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Printed under the name. Left empty, the letter has no address line.
+            {candidate && !candidate.address ? " Saved to the candidate as well." : ""}
+          </p>
+        </div>
         <Button className="w-fit" disabled={issueMutation.isPending} onClick={() => issueMutation.mutate()}>
           {issueMutation.isPending ? "Issuing…" : "Issue provisional order"}
         </Button>
-        <p className="text-xs text-muted-foreground">
-          Department and room are allotted after the provisional order is issued.
-        </p>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </div>
     );
@@ -102,6 +129,10 @@ export function ProvisionalOrderSection({
         <div>
           <div className="text-muted-foreground">Order date</div>
           <div>{formatDate(order.order_date)}</div>
+        </div>
+        <div>
+          <div className="text-muted-foreground">Department</div>
+          <div>{order.department_name}</div>
         </div>
         <div>
           <div className="text-muted-foreground">Probation ends</div>

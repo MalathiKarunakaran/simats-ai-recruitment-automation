@@ -70,6 +70,9 @@ class HandoverToHodRequest(BaseModel):
 class ProvisionalOrderCreate(BaseModel):
     # Defaults to today; settable for an order dated before it was keyed in.
     order_date: date | None = None
+    # Printed under the name. The form prefills it from the candidate; saved
+    # to the candidate as well when the candidate has none.
+    address: str | None = Field(default=None, max_length=1000)
 
 
 class AppointmentOrderRead(BaseModel):
@@ -84,6 +87,7 @@ class AppointmentOrderRead(BaseModel):
     issued_by_id: uuid.UUID
     issued_at: datetime
     candidate_name: str
+    address: str | None
     designation: str
     category: str
     campus_code: str

@@ -5,10 +5,16 @@ Revises: 8c4e2a6b0d31
 Create Date: 2026-10-31
 
 docs/specs/provisional-order-and-allotment.md, Q1: a new application status
-between JOINED and DEPARTMENT_ROOM_ALLOTTED. Its own revision so the label is
+between DEPARTMENT_ROOM_ALLOTTED and ORIENTATION_COMPLETE -- the department is
+allotted first so the letter prints it (user decision, 31-Oct). Its own revision so the label is
 committed before anything uses it (env.py runs one transaction per
 migration). Nothing existing is rewritten: applications already past JOINED
 keep their status.
+
+Edited in place 31-Oct (from AFTER 'JOINED'): this revision had never run
+anywhere but throwaway databases. Postgres orders enum labels by position, but
+nothing compares application_status_enum values with < or >; the app's order
+is APPLICATION_STATUS_ORDER in enums.py.
 """
 from typing import Sequence, Union
 
@@ -24,7 +30,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute(
         "ALTER TYPE application_status_enum ADD VALUE IF NOT EXISTS 'PROVISIONAL_ORDER_ISSUED' "
-        "AFTER 'JOINED'"
+        "AFTER 'DEPARTMENT_ROOM_ALLOTTED'"
     )
 
 

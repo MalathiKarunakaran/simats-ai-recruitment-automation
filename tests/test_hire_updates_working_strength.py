@@ -33,7 +33,6 @@ def _drive_to_orientation_complete(client, vacancy, application):
     _drive_to_joining_confirmed(client, vacancy, application)
     assert client.post(f"/api/v1/applications/{application.id}/joining/mark-joined", headers=headers).status_code == 200
     _mark_all_documents_received(client, vacancy, application.id)
-    _issue_order(client, vacancy, application)
     # These tests are about the hand-over, and several deliberately leave the
     # vacancy without a designation (so without a Sanctioned Strength seat):
     # a Super Admin override gets past the allotment's vacancy rule.
@@ -45,6 +44,7 @@ def _drive_to_orientation_complete(client, vacancy, application):
         ).status_code
         == 200
     )
+    _issue_order(client, vacancy, application)
     assert (
         client.post(
             f"/api/v1/applications/{application.id}/joining/complete-orientation", headers=headers, json={}

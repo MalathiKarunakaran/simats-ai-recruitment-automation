@@ -326,3 +326,45 @@ def test_list_candidates_is_withdrawn_filter(client, user_factory, candidate_fac
     active_ids = {item["id"] for item in active_response.json()["items"]}
     assert str(active_candidate.id) in active_ids
     assert str(withdrawn_candidate.id) not in active_ids
+
+
+def test_candidate_address_create_read_update_and_clear(client, user_factory):
+    """Multi-line postal address (printed on the provisional order), staff-side only."""
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    headers = auth_headers(client, hr_admin)
+    address = "12, Anna Salai\nChennai 600002"
+
+    create = client.post(
+        "/api/v1/candidates",
+        headers=headers,
+        json={"full_name": "Address Candidate", "email": "address.candidate@example.com", "address": address},
+    )
+    assert create.status_code == 201, create.text
+    candidate_id = create.json()["id"]
+    assert create.json()["address"] == address
+    assert client.get(f"/api/v1/candidates/{candidate_id}", headers=headers).json()["address"] == address
+
+    updated = client.patch(
+        f"/api/v1/candidates/{candidate_id}", headers=headers, json={"address": "5, Poonamallee High Road\nChennai"}
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["address"] == "5, Poonamallee High Road\nChennai"
+
+    # A patch that does not mention it leaves it alone; null clears it.
+    assert client.patch(
+        f"/api/v1/candidates/{candidate_id}", headers=headers, json={"phone_number": "9000000001"}
+    ).json()["address"] == "5, Poonamallee High Road\nChennai"
+    assert client.patch(f"/api/v1/candidates/{candidate_id}", headers=headers, json={"address": None}).json()[
+        "address"
+    ] is None
+
+
+def test_candidate_address_is_optional(client, user_factory):
+    hr_admin = user_factory(UserRoleEnum.HR_ADMIN)
+    create = client.post(
+        "/api/v1/candidates",
+        headers=auth_headers(client, hr_admin),
+        json={"full_name": "No Address", "email": "no.address@example.com"},
+    )
+    assert create.status_code == 201
+    assert create.json()["address"] is None

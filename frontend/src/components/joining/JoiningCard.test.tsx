@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as candidatesApi from "@/api/candidates";
 import * as departmentsApi from "@/api/departments";
 import * as employeesApi from "@/api/employees";
 import * as joiningApi from "@/api/joining";
@@ -10,6 +11,7 @@ import * as locationsApi from "@/api/locations";
 import type {
   AppointmentOrderRead,
   ApplicationRead,
+  CandidateRead,
   DepartmentOptionsResponse,
   DepartmentRead,
   EmployeeRead,
@@ -21,6 +23,7 @@ import * as authContext from "@/auth/AuthContext";
 import { JoiningCard } from "@/components/joining/JoiningCard";
 
 vi.mock("@/api/joining");
+vi.mock("@/api/candidates");
 vi.mock("@/api/employees");
 vi.mock("@/api/departments");
 vi.mock("@/api/locations");
@@ -38,6 +41,26 @@ const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedHandOverToHod = vi.mocked(joiningApi.handOverToHod);
 const mockedGetProvisionalOrder = vi.mocked(joiningApi.getProvisionalOrder);
 const mockedGetDepartmentOptions = vi.mocked(joiningApi.getDepartmentOptions);
+const mockedGetCandidate = vi.mocked(candidatesApi.getCandidate);
+
+function makeCandidate(overrides: Partial<CandidateRead> = {}): CandidateRead {
+  return {
+    id: "cand-1",
+    full_name: "Jane Doe",
+    email: "jane@example.com",
+    phone_number: null,
+    address: null,
+    resume_storage_key: null,
+    source: null,
+    reference_name: null,
+    is_withdrawn: false,
+    withdrawn_at: null,
+    withdrawn_reason: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
 
 const ORDER: AppointmentOrderRead = {
   id: "ord-1",
@@ -49,6 +72,7 @@ const ORDER: AppointmentOrderRead = {
   issued_by_id: "u-1",
   issued_at: "2026-10-31T05:00:00Z",
   candidate_name: "Jane Doe",
+  address: null,
   designation: "Assistant Professor",
   category: "TEACHING",
   campus_code: "SSE",
@@ -179,6 +203,7 @@ describe("JoiningCard", () => {
     mockedListDepartments.mockResolvedValue([DEPARTMENT]);
     mockedGetProvisionalOrder.mockReset();
     mockedGetProvisionalOrder.mockResolvedValue(ORDER);
+    mockedGetDepartmentOptions.mockClear();
     mockedGetDepartmentOptions.mockResolvedValue(OPTIONS);
   });
 
@@ -302,19 +327,55 @@ describe("JoiningCard", () => {
       logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
     });
 
-  it("offers Issue provisional order at JOINED instead of the department picker", async () => {
+  it("offers the department picker at JOINED, not Issue provisional order", async () => {
     authAs("HR_ADMIN");
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
-    const mockedIssue = vi.mocked(joiningApi.issueProvisionalOrder);
-    mockedIssue.mockResolvedValue(ORDER);
 
     renderCard(makeApplication({ status: "JOINED" }));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Issue provisional order" }));
-    expect(mockedIssue).toHaveBeenCalledWith("app-1");
+    expect(await screen.findByText("Confirm department & room allotment")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Issue provisional order" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Mark orientation complete")).not.toBeInTheDocument();
+  });
+
+  it("offers Issue provisional order at DEPARTMENT_ROOM_ALLOTTED with the candidate's address prefilled", async () => {
+    authAs("HR_ADMIN");
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
+    mockedGetCandidate.mockResolvedValue(makeCandidate({ address: "12, Anna Salai\nChennai" }));
+    const mockedIssue = vi.mocked(joiningApi.issueProvisionalOrder);
+    mockedIssue.mockReset();
+    mockedIssue.mockResolvedValue(ORDER);
+
+    renderCard(makeApplication({ status: "DEPARTMENT_ROOM_ALLOTTED" }));
+
+    const box = await screen.findByLabelText("Address on the letter");
+    await waitFor(() => expect(box).toHaveValue("12, Anna Salai\nChennai"));
     expect(screen.queryByText("Confirm department & room allotment")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mark orientation complete")).not.toBeInTheDocument();
     expect(mockedGetDepartmentOptions).not.toHaveBeenCalled();
+
+    await userEvent.clear(box);
+    await userEvent.type(box, "Hostel B");
+    await userEvent.click(screen.getByRole("button", { name: "Issue provisional order" }));
+    await waitFor(() => expect(mockedIssue).toHaveBeenCalledWith("app-1", { address: "Hostel B" }));
+  });
+
+  it("leaves the address to the backend when the box is untouched", async () => {
+    authAs("HR_ADMIN");
+    mockedGetJoiningRecord.mockResolvedValue(RECORD);
+    mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
+    mockedGetCandidate.mockResolvedValue(makeCandidate());
+    const mockedIssue = vi.mocked(joiningApi.issueProvisionalOrder);
+    mockedIssue.mockReset();
+    mockedIssue.mockResolvedValue(ORDER);
+
+    renderCard(makeApplication({ status: "DEPARTMENT_ROOM_ALLOTTED" }));
+
+    expect(await screen.findByText(/Saved to the candidate as well/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Issue provisional order" }));
+    await waitFor(() => expect(mockedIssue).toHaveBeenCalledWith("app-1", {}));
   });
 
   it("shows the order with Download letter and Upload signed copy once issued", async () => {
@@ -329,6 +390,8 @@ describe("JoiningCard", () => {
     renderCard(makeApplication({ status: "PROVISIONAL_ORDER_ISSUED" }));
 
     expect(await screen.findByText("SSE / PA/ 231/ 10/ 2026")).toBeInTheDocument();
+    expect(screen.getByText("Computer Science")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Issue provisional order" })).not.toBeInTheDocument();
     expect(screen.getByText("31-10-2026")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Download letter" }));
     expect(mockedOpenLetter).toHaveBeenCalledWith("app-1");
@@ -345,7 +408,7 @@ describe("JoiningCard", () => {
     const mockedAllot = vi.mocked(joiningApi.allotDepartmentRoom);
     mockedAllot.mockResolvedValue(RECORD);
 
-    renderCard(makeApplication({ status: "PROVISIONAL_ORDER_ISSUED" }));
+    renderCard(makeApplication({ status: "JOINED" }));
 
     const radios = await screen.findAllByRole("radio");
     expect(radios).toHaveLength(2);
@@ -370,7 +433,7 @@ describe("JoiningCard", () => {
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "PENDING" })]);
 
-    renderCard(makeApplication({ status: "PROVISIONAL_ORDER_ISSUED" }));
+    renderCard(makeApplication({ status: "JOINED" }));
 
     await userEvent.click((await screen.findAllByRole("radio"))[0]);
     expect(screen.getByText("Confirm department & room allotment")).toBeDisabled();
@@ -385,7 +448,7 @@ describe("JoiningCard", () => {
     mockedAllot.mockReset();
     mockedAllot.mockResolvedValue(RECORD);
 
-    renderCard(makeApplication({ status: "PROVISIONAL_ORDER_ISSUED" }));
+    renderCard(makeApplication({ status: "JOINED" }));
 
     const radios = await screen.findAllByRole("radio");
     expect(radios[1]).toBeEnabled();
@@ -404,7 +467,7 @@ describe("JoiningCard", () => {
     );
   });
 
-  it("shows the orientation date input at DEPARTMENT_ROOM_ALLOTTED", async () => {
+  it("shows the orientation date input only once the order is issued", async () => {
     mockedUseAuth.mockReturnValue({
       user: { role: "HR_ADMIN" } as UserRead,
       isLoading: false,
@@ -414,7 +477,7 @@ describe("JoiningCard", () => {
     mockedGetJoiningRecord.mockResolvedValue(RECORD);
     mockedListJoiningDocuments.mockResolvedValue([makeDocument({ status: "RECEIVED" })]);
 
-    renderCard(makeApplication({ status: "DEPARTMENT_ROOM_ALLOTTED" }));
+    renderCard(makeApplication({ status: "PROVISIONAL_ORDER_ISSUED" }));
 
     await waitFor(() => expect(screen.getByText("Mark orientation complete")).toBeInTheDocument());
   });

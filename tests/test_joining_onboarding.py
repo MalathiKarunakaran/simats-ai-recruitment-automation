@@ -76,9 +76,12 @@ def test_get_joining_record_happy_path(client, published_vacancy_factory, applic
 
 
 def test_allot_department_room_requires_all_documents_received(
-    client, published_vacancy_factory, application_factory
+    client, published_vacancy_factory, application_factory, allotment_seat_factory
 ):
     vacancy = published_vacancy_factory(slot_count=1)
+    # A seat exists, so the refusal below can only be the missing documents
+    # (since step B the vacancy rule is checked first and would also 409).
+    allotment_seat_factory(vacancy)
     application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
     _drive_to_joining_confirmed(client, vacancy, application)
 
@@ -93,9 +96,10 @@ def test_allot_department_room_requires_all_documents_received(
         json={"department_id": str(vacancy.department.id)},
     )
     assert response.status_code == 409
+    assert "documents still pending" in response.json()["detail"]
 
 
-def test_complete_orientation_requires_department_room_allotted(
+def test_complete_orientation_requires_provisional_order_issued(
     client, published_vacancy_factory, application_factory
 ):
     vacancy = published_vacancy_factory(slot_count=1)
@@ -141,7 +145,6 @@ def test_full_joining_flow_creates_employee_and_sets_status(
         f"/api/v1/applications/{application.id}/joining/mark-joined", headers=auth_headers(client, vacancy.hr_admin)
     )
     _mark_all_documents_received(client, vacancy, application.id)
-    _issue_order(client, vacancy, application)
 
     allotment = client.post(
         f"/api/v1/applications/{application.id}/joining/allot-department-room",
@@ -149,6 +152,7 @@ def test_full_joining_flow_creates_employee_and_sets_status(
         json={"department_id": str(vacancy.department.id), "room_allotted": "R-204"},
     )
     assert allotment.status_code == 200
+    _issue_order(client, vacancy, application)
 
     orientation = client.post(
         f"/api/v1/applications/{application.id}/joining/complete-orientation",
@@ -255,14 +259,13 @@ def test_recruitment_officer_can_complete_full_onboarding_flow(
         )
         assert updated.status_code == 200
 
-    _issue_order(client, vacancy, application, user=vacancy.recruitment_officer)
-
     allotment = client.post(
         f"/api/v1/applications/{application.id}/joining/allot-department-room",
         headers=officer_headers,
         json={"department_id": str(vacancy.department.id), "room_allotted": "R-301"},
     )
     assert allotment.status_code == 200
+    _issue_order(client, vacancy, application, user=vacancy.recruitment_officer)
 
     orientation = client.post(
         f"/api/v1/applications/{application.id}/joining/complete-orientation",
@@ -311,12 +314,12 @@ def test_employee_codes_are_sequential_per_campus(
             headers=headers,
         )
         _mark_all_documents_received(client, vacancy, application.id)
-        _issue_order(client, vacancy, application)
         client.post(
             f"/api/v1/applications/{application.id}/joining/allot-department-room",
             headers=headers,
             json={"department_id": str(vacancy.department.id)},
         )
+        _issue_order(client, vacancy, application)
         client.post(
             f"/api/v1/applications/{application.id}/joining/complete-orientation",
             headers=headers,

@@ -1,12 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
-import type { UserRead } from "@/api/types";
+import * as candidatesApi from "@/api/candidates";
+import type { CandidateRead, UserRead } from "@/api/types";
 import * as authContext from "@/auth/AuthContext";
 import { CandidateCreatePage } from "@/pages/CandidateCreatePage";
 
+vi.mock("@/api/candidates");
 vi.mock("@/auth/AuthContext", async () => {
   const actual = await vi.importActual<typeof import("@/auth/AuthContext")>("@/auth/AuthContext");
   return { ...actual, useAuth: vi.fn() };
@@ -67,5 +70,26 @@ describe("CandidateCreatePage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "New candidate" })).toBeInTheDocument());
+  });
+
+  it("sends a multi-line address with the new candidate", async () => {
+    mockUser("HR_ADMIN");
+    const mockedCreate = vi.mocked(candidatesApi.createCandidate);
+    mockedCreate.mockResolvedValue({ id: "cand-9" } as CandidateRead);
+
+    renderPage();
+
+    await userEvent.type(screen.getByLabelText("Full name"), "Ravi Kumar");
+    await userEvent.type(screen.getByLabelText("Email"), "ravi@example.com");
+    const addressBox = screen.getByLabelText("Address (optional)");
+    expect(addressBox.tagName).toBe("TEXTAREA");
+    await userEvent.type(addressBox, "7, Gandhi Road{enter}Vellore");
+    await userEvent.click(screen.getByRole("button", { name: /create|save|add/i }));
+
+    await waitFor(() =>
+      expect(mockedCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ full_name: "Ravi Kumar", address: "7, Gandhi Road\nVellore" }),
+      ),
+    );
   });
 });

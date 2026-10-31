@@ -22,8 +22,8 @@ const STEPS: Step[] = [
     statuses: [
       "JOINING_CONFIRMED",
       "JOINED",
-      "PROVISIONAL_ORDER_ISSUED",
       "DEPARTMENT_ROOM_ALLOTTED",
+      "PROVISIONAL_ORDER_ISSUED",
       "ORIENTATION_COMPLETE",
       "HANDED_OVER_TO_HOD",
     ],

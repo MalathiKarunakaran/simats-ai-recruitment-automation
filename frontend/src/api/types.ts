@@ -1440,10 +1440,11 @@ export type ApplicationStatus =
   | "OFFER_ACCEPTED"
   | "JOINING_CONFIRMED"
   | "JOINED"
-  // Provisional appointment order issued; the only status department
-  // allotment can be made from (docs/specs/provisional-order-and-allotment.md).
-  | "PROVISIONAL_ORDER_ISSUED"
   | "DEPARTMENT_ROOM_ALLOTTED"
+  // Provisional appointment order issued, after department allotment (the
+  // letter prints the allotted department); the only status orientation can
+  // be completed from (docs/specs/provisional-order-and-allotment.md).
+  | "PROVISIONAL_ORDER_ISSUED"
   | "ORIENTATION_COMPLETE"
   | "HANDED_OVER_TO_HOD"
   | "REJECTED"
@@ -1486,8 +1487,8 @@ export const APPLICATION_STATUS_ORDER: readonly ApplicationStatus[] = [
   "OFFER_ACCEPTED",
   "JOINING_CONFIRMED",
   "JOINED",
-  "PROVISIONAL_ORDER_ISSUED",
   "DEPARTMENT_ROOM_ALLOTTED",
+  "PROVISIONAL_ORDER_ISSUED",
   "ORIENTATION_COMPLETE",
   "HANDED_OVER_TO_HOD",
 ];
@@ -1628,6 +1629,7 @@ export interface AppointmentOrderRead {
   issued_by_id: string;
   issued_at: string;
   candidate_name: string;
+  address: string | null;
   designation: string;
   category: string;
   campus_code: string;
@@ -1715,6 +1717,8 @@ export interface CandidateRead {
   full_name: string;
   email: string;
   phone_number: string | null;
+  // Multi-line postal address, staff-entered; printed on the provisional order.
+  address: string | null;
   resume_storage_key: string | null;
   source: string | null;
   reference_name: string | null;
@@ -1730,6 +1734,7 @@ export interface CandidateCreatePayload {
   full_name: string;
   email: string;
   phone_number?: string | null;
+  address?: string | null;
   source?: CandidateSource | null;
   reference_name?: string | null;
 }
@@ -1750,6 +1755,7 @@ export interface CandidateUpdatePayload {
   full_name?: string;
   email?: string;
   phone_number?: string | null;
+  address?: string | null;
   source?: CandidateSource | null;
   reference_name?: string | null;
 }

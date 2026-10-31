@@ -47,6 +47,7 @@ export function CandidateDetailPage() {
   const editFullName = useFieldValidation("", required("Full name is required"));
   const editEmail = useFieldValidation("", combine(required("Email is required"), emailValidator()));
   const [editPhoneNumber, setEditPhoneNumber] = useState("");
+  const [editAddress, setEditAddress] = useState("");
   const [editSource, setEditSource] = useState<CandidateSource | "">("");
   const [editReferenceName, setEditReferenceName] = useState("");
   const [editReferenceNameError, setEditReferenceNameError] = useState<string | null>(null);
@@ -81,6 +82,7 @@ export function CandidateDetailPage() {
         full_name: editFullName.value,
         email: editEmail.value,
         phone_number: editPhoneNumber || null,
+        address: editAddress.trim() || null,
         source: editSource || null,
         reference_name: editSource === "Reference" ? editReferenceName : null,
       }),
@@ -124,6 +126,7 @@ export function CandidateDetailPage() {
     editFullName.onChange(candidate!.full_name);
     editEmail.onChange(candidate!.email);
     setEditPhoneNumber(candidate!.phone_number ?? "");
+    setEditAddress(candidate!.address ?? "");
     setEditSource((candidate!.source as CandidateSource | null) ?? "");
     setEditReferenceName(candidate!.reference_name ?? "");
     setEditReferenceNameError(null);
@@ -201,6 +204,15 @@ export function CandidateDetailPage() {
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="edit_address">Address (optional)</Label>
+                    <Textarea
+                      id="edit_address"
+                      rows={3}
+                      value={editAddress}
+                      onChange={(e) => setEditAddress(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
                     <Label>Source (optional)</Label>
                     <Select value={editSource} onValueChange={(value) => setEditSource(value as CandidateSource)}>
                       <SelectTrigger>
@@ -258,6 +270,10 @@ export function CandidateDetailPage() {
           <div>
             <div className="text-muted-foreground">Phone</div>
             <div>{candidate.phone_number ?? "—"}</div>
+          </div>
+          <div className="col-span-2">
+            <div className="text-muted-foreground">Address</div>
+            <div className="whitespace-pre-line">{candidate.address ?? "—"}</div>
           </div>
           <div>
             <div className="text-muted-foreground">Source</div>

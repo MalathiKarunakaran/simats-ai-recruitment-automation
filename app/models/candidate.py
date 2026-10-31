@@ -17,6 +17,9 @@ class Candidate(Base):
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Postal address, multi-line, staff-entered only (never the public apply
+    # form). Printed on the provisional appointment order under the name.
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Metadata-only stub -- MinIO wiring is Phase 3, same stub pattern as
     # Phase 1's password-reset-email. No upload endpoint yet.
     resume_storage_key: Mapped[str | None] = mapped_column(String(255), nullable=True)

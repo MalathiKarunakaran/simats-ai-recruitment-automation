@@ -35,6 +35,7 @@ const CANDIDATE: CandidateRead = {
   full_name: "Jane Doe",
   email: "jane@example.com",
   phone_number: null,
+  address: null,
   resume_storage_key: null,
   source: null,
   reference_name: null,

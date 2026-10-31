@@ -14,10 +14,13 @@ Field mapping (the template's ‹placeholders›):
                  uses it (header date, "application dated", "from") -- the
                  template uses one date for all three and so do we
 - ‹Name›         candidate's full name
-- ‹Address›      omitted: the Candidate model holds no postal address
+- ‹Address›      the address snapshotted on the order (prefilled from
+                 the candidate, editable at issue), one printed line per
+                 line; omitted when empty
 - ‹Grade›        designation (Designation master name, else the vacancy's
                  position title), e.g. "Assistant Professor (SG)"
-- ‹Dept›         department name
+- ‹Dept›         the department ALLOTTED (allotment comes before the
+                 order, user decision 31-Oct)
 - ‹Collegename›, ‹Principal›  from CAMPUS_LETTER_DETAILS
 """
 
@@ -79,6 +82,12 @@ def letter_details_for(campus_code: str) -> CampusLetterDetails | None:
     return CAMPUS_LETTER_DETAILS.get((campus_code or "").upper())
 
 
+def address_lines(address: str | None) -> list[str]:
+    """Non-blank lines of the address, at most 6 so a pasted block cannot
+    push the letter off the page."""
+    return [line.strip() for line in (address or "").splitlines() if line.strip()][:6]
+
+
 def _fields(order: AppointmentOrder) -> dict[str, str]:
     return {
         "date": order.order_date.strftime("%d-%m-%Y"),
@@ -113,7 +122,9 @@ def render_letter_pdf(order: AppointmentOrder) -> bytes:
     canvas.drawString(MARGIN, y, "To,")
     y -= 16
     canvas.drawString(MARGIN, y, pdf_text(f"{fields['name']}.,"))
-    # ‹Address› would go here; the Candidate model has no address field.
+    for line in address_lines(order.address):
+        y -= 14
+        canvas.drawString(MARGIN, y, pdf_text(line))
 
     y -= 40
     canvas.setFont("Helvetica-Bold", 13)

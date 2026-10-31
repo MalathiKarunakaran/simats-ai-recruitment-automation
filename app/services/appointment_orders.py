@@ -2,8 +2,8 @@
 (docs/specs/provisional-order-and-allotment.md). The only writer of
 `AppointmentOrder`.
 
-Issuing creates the order and then moves the application JOINED ->
-PROVISIONAL_ORDER_ISSUED through `pipeline.transition_application_status`,
+Issuing creates the order and then moves the application
+DEPARTMENT_ROOM_ALLOTTED -> PROVISIONAL_ORDER_ISSUED through `pipeline.transition_application_status`,
 which refuses that move unless an ISSUED order exists -- so the order row
 and the status always travel together.
 """
@@ -65,13 +65,25 @@ def issue_provisional_order(
     actor: User,
     request: Request | None = None,
     order_date: date | None = None,
+    address: str | None = None,
 ) -> AppointmentOrder:
-    if application.status != ApplicationStatusEnum.JOINED:
+    """`address` is what the letter prints under the name: the issue form
+    prefills it from the candidate and lets it be edited. None (not sent)
+    means the candidate's own address; an empty string means print none. The
+    value used is snapshotted on the order and, if the candidate had no
+    address yet, saved to the candidate too (an existing one is never
+    overwritten from here)."""
+    if application.status != ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"A provisional order can only be issued at JOINED (this application is {application.status.value})"
+                "A provisional order can only be issued at DEPARTMENT_ROOM_ALLOTTED "
+                f"(this application is {application.status.value})"
             ),
+        )
+    if application.department_allotted is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Allot a department before issuing the provisional order"
         )
     if current_order(db, application) is not None:
         raise HTTPException(
@@ -93,7 +105,10 @@ def issue_provisional_order(
     joining_date = (
         (joining_record.actual_joining_date or joining_record.joining_date) if joining_record is not None else None
     )
-    vacancy_request = application.job_posting.approved_vacancy.vacancy_request
+    candidate = application.candidate
+    if address is None:
+        address = candidate.address
+    address = (address or "").strip() or None
 
     # The number is taken in the same transaction as the insert, and the
     # (campus_id, sequence) / order_number unique constraints are the
@@ -114,15 +129,15 @@ def issue_provisional_order(
             status=APPOINTMENT_ORDER_ISSUED,
             issued_by_id=actor.id,
             issued_at=datetime.now(timezone.utc),
-            candidate_name=application.candidate.full_name,
+            candidate_name=candidate.full_name,
+            address=address,
             designation=_designation_text(application),
             category=application.role_category.value,
             campus_code=campus.code,
             college_name=details.college_name,
             principal_name=details.principal,
-            # The vacancy's department: allotment happens after the order, so
-            # the department allotted later can differ from the one printed.
-            department_name=vacancy_request.department.name,
+            # The department actually allotted (allotment comes first).
+            department_name=application.department_allotted.name,
             joining_date=joining_date,
             probation_end_date=add_months(order_date, PROBATION_MONTHS),
         )
@@ -153,10 +168,23 @@ def issue_provisional_order(
             "order_date": order.order_date.isoformat(),
             "designation": order.designation,
             "department_name": order.department_name,
+            "address": order.address,
             "probation_end_date": order.probation_end_date.isoformat(),
         },
         request=request,
     )
+    if address and not candidate.address:
+        candidate.address = address
+        log_update(
+            db,
+            actor=actor,
+            entity_type="Candidate",
+            entity=candidate,
+            campus_context_id=None,
+            before_state={"address": None},
+            after_state={"address": address},
+            request=request,
+        )
     pipeline.transition_application_status(
         db,
         application=application,

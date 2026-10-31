@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { combine, email as emailValidator, required, useFieldValidation } from "@/hooks/useFieldValidation";
 
 const CAN_CREATE_ROLES = ["RECRUITMENT_OFFICER", "HR_ADMIN", "SUPER_ADMIN", "RECRUITMENT_COORDINATOR"];
@@ -25,6 +26,7 @@ export function CandidateCreatePage() {
   const fullName = useFieldValidation("", required("Full name is required"));
   const email = useFieldValidation("", combine(required("Email is required"), emailValidator()));
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [address, setAddress] = useState("");
   const [source, setSource] = useState<CandidateSource | "">("");
   const [referenceName, setReferenceName] = useState("");
   const [referenceNameError, setReferenceNameError] = useState<string | null>(null);
@@ -36,6 +38,7 @@ export function CandidateCreatePage() {
         full_name: fullName.value,
         email: email.value,
         phone_number: phoneNumber || null,
+        address: address.trim() || null,
         source: source || null,
         reference_name: source === "Reference" ? referenceName : null,
       }),
@@ -103,6 +106,11 @@ export function CandidateCreatePage() {
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="phone_number">Phone number (optional)</Label>
           <Input id="phone_number" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="address">Address (optional)</Label>
+          <Textarea id="address" rows={3} value={address} onChange={(e) => setAddress(e.target.value)} />
+          <p className="text-xs text-muted-foreground">Printed on the provisional appointment order.</p>
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>Source (optional)</Label>

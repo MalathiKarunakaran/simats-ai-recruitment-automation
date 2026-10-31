@@ -226,12 +226,13 @@ class ApplicationStatusEnum(str, enum.Enum):
     OFFER_ACCEPTED = "OFFER_ACCEPTED"
     JOINING_CONFIRMED = "JOINING_CONFIRMED"
     JOINED = "JOINED"
+    DEPARTMENT_ROOM_ALLOTTED = "DEPARTMENT_ROOM_ALLOTTED"
     # Provisional appointment order issued (docs/specs/provisional-order-and-
-    # allotment.md, migration 3e5a7c9b1d24). Reached only from JOINED, and the
-    # only status DEPARTMENT_ROOM_ALLOTTED can be reached from for new moves --
+    # allotment.md, migration 3e5a7c9b1d24). Reached only from
+    # DEPARTMENT_ROOM_ALLOTTED (the letter prints the allotted department), and
+    # the only status ORIENTATION_COMPLETE can be reached from for new moves --
     # see pipeline.transition_application_status.
     PROVISIONAL_ORDER_ISSUED = "PROVISIONAL_ORDER_ISSUED"
-    DEPARTMENT_ROOM_ALLOTTED = "DEPARTMENT_ROOM_ALLOTTED"
     ORIENTATION_COMPLETE = "ORIENTATION_COMPLETE"
     HANDED_OVER_TO_HOD = "HANDED_OVER_TO_HOD"
     REJECTED = "REJECTED"
@@ -271,8 +272,8 @@ APPLICATION_STATUS_ORDER: tuple[ApplicationStatusEnum, ...] = (
     ApplicationStatusEnum.OFFER_ACCEPTED,
     ApplicationStatusEnum.JOINING_CONFIRMED,
     ApplicationStatusEnum.JOINED,
-    ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED,
     ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
+    ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED,
     ApplicationStatusEnum.ORIENTATION_COMPLETE,
     ApplicationStatusEnum.HANDED_OVER_TO_HOD,
 )

@@ -354,13 +354,13 @@ def _seed_scenario_full_happy_path(db, *, campus, department, hod, dean, hr_admi
     joining_service.complete_onboarding(
         db, application=app_a, joining_record=joining_record_a, actor=hr_admin
     )
-    appointment_orders.issue_provisional_order(db, application=app_a, actor=hr_admin)
     joining_service.allot_department_room(
         db, application=app_a, department_id=department.id, room_allotted="R-101", actor=hr_admin
     )
     pipeline.transition_application_status(
         db, application=app_a, new_status=ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED, actor=hr_admin
     )
+    appointment_orders.issue_provisional_order(db, application=app_a, actor=hr_admin)
     joining_service.complete_orientation(
         db, application=app_a, orientation_date=joining_date, actor=hr_admin
     )

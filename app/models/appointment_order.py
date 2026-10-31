@@ -20,7 +20,7 @@ those constraints, not the generator, are the guarantee.
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -59,6 +59,8 @@ class AppointmentOrder(Base):
 
     # --- Letter snapshot ---------------------------------------------------
     candidate_name: Mapped[str] = mapped_column(String(150), nullable=False)
+    # As printed under the name ("To, <Name>., <Address>"); NULL omits the line.
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
     designation: Mapped[str] = mapped_column(String(150), nullable=False)
     category: Mapped[str] = mapped_column(String(20), nullable=False)
     campus_code: Mapped[str] = mapped_column(String(10), nullable=False)

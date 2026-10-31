@@ -26,8 +26,8 @@ const TOTAL_COLUMN_COUNT = 4;
 const ONBOARDING_STATUSES: ApplicationStatus[] = [
   "JOINING_CONFIRMED",
   "JOINED",
-  "PROVISIONAL_ORDER_ISSUED",
   "DEPARTMENT_ROOM_ALLOTTED",
+  "PROVISIONAL_ORDER_ISSUED",
   "ORIENTATION_COMPLETE",
 ];
 
@@ -58,14 +58,14 @@ export function OnboardingListPage() {
     queryFn: () => listApplications({ status: "JOINED" }),
     enabled: canView,
   });
-  const provisionalOrderIssuedQuery = useQuery({
-    queryKey: ["applications", { status: "PROVISIONAL_ORDER_ISSUED" }],
-    queryFn: () => listApplications({ status: "PROVISIONAL_ORDER_ISSUED" }),
-    enabled: canView,
-  });
   const departmentRoomAllottedQuery = useQuery({
     queryKey: ["applications", { status: "DEPARTMENT_ROOM_ALLOTTED" }],
     queryFn: () => listApplications({ status: "DEPARTMENT_ROOM_ALLOTTED" }),
+    enabled: canView,
+  });
+  const provisionalOrderIssuedQuery = useQuery({
+    queryKey: ["applications", { status: "PROVISIONAL_ORDER_ISSUED" }],
+    queryFn: () => listApplications({ status: "PROVISIONAL_ORDER_ISSUED" }),
     enabled: canView,
   });
   const orientationCompleteQuery = useQuery({
@@ -86,14 +86,14 @@ export function OnboardingListPage() {
   const isLoading =
     joiningConfirmedQuery.isLoading ||
     joinedQuery.isLoading ||
-    provisionalOrderIssuedQuery.isLoading ||
     departmentRoomAllottedQuery.isLoading ||
+    provisionalOrderIssuedQuery.isLoading ||
     orientationCompleteQuery.isLoading;
   const applications = [
     ...(joiningConfirmedQuery.data ?? []),
     ...(joinedQuery.data ?? []),
-    ...(provisionalOrderIssuedQuery.data ?? []),
     ...(departmentRoomAllottedQuery.data ?? []),
+    ...(provisionalOrderIssuedQuery.data ?? []),
     ...(orientationCompleteQuery.data ?? []),
   ];
 

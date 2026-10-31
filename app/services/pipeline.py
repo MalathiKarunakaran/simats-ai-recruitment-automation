@@ -278,21 +278,26 @@ def transition_application_status(
             )
 
     # Provisional appointment order (docs/specs/provisional-order-and-
-    # allotment.md): PROVISIONAL_ORDER_ISSUED is entered only from JOINED and
-    # only once an ISSUED appointment order exists (services/
-    # appointment_orders.py creates it first), and no move may jump over it
-    # from JOINED or earlier -- so allotment, orientation and hand-over all
-    # need the order. Applications already past it (allotted before the step
-    # existed) never cross it again, so they are untouched.
+    # allotment.md): PROVISIONAL_ORDER_ISSUED is entered only from
+    # DEPARTMENT_ROOM_ALLOTTED (the department is allotted first so the letter
+    # prints it -- user decision 31-Oct) and only once an ISSUED appointment
+    # order exists (services/appointment_orders.py creates it first), and no
+    # move may jump over it -- so orientation and hand-over need the order.
+    # Applications already past it (oriented before the step existed) never
+    # cross it again, so they are untouched; one left at
+    # DEPARTMENT_ROOM_ALLOTTED needs its order before orientation.
     if not force and new_status in APPLICATION_STATUS_ORDER and current in APPLICATION_STATUS_ORDER:
         order_index = APPLICATION_STATUS_ORDER.index(ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED)
         current_pos = APPLICATION_STATUS_ORDER.index(current)
         new_pos = APPLICATION_STATUS_ORDER.index(new_status)
         if new_status == ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED:
-            if current != ApplicationStatusEnum.JOINED:
+            if current != ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail=f"A provisional order can only be issued at JOINED (this application is {current.value})",
+                    detail=(
+                        "A provisional order can only be issued at DEPARTMENT_ROOM_ALLOTTED "
+                        f"(this application is {current.value})"
+                    ),
                 )
             if not _has_issued_appointment_order(db, application):
                 raise HTTPException(

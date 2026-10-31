@@ -49,6 +49,7 @@ def create_candidate(
         full_name=payload.full_name,
         email=payload.email,
         phone_number=payload.phone_number,
+        address=payload.address,
         source=payload.source,
         reference_name=payload.reference_name,
     )
@@ -115,6 +116,7 @@ def update_candidate(
         "full_name": candidate.full_name,
         "email": candidate.email,
         "phone_number": candidate.phone_number,
+        "address": candidate.address,
         "source": candidate.source,
         "reference_name": candidate.reference_name,
     }
@@ -157,6 +159,7 @@ def update_candidate(
             "full_name": candidate.full_name,
             "email": candidate.email,
             "phone_number": candidate.phone_number,
+            "address": candidate.address,
             "source": candidate.source,
             "reference_name": candidate.reference_name,
         },

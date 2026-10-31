@@ -316,6 +316,7 @@ def issue_provisional_order(
         actor=current_user,
         request=request,
         order_date=payload.order_date if payload else None,
+        address=payload.address if payload else None,
     )
     db.commit()
     db.refresh(order)
@@ -421,13 +422,10 @@ def allot_department_room(
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JoiningRecord:
     application = _get_application_or_404_scoped(db, application_id, scope)
-    if application.status != ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED:
+    if application.status != ApplicationStatusEnum.JOINED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Cannot allot department/room from status {application.status.value} "
-                "(must be PROVISIONAL_ORDER_ISSUED)"
-            ),
+            detail=f"Cannot allot department/room from status {application.status.value} (must be JOINED)",
         )
     joining_record = _get_joining_record_or_404(db, application)
     # Vacancy > 0, or a Super Admin override with a reason (audited).
@@ -477,12 +475,12 @@ def complete_orientation(
     scope: CampusScope = Depends(get_campus_scope),
 ) -> JoiningRecord:
     application = _get_application_or_404_scoped(db, application_id, scope)
-    if application.status != ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED:
+    if application.status != ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"Cannot complete orientation from status {application.status.value} "
-                "(must be DEPARTMENT_ROOM_ALLOTTED)"
+                "(must be PROVISIONAL_ORDER_ISSUED)"
             ),
         )
     joining_record = _get_joining_record_or_404(db, application)

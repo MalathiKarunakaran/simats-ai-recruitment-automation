@@ -26,6 +26,7 @@ const CANDIDATE: CandidateRead = {
   full_name: "Jane Doe",
   email: "jane@example.com",
   phone_number: "+91 9876543210",
+  address: null,
   resume_storage_key: null,
   source: "Referral",
   reference_name: null,

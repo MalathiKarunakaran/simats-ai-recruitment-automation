@@ -67,8 +67,21 @@ export async function allotDepartmentRoom(
 
 // --- Provisional appointment order (docs/specs/provisional-order-and-allotment.md)
 
-export async function issueProvisionalOrder(applicationId: string): Promise<AppointmentOrderRead> {
-  return apiFetch<AppointmentOrderRead>(`/applications/${applicationId}/provisional-order`, { method: "POST" });
+// Mirrors app/schemas/joining.py::ProvisionalOrderCreate. `address` left out
+// means the candidate's own; an empty string prints none.
+export interface ProvisionalOrderPayload {
+  order_date?: string | null;
+  address?: string | null;
+}
+
+export async function issueProvisionalOrder(
+  applicationId: string,
+  payload: ProvisionalOrderPayload = {},
+): Promise<AppointmentOrderRead> {
+  return apiFetch<AppointmentOrderRead>(`/applications/${applicationId}/provisional-order`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getProvisionalOrder(applicationId: string): Promise<AppointmentOrderRead> {

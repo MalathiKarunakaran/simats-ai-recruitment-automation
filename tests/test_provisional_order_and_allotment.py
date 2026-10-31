@@ -72,6 +72,39 @@ def joined(db_session, published_vacancy_factory, application_factory):
     return _make
 
 
+def _allot_directly(db_session, vacancy, application, department=None):
+    """Allotment through the service + pipeline, past the vacancy rule (which
+    has its own tests below): the order tests need an allotted application."""
+    joining_service.allot_department_room(
+        db_session,
+        application=application,
+        department_id=(department or vacancy.department).id,
+        room_allotted="R-1",
+        actor=vacancy.hr_admin,
+    )
+    pipeline.transition_application_status(
+        db_session,
+        application=application,
+        new_status=ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
+        actor=vacancy.hr_admin,
+    )
+    db_session.flush()
+    db_session.refresh(application)
+    return application
+
+
+@pytest.fixture()
+def allotted(db_session, joined):
+    """An application at DEPARTMENT_ROOM_ALLOTTED -- where the order is issued
+    (department first, then the order: user decision 31-Oct)."""
+
+    def _make(vacancy=None, department=None, **vacancy_kwargs):
+        vacancy, application = joined(vacancy, **vacancy_kwargs)
+        return vacancy, _allot_directly(db_session, vacancy, application, department)
+
+    return _make
+
+
 def _issue(client, headers, application, **body):
     return client.post(f"/api/v1/applications/{application.id}/provisional-order", headers=headers, json=body or None)
 
@@ -79,22 +112,48 @@ def _issue(client, headers, application, **body):
 # --------------------------------------------------------------- transitions
 
 
-def test_cannot_skip_the_order_step(db_session, joined):
+def test_allotment_comes_straight_after_joined(db_session, joined):
+    """No order is needed before allotment any more."""
     vacancy, application = joined()
-    for target in (
-        ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
-        ApplicationStatusEnum.ORIENTATION_COMPLETE,
-        ApplicationStatusEnum.HANDED_OVER_TO_HOD,
+    pipeline.transition_application_status(
+        db_session,
+        application=application,
+        new_status=ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED,
+        actor=vacancy.hr_admin,
+    )
+    assert application.status == ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED
+
+
+def test_cannot_skip_the_order_step(db_session, joined, allotted):
+    vacancy, application = allotted()
+    _, at_joined = joined(vacancy)
+    for app_, target in (
+        (application, ApplicationStatusEnum.ORIENTATION_COMPLETE),
+        (application, ApplicationStatusEnum.HANDED_OVER_TO_HOD),
+        (at_joined, ApplicationStatusEnum.ORIENTATION_COMPLETE),
     ):
         with pytest.raises(HTTPException) as exc:
             pipeline.transition_application_status(
-                db_session, application=application, new_status=target, actor=vacancy.hr_admin
+                db_session, application=app_, new_status=target, actor=vacancy.hr_admin
             )
         assert exc.value.status_code == 409
         assert "provisional order" in exc.value.detail
 
 
-def test_order_status_needs_an_issued_order(db_session, joined):
+def test_order_status_needs_an_issued_order(db_session, allotted):
+    vacancy, application = allotted()
+    with pytest.raises(HTTPException) as exc:
+        pipeline.transition_application_status(
+            db_session,
+            application=application,
+            new_status=ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED,
+            actor=vacancy.hr_admin,
+        )
+    assert exc.value.status_code == 409
+    assert application.status == ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED
+
+
+def test_order_status_only_from_department_allotted(db_session, joined):
     vacancy, application = joined()
     with pytest.raises(HTTPException) as exc:
         pipeline.transition_application_status(
@@ -104,35 +163,23 @@ def test_order_status_needs_an_issued_order(db_session, joined):
             actor=vacancy.hr_admin,
         )
     assert exc.value.status_code == 409
+    assert "DEPARTMENT_ROOM_ALLOTTED" in exc.value.detail
     assert application.status == ApplicationStatusEnum.JOINED
 
 
-def test_order_status_only_from_joined(db_session, published_vacancy_factory, application_factory):
-    vacancy = published_vacancy_factory(slot_count=1)
-    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
-    with pytest.raises(HTTPException) as exc:
-        pipeline.transition_application_status(
-            db_session,
-            application=application,
-            new_status=ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED,
-            actor=vacancy.hr_admin,
-        )
-    assert exc.value.status_code == 409
-
-
-def test_existing_rows_past_joined_are_untouched(db_session, joined):
-    """An application allotted before the step existed keeps moving."""
+def test_existing_rows_past_the_order_step_are_untouched(db_session, joined):
+    """An application oriented before the step existed keeps moving."""
     vacancy, application = joined()
-    application.status = ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED  # as stored before this change
+    application.status = ApplicationStatusEnum.ORIENTATION_COMPLETE  # as stored before this change
     db_session.flush()
     pipeline.transition_application_status(
-        db_session, application=application, new_status=ApplicationStatusEnum.ORIENTATION_COMPLETE, actor=vacancy.hr_admin
+        db_session, application=application, new_status=ApplicationStatusEnum.HANDED_OVER_TO_HOD, actor=vacancy.hr_admin
     )
-    assert application.status == ApplicationStatusEnum.ORIENTATION_COMPLETE
+    assert application.status == ApplicationStatusEnum.HANDED_OVER_TO_HOD
 
 
-def test_allot_endpoint_refuses_at_joined(client, joined, allotment_seat_factory):
-    vacancy, application = joined()
+def test_allot_endpoint_only_at_joined(client, allotted, allotment_seat_factory):
+    vacancy, application = allotted()
     allotment_seat_factory(vacancy)
     response = client.post(
         f"/api/v1/applications/{application.id}/joining/allot-department-room",
@@ -140,15 +187,31 @@ def test_allot_endpoint_refuses_at_joined(client, joined, allotment_seat_factory
         json={"department_id": str(vacancy.department.id)},
     )
     assert response.status_code == 409
-    assert "PROVISIONAL_ORDER_ISSUED" in response.json()["detail"]
+    assert "must be JOINED" in response.json()["detail"]
+
+
+def test_orientation_needs_the_order(client, db_session, allotted):
+    vacancy, application = allotted()
+    headers = auth_headers(client, vacancy.hr_admin)
+    url = f"/api/v1/applications/{application.id}/joining/complete-orientation"
+
+    refused = client.post(url, headers=headers, json={})
+    assert refused.status_code == 409
+    assert "PROVISIONAL_ORDER_ISSUED" in refused.json()["detail"]
+
+    assert _issue(client, headers, application).status_code == 201
+    done = client.post(url, headers=headers, json={})
+    assert done.status_code == 200, done.text
+    db_session.refresh(application)
+    assert application.status == ApplicationStatusEnum.ORIENTATION_COMPLETE
 
 
 # ------------------------------------------------------------------- orders
 
 
-def test_issue_order_numbers_continue_the_paper_register(client, db_session, joined):
-    vacancy, first = joined()
-    _, second = joined(vacancy)
+def test_issue_order_numbers_continue_the_paper_register(client, db_session, allotted):
+    vacancy, first = allotted()
+    _, second = allotted(vacancy)
     headers = auth_headers(client, vacancy.hr_admin)
 
     response = _issue(client, headers, first, order_date="2026-10-31")
@@ -173,38 +236,39 @@ def test_issue_order_numbers_continue_the_paper_register(client, db_session, joi
     assert len(audit) == 2 and all(row.actor_user_id == vacancy.hr_admin.id for row in audit)
 
 
-def test_each_campus_has_its_own_running_number(client, joined):
-    vacancy, application = joined(campus_code="SCAD")
+def test_each_campus_has_its_own_running_number(client, allotted):
+    vacancy, application = allotted(campus_code="SCAD")
     response = _issue(client, auth_headers(client, vacancy.hr_admin), application, order_date="2026-11-03")
     assert response.json()["order_number"] == "SCAD / PA/ 023/ 11/ 2026"
 
 
-def test_issue_twice_is_refused(client, joined):
-    vacancy, application = joined()
+def test_issue_twice_is_refused(client, allotted):
+    vacancy, application = allotted()
     headers = auth_headers(client, vacancy.hr_admin)
     assert _issue(client, headers, application).status_code == 201
     assert _issue(client, headers, application).status_code == 409
 
 
-def test_issue_only_at_joined(client, published_vacancy_factory, application_factory):
-    vacancy = published_vacancy_factory(slot_count=1)
-    application = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+def test_issue_only_after_allotment(client, db_session, joined):
+    vacancy, application = joined()
     response = _issue(client, auth_headers(client, vacancy.hr_admin), application)
     assert response.status_code == 409
+    assert "DEPARTMENT_ROOM_ALLOTTED" in response.json()["detail"]
+    assert db_session.query(AppointmentOrder).count() == 0
 
 
-def test_campus_without_letter_details_is_refused(client, db_session, joined):
-    vacancy, application = joined(campus_code="SHIFT")
+def test_campus_without_letter_details_is_refused(client, db_session, allotted):
+    vacancy, application = allotted(campus_code="SHIFT")
     response = _issue(client, auth_headers(client, vacancy.hr_admin), application)
     assert response.status_code == 409
     assert response.json()["detail"] == "No letter details for campus SHIFT"
     db_session.refresh(application)
-    assert application.status == ApplicationStatusEnum.JOINED
+    assert application.status == ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED
     assert db_session.query(AppointmentOrder).count() == 0
 
 
-def test_campus_sequence_is_unique(db_session, joined):
-    vacancy, application = joined()
+def test_campus_sequence_is_unique(db_session, allotted):
+    vacancy, application = allotted()
     order = appointment_orders.issue_provisional_order(db_session, application=application, actor=vacancy.hr_admin)
     duplicate = AppointmentOrder(
         application_id=application.id,
@@ -225,23 +289,35 @@ def test_campus_sequence_is_unique(db_session, joined):
     nested.rollback()
 
 
-def test_letter_pdf_carries_the_fields(client, joined):
-    vacancy, application = joined()
-    headers = auth_headers(client, vacancy.hr_admin)
-    order = _issue(client, headers, application, order_date="2026-10-31").json()
-
+def _letter_text(client, headers, application):
     response = client.get(f"/api/v1/applications/{application.id}/provisional-order/letter.pdf", headers=headers)
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     text = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(response.content)).pages)
-    text = " ".join(text.split())
+    return " ".join(text.split())
+
+
+def test_letter_pdf_carries_the_fields(client, joined, allotted, department_factory):
+    # Allotted somewhere other than the vacancy's own department: the letter
+    # prints the department actually allotted.
+    mechanical = department_factory("SSE", name="Mechanical Engineering", category=StaffRoleCategoryEnum.TEACHING)
+    vacancy, application = allotted(department=mechanical)
+    headers = auth_headers(client, vacancy.hr_admin)
+    order = _issue(
+        client, headers, application, order_date="2026-10-31", address="12, Anna Salai\nChennai 600002"
+    ).json()
+    assert order["department_name"] == "Mechanical Engineering"
+    assert order["address"] == "12, Anna Salai\nChennai 600002"
+
+    text = _letter_text(client, headers, application)
     for expected in (
         f"Ref.No. {order['order_number']}",
         "31-10-2026",
         application.candidate.full_name,
+        "12, Anna Salai Chennai 600002",
         "Provisional Appointment Order",
         order["designation"],
-        vacancy.department.name,
+        "Department of Mechanical Engineering",
         "SIMATS Engineering",
         "Dr. B. Ramesh",
         "Dr. K. Malathi",
@@ -249,11 +325,64 @@ def test_letter_pdf_carries_the_fields(client, joined):
         "probation for a period of three months",
     ):
         assert expected in text, expected
+    assert vacancy.department.name not in text
     assert "DRAFT" not in text
 
 
-def test_letter_before_order_is_404(client, joined):
-    vacancy, application = joined()
+def test_letter_without_an_address_omits_the_line(client, allotted):
+    vacancy, application = allotted()
+    assert application.candidate.address is None
+    headers = auth_headers(client, vacancy.hr_admin)
+    order = _issue(client, headers, application, order_date="2026-10-31").json()
+    assert order["address"] is None
+    text = _letter_text(client, headers, application)
+    assert f"To, {application.candidate.full_name}., Provisional Appointment Order" in text
+
+
+# ----------------------------------------------------------------- address
+
+
+def test_address_typed_at_issue_is_saved_to_a_candidate_without_one(client, db_session, allotted):
+    vacancy, application = allotted()
+    candidate = application.candidate
+    response = _issue(client, auth_headers(client, vacancy.hr_admin), application, address="  7, Gandhi Road\nVellore  ")
+    assert response.status_code == 201, response.text
+    assert response.json()["address"] == "7, Gandhi Road\nVellore"
+    db_session.refresh(candidate)
+    assert candidate.address == "7, Gandhi Road\nVellore"
+    audit = db_session.query(AuditLog).filter(AuditLog.entity_type == "Candidate", AuditLog.entity_id == candidate.id).one()
+    assert audit.after_state == {"address": "7, Gandhi Road\nVellore"}
+
+
+def test_edited_address_is_snapshotted_and_the_candidate_kept(client, db_session, allotted):
+    vacancy, application = allotted()
+    candidate = application.candidate
+    candidate.address = "Old Street\nChennai"
+    db_session.flush()
+    response = _issue(client, auth_headers(client, vacancy.hr_admin), application, address="Hostel Block B\nThandalam")
+    assert response.json()["address"] == "Hostel Block B\nThandalam"
+    db_session.refresh(candidate)
+    assert candidate.address == "Old Street\nChennai"  # never overwritten from the order
+
+    # The snapshot does not follow a later edit of the candidate.
+    candidate.address = "Somewhere New"
+    db_session.flush()
+    order = client.get(
+        f"/api/v1/applications/{application.id}/provisional-order", headers=auth_headers(client, vacancy.hr_admin)
+    ).json()
+    assert order["address"] == "Hostel Block B\nThandalam"
+
+
+def test_address_not_sent_uses_the_candidates(db_session, allotted):
+    vacancy, application = allotted()
+    application.candidate.address = "Old Street\nChennai"
+    db_session.flush()
+    order = appointment_orders.issue_provisional_order(db_session, application=application, actor=vacancy.hr_admin)
+    assert order.address == "Old Street\nChennai"
+
+
+def test_letter_before_order_is_404(client, allotted):
+    vacancy, application = allotted()
     response = client.get(
         f"/api/v1/applications/{application.id}/provisional-order/letter.pdf",
         headers=auth_headers(client, vacancy.hr_admin),
@@ -272,8 +401,8 @@ def _upload(client, headers, application, data, content_type, name="signed.pdf")
     )
 
 
-def test_signed_copy_upload_and_download(client, joined, fake_minio_client):
-    vacancy, application = joined()
+def test_signed_copy_upload_and_download(client, allotted, fake_minio_client):
+    vacancy, application = allotted()
     headers = auth_headers(client, vacancy.hr_admin)
     assert client.get(
         f"/api/v1/applications/{application.id}/provisional-order/signed-copy", headers=headers
@@ -307,8 +436,8 @@ def test_signed_copy_upload_and_download(client, joined, fake_minio_client):
         (b"%PDF" + b"\x00" * (10 * 1024 * 1024), "application/pdf", "10 MB"),
     ],
 )
-def test_signed_copy_validation(client, joined, data, content_type, detail):
-    vacancy, application = joined()
+def test_signed_copy_validation(client, allotted, data, content_type, detail):
+    vacancy, application = allotted()
     headers = auth_headers(client, vacancy.hr_admin)
     _issue(client, headers, application)
     response = _upload(client, headers, application, data, content_type)
@@ -316,8 +445,8 @@ def test_signed_copy_validation(client, joined, data, content_type, detail):
     assert detail in response.json()["detail"]
 
 
-def test_signed_copy_storage_down_is_502(client, joined, fake_minio_client):
-    vacancy, application = joined()
+def test_signed_copy_storage_down_is_502(client, allotted, fake_minio_client):
+    vacancy, application = allotted()
     headers = auth_headers(client, vacancy.hr_admin)
     _issue(client, headers, application)
     fake_minio_client.fail_puts = True
@@ -329,7 +458,6 @@ def test_signed_copy_storage_down_is_502(client, joined, fake_minio_client):
 
 def _options_setup(db_session, joined, department_factory, designation_factory, sanctioned_strength_factory):
     vacancy, application = joined()
-    appointment_orders.issue_provisional_order(db_session, application=application, actor=vacancy.hr_admin)
     designation = designation_factory(name="Assistant Professor", department=vacancy.department)
     vacancy.vacancy_request.designation_id = designation.id
     cse = department_factory("SSE", name="Computer Science and Engineering", category=StaffRoleCategoryEnum.TEACHING)
@@ -357,6 +485,10 @@ def test_options_show_vacancy_and_suggestion(
     other = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
     other.status = ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED
     other.department_allotted_id = civil.id
+    # And one already issued its order in CSE: still holding the seat.
+    ordered = application_factory(vacancy.job_posting, recorded_by=vacancy.hr_admin)
+    ordered.status = ApplicationStatusEnum.PROVISIONAL_ORDER_ISSUED
+    ordered.department_allotted_id = cse.id
     db_session.flush()
 
     result = department_options(db_session, application)
@@ -364,7 +496,7 @@ def test_options_show_vacancy_and_suggestion(
     names = [o["department_name"] for o in result["options"]]
     assert names == ["Computer Science and Engineering", "Civil Engineering"]  # suggested first, other campus out
     first, second = result["options"]
-    assert (first["sanctioned"], first["working"], first["reserved"], first["vacancy"], first["suggested"]) == (3, 1, 0, 2, True)
+    assert (first["sanctioned"], first["working"], first["reserved"], first["vacancy"], first["suggested"]) == (3, 1, 1, 1, True)
     assert (second["sanctioned"], second["working"], second["reserved"], second["vacancy"], second["suggested"]) == (1, 0, 1, 0, False)
 
 
@@ -446,8 +578,8 @@ def test_department_from_another_campus_is_refused(
 # ---------------------------------------------------------- role/campus gates
 
 
-def test_role_and_campus_gates(client, joined, user_factory):
-    vacancy, application = joined()
+def test_role_and_campus_gates(client, allotted, user_factory):
+    vacancy, application = allotted()
     hod = auth_headers(client, user_factory(UserRoleEnum.CAMPUS_HOD, campus_code="SSE"))
     coordinator = auth_headers(client, user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR))
     other_officer = auth_headers(client, user_factory(UserRoleEnum.RECRUITMENT_OFFICER, campus_code="SCAD"))
@@ -461,12 +593,12 @@ def test_role_and_campus_gates(client, joined, user_factory):
     assert client.post(f"{base}/provisional-order", headers=own_officer).status_code == 201
 
 
-def test_number_clash_is_retried_once_then_refused(db_session, joined, monkeypatch):
+def test_number_clash_is_retried_once_then_refused(db_session, allotted, monkeypatch):
     from app.services import reference_numbers
 
-    vacancy, first = joined()
-    _, second = joined(vacancy)
-    _, third = joined(vacancy)
+    vacancy, first = allotted()
+    _, second = allotted(vacancy)
+    _, third = allotted(vacancy)
     taken = appointment_orders.issue_provisional_order(db_session, application=first, actor=vacancy.hr_admin)
     real = reference_numbers.next_provisional_order_number
     calls = []
@@ -487,13 +619,13 @@ def test_number_clash_is_retried_once_then_refused(db_session, joined, monkeypat
     with pytest.raises(HTTPException) as exc:
         appointment_orders.issue_provisional_order(db_session, application=third, actor=vacancy.hr_admin)
     assert exc.value.status_code == 409
-    assert third.status == ApplicationStatusEnum.JOINED
+    assert third.status == ApplicationStatusEnum.DEPARTMENT_ROOM_ALLOTTED
 
 
-def test_register_floor_is_the_single_lookup(db_session, joined, monkeypatch):
+def test_register_floor_is_the_single_lookup(db_session, allotted, monkeypatch):
     from app.services import reference_numbers
 
     monkeypatch.setattr(reference_numbers, "register_floor", lambda db, code: 500)
-    vacancy, application = joined()
+    vacancy, application = allotted()
     order = appointment_orders.issue_provisional_order(db_session, application=application, actor=vacancy.hr_admin)
     assert order.sequence == 501
