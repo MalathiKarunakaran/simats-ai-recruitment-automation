@@ -58,3 +58,23 @@ A failed run changes nothing; the Talent Pool keeps the previous sync.
 
 Keep `buildSnapshot` identical to the n8n workflow's Code nodes, and change
 both only together with `app/services/talent_pool_sync.py`.
+
+## New Joinees and Pro App Order (added 2026-10-31)
+
+The same script also syncs the "NEW JOINEE LIST FROM JULY 01-07-2024"
+spreadsheet's `New Joinees` and `Pro App Order` tabs to
+`POST /api/v1/sheet-sync/{NEW_JOINEES|PRO_APP_ORDER}` (same secret), per
+`docs/specs/joinee-order-sync.md`.
+
+- `syncAll` is what the schedule runs now: the talent pool, then the two
+  joinee tabs. After pasting an updated script, run `installTrigger` once
+  more so the schedule points at `syncAll`.
+- `previewJoineeSheets` is the dry run: it logs what a sync would insert,
+  update and flag, changes nothing, and the preview also shows on the app's
+  Google Sheet Sync page. `syncJoineeSheets` runs them for real.
+- **Privacy:** for `New Joinees` the script reads the header row (row 2),
+  picks the allowlisted columns by name, and reads only those. Salary, bank
+  account, allowance, gender, current work and S. No are never read, so they
+  never leave Google. Adding a column to the sheet changes nothing until it
+  is added to `JOINEE_TABS` here and to the allowlist in
+  `app/services/sheet_sync.py`.
