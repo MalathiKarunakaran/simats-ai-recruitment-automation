@@ -412,7 +412,8 @@ def test_departments_hand_counted(client, admin_headers, data):
     assert (d["approved_total"], d["members"], d["active"], d["left"], d["gap"]) == (2, 2, 1, 1, 1)
     assert d["hods"] == []  # the only HOD has left
     assert {d["approved"] for d in s["departments"]} == {True}
-    nulls = {"approved": False, "count": None, "additional_count": None, "approved_total": None, "gap": None}
+    assert {d["approval_source"] for d in s["departments"]} == {"APPROVED_DEPTS"}
+    nulls = {"approved": False, "top_dept": False, "approval_source": None, "count": None, "additional_count": None, "approved_total": None, "gap": None}
     assert s["unmatched"] == [
         {"name": "Additive Manufacuring Engineering", "members": 2, "active": 2, "active_additional": 0,
          "left": 0, "on_leave": 0, "hods": [], **nulls},
@@ -489,6 +490,47 @@ def test_unmatched_rows_get_the_same_stats_as_approved_rows(client, admin_header
     # Without matched=false an approved name still means the approved department.
     assert _total(client, admin_headers, "/faculty", department="Robotics") == 4
     assert _total(client, admin_headers, "/faculty", matched=False) == s["unmatched_total"]
+
+
+def test_a_top_dept_faculty_row_approves_a_faculty_only_department(client, admin_headers, db_session, data):
+    """User decision 31-Oct-2026: a Faculty-only department is approved when
+    any active row of it carries the Top Dept mark. A Top Dept row that left
+    or was removed from the sheet does not count."""
+    def fac(bio, dept, **kw):
+        db_session.add(DepartmentFaculty(row_key=uuid.uuid4().hex, bio_id=bio, dept_raw=dept, raw={},
+                                         **{"is_active": True, "role": "MEMBER", **kw}))
+
+    fac("T1", "Cloud Computing", role="HOD", top_dept=True, full_name="Dr Cloud")
+    fac("T2", "Cloud Computing")  # an unmarked member of a marked department
+    fac("T3", "Gone Top", top_dept=True, employment_state="LEFT")
+    fac("T4", "Gone Top")
+    fac("T5", "Removed Top", top_dept=True, is_active=False)
+    fac("T6", "Removed Top")
+    db_session.commit()
+
+    for include_inactive in (False, True):
+        s = _get(client, admin_headers, "/departments", include_inactive=include_inactive)
+        rows = {u["name"]: u for u in s["unmatched"]}
+        c = rows["Cloud Computing"]
+        assert (c["top_dept"], c["approved"], c["approval_source"]) == (True, True, "TOP_DEPT_FACULTY")
+        assert (c["count"], c["additional_count"], c["approved_total"], c["gap"]) == (None, None, None, None)
+        assert (c["members"], c["active"], c["hods"]) == (2, 2, ["Dr Cloud"])
+        for name in ("Gone Top", "Removed Top", "Additive Manufacuring Engineering", "Not set"):
+            u = rows[name]
+            assert (u["top_dept"], u["approved"], u["approval_source"]) == (False, False, None), (name, u)
+        assert rows["Removed Top"]["members"] == (2 if include_inactive else 1)
+
+        # Still Faculty-only rows: each count equals its matched=false list.
+        extra = {"include_inactive": True} if include_inactive else {}
+        for name, u in rows.items():
+            assert _total(client, admin_headers, "/faculty", department=name, matched=False,
+                          **extra) == u["members"], name
+            assert _total(client, admin_headers, "/faculty", department=name, matched=False, state="active",
+                          **extra) == u["active"], name
+            assert _total(client, admin_headers, "/faculty", department=name, matched=False, state="LEFT",
+                          **extra) == u["left"], name
+        assert _total(client, admin_headers, "/faculty", matched=False, **extra) == s["unmatched_total"]
+        assert {d["approval_source"] for d in s["departments"]} == {"APPROVED_DEPTS"}
 
 
 def test_an_inactive_department_reappears_with_include_inactive(client, admin_headers, data):

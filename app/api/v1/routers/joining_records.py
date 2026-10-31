@@ -641,8 +641,15 @@ def departments_summary(
         )
 
     label = func.coalesce(func.nullif(func.btrim(DepartmentFaculty.dept_raw), ""), _NOT_SET)
+    # The Faculty tab's "Top Dept" mark approves a Faculty-only department,
+    # but only from a row still in the sheet and not marked Left.
+    top = (
+        func.count()
+        .filter(DepartmentFaculty.top_dept.is_(True) & DepartmentFaculty.is_active.is_(True) & active)
+        .label("top")
+    )
     unmatched_rows = db.execute(
-        select(label.label("name"), *stats)
+        select(label.label("name"), *stats, top)
         .where(*fac, _unmatched(include_inactive))
         .group_by(label)
         .order_by(desc("members"), label)
@@ -663,6 +670,9 @@ def departments_summary(
             left=int(r.left),
             on_leave=int(r.on_leave),
             hods=unmatched_hods.get(r.name, []),
+            top_dept=r.top > 0,
+            approved=r.top > 0,
+            approval_source="TOP_DEPT_FACULTY" if r.top > 0 else None,
         )
         for r in unmatched_rows
     ]

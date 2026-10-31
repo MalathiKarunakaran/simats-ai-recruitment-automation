@@ -36,6 +36,7 @@ function summary(): DepartmentsSummary {
         gap: 1,
         is_active: true,
         approved: true,
+        approval_source: "APPROVED_DEPTS",
       },
     ],
     unmatched: [
@@ -48,9 +49,11 @@ function summary(): DepartmentsSummary {
         on_leave: 0,
         hods: ["Dr Additive"],
       }),
+      unmatched("Machine Learning", { members: 2, active: 2, hods: ["Dr Learner"], top_dept: true }),
+      unmatched("Cloud Computing", { members: 1, active: 1, top_dept: true }),
     ],
-    faculty_total: 9,
-    unmatched_total: 5,
+    faculty_total: 12,
+    unmatched_total: 8,
     last_sync_at: "2026-10-31T04:00:00Z",
   };
 }
@@ -64,8 +67,10 @@ function unmatched(name: string, counts: Partial<UnmatchedDepartmentRow>): Unmat
     left: 0,
     on_leave: 0,
     hods: [],
+    top_dept: false,
     ...counts,
-    approved: false,
+    approved: counts.top_dept ?? false,
+    approval_source: counts.top_dept ? "TOP_DEPT_FACULTY" : null,
     count: null,
     additional_count: null,
     approved_total: null,
@@ -140,21 +145,51 @@ describe("NewDepartmentsPage", () => {
     expect(within(row).queryByRole("link", { name: /on leave/ })).not.toBeInTheDocument();
   });
 
-  it("lists every department in one table: approved first, then Faculty-tab-only names by name", async () => {
+  it("lists every department in one table: Approved_Depts, then Top Dept (Faculty tab), then the rest", async () => {
     renderPage();
     const table = await screen.findByTestId("department-table");
     expect(screen.getByTestId("department-counts")).toHaveTextContent(
-      "3 departments · 1 approved · 2 only in the Faculty tab",
+      "5 departments · 3 approved (1 in Approved_Depts + 2 marked Top Dept) · 2 not approved",
     );
     const names = within(table)
       .getAllByRole("row")
       .slice(1)
       .map((r) => within(r).getAllByRole("link")[0].textContent);
-    expect(names).toEqual(["Robotics", "Additive Manufacuring Engineering", "Not set"]);
+    expect(names).toEqual([
+      "Robotics",
+      "Cloud Computing",
+      "Machine Learning",
+      "Additive Manufacuring Engineering",
+      "Not set",
+    ]);
     expect(screen.queryByTestId("unmatched-departments")).not.toBeInTheDocument();
 
-    const approvedRow = within(table).getByRole("link", { name: "Robotics" }).closest("tr")!;
-    expect(within(approvedRow).queryByText("Not in Approved_Depts")).not.toBeInTheDocument();
+    const badges = (name: string) => {
+      const row = within(table).getByRole("link", { name }).closest("tr")!;
+      return ["Top Dept (Faculty tab)", "Not approved"].filter((t) => within(row).queryByText(t));
+    };
+    expect(badges("Robotics")).toEqual([]);
+    expect(badges("Cloud Computing")).toEqual(["Top Dept (Faculty tab)"]);
+    expect(badges("Machine Learning")).toEqual(["Top Dept (Faculty tab)"]);
+    expect(badges("Additive Manufacuring Engineering")).toEqual(["Not approved"]);
+    expect(badges("Not set")).toEqual(["Not approved"]);
+    expect(screen.queryByText("Not in Approved_Depts")).not.toBeInTheDocument();
+  });
+
+  it("a Top Dept (Faculty tab) row shows — for approved, additional and gap and links with matched=false", async () => {
+    renderPage();
+    const table = await screen.findByTestId("department-table");
+    const name = "Machine Learning";
+    const row = within(table).getByRole("link", { name }).closest("tr")!;
+    expect(within(row).getByText("Dr Learner")).toBeInTheDocument();
+    const cells = within(row).getAllByRole("cell");
+    expect([cells[1], cells[2], cells[7]].map((c) => c.textContent)).toEqual(["—", "—", "—"]);
+    const p = "/new-departments?department=Machine+Learning";
+    expect(within(row).getByRole("link", { name })).toHaveAttribute("href", `${p}&matched=false#list`);
+    expect(within(row).getByRole("link", { name: `${name}: 2 active` })).toHaveAttribute(
+      "href",
+      `${p}&state=active&matched=false#list`,
+    );
   });
 
   it("a Faculty-tab-only row has the same counts as links, with — for approved, additional and gap", async () => {
@@ -162,7 +197,7 @@ describe("NewDepartmentsPage", () => {
     const table = await screen.findByTestId("department-table");
     const name = "Additive Manufacuring Engineering";
     const row = within(table).getByRole("link", { name }).closest("tr")!;
-    expect(within(row).getByText("Not in Approved_Depts")).toBeInTheDocument();
+    expect(within(row).getByText("Not approved")).toBeInTheDocument();
     expect(within(row).getByText("Dr Additive")).toBeInTheDocument();
     const cells = within(row).getAllByRole("cell");
     // Approved, Additional, Gap.
@@ -184,7 +219,7 @@ describe("NewDepartmentsPage", () => {
 
     const notSet = within(table).getByRole("link", { name: "Not set" });
     expect(notSet).toHaveAttribute("href", "/new-departments?department=Not+set&matched=false#list");
-    expect(screen.getByRole("link", { name: /5 not matched/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /8 not matched/ })).toHaveAttribute(
       "href",
       "/new-departments?matched=false#list",
     );

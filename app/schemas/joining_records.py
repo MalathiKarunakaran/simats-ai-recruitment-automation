@@ -237,13 +237,20 @@ class ApprovedDepartmentRow(BaseModel):
     gap: int
     is_active: bool
     approved: bool = True
+    approval_source: Literal["APPROVED_DEPTS"] = "APPROVED_DEPTS"
 
 
 class UnmatchedDepartmentRow(BaseModel):
     """A Faculty-tab department name that matched no listed approved
     department. "Not set" is the label for a blank Dept cell. It carries the
     same faculty counts as an approved row; the approved figures (count,
-    additional, gap) are null because the Approved_Depts tab has none."""
+    additional, gap) are null because the Approved_Depts tab has none.
+
+    `top_dept` is true when any active row in the group (present in the sheet
+    and not marked Left) has the Faculty tab's "Top Dept" mark; such a
+    department counts as approved (user decision 31-Oct-2026) with
+    `approval_source` "TOP_DEPT_FACULTY". Its counts and gap stay null --
+    the Faculty tab gives no approved count."""
 
     name: str
     members: int
@@ -252,7 +259,9 @@ class UnmatchedDepartmentRow(BaseModel):
     left: int
     on_leave: int
     hods: list[str]
+    top_dept: bool = False
     approved: bool = False
+    approval_source: Literal["TOP_DEPT_FACULTY"] | None = None
     count: None = None
     additional_count: None = None
     approved_total: None = None

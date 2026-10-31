@@ -26,9 +26,10 @@ import { cn } from "@/lib/utils";
 
 /**
  * New Departments (docs/specs/joining-screens.md, screen 3). One table of
- * every department: the approved ones from the New Departments sheet first,
- * then every Faculty-tab department name that matched no approved one, each
- * with the same faculty counts. Each number links to the faculty list below,
+ * every department: the ones listed in the Approved_Depts tab first, then
+ * Faculty-tab-only names marked Top Dept (also approved, user decision
+ * 31-Oct-2026, but with no approved count), then every other Faculty-tab
+ * name, each with the same faculty counts. Each number links to the faculty list below,
  * filtered to exactly the people it counted. A Faculty-tab-only row links with
  * matched=false, so a name that equals an approved one still opens its own
  * rows.
@@ -44,6 +45,9 @@ const MEANING = ["department", "role", "state", "additional", "matched"] as cons
 type DepartmentRow = ApprovedDepartmentRow | UnmatchedDepartmentRow;
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+
+/** A row from the Approved_Depts tab (not a Faculty-tab-only name). */
+const isListed = (d: DepartmentRow): d is ApprovedDepartmentRow => d.approval_source === "APPROVED_DEPTS";
 
 const countLink =
   "rounded-sm tabular-nums underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring";
@@ -84,10 +88,10 @@ export function NewDepartmentsPage() {
     placeholderData: keepPreviousData,
   });
   const summary = summaryQuery.data;
-  // Approved first, then the Faculty-tab-only names, each by name.
-  const rows: DepartmentRow[] = summary
-    ? [...[...summary.departments].sort(byName), ...[...summary.unmatched].sort(byName)]
-    : [];
+  // Approved_Depts first, then Faculty-tab-only Top Dept names, then the rest, each by name.
+  const topDept = summary ? summary.unmatched.filter((u) => u.approved).sort(byName) : [];
+  const notApproved = summary ? summary.unmatched.filter((u) => !u.approved).sort(byName) : [];
+  const rows: DepartmentRow[] = summary ? [...[...summary.departments].sort(byName), ...topDept, ...notApproved] : [];
   const data = listQuery.data;
   useScrollToHash(LIST_ID, Boolean(summary) && (data !== undefined || listQuery.isError));
 
@@ -162,8 +166,9 @@ export function NewDepartmentsPage() {
                 <h2 className="text-sm font-semibold">
                   Departments{" "}
                   <span data-testid="department-counts" className="font-normal text-muted-foreground">
-                    {rows.length} departments · {summary.departments.length} approved · {summary.unmatched.length} only in
-                    the Faculty tab
+                    {rows.length} departments · {summary.departments.length + topDept.length} approved (
+                    {summary.departments.length} in Approved_Depts + {topDept.length} marked Top Dept) ·{" "}
+                    {notApproved.length} not approved
                   </span>
                 </h2>
                 <p className="text-[11px] text-muted-foreground">
@@ -200,32 +205,34 @@ export function NewDepartmentsPage() {
                       // A Faculty-tab-only name opens with matched=false so it
                       // never resolves to an approved department of the same name.
                       const at = (set: Partial<Record<(typeof MEANING)[number], string>> = {}) =>
-                        href(d.approved ? { department: d.name, ...set } : { department: d.name, matched: "false", ...set });
+                        href(isListed(d) ? { department: d.name, ...set } : { department: d.name, matched: "false", ...set });
                       const selected =
-                        filters.department === d.name && (d.approved ? filters.matched !== false : filters.matched === false);
+                        filters.department === d.name && (isListed(d) ? filters.matched !== false : filters.matched === false);
                       return (
                         <tr
-                          key={d.approved ? d.id : `faculty-tab:${d.name}`}
+                          key={isListed(d) ? d.id : `faculty-tab:${d.name}`}
                           className={cn("border-b border-border last:border-0", selected && "bg-muted/50")}
                         >
                           <td className="px-2 py-1.5">
                             <Link to={at()} className={cn(countLink, "font-medium")}>
                               {d.name}
                             </Link>
-                            {d.approved ? (
+                            {isListed(d) ? (
                               <>
                                 {!d.is_active ? <Badge variant="warning" className="ml-1.5">Removed from sheet</Badge> : null}
                                 {d.notes ? <span className="block text-[11px] text-muted-foreground">{d.notes}</span> : null}
                               </>
+                            ) : d.approved ? (
+                              <Badge variant="success" className="ml-1.5 px-1.5 py-0 text-[10px]">Top Dept (Faculty tab)</Badge>
                             ) : (
-                              <Badge variant="outline" className="ml-1.5 px-1.5 py-0 text-[10px]">Not in Approved_Depts</Badge>
+                              <Badge variant="outline" className="ml-1.5 px-1.5 py-0 text-[10px]">Not approved</Badge>
                             )}
                           </td>
                           <td className="px-2 py-1.5 text-right tabular-nums">
-                            {d.approved ? (d.count ?? d.count_raw ?? "—") : <span className="text-muted-foreground">&mdash;</span>}
+                            {isListed(d) ? (d.count ?? d.count_raw ?? "—") : <span className="text-muted-foreground">&mdash;</span>}
                           </td>
                           <td className="px-2 py-1.5 text-right tabular-nums">
-                            {d.approved ? (
+                            {isListed(d) ? (
                               (d.additional_count ?? d.additional_count_raw ?? "—")
                             ) : (
                               <span className="text-muted-foreground">&mdash;</span>
@@ -247,7 +254,7 @@ export function NewDepartmentsPage() {
                           <td className="px-2 py-1.5 text-right">
                             {num(d.on_leave, at({ state: "ON_LEAVE" }), `${d.name}: ${d.on_leave} on leave`)}
                           </td>
-                          {d.approved ? (
+                          {isListed(d) ? (
                             <td
                               className={cn(
                                 "px-2 py-1.5 text-right font-medium tabular-nums",

@@ -204,10 +204,13 @@ export interface ApprovedDepartmentRow {
   gap: number;
   is_active: boolean;
   approved: true;
+  approval_source: "APPROVED_DEPTS";
 }
 
 /** A department name found only in the Faculty tab: the same faculty counts
- *  as an approved row, but nothing approved to compare them with. */
+ *  as an approved row, but no approved count to compare them with. It is
+ *  approved (source TOP_DEPT_FACULTY) when an active row of it carries the
+ *  Faculty tab's Top Dept mark. */
 export interface UnmatchedDepartmentRow {
   name: string;
   members: number;
@@ -216,7 +219,9 @@ export interface UnmatchedDepartmentRow {
   left: number;
   on_leave: number;
   hods: string[];
-  approved: false;
+  top_dept: boolean;
+  approved: boolean;
+  approval_source: "TOP_DEPT_FACULTY" | null;
   count: null;
   additional_count: null;
   approved_total: null;
