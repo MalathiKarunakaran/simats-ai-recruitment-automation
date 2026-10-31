@@ -339,3 +339,157 @@ def test_runs_endpoints_are_super_admin_only(client, user_factory, db_session):
     post(client, "NEW_JOINEES", [jrow(1)])
     run = db_session.query(SheetSyncRun).one()
     assert client.get(f"/api/v1/sheet-sync/runs/{run.id}/flagged.xlsx", headers=auth_headers(client, hr)).status_code == 403
+
+
+# --- S5 New Departments -------------------------------------------------------
+
+from app.models.sheet_sync import DepartmentFaculty, NewDepartment  # noqa: E402
+
+D_HEADERS = ["#", "Approved Department", "Notes", "Count", "Additional Count"]
+F_HEADERS = ["S.No", "Bio ID", "Name", "Dept", "Remark", "Status", "Top 25", "Vacancy", "Active"]
+
+
+def drow(n, **vals):
+    base = {"Approved Department": f"Dept {n}", "Notes": "", "Count": "5", "Additional Count": "2"}
+    base.update(vals)
+    return {"row_number": n + 1, "cells": [base.get(h, "") for h in D_HEADERS]}
+
+
+def frow(n, **vals):
+    base = {"Bio ID": f"F{n}", "Name": f"Faculty {n}", "Dept": "Dept 1", "Remark": "Member"}
+    base.update(vals)
+    return {"row_number": n + 1, "cells": [base.get(h, "") for h in F_HEADERS]}
+
+
+def post5(client, source, rows, dry_run=False):
+    headers = D_HEADERS if source == "NEW_DEPARTMENTS" else F_HEADERS
+    return post(client, source, rows, headers=headers, dry_run=dry_run)
+
+
+def depts(db):
+    db.expire_all()
+    return db.query(NewDepartment).order_by(NewDepartment.sheet_row_number).all()
+
+
+def faculty(db):
+    db.expire_all()
+    return db.query(DepartmentFaculty).order_by(DepartmentFaculty.sheet_row_number).all()
+
+
+def test_departments_counts_notes_and_flags(client, db_session):
+    r = post5(client, "NEW_DEPARTMENTS", [drow(1, Notes="Top Dept"), drow(2, Count="five", **{"Additional Count": ""}),
+                                          drow(3, **{"Approved Department": ""}, Count="4")])  # fmt: skip
+    assert r.status_code == 200, r.text
+    c = r.json()["counts"]
+    assert c["inserted"] == 2 and c["skipped"] == 1
+    d1, d2 = depts(db_session)
+    assert (d1.name, d1.notes, d1.count, d1.additional_count) == ("Dept 1", "Top Dept", 5, 2)
+    assert d2.count is None and d2.count_raw == "five" and d2.additional_count is None
+    reasons = [f["reason"] for f in r.json()["flagged"]]
+    assert any("Count is not a whole number" in x for x in reasons) and any("no key" in x for x in reasons)
+
+
+def test_departments_idempotent_deactivate_and_dry_run(client, db_session):
+    rows = [drow(1), drow(2)]
+    assert post5(client, "NEW_DEPARTMENTS", rows, dry_run=True).json()["counts"]["inserted"] == 2
+    assert depts(db_session) == []
+    assert post5(client, "NEW_DEPARTMENTS", rows).json()["counts"]["inserted"] == 2
+    c = post5(client, "NEW_DEPARTMENTS", rows).json()["counts"]
+    assert (c["inserted"], c["updated"], c["unchanged"]) == (0, 0, 2)
+    assert post5(client, "NEW_DEPARTMENTS", [drow(1)]).json()["counts"]["deactivated"] == 1
+    assert [d.is_active for d in depts(db_session)] == [True, False]
+    assert db_session.query(SheetSyncRun).filter_by(dry_run=True, source="NEW_DEPARTMENTS").count() == 1
+
+
+def test_missing_key_header_422_for_both(client):
+    assert post(client, "NEW_DEPARTMENTS", [], headers=["Notes"]).status_code == 422
+    assert post(client, "DEPARTMENT_FACULTY", [], headers=["Name"]).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "cell,role,flagged",
+    [("HOD", "HOD", False), ("HoD", "HOD", False), ("Member", "MEMBER", False), ("mEmber", "MEMBER", False),
+     ("Dean", None, True), ("", None, True)],
+)  # fmt: skip
+def test_faculty_remark(client, db_session, cell, role, flagged):
+    post5(client, "NEW_DEPARTMENTS", [drow(1)])
+    r = post5(client, "DEPARTMENT_FACULTY", [frow(1, Remark=cell)])
+    f = faculty(db_session)[0]
+    assert f.role == role and f.remark_raw == (cell or None)
+    assert any("Remark" in x["reason"] for x in r.json()["flagged"]) is flagged
+
+
+@pytest.mark.parametrize(
+    "cell,top,state,note",
+    [("Top Dept", True, None, None), ("LEFT", False, "LEFT", None), (";LEFT", False, "LEFT", None),
+     ("RESIGNED", False, "LEFT", None), ("LEAVE", False, "ON_LEAVE", None), ("MATERNITY", False, "ON_LEAVE", None),
+     ("CSE", False, None, "CSE"), ("ECE", False, None, "ECE"), ("MATHS", False, None, "MATHS"),
+     ("", False, None, None)],
+)  # fmt: skip
+def test_faculty_top25(client, db_session, cell, top, state, note):
+    post5(client, "DEPARTMENT_FACULTY", [frow(1, **{"Top 25": cell})])
+    f = faculty(db_session)[0]
+    assert (f.top_dept, f.employment_state, f.parent_dept_note) == (top, state, note)
+    assert f.top25_raw == (cell or None)
+
+
+def test_faculty_status_additional(client, db_session):
+    r = post5(client, "DEPARTMENT_FACULTY", [frow(1, Status="Addtional Faculty"), frow(2), frow(3, Status="Weird")])
+    f = faculty(db_session)
+    assert [x.is_additional for x in f] == [True, False, False]
+    assert any("Status" in x["reason"] and x["key"] == "F3" for x in r.json()["flagged"])
+    assert not any("Status" in x["reason"] and x["key"] != "F3" for x in r.json()["flagged"])
+
+
+def test_faculty_dept_exact_fold_only_no_fuzzy(client, db_session):
+    post5(client, "NEW_DEPARTMENTS", [drow(1, **{"Approved Department": "Additive Manufacturing Engineering"}),
+                                      drow(2, **{"Approved Department": "Civil  Engineering"})])  # fmt: skip
+    r = post5(client, "DEPARTMENT_FACULTY", [
+        frow(1, Dept="additive manufacturing  engineering "),
+        frow(2, Dept="Additive Manufacuring Engineering"),  # typo: never guessed
+        frow(3, Dept="civil engineering"),
+        frow(4, Dept=""),
+    ])  # fmt: skip
+    f = faculty(db_session)
+    d = {x.name: x.id for x in depts(db_session)}
+    assert f[0].new_department_id == d["Additive Manufacturing Engineering"]
+    assert f[1].new_department_id is None and f[1].dept_raw == "Additive Manufacuring Engineering"
+    assert f[2].new_department_id == d["Civil Engineering"]
+    assert f[3].new_department_id is None
+    flagged = {x["key"]: x["reason"] for x in r.json()["flagged"] if "Dept" in x["reason"]}
+    assert set(flagged) == {"F2", "F4"} and "blank" in flagged["F4"]
+    c = r.json()["counts"]
+    assert (c["linked_department"], c["unlinked_department"]) == (2, 2)
+
+
+def test_faculty_links_joiner_and_lifecycle(client, db_session):
+    post(client, "NEW_JOINEES", [jrow(1, **{"BIO ID": "F1"})])
+    post5(client, "NEW_DEPARTMENTS", [drow(1)])
+    rows = [frow(1), frow(2)]
+    r = post5(client, "DEPARTMENT_FACULTY", rows)
+    assert r.json()["counts"]["linked_joinee"] == 1
+    f = faculty(db_session)
+    assert f[0].sheet_joinee_id == joinees(db_session)[0].id and f[1].sheet_joinee_id is None
+    c = post5(client, "DEPARTMENT_FACULTY", rows).json()["counts"]
+    assert (c["inserted"], c["updated"], c["unchanged"]) == (0, 0, 2)
+    assert post5(client, "DEPARTMENT_FACULTY", [frow(1, Remark="HOD")]).json()["counts"]["updated"] == 1
+    assert [x.is_active for x in faculty(db_session)] == [True, False]
+    assert post5(client, "DEPARTMENT_FACULTY", [frow(1, Remark="HOD"), frow(2)]).json()["counts"]["reactivated"] == 1
+    assert all(x.is_active for x in faculty(db_session))
+
+
+def test_faculty_dry_run_changes_nothing_and_runs_list_has_new_sources(client, db_session, user_factory):
+    r = post5(client, "DEPARTMENT_FACULTY", [frow(1)], dry_run=True)
+    assert r.json()["dry_run"] is True and r.json()["counts"]["inserted"] == 1
+    assert faculty(db_session) == []
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    runs = client.get("/api/v1/sheet-sync/runs", headers=auth_headers(client, admin)).json()
+    by_source = {x["source"]: x for x in runs}
+    assert {"NEW_DEPARTMENTS", "DEPARTMENT_FACULTY"} <= set(by_source)
+    assert by_source["DEPARTMENT_FACULTY"]["last_dry_run"]["counts"]["inserted"] == 1
+    assert by_source["NEW_DEPARTMENTS"]["last_run"] is None
+
+
+def test_s5_secret_gate(client, db_session):
+    assert post5(client, "DEPARTMENT_FACULTY", [frow(1)]).status_code == 200
+    assert post(client, "NEW_DEPARTMENTS", [drow(1)], headers=D_HEADERS, secret="wrong").status_code == 401

@@ -1,7 +1,7 @@
-"""New Joinees + Pro App Order sync (docs/specs/joinee-order-sync.md).
+"""New Joinees + Pro App Order + New Departments sync (docs/specs/joinee-order-sync.md).
 
-The only writer of `sheet_joinees`, `provisional_orders` and
-`sheet_sync_runs`. Built the same way as `talent_pool_sync.py` (headers
+The only writer of `sheet_joinees`, `provisional_orders`, `new_departments`,
+`department_faculty` and `sheet_sync_runs`. Built the same way as `talent_pool_sync.py` (headers
 found by name, row_key = person + occurrence, content_hash, deactivate and
 never delete, one snapshot applied in the caller's transaction); read that
 module's docstring for why. What is different here:
@@ -36,16 +36,24 @@ from app.models.sheet_sync import (
     CATEGORY_HOUSEKEEPING,
     CATEGORY_NON_TEACHING,
     CATEGORY_TEACHING,
+    FACULTY_STATE_LEFT,
+    FACULTY_STATE_ON_LEAVE,
     ORDER_ISSUED,
     ORDER_PENDING,
     OUTCOME_NOT_RECOMMENDED,
     OUTCOME_PERMANENT_ORDER_RECEIVED,
     OUTCOME_PROBATION_EXTENDED,
+    ROLE_HOD,
+    ROLE_MEMBER,
+    SOURCE_DEPARTMENT_FACULTY,
+    SOURCE_NEW_DEPARTMENTS,
     SOURCE_NEW_JOINEES,
     SOURCE_PRO_APP_ORDER,
     STATE_ACTIVE,
     STATE_LEFT,
     STATE_REJOINED,
+    DepartmentFaculty,
+    NewDepartment,
     ProvisionalOrder,
     SheetJoinee,
     SheetSyncRun,
@@ -113,6 +121,23 @@ _ORDER_COLUMNS = {
     "app_360": ("360 App",),
     "file_submitted_adfa": ("File Submitted to ADFA",),
     "room_allotted": ("Room Allotted",),
+}# S5 (docs/specs/joinee-order-sync.md). Header "#" and "S.No" are not listed,
+# so they are never read.
+_DEPARTMENT_COLUMNS = {
+    "name": ("Approved Department",),
+    "notes": ("Notes",),
+    "count": ("Count",),
+    "additional_count": ("Additional Count",),
+}
+_FACULTY_COLUMNS = {
+    "bio_id": ("Bio ID",),
+    "name": ("Name",),
+    "dept": ("Dept",),
+    "remark": ("Remark",),
+    "status": ("Status",),
+    "top25": ("Top 25",),
+    "vacancy": ("Vacancy",),
+    "active": ("Active",),
 }
 
 _LIMIT = 255
@@ -202,6 +227,39 @@ def campus_code(cell: str | None) -> str | None:
 def employment_state(cell: str | None) -> tuple[str | None, bool]:
     """(state, flag). Unknown spellings, e.g. `Old`, are (None, True)."""
     return _STATES.get(_squash(cell), (None, True))
+
+
+_ROLES = {"hod": ROLE_HOD, "member": ROLE_MEMBER}
+_ADDITIONAL = {"addtional faculty", "additional faculty"}  # the sheet's own spelling first
+_INT = re.compile(r"\d+")
+
+
+def faculty_role(cell: str | None) -> str | None:
+    return _ROLES.get(_squash(cell))
+
+
+def top25(cell: str | None) -> tuple[bool, str | None, str | None]:
+    """(top_dept, employment_state, parent_dept_note). The column mixes three
+    things; a leading ';' (typo in the sheet) is ignored for matching only."""
+    text = _squash(cell).lstrip("; ").strip()
+    if not text:
+        return False, None, None
+    if text == "top dept":
+        return True, None, None
+    if text in ("left", "resigned"):
+        return False, FACULTY_STATE_LEFT, None
+    if text in ("leave", "maternity"):
+        return False, FACULTY_STATE_ON_LEAVE, None
+    return False, None, _text(cell, 100)
+
+
+def _count(cell: str | None) -> tuple[int | None, bool]:
+    text = (cell or "").strip()
+    if not text:
+        return None, True
+    if _INT.fullmatch(text):
+        return int(text), True
+    return None, False
 
 
 # --- Plumbing --------------------------------------------------------------
@@ -361,6 +419,54 @@ def _parse_order(get, label_of, report: _Report, row_number: int) -> _Parsed | N
     )
 
 
+def _parse_department(get, label_of, report: _Report, row_number: int) -> _Parsed | None:
+    name = _text(get("name"))
+    if not name:
+        if any((get(f) or "").strip() for f in _DEPARTMENT_COLUMNS):
+            report.skipped += 1
+            report.flag(row_number, None, "no key (no Approved Department)")
+        return None
+    values: dict = {"name": name, "notes": _text(get("notes"))}
+    for attr, field_name, label in (("count", "count", "Count"), ("additional_count", "additional_count", "Additional Count")):
+        values[attr], ok = _count(get(field_name))
+        values[attr + "_raw"] = _text(get(field_name), 100)
+        if not ok:
+            report.flag(row_number, name, f"{label} is not a whole number")
+    raw = {label_of[f]: get(f) for f in label_of}
+    return _Parsed(row_number=row_number, person="dept:" + _squash(name), flag_key=name, values=values, raw=raw,
+                   content_hash=_hash(raw))
+
+
+def _parse_faculty(get, label_of, report: _Report, row_number: int) -> _Parsed | None:
+    bio = _text(get("bio_id"), 100)
+    if not bio:
+        if any((get(f) or "").strip() for f in _FACULTY_COLUMNS):
+            report.skipped += 1
+            report.flag(row_number, None, "no key (no Bio ID)")
+        return None
+    values: dict = {
+        "bio_id": bio,
+        "full_name": _text(get("name")),
+        "dept_raw": _text(get("dept")),
+        "remark_raw": _text(get("remark"), 100),
+        "status_raw": _text(get("status"), 100),
+        "top25_raw": _text(get("top25"), 100),
+        "vacancy_raw": _text(get("vacancy")),
+        "active_raw": _text(get("active")),
+    }
+    values["role"] = faculty_role(get("remark"))
+    if values["role"] is None:
+        report.flag(row_number, bio, "Remark not recognised (no role)")
+    status_text = _squash(get("status"))
+    values["is_additional"] = status_text in _ADDITIONAL
+    if status_text and not values["is_additional"]:
+        report.flag(row_number, bio, "Status not recognised")
+    values["top_dept"], values["employment_state"], values["parent_dept_note"] = top25(get("top25"))
+    raw = {label_of[f]: get(f) for f in label_of}
+    return _Parsed(row_number=row_number, person="bio:" + bio.lower(), flag_key=bio, values=values, raw=raw,
+                   content_hash=_hash(raw))
+
+
 def _sync_rows(db: Session, model, parsed: list[_Parsed], report: _Report, counts: dict, link) -> dict:
     """Insert/update/reactivate/deactivate keyed rows of `model`. `link(item)`
     returns extra column values to keep current on every run (links to other
@@ -433,16 +539,33 @@ def _talent_pool_index(db: Session) -> dict[str, object]:
     return index
 
 
+_SOURCES = {
+    # source -> (allowlist, (required field, header shown when missing), parser)
+    SOURCE_NEW_JOINEES: (_JOINEE_COLUMNS, ("name", "Name"), _parse_joinee),
+    SOURCE_PRO_APP_ORDER: (_ORDER_COLUMNS, ("bio_id", "BioID"), _parse_order),
+    SOURCE_NEW_DEPARTMENTS: (_DEPARTMENT_COLUMNS, ("name", "Approved Department"), _parse_department),
+    SOURCE_DEPARTMENT_FACULTY: (_FACULTY_COLUMNS, ("bio_id", "Bio ID"), _parse_faculty),
+}
+
+
+def _joiner_index(db: Session) -> dict[str, object]:
+    """lower(bio id) -> active sheet_joinees id, earliest sheet row wins."""
+    joiners = {}
+    for j in db.execute(
+        select(SheetJoinee).where(SheetJoinee.is_active.is_(True), SheetJoinee.bio_id.is_not(None))
+        .order_by(SheetJoinee.sheet_row_number.desc())
+    ).scalars():
+        joiners[j.bio_id.lower()] = j.id
+    return joiners
+
+
 def _run_entities(db: Session, source: str, payload: SheetSyncRequest, report: _Report, counts: dict):
-    is_joinees = source == SOURCE_NEW_JOINEES
-    wanted = _JOINEE_COLUMNS if is_joinees else _ORDER_COLUMNS
+    wanted, (required, needed), parse = _SOURCES[source]
     positions, missing = _resolve_columns(payload.headers, wanted)
-    required, needed = ("name", "Name") if is_joinees else ("bio_id", "BioID")
     if required not in positions:
         raise ValueError(f"No '{needed}' column among the recognised headers")
     # The header as the sheet spells it, for the allowlisted columns only.
     label_of = {f: (payload.headers[i] or "").strip() or wanted[f][0] for f, i in positions.items()}
-    parse = _parse_joinee if is_joinees else _parse_order
 
     parsed: list[_Parsed] = []
     for row in payload.rows:
@@ -456,7 +579,7 @@ def _run_entities(db: Session, source: str, payload: SheetSyncRequest, report: _
         if item is not None:
             parsed.append(item)
 
-    if is_joinees:
+    if source == SOURCE_NEW_JOINEES:
         campuses = {c.code: c.id for c in db.execute(select(Campus)).scalars()}
         pool = _talent_pool_index(db) if any(p.mobile for p in parsed) else {}
         linked = 0
@@ -471,14 +594,9 @@ def _run_entities(db: Session, source: str, payload: SheetSyncRequest, report: _
         _sync_rows(db, SheetJoinee, parsed, report, counts, link)
         counts["not_in_employees"] = len(parsed)
         counts["linked_talent_pool"] = linked
-    else:
+    elif source == SOURCE_PRO_APP_ORDER:
         db.flush()
-        joiners = {}
-        for j in db.execute(
-            select(SheetJoinee).where(SheetJoinee.is_active.is_(True), SheetJoinee.bio_id.is_not(None))
-            .order_by(SheetJoinee.sheet_row_number.desc())
-        ).scalars():
-            joiners[j.bio_id.lower()] = j.id  # earliest row wins
+        joiners = _joiner_index(db)
 
         def link(item: _Parsed) -> dict:
             return {"sheet_joinee_id": joiners.get(item.values["bio_id"].lower())}
@@ -486,6 +604,31 @@ def _run_entities(db: Session, source: str, payload: SheetSyncRequest, report: _
         seen = _sync_rows(db, ProvisionalOrder, parsed, report, counts, link)
         counts["linked_joinee"] = sum(1 for e in seen.values() if e.sheet_joinee_id is not None)
         counts["unlinked"] = len(seen) - counts["linked_joinee"]
+    elif source == SOURCE_NEW_DEPARTMENTS:
+        _sync_rows(db, NewDepartment, parsed, report, counts, lambda item: {})
+    else:
+        db.flush()
+        joiners = _joiner_index(db)
+        # Exact lookup after case/space folding. A near-miss is flagged, never guessed.
+        departments = {
+            _squash(d.name): d.id
+            for d in db.execute(select(NewDepartment).where(NewDepartment.is_active.is_(True))).scalars()
+        }
+
+        def link(item: _Parsed) -> dict:
+            dept = item.values["dept_raw"]
+            dept_id = departments.get(_squash(dept))
+            if dept_id is None:
+                report.flag(
+                    item.row_number, item.flag_key,
+                    "Dept is blank" if not dept else "Dept does not match an approved department",
+                )
+            return {"new_department_id": dept_id, "sheet_joinee_id": joiners.get(item.flag_key.lower())}
+
+        seen = _sync_rows(db, DepartmentFaculty, parsed, report, counts, link)
+        counts["linked_department"] = sum(1 for e in seen.values() if e.new_department_id is not None)
+        counts["unlinked_department"] = len(seen) - counts["linked_department"]
+        counts["linked_joinee"] = sum(1 for e in seen.values() if e.sheet_joinee_id is not None)
     return missing
 
 

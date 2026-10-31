@@ -9,6 +9,8 @@ from app.schemas.talent_pool_sync import MAX_SYNC_COLUMNS, MAX_SYNC_ROWS
 class SheetSyncSource(str, Enum):
     NEW_JOINEES = "NEW_JOINEES"
     PRO_APP_ORDER = "PRO_APP_ORDER"
+    NEW_DEPARTMENTS = "NEW_DEPARTMENTS"
+    DEPARTMENT_FACULTY = "DEPARTMENT_FACULTY"
 
 
 class SheetSyncRow(BaseModel):

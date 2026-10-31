@@ -22,6 +22,8 @@ from app.db.base_class import Base
 # Sources, as stored in sheet_sync_runs.source and used in the URL.
 SOURCE_NEW_JOINEES = "NEW_JOINEES"
 SOURCE_PRO_APP_ORDER = "PRO_APP_ORDER"
+SOURCE_NEW_DEPARTMENTS = "NEW_DEPARTMENTS"
+SOURCE_DEPARTMENT_FACULTY = "DEPARTMENT_FACULTY"
 
 # SheetJoinee.category
 CATEGORY_TEACHING = "TEACHING"
@@ -133,6 +135,84 @@ class ProvisionalOrder(Base):
     file_submitted_adfa: Mapped[str | None] = mapped_column(String(255), nullable=True)
     room_allotted: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    sheet_joinee_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sheet_joinees.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    raw: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+# DepartmentFaculty.role
+ROLE_HOD = "HOD"
+ROLE_MEMBER = "MEMBER"
+
+# DepartmentFaculty.employment_state (set only from the "Top 25" column)
+FACULTY_STATE_LEFT = "LEFT"
+FACULTY_STATE_ON_LEAVE = "ON_LEAVE"
+
+
+class NewDepartment(Base):
+    """One row of the New Departments sheet's `Approved_Depts` tab (S5)."""
+
+    __tablename__ = "new_departments"
+    __table_args__ = (UniqueConstraint("row_key", name="uq_new_departments_row_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    row_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sheet_row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true", index=True)
+
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    count_raw: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    additional_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    additional_count_raw: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    raw: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DepartmentFaculty(Base):
+    """One row of the New Departments sheet's `Faculty ` tab (S5), key Bio ID."""
+
+    __tablename__ = "department_faculty"
+    __table_args__ = (UniqueConstraint("row_key", name="uq_department_faculty_row_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
+    )
+    row_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sheet_row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true", index=True)
+
+    bio_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    dept_raw: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    remark_raw: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    role: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)
+    status_raw: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_additional: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    top25_raw: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    top_dept: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    employment_state: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    parent_dept_note: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    vacancy_raw: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    active_raw: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    new_department_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("new_departments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     sheet_joinee_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("sheet_joinees.id", ondelete="SET NULL"), nullable=True, index=True
     )
