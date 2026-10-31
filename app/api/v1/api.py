@@ -31,6 +31,7 @@ from app.api.v1.routers import (
     resume_screening,
     sanctioned_strength,
     talent_pool,
+    sheet_sync,
     talent_pool_sync,
     users,
     vacancy_register,
@@ -69,6 +70,9 @@ api_router.include_router(inbound_emails.router)
 # record and the sync is the only writer -- see the router's docstring.
 api_router.include_router(talent_pool.router)
 api_router.include_router(talent_pool_sync.router)
+
+# Joinee + provisional order sheet sync (2026-10-30). Machine POST plus Super Admin reads.
+api_router.include_router(sheet_sync.router)
 
 # qr_router first: its /vacancy-requests/qr/* paths would otherwise be
 # swallowed by /vacancy-requests/{vacancy_request_id} below.
