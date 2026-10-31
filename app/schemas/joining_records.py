@@ -1,8 +1,9 @@
 """Shapes for the joining-records read API (docs/specs/joining-screens.md).
 
-Read-only throughout, like the talent pool's: the sheets are the record and
-`services/sheet_sync.py` is the only writer of these four tables, so there
-is no Create/Update model here.
+Read-only over the four synced tables, like the talent pool's: the sheets
+are the record and `services/sheet_sync.py` is their only writer. The one
+write is Step A2's app-owned checklist marks on a provisional order
+(`OrderMarksUpdate`), stored in their own table, never in the sheet's.
 
 `NONE_KEY` ("none") is the key a NULL normalised value is counted under in
 every summary dict, and the value the list filters accept to match it, so a
@@ -11,8 +12,9 @@ every summary dict, and the value the list filters accept to match it, so a
 
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import TalentPoolSourceTabEnum
 
@@ -84,7 +86,28 @@ class LinkedTalentPoolEntry(BaseModel):
     is_active: bool
 
 
+class MarkedItem(BaseModel):
+    """One checklist item of a provisional order (Step A2). `effective` is the
+    app mark when there is one, else the sheet's value -- the value every
+    tile, filter and screen uses. `sheet` is the sheet's value read the same
+    way (Done/Not done as true/false for the five checklist items), and
+    `sheet_raw` the sheet's own text. The Registrar order and orientation
+    items have no sheet column, so for them `sheet` is always null and
+    `source` is "sheet" only in the sense of "no app mark"."""
+
+    effective: bool | date | str | None
+    sheet: bool | str | None
+    sheet_raw: str | None
+    app: bool | date | str | None
+    source: Literal["app", "sheet"]
+    marked_by: str | None = None
+    marked_at: datetime | None = None
+
+
 class OrderRead(BaseModel):
+    """The sheet's columns as synced, plus `items`: every markable field
+    (keys = `provisional_order_marks` columns) with its effective value."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -108,6 +131,50 @@ class OrderRead(BaseModel):
     sheet_joinee_id: uuid.UUID | None
     is_active: bool
     sheet_row_number: int | None
+    items: dict[str, MarkedItem] = {}
+
+
+OrderStatusMark = Literal["ISSUED", "PENDING"]
+OutcomeMark = Literal[
+    "PERMANENT_ORDER_RECEIVED",
+    "PROBATION_EXTENDED",
+    "NOT_RECOMMENDED",
+    "LEFT",
+    "REJOIN",
+    "TRA",
+    "FAMILY_WAY",
+    "NO_SUBMIT_PG",
+    "LONG_LEAVE",
+]
+
+
+class OrderMarksUpdate(BaseModel):
+    """PATCH body. Only the fields SENT are changed; a field sent as null
+    clears the app mark (back to the sheet's value). A blank room is a
+    clear too."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id_card_done: bool | None = None
+    food_app_done: bool | None = None
+    arms_done: bool | None = None
+    app_360_done: bool | None = None
+    adfa_file_done: bool | None = None
+    room_allotted: str | None = Field(None, max_length=255)
+    order_status: OrderStatusMark | None = None
+    outcome: OutcomeMark | None = None
+    registrar_order_issued: bool | None = None
+    registrar_order_date: date | None = None
+    orientation_conducted: bool | None = None
+    orientation_date: date | None = None
+
+    @field_validator("room_allotted")
+    @classmethod
+    def _blank_room_clears(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class JoineeDetail(JoineeRead):
@@ -139,6 +206,11 @@ class OrderSummary(BaseModel):
     probation_overdue: int
     probation_ended: int
     unlinked: int
+    # Step A2's two app-only items; "pending" = not marked yes in the app.
+    registrar_order_issued: int
+    registrar_order_pending: int
+    orientation_conducted: int
+    orientation_pending: int
     today: date
     last_sync_at: datetime | None
 

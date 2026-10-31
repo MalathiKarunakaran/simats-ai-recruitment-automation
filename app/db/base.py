@@ -47,5 +47,6 @@ from app.models.selection_batch import SelectionBatch, SelectionBatchMember  # n
 from app.models.appointment_order import AppointmentOrder  # noqa: F401
 from app.models.hod_review import HodReview  # noqa: F401
 from app.models.permanent_order import PermanentOrder  # noqa: F401
+from app.models.provisional_order_mark import ProvisionalOrderMark  # noqa: F401
 
 __all__ = ["Base"]

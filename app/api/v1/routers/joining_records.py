@@ -3,8 +3,13 @@ Phase 4 step A).
 
 Read-only screens over the four synced sheet tables -- `sheet_joinees`,
 `provisional_orders`, `new_departments`, `department_faculty`. The sheets
-stay the record and `services/sheet_sync.py` is their only writer, so there
-is deliberately no POST/PATCH/DELETE here (decision P1).
+stay the record and `services/sheet_sync.py` is their only writer (decision
+P1). The single write here is Step A2's PATCH of a provisional order's
+checklist marks, which go to the app-owned `provisional_order_marks` table
+through `services/provisional_order_marks.py` -- never to a synced table.
+Every Provisional Orders count and filter uses the EFFECTIVE value
+(COALESCE(app mark, sheet) over a LEFT JOIN), so a mark moves the order
+between tiles and lists alike.
 
 Built the same way as `talent_pool.py`, which is the proven pattern:
 
@@ -39,6 +44,7 @@ from sqlalchemy.orm import Session
 from app.api.v1.routers.talent_pool import _escape_like, _month_bounds
 from app.core.deps import get_db, require_roles
 from app.models.enums import UserRoleEnum
+from app.models.provisional_order_mark import MARK_FIELDS, MARK_OUTCOMES, ProvisionalOrderMark
 from app.models.sheet_sync import (
     CATEGORY_HOUSEKEEPING,
     CATEGORY_NON_TEACHING,
@@ -47,9 +53,6 @@ from app.models.sheet_sync import (
     FACULTY_STATE_ON_LEAVE,
     ORDER_ISSUED,
     ORDER_PENDING,
-    OUTCOME_NOT_RECOMMENDED,
-    OUTCOME_PERMANENT_ORDER_RECEIVED,
-    OUTCOME_PROBATION_EXTENDED,
     ROLE_HOD,
     ROLE_MEMBER,
     SOURCE_DEPARTMENT_FACULTY,
@@ -66,6 +69,7 @@ from app.models.sheet_sync import (
     SheetSyncRun,
 )
 from app.models.talent_pool_entry import TalentPoolEntry
+from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.joining_records import (
     NONE_KEY,
@@ -77,15 +81,20 @@ from app.schemas.joining_records import (
     JoineeRead,
     JoineeSummary,
     LinkedTalentPoolEntry,
+    MarkedItem,
     MonthCount,
+    OrderMarksUpdate,
     OrderRead,
     OrderSummary,
     UnmatchedDepartmentRow,
 )
+from app.services import provisional_order_marks as marks_service
 
 router = APIRouter(prefix="/joining-records", tags=["joining-records"])
 
 _READERS = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR)
+# Step A2 (user decision 31-Oct-2026): the same three may mark the checklist.
+_MARKERS = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR)
 
 _MONTHS_SHOWN = 12
 _UNDATED = "undated"
@@ -123,11 +132,15 @@ def _active(model, include_inactive: bool) -> list:
     return [] if include_inactive else [model.is_active.is_(True)]
 
 
-def _counts(db: Session, column, clauses: list, known: tuple[str, ...]) -> dict[str, int]:
+def _counts(db: Session, column, clauses: list, known: tuple[str, ...], from_=None) -> dict[str, int]:
     """{code: n} over `clauses`, zero-filled for `known` and "none". An
-    unexpected stored value is kept, never dropped."""
+    unexpected stored value is kept, never dropped. `from_` is the FROM when
+    `column` spans a join (the orders' effective values)."""
     key = _code_key(column)
-    rows = db.execute(select(key, func.count()).where(*clauses).group_by(key)).all()
+    stmt = select(key, func.count())
+    if from_ is not None:
+        stmt = stmt.select_from(from_)
+    rows = db.execute(stmt.where(*clauses).group_by(key)).all()
     out = {k: 0 for k in (*known, NONE_KEY)}
     out.update({k: int(n) for k, n in rows})
     return out
@@ -331,11 +344,37 @@ def get_joinee(
         .limit(1)
     ).scalar_one_or_none()
     if order is not None:
-        detail.provisional_order = OrderRead.model_validate(order)
+        detail.provisional_order = _order_read(order, marks_service.get_mark(db, order.id))
     return detail
 
 
 # --- Provisional Orders ------------------------------------------------------
+
+_Mark = ProvisionalOrderMark
+# Every orders query reads FROM this, so an effective value is always the
+# app mark (if any) over the sheet's -- one row per order (the mark's
+# provisional_order_id is unique).
+_ORDERS_FROM = ProvisionalOrder.__table__.outerjoin(
+    _Mark.__table__, _Mark.__table__.c.provisional_order_id == ProvisionalOrder.__table__.c.id
+)
+# The sheet's own text shown beside an item (normalised columns have a raw twin).
+_SHEET_RAW = {**marks_service.SHEET_COLUMN, "order_status": "order_status_raw", "outcome": "outcome_raw"}
+
+
+def _sheet_outcome():
+    """The sheet's outcome as read here: the sync's normalised value, else a
+    raw-only word (Left, Rejoin, TRA, ...) folded the way
+    `marks_service.sheet_outcome` folds it. The sync is untouched."""
+    folded = func.lower(func.btrim(func.regexp_replace(ProvisionalOrder.outcome_raw, r"\s+", " ", "g")))
+    return func.coalesce(
+        func.nullif(func.btrim(ProvisionalOrder.outcome), ""),
+        case(*((folded == word, code) for word, code in marks_service.RAW_ONLY_OUTCOMES.items()), else_=None),
+    )
+
+
+def _effective(field: str):
+    sheet = _sheet_outcome() if field == "outcome" else getattr(ProvisionalOrder, marks_service.SHEET_COLUMN[field])
+    return func.coalesce(getattr(_Mark, field), sheet)
 
 
 def _probation_clause(kind: str, today: date):
@@ -343,8 +382,40 @@ def _probation_clause(kind: str, today: date):
     if kind == "due30":
         return (end >= today) & (end <= today + timedelta(days=_DUE_WINDOW_DAYS))
     if kind == "overdue":
-        return (end < today) & _blank(ProvisionalOrder.outcome)
+        return (end < today) & _blank(_effective("outcome"))
     return end < today  # "ended"
+
+
+def _app_yes(field: str, yes: bool):
+    """The two app-only items. "Not yet" includes orders with no mark row."""
+    column = getattr(_Mark, field)
+    return column.is_(True) if yes else column.is_not(True)
+
+
+def _items(order: ProvisionalOrder, mark: ProvisionalOrderMark | None) -> dict[str, MarkedItem]:
+    marked = (mark.marked or {}) if mark else {}
+    items = {}
+    for field in MARK_FIELDS:
+        app = getattr(mark, field) if mark else None
+        sheet = marks_service.sheet_value(order, field)
+        raw_column = _SHEET_RAW.get(field)
+        info = marked.get(field) if app is not None else None
+        items[field] = MarkedItem(
+            effective=app if app is not None else sheet,
+            sheet=sheet,
+            sheet_raw=getattr(order, raw_column) if raw_column else None,
+            app=app,
+            source="app" if app is not None else "sheet",
+            marked_by=info.get("by_name") if info else None,
+            marked_at=info.get("at") if info else None,
+        )
+    return items
+
+
+def _order_read(order: ProvisionalOrder, mark: ProvisionalOrderMark | None) -> OrderRead:
+    read = OrderRead.model_validate(order)
+    read.items = _items(order, mark)
+    return read
 
 
 @router.get("/orders/summary", response_model=OrderSummary)
@@ -362,21 +433,28 @@ def order_summary(
             func.count().filter(_probation_clause("overdue", today)).label("overdue"),
             func.count().filter(_probation_clause("ended", today)).label("ended"),
             func.count().filter(ProvisionalOrder.sheet_joinee_id.is_(None)).label("unlinked"),
-        ).where(*clauses)
+            func.count().filter(_app_yes("registrar_order_issued", True)).label("registrar_yes"),
+            func.count().filter(_app_yes("registrar_order_issued", False)).label("registrar_no"),
+            func.count().filter(_app_yes("orientation_conducted", True)).label("orientation_yes"),
+            func.count().filter(_app_yes("orientation_conducted", False)).label("orientation_no"),
+        )
+        .select_from(_ORDERS_FROM)
+        .where(*clauses)
     ).one()
     return OrderSummary(
         total=int(row.total),
-        by_order_status=_counts(db, ProvisionalOrder.order_status, clauses, (ORDER_ISSUED, ORDER_PENDING)),
-        by_outcome=_counts(
-            db,
-            ProvisionalOrder.outcome,
-            clauses,
-            (OUTCOME_PERMANENT_ORDER_RECEIVED, OUTCOME_PROBATION_EXTENDED, OUTCOME_NOT_RECOMMENDED),
+        by_order_status=_counts(
+            db, _effective("order_status"), clauses, (ORDER_ISSUED, ORDER_PENDING), from_=_ORDERS_FROM
         ),
+        by_outcome=_counts(db, _effective("outcome"), clauses, MARK_OUTCOMES, from_=_ORDERS_FROM),
         probation_due30=int(row.due30),
         probation_overdue=int(row.overdue),
         probation_ended=int(row.ended),
         unlinked=int(row.unlinked),
+        registrar_order_issued=int(row.registrar_yes),
+        registrar_order_pending=int(row.registrar_no),
+        orientation_conducted=int(row.orientation_yes),
+        orientation_pending=int(row.orientation_no),
         today=today,
         last_sync_at=_last_sync_at(db, SOURCE_PRO_APP_ORDER),
     )
@@ -389,34 +467,41 @@ def list_orders(
     outcome: str | None = Query(None),
     probation: str | None = Query(None, pattern="^(due30|overdue|ended)$"),
     linked: bool | None = Query(None),
+    registrar_order: bool | None = Query(None),
+    orientation: bool | None = Query(None),
     include_inactive: bool = Query(False),
     limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     _: object = Depends(require_roles(*_READERS)),
 ) -> PaginatedResponse[OrderRead]:
-    stmt = select(ProvisionalOrder).where(*_active(ProvisionalOrder, include_inactive))
+    where = _active(ProvisionalOrder, include_inactive)
     if order_status:
-        stmt = stmt.where(_code_match(ProvisionalOrder.order_status, order_status))
+        where.append(_code_match(_effective("order_status"), order_status))
     if outcome:
-        stmt = stmt.where(_code_match(ProvisionalOrder.outcome, outcome))
+        where.append(_code_match(_effective("outcome"), outcome))
     if probation:
-        stmt = stmt.where(_probation_clause(probation, date.today()))
+        where.append(_probation_clause(probation, date.today()))
     if linked is not None:
         col = ProvisionalOrder.sheet_joinee_id
-        stmt = stmt.where(col.is_not(None) if linked else col.is_(None))
+        where.append(col.is_not(None) if linked else col.is_(None))
+    if registrar_order is not None:
+        where.append(_app_yes("registrar_order_issued", registrar_order))
+    if orientation is not None:
+        where.append(_app_yes("orientation_conducted", orientation))
     if q and q.strip():
-        stmt = stmt.where(
+        where.append(
             _search(
                 q,
                 ProvisionalOrder.full_name,
                 ProvisionalOrder.bio_id,
                 ProvisionalOrder.emp_id,
-                ProvisionalOrder.room_allotted,
+                _effective("room_allotted"),
             )
         )
 
-    total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+    total = db.execute(select(func.count()).select_from(_ORDERS_FROM).where(*where)).scalar_one()
+    stmt = select(ProvisionalOrder, _Mark).select_from(_ORDERS_FROM).where(*where)
     # A probation filter is a "what is coming up" question, so it reads
     # soonest first; otherwise newest order first.
     primary = (
@@ -429,13 +514,29 @@ def list_orders(
             stmt.order_by(primary, nulls_last(ProvisionalOrder.sheet_row_number), ProvisionalOrder.id)
             .offset(offset)
             .limit(limit)
-        )
-        .scalars()
-        .all()
+        ).all()
     )
     return PaginatedResponse(
-        items=[OrderRead.model_validate(r) for r in rows], total=int(total), limit=limit, offset=offset
+        items=[_order_read(order, mark) for order, mark in rows], total=int(total), limit=limit, offset=offset
     )
+
+
+@router.patch("/orders/{order_id}/marks", response_model=OrderRead)
+def mark_order(
+    order_id: uuid.UUID,
+    body: OrderMarksUpdate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles(*_MARKERS)),
+) -> OrderRead:
+    """Set or clear app marks on one provisional order's checklist. Only the
+    fields sent change; null clears the app mark (the sheet's value applies
+    again). The sheet itself is never written."""
+    order = db.get(ProvisionalOrder, order_id)
+    if order is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provisional order not found")
+    mark = marks_service.set_marks(db, order, body.model_dump(include=body.model_fields_set), actor)
+    db.commit()
+    return _order_read(order, mark)
 
 
 # --- New Departments ---------------------------------------------------------

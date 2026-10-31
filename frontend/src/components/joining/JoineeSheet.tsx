@@ -140,11 +140,11 @@ export function JoineeSheet({ joinee, onClose }: { joinee: JoineeRead | null; on
                 <h3 className="mb-1 text-xs font-semibold">Provisional order</h3>
                 {order ? (
                   <dl className="divide-y divide-border">
-                    <Field label="Order status" value={labelFor(ORDER_STATUS_LABELS, order.order_status)} />
+                    <Field label="Order status" value={labelFor(ORDER_STATUS_LABELS, order.items.order_status.effective as string | null)} />
                     <Field label="Order date" value={dated(order.order_on, order.order_on_raw)} />
                     <Field label="Probation ends" value={dated(order.probation_end_on, order.probation_end_on_raw)} />
-                    <Field label="Outcome" value={labelFor(OUTCOME_LABELS, order.outcome)} />
-                    <Field label="Room" value={order.room_allotted} />
+                    <Field label="Outcome" value={labelFor(OUTCOME_LABELS, order.items.outcome.effective as string | null)} />
+                    <Field label="Room" value={order.items.room_allotted.effective as string | null} />
                   </dl>
                 ) : (
                   <p className="text-[11px] text-muted-foreground">

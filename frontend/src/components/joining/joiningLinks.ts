@@ -1,4 +1,4 @@
-import { NONE_KEY } from "@/api/joiningRecords";
+import { NONE_KEY, type MarkField, type MarkedItem } from "@/api/joiningRecords";
 
 /**
  * Shared plumbing for the three Joining pages (docs/specs/joining-screens.md),
@@ -68,8 +68,31 @@ export const OUTCOME_LABELS: Record<string, string> = {
   PERMANENT_ORDER_RECEIVED: "Permanent order received",
   PROBATION_EXTENDED: "Probation extended",
   NOT_RECOMMENDED: "Not recommended",
+  // Recorded only by an app mark (Step A2); the sheet's own words.
+  LEFT: "Left",
+  REJOIN: "Rejoin",
+  TRA: "TRA",
+  FAMILY_WAY: "Family way",
+  NO_SUBMIT_PG: "No submit PG",
+  LONG_LEAVE: "Long leave",
   [NONE_KEY]: "No outcome",
 };
+
+/** Provisional order checklist (Step A2): the five Done/Not done items, labelled with the sheet's own words. */
+export const CHECKLIST_ITEMS: { field: MarkField; label: string; done: string; notDone: string }[] = [
+  { field: "id_card_done", label: "ID Card", done: "Collected", notDone: "Not collected" },
+  { field: "food_app_done", label: "Food App", done: "Created", notDone: "Not created" },
+  { field: "arms_done", label: "Arms", done: "Created", notDone: "Not created" },
+  { field: "app_360_done", label: "360 App", done: "Filled", notDone: "Not filled" },
+  { field: "adfa_file_done", label: "File submitted to ADFA", done: "Yes", notDone: "No" },
+];
+
+/** A checklist item's text: its done/not done word, else the sheet's raw text. */
+export function checklistText(item: MarkedItem, done: string, notDone: string): string | null {
+  if (item.effective === true) return done;
+  if (item.effective === false) return notDone;
+  return item.sheet_raw;
+}
 
 export const PROBATION_LABELS: Record<string, string> = {
   due30: "Probation ending in 30 days",

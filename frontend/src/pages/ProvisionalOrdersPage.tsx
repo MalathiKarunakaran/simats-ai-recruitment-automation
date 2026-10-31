@@ -1,21 +1,26 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { FileCheck } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { getOrderSummary, listOrders, type OrderRead, type ProbationFilter } from "@/api/joiningRecords";
+import type { UserRole } from "@/api/types";
+import { useAuth } from "@/auth/AuthContext";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { ActiveFiltersLine } from "@/components/joining/ActiveFiltersLine";
 import {
+  CHECKLIST_ITEMS,
   LIST_ID,
   ORDER_STATUS_LABELS,
   OUTCOME_LABELS,
   PROBATION_LABELS,
+  checklistText,
   countHref,
   labelFor,
   syncLine,
   withParams,
 } from "@/components/joining/joiningLinks";
+import { OrderSheet } from "@/components/joining/OrderSheet";
 import { SearchBox } from "@/components/joining/SearchBox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,25 +30,33 @@ import { Switch } from "@/components/ui/switch";
 import { useScrollToHash } from "@/hooks/useScrollToHash";
 
 /**
- * Provisional Orders (docs/specs/joining-screens.md, screen 2). Read-only
- * over the synced Pro App Order sheet. Every tile opens the list below,
- * filtered to exactly the rows it counted. "Ending in 30 days" and
- * "overdue" are relative to the server's today, which the summary returns
- * and the page states.
+ * Provisional Orders (docs/specs/joining-screens.md, screen 2 + Step A2).
+ * Over the synced Pro App Order sheet, with checklist marks the three
+ * marker roles keep in the app (the app mark wins; the sheet is never
+ * written). Every value, tile and filter here is the EFFECTIVE one, and
+ * every tile opens the list below filtered to exactly the rows it counted.
+ * "Ending in 30 days" and "overdue" are relative to the server's today,
+ * which the summary returns and the page states. A row opens OrderSheet.
  */
 
 const PATH = "/provisional-orders";
 const PAGE_SIZE = 25;
-const MEANING = ["order_status", "outcome", "probation", "linked"] as const;
+const MEANING = ["order_status", "outcome", "probation", "linked", "registrar_order", "orientation"] as const;
 const PROBATION_VALUES: ProbationFilter[] = ["due30", "overdue", "ended"];
+// Mirrors joining_records.py's _MARKERS (UX only; the backend re-checks).
+const MARKER_ROLES: readonly UserRole[] = ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"];
 
-const CHECKLIST: { key: keyof OrderRead; label: string }[] = [
-  { key: "id_card", label: "ID card" },
-  { key: "food_app", label: "Food app" },
-  { key: "arms", label: "Arms" },
-  { key: "app_360", label: "360 app" },
-  { key: "file_submitted_adfa", label: "ADFA file" },
-];
+function boolParam(value: string): boolean | undefined {
+  return value === "true" ? true : value === "false" ? false : undefined;
+}
+
+const SHORT_LABELS: Record<string, string> = {
+  id_card_done: "ID card",
+  food_app_done: "Food app",
+  arms_done: "Arms",
+  app_360_done: "360 app",
+  adfa_file_done: "ADFA file",
+};
 
 function formatDay(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -63,7 +76,7 @@ function ProbationCell({ order, today }: { order: OrderRead; today: string | und
   return (
     <>
       <span className="tabular-nums">{order.probation_end_on}</span>
-      {days !== null && days < 0 && !order.outcome ? (
+      {days !== null && days < 0 && !order.items.outcome.effective ? (
         <Badge variant="destructive" className="ml-1.5">Overdue</Badge>
       ) : days !== null && days >= 0 && days <= 30 ? (
         <Badge variant="warning" className="ml-1.5">{days === 0 ? "Today" : `In ${days}d`}</Badge>
@@ -77,13 +90,14 @@ export function ProvisionalOrdersPage() {
   const get = (key: string) => searchParams.get(key) ?? "";
   const includeInactive = get("include_inactive") === "true";
   const probationParam = get("probation");
-  const linkedParam = get("linked");
   const filters = {
     q: get("q"),
     orderStatus: get("order_status"),
     outcome: get("outcome"),
     probation: PROBATION_VALUES.includes(probationParam as ProbationFilter) ? (probationParam as ProbationFilter) : undefined,
-    linked: linkedParam === "true" ? true : linkedParam === "false" ? false : undefined,
+    linked: boolParam(get("linked")),
+    registrarOrder: boolParam(get("registrar_order")),
+    orientation: boolParam(get("orientation")),
     offset: Math.max(0, Number(get("offset")) || 0),
   };
 
@@ -100,6 +114,8 @@ export function ProvisionalOrdersPage() {
         outcome: filters.outcome || undefined,
         probation: filters.probation,
         linked: filters.linked,
+        registrar_order: filters.registrarOrder,
+        orientation: filters.orientation,
         include_inactive: includeInactive || undefined,
         limit: PAGE_SIZE,
         offset: filters.offset,
@@ -108,6 +124,9 @@ export function ProvisionalOrdersPage() {
   });
   const summary = summaryQuery.data;
   const data = listQuery.data;
+  const { user } = useAuth();
+  const canMark = Boolean(user && MARKER_ROLES.includes(user.role));
+  const [openOrder, setOpenOrder] = useState<OrderRead | null>(null);
   useScrollToHash(LIST_ID, Boolean(summary) && (data !== undefined || listQuery.isError));
 
   const update = useCallback(
@@ -124,6 +143,10 @@ export function ProvisionalOrdersPage() {
   if (filters.probation) parts.push(PROBATION_LABELS[filters.probation]);
   if (filters.linked === false) parts.push("Not linked to a joiner");
   if (filters.linked === true) parts.push("Linked to a joiner");
+  if (filters.registrarOrder === true) parts.push("Registrar order issued");
+  if (filters.registrarOrder === false) parts.push("Registrar order not yet issued");
+  if (filters.orientation === true) parts.push("Orientation conducted");
+  if (filters.orientation === false) parts.push("Orientation not yet conducted");
   if (filters.q) parts.push(`Search: “${filters.q}”`);
   if (includeInactive) parts.push("Including removed rows");
 
@@ -174,6 +197,10 @@ export function ProvisionalOrdersPage() {
             <StatTile label="Probation ending in 30 days" value={summary?.probation_due30} subLine="any outcome" accent="orange" to={href({ probation: "due30" })} isLoading={loading} />
             <StatTile label="Overdue — no outcome" value={summary?.probation_overdue} subLine="probation ended, nothing recorded" accent="red" to={href({ probation: "overdue" })} isLoading={loading} />
             <StatTile label="Not linked to a joiner" value={summary?.unlinked} subLine="no New Joinees row with this BIO ID" to={href({ linked: "false" })} isLoading={loading} />
+            <StatTile label="Registrar order issued" value={summary?.registrar_order_issued} subLine="final appointment order, marked in app" accent="green" to={href({ registrar_order: "true" })} isLoading={loading} />
+            <StatTile label="Registrar order not yet" value={summary?.registrar_order_pending} to={href({ registrar_order: "false" })} isLoading={loading} />
+            <StatTile label="Orientation conducted" value={summary?.orientation_conducted} subLine="marked in app" accent="green" to={href({ orientation: "true" })} isLoading={loading} />
+            <StatTile label="Orientation not yet" value={summary?.orientation_pending} to={href({ orientation: "false" })} isLoading={loading} />
             <StatTile label="All orders" value={summary?.total} to={href({})} isLoading={loading} />
           </div>
 
@@ -224,7 +251,18 @@ export function ProvisionalOrdersPage() {
                       </tr>
                     ) : null}
                     {data?.items.map((o) => (
-                      <tr key={o.id} className="border-b border-border align-top last:border-0">
+                      <tr
+                        key={o.id}
+                        tabIndex={0}
+                        onClick={() => setOpenOrder(o)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setOpenOrder(o);
+                          }
+                        }}
+                        className="cursor-pointer border-b border-border align-top last:border-0 hover:bg-muted/40 focus:bg-muted/40 focus:outline-none"
+                      >
                         <td className="px-2 py-1.5">
                           <span className="flex flex-wrap items-center gap-1.5">
                             <span className="font-medium">{o.full_name ?? "(no name)"}</span>
@@ -237,45 +275,53 @@ export function ProvisionalOrdersPage() {
                         </td>
                         <td className="px-2 py-1.5">
                           <span className="tabular-nums">{o.order_on ?? o.order_on_raw ?? "—"}</span>
-                          <span className="block text-[11px] text-muted-foreground">{labelFor(ORDER_STATUS_LABELS, o.order_status)}</span>
+                          <span className="block text-[11px] text-muted-foreground">
+                            {labelFor(ORDER_STATUS_LABELS, o.items.order_status.effective as string | null)}
+                            {o.items.order_status.source === "app" ? " (app)" : ""}
+                          </span>
                         </td>
                         <td className="px-2 py-1.5">
                           <ProbationCell order={o} today={summary?.today} />
                         </td>
                         <td className="px-2 py-1.5">
                           <ul className="flex flex-wrap gap-1">
-                            {CHECKLIST.map(({ key, label }) => {
-                              const value = o[key] as string | null;
+                            {CHECKLIST_ITEMS.map(({ field, done, notDone }) => {
+                              const item = o.items[field];
+                              const label = SHORT_LABELS[field];
+                              const value = checklistText(item, done, notDone);
+                              const app = item.source === "app" ? " (app)" : "";
                               return (
                                 <li
-                                  key={key}
-                                  title={value ? `${label}: ${value}` : `${label}: not recorded`}
+                                  key={field}
+                                  title={value ? `${label}: ${value}${app}` : `${label}: not recorded`}
                                   className={
-                                    value
+                                    item.effective === true
                                       ? "rounded border border-brand-success/40 bg-brand-success/10 px-1.5 py-0.5 text-[10px]"
                                       : "rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground"
                                   }
                                 >
                                   {label}
                                   {value ? `: ${value}` : ""}
+                                  {app ? <span className="text-brand-info">{app}</span> : null}
                                 </li>
                               );
                             })}
                           </ul>
                         </td>
-                        <td className="px-2 py-1.5">{o.room_allotted ?? "—"}</td>
+                        <td className="px-2 py-1.5">{(o.items.room_allotted.effective as string | null) ?? "—"}</td>
                         <td className="px-2 py-1.5">
-                          {o.outcome ? (
+                          {o.items.outcome.effective ? (
                             <Badge
                               variant={
-                                o.outcome === "PERMANENT_ORDER_RECEIVED"
+                                o.items.outcome.effective === "PERMANENT_ORDER_RECEIVED"
                                   ? "success"
-                                  : o.outcome === "NOT_RECOMMENDED"
+                                  : o.items.outcome.effective === "NOT_RECOMMENDED"
                                     ? "destructive"
                                     : "warning"
                               }
                             >
-                              {labelFor(OUTCOME_LABELS, o.outcome)}
+                              {labelFor(OUTCOME_LABELS, o.items.outcome.effective as string)}
+                              {o.items.outcome.source === "app" ? " (app)" : ""}
                             </Badge>
                           ) : (
                             <span className="text-muted-foreground">{o.outcome_raw ?? "—"}</span>
@@ -300,6 +346,7 @@ export function ProvisionalOrdersPage() {
           </section>
         </>
       )}
+      <OrderSheet order={openOrder} canMark={canMark} onClose={() => setOpenOrder(null)} onSaved={setOpenOrder} />
     </div>
   );
 }

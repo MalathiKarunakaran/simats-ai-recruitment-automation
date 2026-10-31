@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "@/api/joiningRecords";
 import type { JoineeDetail, JoineeRead, JoineeSummary } from "@/api/joiningRecords";
 import { JoineesPage } from "@/pages/JoineesPage";
+import { orderItems } from "@/test/orderItems";
 
 vi.mock("@/api/joiningRecords", async () => {
   const actual = await vi.importActual<typeof import("@/api/joiningRecords")>("@/api/joiningRecords");
@@ -106,6 +107,11 @@ function detail(): JoineeDetail {
       sheet_joinee_id: "j-1",
       is_active: true,
       sheet_row_number: 3,
+      items: orderItems({
+        id_card_done: { sheet: true, raw: "Yes" },
+        room_allotted: { sheet: "A-101" },
+        order_status: { sheet: "ISSUED", raw: "Issued" },
+      }),
     },
   };
 }

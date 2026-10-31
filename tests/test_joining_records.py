@@ -340,6 +340,13 @@ def test_order_summary_hand_counted(client, admin_headers, data):
         "PERMANENT_ORDER_RECEIVED": 1,
         "PROBATION_EXTENDED": 1,
         "NOT_RECOMMENDED": 1,
+        # Outcomes only an app mark can record (Step A2), zero-filled.
+        "LEFT": 0,
+        "REJOIN": 0,
+        "TRA": 0,
+        "FAMILY_WAY": 0,
+        "NO_SUBMIT_PG": 0,
+        "LONG_LEAVE": 0,
         "none": 4,
     }
     assert s["probation_due30"] == 3
@@ -362,6 +369,12 @@ def test_every_order_count_equals_its_list(client, admin_headers, data):
         assert _total(client, admin_headers, "/orders", probation="overdue", **common) == s["probation_overdue"]
         assert _total(client, admin_headers, "/orders", probation="ended", **common) == s["probation_ended"]
         assert _total(client, admin_headers, "/orders", linked=False, **common) == s["unlinked"]
+        for param, yes, no in (
+            ("registrar_order", "registrar_order_issued", "registrar_order_pending"),
+            ("orientation", "orientation_conducted", "orientation_pending"),
+        ):
+            assert _total(client, admin_headers, "/orders", **{param: True}, **common) == s[yes], param
+            assert _total(client, admin_headers, "/orders", **{param: False}, **common) == s[no], param
 
 
 def test_removed_orders_are_hidden_by_default(client, admin_headers, data):

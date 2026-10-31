@@ -1,9 +1,9 @@
 import { apiFetch } from "@/api/client";
 import type { PaginatedResponse, TalentPoolSourceTab } from "@/api/types";
 
-// Joining records (2026-10-31, docs/specs/joining-screens.md). Reads only:
-// the sheets are the record and the sync is the only writer, so there is no
-// create/update function here. Mirrors app/api/v1/routers/joining_records.py
+// Joining records (2026-10-31, docs/specs/joining-screens.md). Reads, plus
+// one write: Step A2's checklist marks on a provisional order, kept in the
+// app (the sheet is never written; the app mark wins). Mirrors app/api/v1/routers/joining_records.py
 // and app/schemas/joining_records.py. The types live in this module rather
 // than in types.ts because nothing else uses them.
 
@@ -59,6 +59,37 @@ export interface JoineeRead {
   sheet_row_number: number | null;
 }
 
+/** Every markable item of a provisional order (provisional_order_marks columns). */
+export type MarkField =
+  | "id_card_done"
+  | "food_app_done"
+  | "arms_done"
+  | "app_360_done"
+  | "adfa_file_done"
+  | "room_allotted"
+  | "order_status"
+  | "outcome"
+  | "registrar_order_issued"
+  | "registrar_order_date"
+  | "orientation_conducted"
+  | "orientation_date";
+
+export type MarkValue = boolean | string | null;
+
+/** One item: `effective` is the app mark if set, else the sheet's value. */
+export interface MarkedItem {
+  effective: MarkValue;
+  sheet: boolean | string | null;
+  sheet_raw: string | null;
+  app: MarkValue;
+  source: "app" | "sheet";
+  marked_by: string | null;
+  marked_at: string | null;
+}
+
+/** PATCH body: only the keys sent change; null clears the app mark. */
+export type OrderMarksUpdate = Partial<Record<MarkField, MarkValue>>;
+
 export interface OrderRead {
   id: string;
   bio_id: string | null;
@@ -81,6 +112,7 @@ export interface OrderRead {
   sheet_joinee_id: string | null;
   is_active: boolean;
   sheet_row_number: number | null;
+  items: Record<MarkField, MarkedItem>;
 }
 
 export interface JoineeDetail extends JoineeRead {
@@ -129,6 +161,10 @@ export interface OrderSummary {
   probation_overdue: number;
   probation_ended: number;
   unlinked: number;
+  registrar_order_issued: number;
+  registrar_order_pending: number;
+  orientation_conducted: number;
+  orientation_pending: number;
   today: string;
   last_sync_at: string | null;
 }
@@ -141,6 +177,8 @@ export interface OrderListParams {
   outcome?: string;
   probation?: ProbationFilter;
   linked?: boolean;
+  registrar_order?: boolean;
+  orientation?: boolean;
   include_inactive?: boolean;
   limit?: number;
   offset?: number;
@@ -239,6 +277,13 @@ export async function getOrderSummary(includeInactive = false): Promise<OrderSum
 
 export async function listOrders(input: OrderListParams): Promise<PaginatedResponse<OrderRead>> {
   return apiFetch<PaginatedResponse<OrderRead>>(`/joining-records/orders?${query({ limit: 25, offset: 0, ...input })}`);
+}
+
+export async function markOrder(id: string, changes: OrderMarksUpdate): Promise<OrderRead> {
+  return apiFetch<OrderRead>(`/joining-records/orders/${id}/marks`, {
+    method: "PATCH",
+    body: JSON.stringify(changes),
+  });
 }
 
 export async function getDepartmentsSummary(includeInactive = false): Promise<DepartmentsSummary> {
