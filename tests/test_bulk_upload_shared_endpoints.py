@@ -803,20 +803,28 @@ def test_undo_writes_row_log_entries_for_designation_batch(client, designation_s
     assert row_logs[0].entity_type.value == "DESIGNATION"
 
 
-def test_undo_allowed_for_recruitment_coordinator_on_designation_batch(client, designation_setup, user_factory):
-    """The exact case that would break if the shared endpoints stayed gated
-    on the pre-Designation-epic `_SHARED_BULK_UPLOAD_ROLES` tuple: a
-    RECRUITMENT_COORDINATOR who committed a Designation batch must be able
-    to undo it through this shared endpoint too (DESIGNATION_WRITE_ROLES
-    includes RECRUITMENT_COORDINATOR, not RECRUITMENT_OFFICER)."""
+def test_coordinator_can_upload_a_designation_batch_but_not_undo_it(client, designation_setup, user_factory):
+    """A RECRUITMENT_COORDINATOR may still commit a Designation batch
+    (DESIGNATION_WRITE_ROLES), but since 31-Oct-2026 undo is held to the
+    delete rule -- only a Super Admin (or another role the gate admits) can
+    undo -- so the coordinator gets the Super Admin message; a Super Admin
+    can still undo the same batch."""
     coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
     commit_response = _commit_designation(client, coordinator, [_designation_row(designation_setup)])
+    assert commit_response.status_code in (200, 201)
     log_id = commit_response.json()["bulk_upload_log_id"]
 
-    response = client.post(
+    refused = client.post(
         f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo", headers=auth_headers(client, coordinator)
     )
-    assert response.status_code == 200
+    assert refused.status_code == 403
+    assert refused.json()["detail"] == "Only a Super Admin can delete"
+
+    allowed = client.post(
+        f"{SHARED_ENDPOINT}/bulk-uploads/{log_id}/undo",
+        headers=auth_headers(client, designation_setup["super_admin"]),
+    )
+    assert allowed.status_code == 200
 
 
 def test_undo_forbidden_for_non_write_role_on_designation_batch(client, designation_setup, user_factory):
