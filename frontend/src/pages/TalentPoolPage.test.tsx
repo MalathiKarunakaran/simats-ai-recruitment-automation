@@ -1108,6 +1108,27 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     scroll.mockRestore();
   });
 
+  it("a fresh load of a #register link waits for the register's rows before scrolling", async () => {
+    // The bug (2026-10-31): the scroll fired as soon as the summary arrived,
+    // while the register's table was still empty -- in a real browser the
+    // page was then too short to bring the list to the top, so a pasted
+    // link opened at the top of the page.
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+    let resolveList: (value: ReturnType<typeof page>) => void = () => {};
+    mockedListPool.mockReturnValue(new Promise((resolve) => (resolveList = resolve)));
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage("/talent-pool?status=Selected#register");
+
+    await waitFor(() => expect(screen.getByText("Candidate register")).toBeInTheDocument());
+    expect(scroll).not.toHaveBeenCalled();
+
+    resolveList(page([entry()]));
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    expect(scroll.mock.contexts.at(-1)).toBe(document.getElementById("register"));
+    expect(within(registerTable()).getByText("Arunkumar S")).toBeInTheDocument();
+    scroll.mockRestore();
+  });
+
   it("does not scroll on a plain visit with no #register", async () => {
     const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
     mockedGetSummary.mockResolvedValue(summary());

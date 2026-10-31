@@ -136,6 +136,41 @@ describe("AppShell nav", () => {
     expect(screen.queryByRole("link", { name: /Selection Batches/ })).not.toBeInTheDocument();
   });
 
+  it.each(["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"] as const)(
+    "shows the Joining group's three screens to %s (joining_records.py's readers)",
+    async (role) => {
+      mockAuth(role);
+      renderShell();
+      expect(await screen.findByRole("link", { name: /New Joinees/ })).toHaveAttribute("href", "/joinees");
+      expect(screen.getByRole("link", { name: /Provisional Orders/ })).toHaveAttribute("href", "/provisional-orders");
+      expect(screen.getByRole("link", { name: /New Departments/ })).toHaveAttribute("href", "/new-departments");
+      expect(screen.getByText("Joining")).toBeInTheDocument();
+    },
+  );
+
+  it.each(["MANAGEMENT", "RECRUITMENT_OFFICER", "CAMPUS_HOD", "INTERVIEW_PANEL_MEMBER"] as const)(
+    "hides the Joining group from %s",
+    async (role) => {
+      mockAuth(role);
+      renderShell();
+      await waitFor(() => expect(screen.getByRole("navigation")).toBeInTheDocument());
+      expect(screen.queryByRole("link", { name: /New Joinees/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /Provisional Orders/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /New Departments/ })).not.toBeInTheDocument();
+      expect(screen.queryByText("Joining")).not.toBeInTheDocument();
+    },
+  );
+
+  it("puts the Joining group right after Recruitment", async () => {
+    mockAuth("HR_ADMIN");
+    renderShell();
+    const joinees = await screen.findByRole("link", { name: /New Joinees/ });
+    const batches = screen.getByRole("link", { name: /Selection Batches/ });
+    const candidates = screen.getByRole("link", { name: /^Candidates$/ });
+    expect(batches.compareDocumentPosition(joinees) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(joinees.compareDocumentPosition(candidates) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("hides Data Sync Status from HR_ADMIN", async () => {
     mockAuth("HR_ADMIN");
     renderShell();

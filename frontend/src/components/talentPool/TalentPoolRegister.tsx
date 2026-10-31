@@ -61,6 +61,9 @@ interface TalentPoolRegisterProps {
   filters: RegisterFilters;
   onFiltersChange: (next: Partial<RegisterFilters>) => void;
   onOpenEntry: (entry: TalentPoolEntryRead) => void;
+  /** Told whether the first page of rows (or an error) has arrived, so the
+   * page can wait for it before scrolling a `#register` link into view. */
+  onListLoaded?: (loaded: boolean) => void;
 }
 
 export function TalentPoolRegister({
@@ -70,6 +73,7 @@ export function TalentPoolRegister({
   filters,
   onFiltersChange,
   onOpenEntry,
+  onListLoaded,
 }: TalentPoolRegisterProps) {
   const teaching = tab === "TEACHING_FINAL";
   const { user } = useAuth();
@@ -133,6 +137,11 @@ export function TalentPoolRegister({
     // does not blink the table out of existence.
     placeholderData: keepPreviousData,
   });
+
+  const listLoaded = listQuery.data !== undefined || listQuery.isError;
+  useEffect(() => {
+    onListLoaded?.(listLoaded);
+  }, [listLoaded, onListLoaded]);
 
   const pageIds = useMemo(() => (canSelect ? (listQuery.data?.items ?? []).map((e) => e.id) : []), [canSelect, listQuery.data]);
   const membershipQuery = useQuery({

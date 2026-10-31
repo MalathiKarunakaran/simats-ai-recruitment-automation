@@ -21,6 +21,7 @@ from app.api.v1.routers import (
     job_distribution,
     job_postings,
     joining,
+    joining_records,
     locations,
     migration,
     notifications,
@@ -77,6 +78,10 @@ api_router.include_router(sheet_sync.router)
 
 # Selection batches (2026-10-31): Talent Pool Selected people sent to the University.
 api_router.include_router(selection_batches.router)
+
+# Joining records (2026-10-31): read-only screens over the synced joinee,
+# provisional order and new department sheets (docs/specs/joining-screens.md).
+api_router.include_router(joining_records.router)
 
 # qr_router first: its /vacancy-requests/qr/* paths would otherwise be
 # swallowed by /vacancy-requests/{vacancy_request_id} below.

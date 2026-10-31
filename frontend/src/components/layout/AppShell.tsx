@@ -145,6 +145,33 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    // Read-only screens over the synced joining sheets
+    // (docs/specs/joining-screens.md). All three mirror joining_records.py's
+    // require_roles(SUPER_ADMIN, HR_ADMIN, RECRUITMENT_COORDINATOR); that
+    // router adds no PermissionEnum value, so there is nothing to grant.
+    label: "Joining",
+    items: [
+      {
+        to: "/joinees",
+        label: "New Joinees",
+        icon: UserPlus,
+        visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"],
+      },
+      {
+        to: "/provisional-orders",
+        label: "Provisional Orders",
+        icon: FileCheck,
+        visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"],
+      },
+      {
+        to: "/new-departments",
+        label: "New Departments",
+        icon: Building2,
+        visibleForRoles: ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"],
+      },
+    ],
+  },
+  {
     label: "Candidates",
     items: [
       { to: "/candidates", label: "Candidates", icon: Users },

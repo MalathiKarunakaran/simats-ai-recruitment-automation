@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Database, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { getTalentPoolSummary } from "@/api/talentPool";
@@ -14,6 +14,7 @@ import { TalentPoolRegister, type RegisterFilters } from "@/components/talentPoo
 import { TalentPoolTiles } from "@/components/talentPool/TalentPoolTiles";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useScrollToHash } from "@/hooks/useScrollToHash";
 import { cn } from "@/lib/utils";
 
 /**
@@ -82,14 +83,6 @@ function minutesSince(iso: string): number {
   return (Date.now() - new Date(iso).getTime()) / 60000;
 }
 
-function prefersReducedMotion(): boolean {
-  try {
-    return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-  } catch {
-    return false;
-  }
-}
-
 export function TalentPoolPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
@@ -127,6 +120,7 @@ export function TalentPoolPage() {
   );
 
   const [openEntry, setOpenEntry] = useState<TalentPoolEntryRead | null>(null);
+  const [listLoaded, setListLoaded] = useState(false);
 
   const changeFilters = useCallback(
     (next: Partial<RegisterFilters>) => {
@@ -212,16 +206,12 @@ export function TalentPoolPage() {
   /** Every clickable count links to `#register`, but React Router does not
    * scroll to a hash -- and the register is at the very bottom, so without
    * this a click changed the list far out of sight and looked like it did
-   * nothing. Keyed on `location.key` so clicking the same count twice (same
-   * URL, new navigation) scrolls again. Waits for the summary, because the
-   * register is not rendered until it arrives. */
+   * nothing. Waits for the summary (the register is not rendered until it
+   * arrives) AND for the register's first page of rows: a fresh load of a
+   * `#register` link used to scroll while the table was still empty, when
+   * the page was too short to bring it to the top. See useScrollToHash. */
   const registerShown = Boolean(summary && summary.total > 0);
-  useEffect(() => {
-    if (location.hash !== "#register" || !registerShown) return;
-    const register = document.getElementById("register");
-    if (!register || typeof register.scrollIntoView !== "function") return;
-    register.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
-  }, [location.key, location.hash, registerShown]);
+  useScrollToHash("register", registerShown && listLoaded);
 
   /** A breakdown row's link: that row's label as the one filter it means. */
   const linkFor = useCallback(
@@ -461,6 +451,7 @@ export function TalentPoolPage() {
             filters={filters}
             onFiltersChange={changeFilters}
             onOpenEntry={setOpenEntry}
+            onListLoaded={setListLoaded}
           />
 
           <TalentPoolEntrySheet entry={openEntry} tab={tab} onClose={() => setOpenEntry(null)} />

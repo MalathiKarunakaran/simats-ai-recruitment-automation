@@ -42,6 +42,9 @@ import { SheetSyncPage } from "@/pages/SheetSyncPage";
 import { SelectionBatchDetailPage } from "@/pages/SelectionBatchDetailPage";
 import { SelectionBatchesPage } from "@/pages/SelectionBatchesPage";
 import { TalentPoolPage } from "@/pages/TalentPoolPage";
+import { JoineesPage } from "@/pages/JoineesPage";
+import { NewDepartmentsPage } from "@/pages/NewDepartmentsPage";
+import { ProvisionalOrdersPage } from "@/pages/ProvisionalOrdersPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { TrackerImportPage } from "@/pages/TrackerImportPage";
 import { UserCreatePage } from "@/pages/UserCreatePage";
@@ -112,6 +115,9 @@ export function App() {
           <Route path="/talent-pool" element={<TalentPoolPage />} />
           <Route path="/selection-batches" element={<SelectionBatchesPage />} />
           <Route path="/selection-batches/:id" element={<SelectionBatchDetailPage />} />
+          <Route path="/joinees" element={<JoineesPage />} />
+          <Route path="/provisional-orders" element={<ProvisionalOrdersPage />} />
+          <Route path="/new-departments" element={<NewDepartmentsPage />} />
           <Route path="/sheet-sync" element={<SheetSyncPage />} />
           <Route path="/import-tracker" element={<TrackerImportPage />} />
           <Route path="/activity-log" element={<ActivityLogPage />} />
