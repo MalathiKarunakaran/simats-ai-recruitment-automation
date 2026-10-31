@@ -1,7 +1,8 @@
 # Provisional order + department allotment (pipeline brief Phase 4, step B)
 
-Status: AGREED 2026-10-31, except the letter wording and order-number
-format, which wait for the user's sample letter (Q2/Q3 below).
+Status: AGREED 2026-10-31. Letter and number taken from the user's own
+register and AutoCrat template (sheet `1OKk4UdYxFJDLNqFihlX3-_NmL123xFCXYPdwRRKiAg0`,
+template doc `1PCXfrzt6uUrvfLyCS_FEdVay9KhuziPVEKRTMLIa96s`).
 
 Applies to **Applications** — hires recorded inside the app. The sheet-synced
 joiners (`sheet_joinees`, `provisional_orders`) are not touched; they stay
@@ -12,8 +13,8 @@ read-only (step A).
 | # | Decision |
 |---|---|
 | Q1 (CONFIRM-4) | New status `PROVISIONAL_ORDER_ISSUED`, placed between `JOINED` and `DEPARTMENT_ROOM_ALLOTTED` in `APPLICATION_STATUS_ORDER`, and **required** for new moves: department allotment is refused unless the application is at `PROVISIONAL_ORDER_ISSUED`. Existing records keep their status. One permanent enum value (decision B, 29-Oct). |
-| Q2 | Order number format: **as on the user's existing letters** — pending the sample. Until then the generator lives in one function in `reference_numbers.py` so the format is a one-line change. |
-| Q3 | Letter wording/layout: **copied from the user's sample** — pending. Until then a clearly marked placeholder template; not deployed with it. |
+| Q2 | Order number as on the existing letters: `‹campus code› / PA/ ‹NNN›/ ‹MM›/ ‹YYYY›`, e.g. `SSE / PA/ 231/ 10/ 2026`. NNN is a 3-digit running number **per campus that does not restart by year** (SSE ran 001→230 over 2025–26). The app continues after the paper register: floors per campus as of 31-Oct-2026 — SSE 230, SCLAS 027, SCAD 022, STUDIO 009, SSPE 003, SHoTS 003, SPIER 001. The register itself has duplicates and gaps (e.g. SSE 059, 074, 082 twice); the app's UNIQUE(campus, sequence) prevents that. |
+| Q3 | Letter: the AutoCrat template's wording, word for word — order date, name, address, designation ("Grade"), department, college name; three-month probation; signed by Dr. K. Malathi, Associate Dean of Recruitment, and the campus Principal. College name + Principal per campus kept in one editable table in the letter module. |
 | Q4 | Allotment offers **every department** (not only the 32 "new" ones), but only where Sanctioned Strength shows **vacancy > 0** for the application's designation, category and campus. Zero vacancy is refused unless a **Super Admin** overrides with a mandatory reason, which is audited. |
 
 ## Provisional order (per Application)
