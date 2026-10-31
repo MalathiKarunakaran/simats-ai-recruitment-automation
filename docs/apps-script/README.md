@@ -78,3 +78,12 @@ spreadsheet's `New Joinees` and `Pro App Order` tabs to
   never leave Google. Adding a column to the sheet changes nothing until it
   is added to `JOINEE_TABS` here and to the allowlist in
   `app/services/sheet_sync.py`.
+
+## New Departments (S5, added 2026-10-31)
+
+`syncJoineeSheets` / `previewJoineeSheets` (and so `syncAll`) also send the
+"New Departments_Nov 2025 to Oct 2026 - Updated" spreadsheet's
+`Approved_Depts` tab (as `NEW_DEPARTMENTS`) and then its `Faculty ` tab (as
+`DEPARTMENT_FACULTY`) — departments first, because a faculty row links to
+its department. Only the listed columns are read; `New_Employees` and
+`Allotment_Log` are not.

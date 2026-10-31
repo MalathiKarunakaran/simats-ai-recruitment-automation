@@ -157,11 +157,14 @@ function checkSecret() {
 // ---------------------------------------------------------------------------
 
 var JOINEE_SHEET_ID = "1uYmjS-Wu4OlflinrGCmftDr_nXP01eVItCqqXfXi7pU";
+// "New Departments_Nov 2025 to Oct 2026 - Updated" (S5, added 2026-10-31).
+var NEW_DEPTS_SHEET_ID = "12nFzIytIPoPX71hZa1Uw0rlqEacAfbsOXphWm28dKY0";
 var SHEET_SYNC_URL = "https://api.malathi.io/api/v1/sheet-sync/";
 
 var JOINEE_TABS = [
   {
     source: "NEW_JOINEES",
+    sheetId: JOINEE_SHEET_ID,
     tab: "New Joinees",
     headerRow: 2, // row 1 holds a stray value, not headers
     columns: [
@@ -173,6 +176,7 @@ var JOINEE_TABS = [
   },
   {
     source: "PRO_APP_ORDER",
+    sheetId: JOINEE_SHEET_ID,
     tab: "Pro App Order",
     headerRow: 1,
     columns: [
@@ -180,7 +184,34 @@ var JOINEE_TABS = [
       "Arms", "360 App", "File Submitted to ADFA", "Room Allotted", "After Probation Received AO",
     ],
   },
+  // Departments before faculty: a faculty row links to its department.
+  {
+    source: "NEW_DEPARTMENTS",
+    sheetId: NEW_DEPTS_SHEET_ID,
+    tab: "Approved_Depts",
+    headerRow: 1,
+    columns: ["Approved Department", "Notes", "Count", "Additional Count"],
+  },
+  {
+    source: "DEPARTMENT_FACULTY",
+    sheetId: NEW_DEPTS_SHEET_ID,
+    tab: "Faculty", // the tab is named "Faculty " with a trailing space; matched trimmed
+    headerRow: 1,
+    columns: ["Bio ID", "Name", "Dept", "Remark", "Status", "Top 25", "Vacancy", "Active"],
+  },
 ];
+
+// A tab by name, ignoring case and surrounding spaces ("Faculty " = "Faculty").
+function findTab_(spreadsheet, name) {
+  var exact = spreadsheet.getSheetByName(name);
+  if (exact) return exact;
+  var wanted = String(name).trim().toLowerCase();
+  var sheets = spreadsheet.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].getName().trim().toLowerCase() === wanted) return sheets[i];
+  }
+  return null;
+}
 
 // Case, spaces and punctuation do not matter ("send date " = "send date").
 function headerKey_(text) {
@@ -232,10 +263,11 @@ function postSheetSync_(source, snapshot, dryRun, secret) {
 function runJoineeSheets_(dryRun) {
   var secret = readSecret();
   if (!secret) throw new Error("Set the TALENT_POOL_SYNC_SECRET script property first (Project Settings).");
-  var spreadsheet = SpreadsheetApp.openById(JOINEE_SHEET_ID);
+  var opened = {};
   var failures = [];
   JOINEE_TABS.forEach(function (t) {
-    var sheet = spreadsheet.getSheetByName(t.tab);
+    if (!opened[t.sheetId]) opened[t.sheetId] = SpreadsheetApp.openById(t.sheetId);
+    var sheet = findTab_(opened[t.sheetId], t.tab);
     if (!sheet) {
       failures.push('No tab named "' + t.tab + '"');
       return;
@@ -254,7 +286,8 @@ function runJoineeSheets_(dryRun) {
   if (failures.length) throw new Error("Joinee sheet sync failed -- " + failures.join(" ; "));
 }
 
-// Syncs New Joinees and Pro App Order (also run by syncAll on the schedule).
+// Syncs New Joinees, Pro App Order, and the New Departments sheet's two tabs
+// (also run by syncAll on the schedule).
 function syncJoineeSheets() {
   runJoineeSheets_(false);
 }
