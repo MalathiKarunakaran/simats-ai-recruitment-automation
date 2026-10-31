@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as api from "@/api/joiningRecords";
-import type { DepartmentsSummary, FacultyRead } from "@/api/joiningRecords";
+import type { DepartmentsSummary, FacultyRead, UnmatchedDepartmentRow } from "@/api/joiningRecords";
 import { NewDepartmentsPage } from "@/pages/NewDepartmentsPage";
 
 vi.mock("@/api/joiningRecords", async () => {
@@ -35,15 +35,41 @@ function summary(): DepartmentsSummary {
         hods: ["Dr Robo Head"],
         gap: 1,
         is_active: true,
+        approved: true,
       },
     ],
     unmatched: [
-      { name: "Additive Manufacuring Engineering", members: 2 },
-      { name: "Not set", members: 1 },
+      unmatched("Not set", { members: 1, active: 1 }),
+      unmatched("Additive Manufacuring Engineering", {
+        members: 4,
+        active: 3,
+        active_additional: 1,
+        left: 1,
+        on_leave: 0,
+        hods: ["Dr Additive"],
+      }),
     ],
-    faculty_total: 7,
-    unmatched_total: 3,
+    faculty_total: 9,
+    unmatched_total: 5,
     last_sync_at: "2026-10-31T04:00:00Z",
+  };
+}
+
+function unmatched(name: string, counts: Partial<UnmatchedDepartmentRow>): UnmatchedDepartmentRow {
+  return {
+    name,
+    members: 0,
+    active: 0,
+    active_additional: 0,
+    left: 0,
+    on_leave: 0,
+    hods: [],
+    ...counts,
+    approved: false,
+    count: null,
+    additional_count: null,
+    approved_total: null,
+    gap: null,
   };
 }
 
@@ -114,18 +140,51 @@ describe("NewDepartmentsPage", () => {
     expect(within(row).queryByRole("link", { name: /on leave/ })).not.toBeInTheDocument();
   });
 
-  it("lists unmatched department names below, each a link", async () => {
+  it("lists every department in one table: approved first, then Faculty-tab-only names by name", async () => {
     renderPage();
-    const list = await screen.findByTestId("unmatched-departments");
-    expect(within(list).getByRole("link", { name: "Additive Manufacuring Engineering" })).toHaveAttribute(
-      "href",
-      "/new-departments?department=Additive+Manufacuring+Engineering#list",
+    const table = await screen.findByTestId("department-table");
+    expect(screen.getByTestId("department-counts")).toHaveTextContent(
+      "3 departments · 1 approved · 2 only in the Faculty tab",
     );
-    expect(within(list).getByRole("link", { name: "Not set" })).toHaveAttribute(
+    const names = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((r) => within(r).getAllByRole("link")[0].textContent);
+    expect(names).toEqual(["Robotics", "Additive Manufacuring Engineering", "Not set"]);
+    expect(screen.queryByTestId("unmatched-departments")).not.toBeInTheDocument();
+
+    const approvedRow = within(table).getByRole("link", { name: "Robotics" }).closest("tr")!;
+    expect(within(approvedRow).queryByText("Not in Approved_Depts")).not.toBeInTheDocument();
+  });
+
+  it("a Faculty-tab-only row has the same counts as links, with — for approved, additional and gap", async () => {
+    renderPage();
+    const table = await screen.findByTestId("department-table");
+    const name = "Additive Manufacuring Engineering";
+    const row = within(table).getByRole("link", { name }).closest("tr")!;
+    expect(within(row).getByText("Not in Approved_Depts")).toBeInTheDocument();
+    expect(within(row).getByText("Dr Additive")).toBeInTheDocument();
+    const cells = within(row).getAllByRole("cell");
+    // Approved, Additional, Gap.
+    expect([cells[1], cells[2], cells[7]].map((c) => c.textContent)).toEqual(["—", "—", "—"]);
+
+    const p = "/new-departments?department=Additive+Manufacuring+Engineering";
+    const m = "matched=false#list";
+    expect(within(row).getByRole("link", { name })).toHaveAttribute("href", `${p}&${m}`);
+    expect(within(row).getByRole("link", { name: `${name}: 3 active` })).toHaveAttribute(
       "href",
-      "/new-departments?department=Not+set#list",
+      `${p}&state=active&${m}`,
     );
-    expect(screen.getByRole("link", { name: /3 not matched/ })).toHaveAttribute(
+    expect(within(row).getByRole("link", { name: `${name}: 1 active additional` })).toHaveAttribute(
+      "href",
+      `${p}&state=active&additional=true&${m}`,
+    );
+    expect(within(row).getByRole("link", { name: `${name}: 1 left` })).toHaveAttribute("href", `${p}&state=LEFT&${m}`);
+    expect(within(row).queryByRole("link", { name: /on leave/ })).not.toBeInTheDocument();
+
+    const notSet = within(table).getByRole("link", { name: "Not set" });
+    expect(notSet).toHaveAttribute("href", "/new-departments?department=Not+set&matched=false#list");
+    expect(screen.getByRole("link", { name: /5 not matched/ })).toHaveAttribute(
       "href",
       "/new-departments?matched=false#list",
     );

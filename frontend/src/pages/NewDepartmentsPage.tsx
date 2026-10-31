@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { getDepartmentsSummary, listFaculty } from "@/api/joiningRecords";
+import type { ApprovedDepartmentRow, UnmatchedDepartmentRow } from "@/api/joiningRecords";
 import { ActiveFiltersLine } from "@/components/joining/ActiveFiltersLine";
 import {
   FACULTY_STATE_LABELS,
@@ -24,11 +25,13 @@ import { useScrollToHash } from "@/hooks/useScrollToHash";
 import { cn } from "@/lib/utils";
 
 /**
- * New Departments (docs/specs/joining-screens.md, screen 3). The approved
- * departments from the New Departments sheet against the people the Faculty
- * tab places in them, plus every Faculty-tab department name that matched no
- * approved department. Each number links to the faculty list below, filtered
- * to exactly the people it counted.
+ * New Departments (docs/specs/joining-screens.md, screen 3). One table of
+ * every department: the approved ones from the New Departments sheet first,
+ * then every Faculty-tab department name that matched no approved one, each
+ * with the same faculty counts. Each number links to the faculty list below,
+ * filtered to exactly the people it counted. A Faculty-tab-only row links with
+ * matched=false, so a name that equals an approved one still opens its own
+ * rows.
  *
  * "Active" means not marked Left -- on-leave staff still hold the post -- and
  * Gap is approved (count + additional) minus active.
@@ -37,6 +40,10 @@ import { cn } from "@/lib/utils";
 const PATH = "/new-departments";
 const PAGE_SIZE = 25;
 const MEANING = ["department", "role", "state", "additional", "matched"] as const;
+
+type DepartmentRow = ApprovedDepartmentRow | UnmatchedDepartmentRow;
+
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
 
 const countLink =
   "rounded-sm tabular-nums underline decoration-border underline-offset-2 hover:decoration-current focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring";
@@ -77,6 +84,10 @@ export function NewDepartmentsPage() {
     placeholderData: keepPreviousData,
   });
   const summary = summaryQuery.data;
+  // Approved first, then the Faculty-tab-only names, each by name.
+  const rows: DepartmentRow[] = summary
+    ? [...[...summary.departments].sort(byName), ...[...summary.unmatched].sort(byName)]
+    : [];
   const data = listQuery.data;
   useScrollToHash(LIST_ID, Boolean(summary) && (data !== undefined || listQuery.isError));
 
@@ -149,7 +160,11 @@ export function NewDepartmentsPage() {
             <CardContent className="p-3">
               <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="text-sm font-semibold">
-                  Approved departments <span className="font-normal text-muted-foreground">({summary.departments.length})</span>
+                  Departments{" "}
+                  <span data-testid="department-counts" className="font-normal text-muted-foreground">
+                    {rows.length} departments · {summary.departments.length} approved · {summary.unmatched.length} only in
+                    the Faculty tab
+                  </span>
                 </h2>
                 <p className="text-[11px] text-muted-foreground">
                   <Link to={href({})} className={countLink}>
@@ -181,77 +196,81 @@ export function NewDepartmentsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {summary.departments.map((d) => (
-                      <tr
-                        key={d.id}
-                        className={cn(
-                          "border-b border-border last:border-0",
-                          filters.department === d.name && "bg-muted/50",
-                        )}
-                      >
-                        <td className="px-2 py-1.5">
-                          <Link to={href({ department: d.name })} className={cn(countLink, "font-medium")}>
-                            {d.name}
-                          </Link>
-                          {!d.is_active ? <Badge variant="warning" className="ml-1.5">Removed from sheet</Badge> : null}
-                          {d.notes ? <span className="block text-[11px] text-muted-foreground">{d.notes}</span> : null}
-                        </td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{d.count ?? d.count_raw ?? "—"}</td>
-                        <td className="px-2 py-1.5 text-right tabular-nums">{d.additional_count ?? d.additional_count_raw ?? "—"}</td>
-                        <td className="px-2 py-1.5 text-right">
-                          {num(d.active, href({ department: d.name, state: "active" }), `${d.name}: ${d.active} active`)}
-                        </td>
-                        <td className="px-2 py-1.5 text-right">
-                          {num(
-                            d.active_additional,
-                            href({ department: d.name, state: "active", additional: "true" }),
-                            `${d.name}: ${d.active_additional} active additional`,
-                          )}
-                        </td>
-                        <td className="px-2 py-1.5 text-right">
-                          {num(d.left, href({ department: d.name, state: "LEFT" }), `${d.name}: ${d.left} left`)}
-                        </td>
-                        <td className="px-2 py-1.5 text-right">
-                          {num(d.on_leave, href({ department: d.name, state: "ON_LEAVE" }), `${d.name}: ${d.on_leave} on leave`)}
-                        </td>
-                        <td
-                          className={cn(
-                            "px-2 py-1.5 text-right font-medium tabular-nums",
-                            d.gap > 0 ? "text-brand-warning" : d.gap < 0 ? "text-brand-info" : "text-brand-success",
-                          )}
-                          title={d.gap < 0 ? "More active faculty than approved" : undefined}
+                    {rows.map((d) => {
+                      // A Faculty-tab-only name opens with matched=false so it
+                      // never resolves to an approved department of the same name.
+                      const at = (set: Partial<Record<(typeof MEANING)[number], string>> = {}) =>
+                        href(d.approved ? { department: d.name, ...set } : { department: d.name, matched: "false", ...set });
+                      const selected =
+                        filters.department === d.name && (d.approved ? filters.matched !== false : filters.matched === false);
+                      return (
+                        <tr
+                          key={d.approved ? d.id : `faculty-tab:${d.name}`}
+                          className={cn("border-b border-border last:border-0", selected && "bg-muted/50")}
                         >
-                          {d.gap}
-                        </td>
-                        <td className="px-2 py-1.5">{d.hods.length > 0 ? d.hods.join(", ") : <span className="text-muted-foreground">&mdash;</span>}</td>
-                      </tr>
-                    ))}
+                          <td className="px-2 py-1.5">
+                            <Link to={at()} className={cn(countLink, "font-medium")}>
+                              {d.name}
+                            </Link>
+                            {d.approved ? (
+                              <>
+                                {!d.is_active ? <Badge variant="warning" className="ml-1.5">Removed from sheet</Badge> : null}
+                                {d.notes ? <span className="block text-[11px] text-muted-foreground">{d.notes}</span> : null}
+                              </>
+                            ) : (
+                              <Badge variant="outline" className="ml-1.5 px-1.5 py-0 text-[10px]">Not in Approved_Depts</Badge>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 text-right tabular-nums">
+                            {d.approved ? (d.count ?? d.count_raw ?? "—") : <span className="text-muted-foreground">&mdash;</span>}
+                          </td>
+                          <td className="px-2 py-1.5 text-right tabular-nums">
+                            {d.approved ? (
+                              (d.additional_count ?? d.additional_count_raw ?? "—")
+                            ) : (
+                              <span className="text-muted-foreground">&mdash;</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 text-right">
+                            {num(d.active, at({ state: "active" }), `${d.name}: ${d.active} active`)}
+                          </td>
+                          <td className="px-2 py-1.5 text-right">
+                            {num(
+                              d.active_additional,
+                              at({ state: "active", additional: "true" }),
+                              `${d.name}: ${d.active_additional} active additional`,
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 text-right">
+                            {num(d.left, at({ state: "LEFT" }), `${d.name}: ${d.left} left`)}
+                          </td>
+                          <td className="px-2 py-1.5 text-right">
+                            {num(d.on_leave, at({ state: "ON_LEAVE" }), `${d.name}: ${d.on_leave} on leave`)}
+                          </td>
+                          {d.approved ? (
+                            <td
+                              className={cn(
+                                "px-2 py-1.5 text-right font-medium tabular-nums",
+                                d.gap > 0 ? "text-brand-warning" : d.gap < 0 ? "text-brand-info" : "text-brand-success",
+                              )}
+                              title={d.gap < 0 ? "More active faculty than approved" : undefined}
+                            >
+                              {d.gap}
+                            </td>
+                          ) : (
+                            <td className="px-2 py-1.5 text-right text-muted-foreground" title="No approved count to compare with">
+                              &mdash;
+                            </td>
+                          )}
+                          <td className="px-2 py-1.5">{d.hods.length > 0 ? d.hods.join(", ") : <span className="text-muted-foreground">&mdash;</span>}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </CardContent>
           </Card>
-
-          {summary.unmatched.length > 0 ? (
-            <Card>
-              <CardContent className="p-3">
-                <h2 className="text-sm font-semibold">Faculty-tab departments with no approved match</h2>
-                <p className="mb-2 text-[11px] text-muted-foreground">
-                  As typed in the Faculty tab. A near-miss spelling is listed here rather than guessed.
-                </p>
-                <ul data-testid="unmatched-departments" className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
-                  {summary.unmatched.map((u) => (
-                    <li key={u.name} className="flex items-baseline justify-between gap-2 text-xs">
-                      <Link to={href({ department: u.name })} className={cn(countLink, "truncate")} title={u.name}>
-                        {u.name}
-                      </Link>
-                      <span className="shrink-0 tabular-nums">{u.members}</span>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          ) : null}
 
           <section id={LIST_ID} className="scroll-mt-4 space-y-3">
             <h2 className="text-sm font-semibold">Faculty</h2>

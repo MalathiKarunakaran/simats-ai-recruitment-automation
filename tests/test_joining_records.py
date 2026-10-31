@@ -411,10 +411,15 @@ def test_departments_hand_counted(client, admin_headers, data):
     d = rows["Data Science"]
     assert (d["approved_total"], d["members"], d["active"], d["left"], d["gap"]) == (2, 2, 1, 1, 1)
     assert d["hods"] == []  # the only HOD has left
+    assert {d["approved"] for d in s["departments"]} == {True}
+    nulls = {"approved": False, "count": None, "additional_count": None, "approved_total": None, "gap": None}
     assert s["unmatched"] == [
-        {"name": "Additive Manufacuring Engineering", "members": 2},
-        {"name": "Not set", "members": 1},
-        {"name": "Old Dept", "members": 1},
+        {"name": "Additive Manufacuring Engineering", "members": 2, "active": 2, "active_additional": 0,
+         "left": 0, "on_leave": 0, "hods": [], **nulls},
+        {"name": "Not set", "members": 1, "active": 1, "active_additional": 0, "left": 0, "on_leave": 0,
+         "hods": [], **nulls},
+        {"name": "Old Dept", "members": 1, "active": 1, "active_additional": 0, "left": 0, "on_leave": 0,
+         "hods": [], **nulls},
     ]
     assert s["faculty_total"] == 10
     assert s["unmatched_total"] == 4
@@ -431,10 +436,59 @@ def test_every_department_count_equals_its_list(client, admin_headers, data):
         assert _total(client, admin_headers, "/faculty", department=name, state="LEFT") == d["left"], name
         assert _total(client, admin_headers, "/faculty", department=name, state="ON_LEAVE") == d["on_leave"], name
     for u in s["unmatched"]:
-        assert _total(client, admin_headers, "/faculty", department=u["name"]) == u["members"], u
+        name = u["name"]
+        # The page opens these with matched=false; without it they resolve the same here.
+        for extra in ({}, {"matched": False}):
+            assert _total(client, admin_headers, "/faculty", department=name, **extra) == u["members"], u
+            assert _total(client, admin_headers, "/faculty", department=name, state="active",
+                          **extra) == u["active"], u
+            assert _total(client, admin_headers, "/faculty", department=name, state="active", additional=True,
+                          **extra) == u["active_additional"], u
+            assert _total(client, admin_headers, "/faculty", department=name, state="LEFT", **extra) == u["left"], u
+            assert _total(client, admin_headers, "/faculty", department=name, state="ON_LEAVE",
+                          **extra) == u["on_leave"], u
     assert _total(client, admin_headers, "/faculty", matched=False) == s["unmatched_total"]
     assert _total(client, admin_headers, "/faculty") == s["faculty_total"]
     assert _total(client, admin_headers, "/faculty", matched=True) == sum(d["members"] for d in s["departments"])
+
+
+def test_unmatched_rows_get_the_same_stats_as_approved_rows(client, admin_headers, db_session, data):
+    """An unmatched name with an HOD, an additional member, a leaver and an
+    on-leave member -- and a Faculty-tab-only "Robotics" row that is NOT
+    linked, which must stay apart from the approved Robotics."""
+    for bio, kw in (
+        ("U1", dict(role="HOD", full_name="Dr Bio Head")),
+        ("U2", dict(role="MEMBER", is_additional=True)),
+        ("U3", dict(role="MEMBER", employment_state="LEFT")),
+        ("U4", dict(role="HOD", employment_state="ON_LEAVE", full_name="Dr On Leave")),
+    ):
+        db_session.add(DepartmentFaculty(row_key=uuid.uuid4().hex, bio_id=bio, dept_raw=" Bio Tech", is_active=True,
+                                         raw={}, **kw))
+    db_session.add(DepartmentFaculty(row_key=uuid.uuid4().hex, bio_id="U5", dept_raw="Robotics", role="MEMBER",
+                                     is_active=True, raw={}))
+    db_session.commit()
+
+    s = _get(client, admin_headers, "/departments")
+    rows = {u["name"]: u for u in s["unmatched"]}
+    b = rows["Bio Tech"]
+    assert (b["members"], b["active"], b["active_additional"], b["left"], b["on_leave"]) == (4, 3, 1, 1, 1)
+    assert b["hods"] == ["Dr Bio Head", "Dr On Leave"]  # on leave still holds the post
+    assert rows["Robotics"]["members"] == 1
+    assert {d["name"]: d["members"] for d in s["departments"]}["Robotics"] == 4
+
+    for name, u in rows.items():
+        assert _total(client, admin_headers, "/faculty", department=name, matched=False) == u["members"], name
+        assert _total(client, admin_headers, "/faculty", department=name, matched=False,
+                      state="active") == u["active"], name
+        assert _total(client, admin_headers, "/faculty", department=name, matched=False, state="active",
+                      additional=True) == u["active_additional"], name
+        assert _total(client, admin_headers, "/faculty", department=name, matched=False,
+                      state="LEFT") == u["left"], name
+        assert _total(client, admin_headers, "/faculty", department=name, matched=False,
+                      state="ON_LEAVE") == u["on_leave"], name
+    # Without matched=false an approved name still means the approved department.
+    assert _total(client, admin_headers, "/faculty", department="Robotics") == 4
+    assert _total(client, admin_headers, "/faculty", matched=False) == s["unmatched_total"]
 
 
 def test_an_inactive_department_reappears_with_include_inactive(client, admin_headers, data):

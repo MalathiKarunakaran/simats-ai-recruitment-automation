@@ -587,17 +587,20 @@ def departments_summary(
     )
 
     active = _faculty_active()
+    # The same five counts for an approved department (grouped by its id) and
+    # for a Faculty-tab-only name (grouped by its label), so both kinds of row
+    # mean the same thing and each equals the /faculty list it opens.
+    stats = (
+        func.count().label("members"),
+        func.count().filter(active).label("active"),
+        func.count().filter(active & DepartmentFaculty.is_additional.is_(True)).label("active_additional"),
+        func.count().filter(DepartmentFaculty.employment_state == FACULTY_STATE_LEFT).label("left"),
+        func.count().filter(DepartmentFaculty.employment_state == FACULTY_STATE_ON_LEAVE).label("on_leave"),
+    )
     per_dept = {
         r.dept_id: r
         for r in db.execute(
-            select(
-                DepartmentFaculty.new_department_id.label("dept_id"),
-                func.count().label("members"),
-                func.count().filter(active).label("active"),
-                func.count().filter(active & DepartmentFaculty.is_additional.is_(True)).label("active_additional"),
-                func.count().filter(DepartmentFaculty.employment_state == FACULTY_STATE_LEFT).label("left"),
-                func.count().filter(DepartmentFaculty.employment_state == FACULTY_STATE_ON_LEAVE).label("on_leave"),
-            )
+            select(DepartmentFaculty.new_department_id.label("dept_id"), *stats)
             .where(*fac, _matched(include_inactive))
             .group_by(DepartmentFaculty.new_department_id)
         ).all()
@@ -639,12 +642,30 @@ def departments_summary(
 
     label = func.coalesce(func.nullif(func.btrim(DepartmentFaculty.dept_raw), ""), _NOT_SET)
     unmatched_rows = db.execute(
-        select(label.label("name"), func.count().label("members"))
+        select(label.label("name"), *stats)
         .where(*fac, _unmatched(include_inactive))
         .group_by(label)
         .order_by(desc("members"), label)
     ).all()
-    unmatched = [UnmatchedDepartmentRow(name=r.name, members=int(r.members)) for r in unmatched_rows]
+    unmatched_hods: dict[str, list[str]] = {}
+    for name, hod in db.execute(
+        select(label, DepartmentFaculty.full_name)
+        .where(*fac, _unmatched(include_inactive), active, DepartmentFaculty.role == ROLE_HOD)
+        .order_by(DepartmentFaculty.full_name, DepartmentFaculty.id)
+    ).all():
+        unmatched_hods.setdefault(name, []).append(hod or "(no name)")
+    unmatched = [
+        UnmatchedDepartmentRow(
+            name=r.name,
+            members=int(r.members),
+            active=int(r.active),
+            active_additional=int(r.active_additional),
+            left=int(r.left),
+            on_leave=int(r.on_leave),
+            hods=unmatched_hods.get(r.name, []),
+        )
+        for r in unmatched_rows
+    ]
 
     faculty_total = db.execute(select(func.count()).select_from(DepartmentFaculty).where(*fac)).scalar_one()
 
@@ -692,7 +713,9 @@ def list_faculty(
             .order_by(NewDepartment.id)
             .limit(1)
         ).scalar_one_or_none()
-        if dept_id is not None:
+        # matched=false says "the Faculty-tab name", so a Faculty-tab-only
+        # name that happens to equal an approved one opens its own rows.
+        if dept_id is not None and matched is not False:
             stmt = stmt.where(DepartmentFaculty.new_department_id == dept_id)
         elif department == _NOT_SET:
             stmt = stmt.where(_unmatched(include_inactive), _blank(DepartmentFaculty.dept_raw))

@@ -203,11 +203,29 @@ export interface ApprovedDepartmentRow {
   hods: string[];
   gap: number;
   is_active: boolean;
+  approved: true;
+}
+
+/** A department name found only in the Faculty tab: the same faculty counts
+ *  as an approved row, but nothing approved to compare them with. */
+export interface UnmatchedDepartmentRow {
+  name: string;
+  members: number;
+  active: number;
+  active_additional: number;
+  left: number;
+  on_leave: number;
+  hods: string[];
+  approved: false;
+  count: null;
+  additional_count: null;
+  approved_total: null;
+  gap: null;
 }
 
 export interface DepartmentsSummary {
   departments: ApprovedDepartmentRow[];
-  unmatched: { name: string; members: number }[];
+  unmatched: UnmatchedDepartmentRow[];
   faculty_total: number;
   unmatched_total: number;
   last_sync_at: string | null;

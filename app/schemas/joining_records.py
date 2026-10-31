@@ -236,14 +236,27 @@ class ApprovedDepartmentRow(BaseModel):
     hods: list[str]
     gap: int
     is_active: bool
+    approved: bool = True
 
 
 class UnmatchedDepartmentRow(BaseModel):
     """A Faculty-tab department name that matched no listed approved
-    department. "Not set" is the label for a blank Dept cell."""
+    department. "Not set" is the label for a blank Dept cell. It carries the
+    same faculty counts as an approved row; the approved figures (count,
+    additional, gap) are null because the Approved_Depts tab has none."""
 
     name: str
     members: int
+    active: int
+    active_additional: int
+    left: int
+    on_leave: int
+    hods: list[str]
+    approved: bool = False
+    count: None = None
+    additional_count: None = None
+    approved_total: None = None
+    gap: None = None
 
 
 class DepartmentsSummary(BaseModel):
