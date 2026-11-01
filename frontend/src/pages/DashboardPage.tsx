@@ -16,7 +16,7 @@ import {
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { getDashboardKpis, getDashboardStrengthTable } from "@/api/dashboard";
+import { getDashboardKpis, getDashboardPipelineExtras, getDashboardStrengthTable } from "@/api/dashboard";
 import { listDepartments } from "@/api/departments";
 import { listDesignations } from "@/api/designations";
 import { listLocations } from "@/api/locations";
@@ -40,6 +40,7 @@ import { CategoryBarChart } from "@/components/dashboard/CategoryBarChart";
 import { CategorySummaryCard } from "@/components/dashboard/CategorySummaryCard";
 import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
 import { EmptyState } from "@/components/dashboard/EmptyState";
+import { JoiningPipelineTiles } from "@/components/dashboard/JoiningPipelineTiles";
 import { RecentActivityFeed, type VacancyLifecycleActivityRow } from "@/components/dashboard/RecentActivityFeed";
 import { StatTile, type StatAccent, type StatIconColor } from "@/components/dashboard/StatTile";
 import { StrengthTable } from "@/components/dashboard/StrengthTable";
@@ -321,6 +322,15 @@ export function DashboardPage() {
     enabled: canViewDashboard,
   });
 
+  // "Joining pipeline" tiles and the pipeline chart's trailing bars
+  // (pipeline brief, Dashboard additions). Its own endpoint, so /kpis and
+  // every tile above are unchanged; campus is its only filter.
+  const pipelineExtras = useQuery({
+    queryKey: ["dashboard-pipeline-extras", selectedCampusCode],
+    queryFn: () => getDashboardPipelineExtras(selectedCampusCode),
+    enabled: canViewDashboard,
+  });
+
   // Filter-bar option lists. Designations are narrowed by the category tab so
   // the picker cannot offer a Teaching designation while the page is scoped
   // to Housekeeping; locations are relabelled and ordered by the shared
@@ -525,6 +535,12 @@ export function DashboardPage() {
     { label: "Joined", value: funnelStageCount("Joined") },
     // Appended after the original seven bars, which keep their order.
     { label: "Waitlisted", value: funnelStageCount("Waitlisted") },
+    // Pipeline brief (Dashboard additions): the post-selection stages,
+    // appended after every existing bar once /dashboard/pipeline-extras has
+    // answered. They overlap "Joined" (unchanged) by design; "Sent to
+    // University" counts selection-batch people and is absent for a role
+    // that cannot read batches.
+    ...(pipelineExtras.data?.pipeline_extension ?? []).map((row) => ({ label: row.stage, value: row.count })),
   ];
   const recruitmentPipelineIsLoading = isLoading || isVacancyRequestsLoading;
   const recruitmentPipelineIsEmpty = recruitmentPipelineData.every((row) => row.value === 0);
@@ -825,6 +841,8 @@ export function DashboardPage() {
           />
         </CardContent>
       </Card>
+
+      <JoiningPipelineTiles data={pipelineExtras.data} isLoading={pipelineExtras.isLoading} />
 
       <details
         open={showMoreAnalytics}

@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { listSelectionBatches } from "@/api/selectionBatches";
 import type { SelectionBatchStatus } from "@/api/types";
@@ -23,7 +23,11 @@ function formatBatchDate(value: string): string {
 export function SelectionBatchesPage() {
   const { user } = useAuth();
   const allowed = !!user && ALLOWED_ROLES.includes(user.role);
-  const [status, setStatus] = useState("");
+  // ?status=<batch status> (the dashboard's "Sent to University" tile links
+  // here with it) preselects the filter; an unknown value is ignored.
+  const [searchParams] = useSearchParams();
+  const statusParam = searchParams.get("status") ?? "";
+  const [status, setStatus] = useState(Object.hasOwn(BATCH_STATUS_LABELS, statusParam) ? statusParam : "");
   const [offset, setOffset] = useState(0);
 
   const query = useQuery({

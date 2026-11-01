@@ -7,8 +7,12 @@ from sqlalchemy.orm import Session
 from app.core.deps import CampusScope, get_campus_scope, get_db, require_permission
 from app.models.enums import PermissionEnum
 from app.models.user import User
-from app.schemas.reporting import DashboardKPIResponse, DashboardStrengthTableResponse
-from app.services import reporting
+from app.schemas.reporting import (
+    DashboardKPIResponse,
+    DashboardPipelineExtrasResponse,
+    DashboardStrengthTableResponse,
+)
+from app.services import pipeline_extras, reporting
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -51,6 +55,24 @@ def get_dashboard_kpis(
         location_id=location_id,
     )
     return DashboardKPIResponse(**kpis)
+
+
+@router.get("/pipeline-extras", response_model=DashboardPipelineExtrasResponse)
+def get_dashboard_pipeline_extras(
+    campus_code: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_staff_only),
+    scope: CampusScope = Depends(get_campus_scope),
+) -> DashboardPipelineExtrasResponse:
+    """The "Joining pipeline" tiles and the pipeline chart's trailing bars.
+    Same gate and campus scoping as /kpis; its own endpoint so the /kpis
+    response is unchanged. Current snapshot: no date-range or category
+    filter (the sheet sources have neither)."""
+    validated_campus_code = reporting.validate_campus_code(campus_code)
+    extras = pipeline_extras.get_pipeline_extras(
+        db, scope, role=current_user.role, campus_code=validated_campus_code
+    )
+    return DashboardPipelineExtrasResponse(**extras)
 
 
 @router.get("/strength-table", response_model=DashboardStrengthTableResponse)

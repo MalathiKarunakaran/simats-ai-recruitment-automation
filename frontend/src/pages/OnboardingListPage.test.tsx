@@ -446,4 +446,32 @@ describe("OnboardingListPage", () => {
     const options = (await screen.findAllByRole("option")).map((o) => o.textContent);
     expect(options).toEqual(["All stages", "HANDED OVER TO HOD", "HOD REVIEW COMPLETE"]);
   });
+
+  it("preselects the stage from ?stage= (the dashboard's Awaiting permanent order link)", async () => {
+    mockedUseAuth.mockReturnValue({
+      user: { role: "HR_ADMIN" } as UserRead,
+      isLoading: false,
+      login: vi.fn(), requestOtp: vi.fn(), loginWithOtp: vi.fn(),
+      logout: vi.fn(), mustChangePassword: false, completePasswordChange: vi.fn(),
+    });
+    mockByStatus({
+      JOINED: [makeApplication({ id: "app-1", status: "JOINED" })],
+      HOD_REVIEW_COMPLETE: [makeApplication({ id: "app-2", candidate_id: "cand-2", status: "HOD_REVIEW_COMPLETE" })],
+    });
+    mockedListCandidates.mockResolvedValue([CANDIDATE_JANE, makeCandidate({ id: "cand-2", full_name: "John Smith" })]);
+    mockedListCampuses.mockResolvedValue([]);
+    mockedUseJobPostingLookup.mockReturnValue({ getLabel: () => undefined, jobPostings: [], isLoading: false });
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/onboarding?stage=HOD_REVIEW_COMPLETE"]}>
+          <OnboardingListPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("John Smith")).toBeInTheDocument());
+    expect(screen.queryByText("Jane Doe")).not.toBeInTheDocument();
+  });
 });

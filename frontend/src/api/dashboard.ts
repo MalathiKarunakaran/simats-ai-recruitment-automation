@@ -1,5 +1,5 @@
 import { apiFetch } from "@/api/client";
-import type { DashboardKpis, DashboardStrengthTableResponse } from "@/api/types";
+import type { DashboardKpis, DashboardStrengthTableResponse, PipelineFunnelStage } from "@/api/types";
 
 export interface DashboardDateRange {
   startDate?: string | null;
@@ -56,4 +56,35 @@ export async function getDashboardStrengthTable(
   if (params.offset !== undefined) query.set("offset", String(params.offset));
   const qs = query.toString();
   return apiFetch<DashboardStrengthTableResponse>(`/dashboard/strength-table${qs ? `?${qs}` : ""}`);
+}
+
+/** GET /dashboard/pipeline-extras (app/services/pipeline_extras.py) -- the
+ * "Joining pipeline" tiles and the pipeline chart's trailing bars. A part is
+ * null when the caller's role cannot read that sheet source (Talent Pool,
+ * sheet orders/register, selection batches); totals then leave it out. */
+export interface DashboardPipelineExtras {
+  scope_note: string;
+  sheet_visible: boolean;
+  /** Talent Pool entries and sheet provisional orders carry no campus, so
+   * the campus switcher does not narrow them. */
+  sheet_ignores_campus: boolean;
+  /** "YYYY-MM", the calendar month (India) the orders tile counts. */
+  month: string;
+  today: string;
+  waitlisted: {
+    total: number;
+    applications: number;
+    talent_pool_final: number | null;
+    talent_pool_nts: number | null;
+  };
+  sent_to_university: { total: number; batches: number | null; members: number | null };
+  provisional_orders_this_month: { total: number; order_register: number | null; appointment_orders: number };
+  awaiting_hod_review: { total: number; applications: number; sheet_overdue: number | null };
+  awaiting_permanent_order: { total: number; applications: number };
+  pipeline_extension: PipelineFunnelStage[];
+}
+
+export async function getDashboardPipelineExtras(campusCode?: string | null): Promise<DashboardPipelineExtras> {
+  const query = campusCode ? `?${new URLSearchParams({ campus_code: campusCode }).toString()}` : "";
+  return apiFetch<DashboardPipelineExtras>(`/dashboard/pipeline-extras${query}`);
 }

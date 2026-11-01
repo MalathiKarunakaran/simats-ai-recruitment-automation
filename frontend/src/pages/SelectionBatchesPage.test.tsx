@@ -52,4 +52,34 @@ describe("SelectionBatchesPage", () => {
     expect(screen.getByText(/not allowed/i)).toBeInTheDocument();
     expect(batchesApi.listSelectionBatches).not.toHaveBeenCalled();
   });
+
+  it("preselects the status filter from ?status= (the dashboard's Sent to University link)", async () => {
+    asRole("HR_ADMIN");
+    vi.mocked(batchesApi.listSelectionBatches).mockResolvedValue({ items: [batch], total: 1, limit: 25, offset: 0 });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/selection-batches?status=SENT_TO_UNIVERSITY"]}>
+          <SelectionBatchesPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("link", { name: "SB-2026-001" });
+    expect(batchesApi.listSelectionBatches).toHaveBeenCalledWith(expect.objectContaining({ status: "SENT_TO_UNIVERSITY" }));
+  });
+
+  it("ignores an unknown ?status=", async () => {
+    asRole("HR_ADMIN");
+    vi.mocked(batchesApi.listSelectionBatches).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/selection-batches?status=toString"]}>
+          <SelectionBatchesPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await vi.waitFor(() => expect(batchesApi.listSelectionBatches).toHaveBeenCalled());
+    expect(batchesApi.listSelectionBatches).toHaveBeenCalledWith(expect.objectContaining({ status: null }));
+  });
 });

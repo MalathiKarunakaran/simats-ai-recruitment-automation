@@ -1,6 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { listApplications } from "@/api/applications";
 import { listCampuses } from "@/api/campuses";
@@ -58,7 +58,14 @@ export function OnboardingListPage() {
   const canView = Boolean(user && CAN_VIEW_ROLES.includes(user.role));
   const stages = user?.role === "CAMPUS_HOD" ? HOD_STATUSES : ONBOARDING_STATUSES;
 
-  const [stageFilter, setStageFilter] = useState<ApplicationStatus | "ALL">("ALL");
+  // ?stage=<status> (the dashboard's "Awaiting permanent order" tile links
+  // here with it) preselects the filter; anything not in this role's stages
+  // is ignored.
+  const [searchParams] = useSearchParams();
+  const stageParam = searchParams.get("stage") as ApplicationStatus | null;
+  const [stageFilter, setStageFilter] = useState<ApplicationStatus | "ALL">(
+    stageParam && stages.includes(stageParam) ? stageParam : "ALL",
+  );
   const [campusFilter, setCampusFilter] = useState<string>("ALL");
   const [search, setSearch] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);

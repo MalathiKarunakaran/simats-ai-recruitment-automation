@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as dashboardApi from "@/api/dashboard";
+import type { DashboardPipelineExtras } from "@/api/dashboard";
 import * as departmentsApi from "@/api/departments";
 import * as designationsApi from "@/api/designations";
 import * as locationsApi from "@/api/locations";
@@ -255,6 +256,10 @@ beforeEach(() => {
   // those two new tiles render "0" rather than hanging on a never-resolving
   // query and breaking every pre-existing test in this file.
   mockedListVacancyRequests.mockResolvedValue([]);
+  // /dashboard/pipeline-extras stays pending by default, so the "Joining
+  // pipeline" row shows skeletons and appends no chart bars -- every older
+  // test here sees exactly the page it was written against.
+  vi.mocked(dashboardApi.getDashboardPipelineExtras).mockReturnValue(new Promise(() => {}));
   mockAuth((permission) => permission === "SETTINGS");
 });
 
@@ -945,6 +950,75 @@ describe("DashboardPage", () => {
 
       const grid = screen.getByTestId("primary-kpi-grid");
       expect(within(grid).getByText("Vacancies").closest("a")).toBeNull();
+    });
+  });
+
+  describe("joining pipeline (pipeline brief, Dashboard additions)", () => {
+    const EXTRAS: DashboardPipelineExtras = {
+      scope_note: "Global access: results span all campuses.",
+      sheet_visible: true,
+      sheet_ignores_campus: true,
+      month: "2026-10",
+      today: "2026-10-31",
+      waitlisted: { total: 216, applications: 0, talent_pool_final: 180, talent_pool_nts: 36 },
+      sent_to_university: { total: 11, batches: 2, members: 11 },
+      provisional_orders_this_month: { total: 9, order_register: 8, appointment_orders: 1 },
+      awaiting_hod_review: { total: 5, applications: 1, sheet_overdue: 4 },
+      awaiting_permanent_order: { total: 3, applications: 3 },
+      pipeline_extension: [
+        { stage: "Sent to University", count: 11 },
+        { stage: "Provisional order issued", count: 6 },
+        { stage: "HOD review complete", count: 3 },
+        { stage: "Permanent order issued", count: 2 },
+      ],
+    };
+
+    it("renders the row after the secondary strip, leaving the primary grid's sibling unchanged", async () => {
+      mockKpis();
+      vi.mocked(dashboardApi.getDashboardPipelineExtras).mockResolvedValue(EXTRAS);
+      renderWithProviders();
+
+      const row = await screen.findByTestId("joining-pipeline-tiles");
+      expect(await within(row).findByText("216")).toBeInTheDocument();
+      expect(within(row).getByText("Final 180 · NTS 36 · app 0")).toBeInTheDocument();
+      // e2e/dashboard.spec.ts reads the primary grid's next sibling as the
+      // secondary strip -- the new row must not be that sibling.
+      const primary = screen.getByTestId("primary-kpi-grid");
+      expect(primary.nextElementSibling).not.toBe(row);
+      expect(primary.nextElementSibling?.contains(row)).toBe(false);
+      expect(within(primary.nextElementSibling as HTMLElement).getByText("Total applications")).toBeInTheDocument();
+      expect(vi.mocked(dashboardApi.getDashboardPipelineExtras)).toHaveBeenCalledWith(null);
+    });
+
+    it("appends the four new stages after the existing pipeline bars", async () => {
+      mockKpis();
+      mockedListVacancyRequests.mockResolvedValue(MIXED_STATUS_VACANCY_REQUESTS);
+      vi.mocked(dashboardApi.getDashboardPipelineExtras).mockResolvedValue(EXTRAS);
+      renderWithProviders();
+
+      const chart = await screen.findByLabelText("Recruitment pipeline");
+      await within(chart).findByText("Permanent order issued");
+      const ticks = within(chart)
+        .getAllByText(
+          /^(Requested|Approved|Published|Screening|Interview|Selected|Joined|Waitlisted|Sent to University|Provisional order issued|HOD review complete|Permanent order issued)$/,
+        )
+        .map((node) => node.textContent);
+      expect(ticks).toEqual([
+        "Requested",
+        "Approved",
+        "Published",
+        "Screening",
+        "Interview",
+        "Selected",
+        "Joined",
+        "Waitlisted",
+        "Sent to University",
+        "Provisional order issued",
+        "HOD review complete",
+        "Permanent order issued",
+      ]);
+      // The existing Joined bar keeps its own count.
+      expect(within(chart).getByText("17")).toBeInTheDocument();
     });
   });
 });

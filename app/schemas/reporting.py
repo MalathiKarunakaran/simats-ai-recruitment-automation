@@ -107,6 +107,54 @@ class DashboardKPIResponse(BaseModel):
     recent_resignations: list[RecentEmployeeEventRow]
 
 
+class WaitlistedTile(BaseModel):
+    total: int
+    applications: int
+    # None when the caller cannot read the Talent Pool (see pipeline_extras).
+    talent_pool_final: int | None
+    talent_pool_nts: int | None
+
+
+class SentToUniversityTile(BaseModel):
+    total: int
+    batches: int | None
+    members: int | None
+
+
+class ProvisionalOrdersThisMonthTile(BaseModel):
+    total: int
+    order_register: int | None
+    appointment_orders: int
+
+
+class AwaitingHodReviewTile(BaseModel):
+    total: int
+    applications: int
+    sheet_overdue: int | None
+
+
+class AwaitingPermanentOrderTile(BaseModel):
+    total: int
+    applications: int
+
+
+class DashboardPipelineExtrasResponse(BaseModel):
+    """GET /dashboard/pipeline-extras -- see app/services/pipeline_extras.py.
+    A separate response so DashboardKPIResponse is untouched."""
+
+    scope_note: str
+    sheet_visible: bool
+    sheet_ignores_campus: bool
+    month: str
+    today: date
+    waitlisted: WaitlistedTile
+    sent_to_university: SentToUniversityTile
+    provisional_orders_this_month: ProvisionalOrdersThisMonthTile
+    awaiting_hod_review: AwaitingHodReviewTile
+    awaiting_permanent_order: AwaitingPermanentOrderTile
+    pipeline_extension: list[PipelineFunnelStage]
+
+
 class DashboardStrengthTableRow(BaseModel):
     """One row of the dashboard's main table (2026-08-30).
 
