@@ -15,10 +15,17 @@ export const MEANING_PARAMS = [
   "source",
   "called_by",
   "applied_post",
+  "college",
+  "state",
+  "country",
+  "gender",
   "month",
 ] as const;
 
 export type MeaningParam = (typeof MEANING_PARAMS)[number];
+
+export const BREAKDOWN_VIEW_PARAM = "view";
+export const BREAKDOWN_VIEW_SELECTED = "selected";
 
 /** The bucket the API folds everything below its top N into. It is not a
  * value anybody can filter on, so it is never a link. */
@@ -42,6 +49,7 @@ export function filterHref(
   const params = new URLSearchParams(currentParams ?? undefined);
   for (const key of MEANING_PARAMS) params.delete(key);
   params.delete("offset");
+  params.delete(BREAKDOWN_VIEW_PARAM);
   if (tab === "NTS") params.set("tab", "nts");
   else params.delete("tab");
   for (const key of MEANING_PARAMS) {
@@ -50,6 +58,18 @@ export function filterHref(
   }
   const query = params.toString();
   return `/talent-pool${query ? `?${query}` : ""}#register`;
+}
+
+/** Opens the Selected breakdown panel. A link and URL state like every other
+ * count on this page, so the panel survives a reload and can be shared. */
+export function selectedBreakdownHref(tab: TalentPoolSourceTab, currentParams?: URLSearchParams): string {
+  const params = new URLSearchParams(currentParams ?? undefined);
+  for (const key of MEANING_PARAMS) params.delete(key);
+  params.delete("offset");
+  if (tab === "NTS") params.set("tab", "nts");
+  else params.delete("tab");
+  params.set(BREAKDOWN_VIEW_PARAM, BREAKDOWN_VIEW_SELECTED);
+  return `/talent-pool?${params.toString()}`;
 }
 
 /** Every filter switched off, for the "Clear filters" button. */
@@ -61,6 +81,10 @@ export const CLEARED_FILTERS: RegisterFilters = {
   source: "",
   calledBy: "",
   appliedPost: "",
+  college: "",
+  state: "",
+  country: "",
+  gender: "",
   month: "",
   undecided: false,
   includeInactive: false,
@@ -85,6 +109,10 @@ export function describeFilters(filters: RegisterFilters, teaching: boolean): st
   if (filters.source) parts.push(`${teaching ? "Data source" : "Reference source"}: ${filters.source}`);
   if (filters.calledBy) parts.push(`Called by: ${filters.calledBy}`);
   if (filters.appliedPost) parts.push(`Applied post: ${filters.appliedPost}`);
+  if (filters.college) parts.push(`College: ${filters.college}`);
+  if (filters.state) parts.push(`State: ${filters.state}`);
+  if (filters.country) parts.push(`Country: ${filters.country}`);
+  if (filters.gender) parts.push(`Gender: ${filters.gender}`);
   if (filters.month) parts.push(monthLabel(filters.month));
   if (filters.q) parts.push(`Search: \u201c${filters.q}\u201d`);
   if (filters.includeInactive) parts.push("Including removed rows");

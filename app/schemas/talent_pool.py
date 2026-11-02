@@ -124,6 +124,22 @@ class TalentPoolSyncInfo(BaseModel):
     last_sync_counts: dict[str, int] | None = None
 
 
+class SelectedBreakdownDimension(BaseModel):
+    items: list[BreakdownItem]
+    # How many of the total have a value here; the rest are simply unrecorded.
+    recorded: int
+
+
+class TalentPoolSelectedBreakdown(BaseModel):
+    source_tab: TalentPoolSourceTabEnum
+    total: int
+    department: SelectedBreakdownDimension
+    college: SelectedBreakdownDimension
+    state: SelectedBreakdownDimension
+    country: SelectedBreakdownDimension
+    gender: SelectedBreakdownDimension
+
+
 class TalentPoolSummary(BaseModel):
     source_tab: TalentPoolSourceTabEnum
     total: int

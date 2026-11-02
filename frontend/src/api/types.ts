@@ -2926,6 +2926,22 @@ export interface TalentPoolDepartmentRow {
   open: number;
 }
 
+// GET /talent-pool/selected-breakdown
+export interface SelectedBreakdownDimension {
+  items: TalentPoolBreakdownItem[];
+  recorded: number;
+}
+
+export interface TalentPoolSelectedBreakdown {
+  source_tab: TalentPoolSourceTab;
+  total: number;
+  department: SelectedBreakdownDimension;
+  college: SelectedBreakdownDimension;
+  state: SelectedBreakdownDimension;
+  country: SelectedBreakdownDimension;
+  gender: SelectedBreakdownDimension;
+}
+
 export interface TalentPoolMonthlyPoint {
   month: string;
   added: number;
@@ -2980,6 +2996,11 @@ export interface TalentPoolListParams {
   source?: string;
   called_by?: string;
   applied_post?: string;
+  // The Selected breakdown's bars.
+  college?: string;
+  state?: string;
+  country?: string;
+  gender?: string;
   /** `YYYY-MM` against applied_on, or "undated" for no date. */
   month?: string;
   /** Status is not Selected / Waiting List / Rejected. */

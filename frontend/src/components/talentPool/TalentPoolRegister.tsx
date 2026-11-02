@@ -47,6 +47,10 @@ export interface RegisterFilters {
   source: string;
   calledBy: string;
   appliedPost: string;
+  college: string;
+  state: string;
+  country: string;
+  gender: string;
   /** `YYYY-MM`, or "undated". */
   month: string;
   undecided: boolean;
@@ -111,6 +115,10 @@ export function TalentPoolRegister({
       filters.source,
       filters.calledBy,
       filters.appliedPost,
+      filters.college,
+      filters.state,
+      filters.country,
+      filters.gender,
       filters.month,
       filters.undecided,
       filters.includeInactive,
@@ -127,6 +135,10 @@ export function TalentPoolRegister({
         source: filters.source || undefined,
         called_by: filters.calledBy || undefined,
         applied_post: filters.appliedPost || undefined,
+        college: filters.college || undefined,
+        state: filters.state || undefined,
+        country: filters.country || undefined,
+        gender: filters.gender || undefined,
         month: filters.month || undefined,
         undecided: filters.undecided,
         include_inactive: filters.includeInactive,

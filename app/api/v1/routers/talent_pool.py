@@ -61,11 +61,14 @@ from app.schemas.talent_pool import (
     BreakdownItem,
     DepartmentRow,
     MonthlyPoint,
+    SelectedBreakdownDimension,
     TalentPoolBreakdowns,
     TalentPoolEntryDetail,
     TalentPoolEntryRead,
+    TalentPoolSelectedBreakdown,
     TalentPoolSummary,
 )
+from app.services import talent_pool_attributes as attributes
 
 router = APIRouter(prefix="/talent-pool", tags=["talent-pool"])
 
@@ -393,6 +396,51 @@ def get_talent_pool_summary(
     )
 
 
+@router.get("/selected-breakdown", response_model=TalentPoolSelectedBreakdown)
+def get_selected_breakdown(
+    source_tab: TalentPoolSourceTabEnum = Query(...),
+    dept_mode: str = Query("group", pattern="^(group|raw)$"),
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: object = Depends(require_roles(*_READERS)),
+) -> TalentPoolSelectedBreakdown:
+    """Who the Selected tile's candidates are. Every bar is listed with no
+    "Others" fold, and each dimension says how many rows actually record it,
+    so a mostly empty column cannot pass for the whole picture."""
+    where = [*_where(source_tab, include_inactive), TalentPoolEntry.sheet_status == "Selected"]
+    total = db.execute(select(func.count()).select_from(TalentPoolEntry).where(*where)).scalar_one()
+
+    def dimension(expr) -> SelectedBreakdownDimension:
+        # Grouped over a subquery: expressions holding bind parameters are not
+        # recognised as equal between SELECT and GROUP BY.
+        values = select(expr.label("value")).where(*where).subquery()
+        rows = db.execute(
+            select(values.c.value, func.count())
+            .where(values.c.value.is_not(None))
+            .group_by(values.c.value)
+            .order_by(func.count().desc(), values.c.value)
+        ).all()
+        return SelectedBreakdownDimension(
+            items=[BreakdownItem(label=label, count=count) for label, count in rows],
+            recorded=sum(count for _, count in rows),
+        )
+
+    dept_col = (
+        TalentPoolEntry.dept_group
+        if (dept_mode == "group" or source_tab == TalentPoolSourceTabEnum.NTS)
+        else TalentPoolEntry.dept_raw
+    )
+    return TalentPoolSelectedBreakdown(
+        source_tab=source_tab,
+        total=int(total),
+        department=dimension(func.nullif(func.nullif(func.btrim(dept_col), ""), TALENT_POOL_NOT_SET_LABEL)),
+        college=dimension(attributes.college()),
+        state=dimension(attributes.state()),
+        country=dimension(attributes.country()),
+        gender=dimension(attributes.gender()),
+    )
+
+
 @router.get("", response_model=PaginatedResponse[TalentPoolEntryRead])
 def list_talent_pool(
     source_tab: TalentPoolSourceTabEnum = Query(...),
@@ -404,6 +452,10 @@ def list_talent_pool(
     source: str | None = Query(None),
     called_by: str | None = Query(None),
     applied_post: str | None = Query(None),
+    college: str | None = Query(None),
+    state: str | None = Query(None),
+    country: str | None = Query(None),
+    gender: str | None = Query(None),
     month: str | None = Query(None),
     undecided: bool = Query(False),
     include_inactive: bool = Query(False),
@@ -435,6 +487,15 @@ def list_talent_pool(
         stmt = stmt.where(_label_match(TalentPoolEntry.called_by, called_by))
     if applied_post:
         stmt = stmt.where(_label_match(TalentPoolEntry.applied_post, applied_post))
+    # The Selected breakdown's bars: the same expressions that counted them.
+    if college:
+        stmt = stmt.where(attributes.college() == college)
+    if state:
+        stmt = stmt.where(attributes.state() == state)
+    if country:
+        stmt = stmt.where(attributes.country() == country)
+    if gender:
+        stmt = stmt.where(attributes.gender() == gender)
     if month:
         if month == _UNDATED:
             stmt = stmt.where(TalentPoolEntry.applied_on.is_(None))

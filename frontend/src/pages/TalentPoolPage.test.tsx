@@ -245,7 +245,7 @@ describe("TalentPoolPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
-    expect(tileLink("Selected")!.getAttribute("href")).toContain("status=Selected");
+    expect(tileLink("Selected")!.getAttribute("href")).toContain("view=selected");
     expect(tileLink("Rejected")!.getAttribute("href")).toContain("status=Rejected");
   });
 
@@ -955,9 +955,36 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     renderPage("/talent-pool?source=Mam+Data");
 
     await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
-    const params = hrefParams(tileLink("Selected"));
-    expect(params.get("status")).toBe("Selected");
+    const params = hrefParams(tileLink("Rejected"));
+    expect(params.get("status")).toBe("Rejected");
     expect(params.get("source")).toBeNull();
+  });
+
+  it("the Selected tile opens the breakdown panel, and closing it stays on the page", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    vi.mocked(talentPoolApi.getSelectedBreakdown).mockResolvedValue({
+      source_tab: "TEACHING_FINAL",
+      total: 454,
+      department: { items: [{ label: "ECE", count: 117 }], recorded: 432 },
+      college: { items: [], recorded: 0 },
+      state: { items: [], recorded: 0 },
+      country: { items: [], recorded: 0 },
+      gender: { items: [], recorded: 0 },
+    });
+    renderPage("/talent-pool?source=Mam+Data");
+
+    await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
+    const params = new URL(tileLink("Selected")!.getAttribute("href")!, "http://x").searchParams;
+    expect(params.get("view")).toBe("selected");
+    expect(params.get("source")).toBeNull();
+    expect(screen.queryByText("Recorded for 432 of 454")).not.toBeInTheDocument();
+
+    await userEvent.click(tileLink("Selected")!);
+    expect(await screen.findByText("Recorded for 432 of 454")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByText("Recorded for 432 of 454")).not.toBeInTheDocument());
+    expect(screen.getByText("in the Final sheet")).toBeInTheDocument();
   });
 
   it("the NTS Total tile is a link too, and In follow-up (three statuses) is not", async () => {

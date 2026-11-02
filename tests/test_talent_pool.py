@@ -757,3 +757,108 @@ def test_eligible_and_undecided_matches_eligible_pending_when_every_open_row_is_
 def test_the_new_filters_are_optional_and_change_nothing_when_absent(client, admin_headers, pool):
     assert _list(client, admin_headers)["total"] == 19
     assert _list(client, admin_headers, undecided="false")["total"] == 19
+
+
+# --- Selected breakdown (2-Nov-2026) ------------------------------------------
+
+
+def _selected(db_session, **raw):
+    return _entry(db_session, sheet_status="Selected", dept_group=raw.pop("dept", None), raw=raw)
+
+
+def _breakdown(client, user, **params):
+    r = client.get(
+        "/api/v1/talent-pool/selected-breakdown",
+        params={"source_tab": TEACHING, **params},
+        headers=auth_headers(client, user),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _joinee(db_session, entry, **kw):
+    from app.models.sheet_sync import SheetJoinee
+
+    row = SheetJoinee(
+        row_key=uuid.uuid4().hex, content_hash="h", is_active=True, full_name="J", talent_pool_entry_id=entry.id,
+        **kw,
+    )  # fmt: skip
+    db_session.add(row)
+    db_session.flush()
+    return row
+
+
+def test_selected_breakdown_counts_only_selected_and_says_what_is_recorded(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    _selected(db_session, dept="ECE", College="sse", State="Tamil Nadu", Country="India", Gender="Male")
+    _selected(db_session, dept="ECE", College="SSE ", State="tamil  nadu", Country="INDIA", Gender="F")
+    _selected(db_session, dept="CSE", College="SCAD", Gender="female")
+    _selected(db_session, dept="Not set")
+    _entry(db_session, sheet_status="Rejected", dept_group="ECE", raw={"College": "SSE", "Gender": "Male"})
+    _entry(db_session, sheet_status="Selected", is_active=False, raw={"College": "SSE"})
+
+    b = _breakdown(client, admin)
+
+    assert b["total"] == 4
+    assert b["department"] == {"items": [{"label": "ECE", "count": 2}, {"label": "CSE", "count": 1}], "recorded": 3}
+    assert b["college"] == {"items": [{"label": "SSE", "count": 2}, {"label": "SCAD", "count": 1}], "recorded": 3}
+    assert b["state"] == {"items": [{"label": "Tamil Nadu", "count": 2}], "recorded": 2}
+    assert b["country"] == {"items": [{"label": "India", "count": 2}], "recorded": 2}
+    assert b["gender"] == {"items": [{"label": "Female", "count": 2}, {"label": "Male", "count": 1}], "recorded": 3}
+
+
+def test_selected_breakdown_falls_back_to_the_linked_joinee(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    linked = _selected(db_session)
+    _joinee(db_session, linked, campus_code="SCLAS", raw={"Gender": "M"})
+    own = _selected(db_session, College="SSE", Gender="F")
+    _joinee(db_session, own, campus_code="SCLAS", raw={"Gender": "M"})
+
+    b = _breakdown(client, admin)
+
+    # The sheet row's own value wins over the joinee's.
+    assert b["college"]["items"] == [{"label": "SCLAS", "count": 1}, {"label": "SSE", "count": 1}]
+    assert b["gender"]["items"] == [{"label": "Female", "count": 1}, {"label": "Male", "count": 1}]
+
+
+def test_selected_breakdown_person_counted_once_with_two_joinee_rows(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    linked = _selected(db_session)
+    _joinee(db_session, linked, campus_code="SCLAS", raw={"Gender": "M"}, joined_on=date(2024, 1, 1))
+    _joinee(db_session, linked, campus_code="SSE", raw={"Gender": "M"}, joined_on=date(2025, 1, 1))
+
+    b = _breakdown(client, admin)
+
+    assert b["college"] == {"items": [{"label": "SSE", "count": 1}], "recorded": 1}
+
+
+@pytest.mark.parametrize(
+    "param,label,expected",
+    [("college", "SSE", 2), ("state", "Tamil Nadu", 2), ("country", "India", 1), ("gender", "Female", 2)],
+)
+def test_clicking_a_bar_lists_exactly_its_count(client, db_session, user_factory, param, label, expected):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    _selected(db_session, College="sse", State="Tamil Nadu", Country="India", Gender="F")
+    _selected(db_session, College="SSE", State="tamil nadu", Country="Sri Lanka", Gender="Female")
+    _selected(db_session, College="SCAD", State="Kerala", Gender="Male")
+    _entry(db_session, sheet_status="Rejected", raw={"College": "SSE", "State": "Tamil Nadu", "Gender": "F"})
+
+    bars = _breakdown(client, admin)[param]["items"]
+    assert {i["label"]: i["count"] for i in bars}[label] == expected
+
+    r = client.get(
+        "/api/v1/talent-pool",
+        params={"source_tab": TEACHING, "sheet_status": "Selected", param: label},
+        headers=auth_headers(client, admin),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["total"] == expected
+
+
+def test_selected_breakdown_uses_the_talent_pool_gate(client, db_session, user_factory):
+    panel = user_factory(UserRoleEnum.INTERVIEW_PANEL_MEMBER)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    url = "/api/v1/talent-pool/selected-breakdown"
+    assert client.get(url, params={"source_tab": TEACHING}).status_code == 401
+    assert client.get(url, params={"source_tab": TEACHING}, headers=auth_headers(client, panel)).status_code == 403
+    assert client.get(url, params={"source_tab": TEACHING}, headers=auth_headers(client, coordinator)).status_code == 200

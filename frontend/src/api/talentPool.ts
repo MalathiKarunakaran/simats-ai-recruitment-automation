@@ -4,6 +4,7 @@ import type {
   TalentPoolEntryDetail,
   TalentPoolEntryRead,
   TalentPoolListParams,
+  TalentPoolSelectedBreakdown,
   TalentPoolSummary,
 } from "@/api/types";
 
@@ -21,6 +22,16 @@ export async function getTalentPoolSummary(
   return apiFetch<TalentPoolSummary>(`/talent-pool/summary?${params.toString()}`);
 }
 
+export async function getSelectedBreakdown(
+  sourceTab: TalentPoolListParams["source_tab"],
+  deptMode: "group" | "raw" = "group",
+  includeInactive = false,
+): Promise<TalentPoolSelectedBreakdown> {
+  const params = new URLSearchParams({ source_tab: sourceTab, dept_mode: deptMode });
+  if (includeInactive) params.set("include_inactive", "true");
+  return apiFetch<TalentPoolSelectedBreakdown>(`/talent-pool/selected-breakdown?${params.toString()}`);
+}
+
 export async function listTalentPool(
   input: TalentPoolListParams,
 ): Promise<PaginatedResponse<TalentPoolEntryRead>> {
@@ -35,6 +46,10 @@ export async function listTalentPool(
   if (input.source) params.set("source", input.source);
   if (input.called_by) params.set("called_by", input.called_by);
   if (input.applied_post) params.set("applied_post", input.applied_post);
+  if (input.college) params.set("college", input.college);
+  if (input.state) params.set("state", input.state);
+  if (input.country) params.set("country", input.country);
+  if (input.gender) params.set("gender", input.gender);
   if (input.month) params.set("month", input.month);
   if (input.undecided) params.set("undecided", "true");
   if (input.include_inactive) params.set("include_inactive", "true");

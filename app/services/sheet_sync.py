@@ -83,8 +83,9 @@ def _header_key(header: str | None) -> str:
 
 # field -> accepted header spellings (compared by _header_key). THIS IS THE
 # ALLOWLIST: a column that no field names is never read. Never add RBL
-# Account number, Salary fixed, Allowance Details, Gender, Current Work or
-# S. No+ here.
+# Account number, Salary fixed, Allowance Details, Current Work or S. No+ here.
+# Gender was on that list until the user lifted it for the Selected breakdown
+# (2-Nov-2026); it is kept in `raw` only.
 _JOINEE_COLUMNS = {
     "bio_id": ("BIO ID",),
     "new_bio_id": ("New BIoID",),
@@ -107,6 +108,7 @@ _JOINEE_COLUMNS = {
     "send_on": ("send date",),
     "received_on": ("Received date",),
     "mobile": ("Mobile No.", "Mobile No"),
+    "gender": ("Gender",),
 }
 _ORDER_COLUMNS = {
     "bio_id": ("BioID", "BIO ID"),

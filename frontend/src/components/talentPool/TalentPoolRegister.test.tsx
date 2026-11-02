@@ -39,6 +39,7 @@ const summary = {
 
 const filters = (over: Partial<RegisterFilters> = {}): RegisterFilters => ({
   q: "", status: "Selected", department: "", eligibility: "", source: "", calledBy: "", appliedPost: "",
+  college: "", state: "", country: "", gender: "",
   month: "", undecided: false, includeInactive: false, offset: 0, ...over,
 });
 

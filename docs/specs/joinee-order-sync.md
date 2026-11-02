@@ -29,7 +29,9 @@ Headers are matched by name with case, spaces and punctuation ignored
 picks the allowlisted columns by name, and reads only those columns; the
 server drops any other header it is sent before doing anything (defence in
 depth). Never read: RBL Account number, Salary fixed, Allowance Details,
-Gender, Current Work, S. No+ — nor any column added later.
+Current Work, S. No+ — nor any column added later. Gender was on this list
+until the user lifted it on 2-Nov-2026 for the Talent Pool's Selected
+breakdown; it is stored in `raw` only.
 
 `Mobile No.` is sent, used **only in memory** to link the joiner to a talent
 pool row (last 10 digits), then discarded: not stored, not in `raw`, not in

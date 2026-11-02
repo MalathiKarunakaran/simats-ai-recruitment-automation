@@ -295,7 +295,7 @@ def test_talent_pool_link_by_phone_last_10(client, db_session):
 def test_excluded_columns_and_mobile_never_stored(client, db_session, user_factory, caplog):
     sentinels = {
         "RBL Account number": "RBLSENTINEL7781", "Salary fixed": "SALSENTINEL9942",
-        "Allowance Details": "ALLOWSENTINEL3310", "Gender": "GENDERSENTINEL5521",
+        "Allowance Details": "ALLOWSENTINEL3310",
         "Current Work": "WORKSENTINEL6643", "S. No+": "SNOSENTINEL1188", "Mobile No.": "9000011111",
     }  # fmt: skip
     caplog.set_level(logging.DEBUG)
@@ -666,3 +666,12 @@ def test_register_floor_uses_synced_max_then_falls_back(client, db_session):
     # every SSE row gone: back to the constant
     postr(client, [rrow(3, **{"Order No": "11", "College": "SCLAS"})])
     assert register_floor(db_session, "SSE") == 230
+
+
+def test_gender_is_kept_in_raw_only(client, db_session):
+    row = jrow(1, **{"Employee Type": "JRF", "College": "SHoTs", "Status": "Old", "Gender": "Female"})
+    assert post(client, "NEW_JOINEES", [row]).status_code == 200
+    db_session.expire_all()
+    joinee = db_session.query(SheetJoinee).one()
+    assert joinee.raw["Gender"] == "Female"
+    assert not hasattr(joinee, "gender")

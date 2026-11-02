@@ -7,10 +7,11 @@ import { getTalentPoolSummary } from "@/api/talentPool";
 import type { TalentPoolEntryRead, TalentPoolSourceTab } from "@/api/types";
 import { BreakdownList } from "@/components/talentPool/BreakdownList";
 import { DepartmentTable } from "@/components/talentPool/DepartmentTable";
-import { filterHref, type MeaningParam } from "@/components/talentPool/filterHref";
+import { BREAKDOWN_VIEW_PARAM, BREAKDOWN_VIEW_SELECTED, filterHref, type MeaningParam } from "@/components/talentPool/filterHref";
 import { MonthlyAddedChart } from "@/components/talentPool/MonthlyAddedChart";
 import { TalentPoolEntrySheet } from "@/components/talentPool/TalentPoolEntrySheet";
 import { TalentPoolRegister, type RegisterFilters } from "@/components/talentPool/TalentPoolRegister";
+import { SelectedBreakdownSheet } from "@/components/talentPool/SelectedBreakdownSheet";
 import { TalentPoolTiles } from "@/components/talentPool/TalentPoolTiles";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -111,6 +112,10 @@ export function TalentPoolPage() {
       source: searchParams.get("source") ?? "",
       calledBy: searchParams.get("called_by") ?? "",
       appliedPost: searchParams.get("applied_post") ?? "",
+      college: searchParams.get("college") ?? "",
+      state: searchParams.get("state") ?? "",
+      country: searchParams.get("country") ?? "",
+      gender: searchParams.get("gender") ?? "",
       month: searchParams.get("month") ?? "",
       undecided: searchParams.get("undecided") === "true",
       includeInactive: searchParams.get("include_inactive") === "true",
@@ -139,6 +144,10 @@ export function TalentPoolPage() {
       write("source", next.source);
       write("called_by", next.calledBy);
       write("applied_post", next.appliedPost);
+      write("college", next.college);
+      write("state", next.state);
+      write("country", next.country);
+      write("gender", next.gender);
       write("month", next.month);
       write("undecided", next.undecided);
       write("include_inactive", next.includeInactive);
@@ -212,6 +221,12 @@ export function TalentPoolPage() {
    * the page was too short to bring it to the top. See useScrollToHash. */
   const registerShown = Boolean(summary && summary.total > 0);
   useScrollToHash("register", registerShown && listLoaded);
+
+  const closeBreakdown = useCallback(() => {
+    const params = new URLSearchParams(searchParams);
+    params.delete(BREAKDOWN_VIEW_PARAM);
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   /** A breakdown row's link: that row's label as the one filter it means. */
   const linkFor = useCallback(
@@ -455,6 +470,14 @@ export function TalentPoolPage() {
           />
 
           <TalentPoolEntrySheet entry={openEntry} tab={tab} onClose={() => setOpenEntry(null)} />
+
+          <SelectedBreakdownSheet
+            open={searchParams.get(BREAKDOWN_VIEW_PARAM) === BREAKDOWN_VIEW_SELECTED}
+            tab={tab}
+            deptMode={summary.department_mode === "raw" ? "raw" : "group"}
+            currentParams={searchParams}
+            onClose={closeBreakdown}
+          />
         </>
       ) : null}
     </div>

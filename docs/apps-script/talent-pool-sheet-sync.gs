@@ -174,7 +174,7 @@ var JOINEE_TABS = [
       "BIO ID", "New BIoID", "Staff ID", "App No", "Name", "Employee Type", "College", "Status",
       "Joined On", "Interview Date", "Provisional Appointment Order Given Date", "Designation",
       "Department", "Dept New", "Reporting to...", "Relieving Order Submitted", "Original Submitted",
-      "Appointment Order", "send date", "Received date", "Mobile No.",
+      "Appointment Order", "send date", "Received date", "Mobile No.", "Gender",
     ],
   },
   {
