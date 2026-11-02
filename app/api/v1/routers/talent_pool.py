@@ -410,7 +410,7 @@ def get_selected_breakdown(
     where = [*_where(source_tab, include_inactive), TalentPoolEntry.sheet_status == "Selected"]
     total = db.execute(select(func.count()).select_from(TalentPoolEntry).where(*where)).scalar_one()
 
-    def dimension(expr) -> SelectedBreakdownDimension:
+    def dimension(expr, from_resume=None) -> SelectedBreakdownDimension:
         # Grouped over a subquery: expressions holding bind parameters are not
         # recognised as equal between SELECT and GROUP BY.
         values = select(expr.label("value")).where(*where).subquery()
@@ -423,6 +423,11 @@ def get_selected_breakdown(
         return SelectedBreakdownDimension(
             items=[BreakdownItem(label=label, count=count) for label, count in rows],
             recorded=sum(count for _, count in rows),
+            from_resume=(
+                db.execute(select(func.count()).select_from(TalentPoolEntry).where(*where, from_resume)).scalar_one()
+                if from_resume is not None
+                else 0
+            ),
         )
 
     dept_col = (
@@ -435,9 +440,9 @@ def get_selected_breakdown(
         total=int(total),
         department=dimension(func.nullif(func.nullif(func.btrim(dept_col), ""), TALENT_POOL_NOT_SET_LABEL)),
         college=dimension(attributes.college()),
-        state=dimension(attributes.state()),
-        country=dimension(attributes.country()),
-        gender=dimension(attributes.gender()),
+        state=dimension(attributes.state(), attributes.state_from_resume()),
+        country=dimension(attributes.country(), attributes.country_from_resume()),
+        gender=dimension(attributes.gender(), attributes.gender_from_resume()),
     )
 
 

@@ -965,11 +965,11 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     vi.mocked(talentPoolApi.getSelectedBreakdown).mockResolvedValue({
       source_tab: "TEACHING_FINAL",
       total: 454,
-      department: { items: [{ label: "ECE", count: 117 }], recorded: 432 },
-      college: { items: [], recorded: 0 },
-      state: { items: [], recorded: 0 },
-      country: { items: [], recorded: 0 },
-      gender: { items: [], recorded: 0 },
+      department: { items: [{ label: "ECE", count: 117 }], recorded: 432, from_resume: 0 },
+      college: { items: [], recorded: 0, from_resume: 0 },
+      state: { items: [], recorded: 0, from_resume: 0 },
+      country: { items: [], recorded: 0, from_resume: 0 },
+      gender: { items: [], recorded: 0, from_resume: 0 },
     });
     renderPage("/talent-pool?source=Mam+Data");
 

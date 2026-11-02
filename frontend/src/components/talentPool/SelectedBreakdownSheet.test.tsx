@@ -10,15 +10,15 @@ import { SelectedBreakdownSheet } from "@/components/talentPool/SelectedBreakdow
 vi.mock("@/api/talentPool");
 const mockedGet = vi.mocked(talentPoolApi.getSelectedBreakdown);
 
-const empty = { items: [], recorded: 0 };
+const empty = { items: [], recorded: 0, from_resume: 0 };
 const breakdown: TalentPoolSelectedBreakdown = {
   source_tab: "TEACHING_FINAL",
   total: 454,
-  department: { items: [{ label: "ECE", count: 117 }], recorded: 432 },
-  college: { items: [{ label: "SSE", count: 12 }], recorded: 12 },
-  state: empty,
+  department: { items: [{ label: "ECE", count: 117 }], recorded: 432, from_resume: 0 },
+  college: { items: [{ label: "SSE", count: 12 }], recorded: 12, from_resume: 0 },
+  state: { items: [{ label: "Kerala", count: 40 }], recorded: 40, from_resume: 30 },
   country: empty,
-  gender: { items: [{ label: "Female", count: 7 }], recorded: 7 },
+  gender: { items: [{ label: "Female", count: 7 }], recorded: 7, from_resume: 0 },
 };
 
 function renderSheet(search: string, open = true) {
@@ -56,10 +56,14 @@ describe("SelectedBreakdownSheet", () => {
     expect(screen.getByText("Selected candidates: 454")).toBeInTheDocument();
   });
 
+  it("says how many values came from resumes", async () => {
+    renderSheet("view=selected");
+    expect(await screen.findByText("Recorded for 40 of 454 (30 from resumes)")).toBeInTheDocument();
+  });
+
   it("names the sheet column to fill when a card has no data", async () => {
     renderSheet("view=selected");
-    expect(await screen.findByText("Not recorded yet. Fill the State column in the Final sheet.")).toBeInTheDocument();
-    expect(screen.getByText("Not recorded yet. Fill the Country column in the Final sheet.")).toBeInTheDocument();
+    expect(await screen.findByText("Not recorded yet. Fill the Country column in the Final sheet.")).toBeInTheDocument();
   });
 
   it("a bar lists Selected candidates with that value, closes the panel and drops an earlier narrowing", async () => {

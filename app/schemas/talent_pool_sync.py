@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import TalentPoolSourceTabEnum
@@ -30,6 +32,23 @@ class TalentPoolSyncRequest(BaseModel):
     sheet_last_update: str | None = Field(None, max_length=100)
     headers: list[str | None] = Field(max_length=MAX_SYNC_COLUMNS)
     rows: list[TalentPoolSyncRow] = Field(max_length=MAX_SYNC_ROWS)
+
+
+class ResumeFieldsItem(BaseModel):
+    file_id: str = Field(min_length=1, max_length=200)
+    gender: Literal["Male", "Female"] | None = None
+    state: str | None = Field(None, max_length=100)
+    country: str | None = Field(None, max_length=100)
+
+
+class ResumeFieldsRequest(BaseModel):
+    items: list[ResumeFieldsItem] = Field(max_length=MAX_SYNC_ROWS)
+
+
+class ResumeFieldsResult(BaseModel):
+    received: int
+    saved: int
+    no_matching_candidate: int
 
 
 class SyncRowNote(BaseModel):

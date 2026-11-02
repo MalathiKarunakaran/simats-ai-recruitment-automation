@@ -2930,6 +2930,7 @@ export interface TalentPoolDepartmentRow {
 export interface SelectedBreakdownDimension {
   items: TalentPoolBreakdownItem[];
   recorded: number;
+  from_resume: number;
 }
 
 export interface TalentPoolSelectedBreakdown {

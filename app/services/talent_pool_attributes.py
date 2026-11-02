@@ -8,14 +8,16 @@ The panel's counts and the register's filters both use these expressions, so
 clicking a bar lists exactly that bar's number.
 
 College and Gender fall back to the linked New Joinees row when the talent pool
-row has none. Values are only ever read from a sheet cell: gender is never
-inferred from a name.
+row has none. Gender, State and Country then fall back to what the resume states
+(TalentPoolResumeField), so a sheet value always wins. Gender is never inferred
+from a name.
 """
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 
 from app.models.sheet_sync import SheetJoinee
 from app.models.talent_pool_entry import TalentPoolEntry
+from app.models.talent_pool_resume_field import TalentPoolResumeField
 
 
 def _cell(column):
@@ -39,6 +41,15 @@ def _from_joinee(value):
     )
 
 
+def _from_resume(column):
+    return (
+        select(column)
+        .where(TalentPoolResumeField.talent_pool_entry_id == TalentPoolEntry.id)
+        .correlate(TalentPoolEntry)
+        .scalar_subquery()
+    )
+
+
 def college():
     return func.coalesce(
         func.upper(_cell(TalentPoolEntry.raw["College"].astext)),
@@ -47,21 +58,38 @@ def college():
 
 
 def state():
-    return _tidied("State")
+    return func.coalesce(_tidied("State"), _from_resume(TalentPoolResumeField.state))
 
 
 def country():
-    return _tidied("Country")
+    return func.coalesce(_tidied("Country"), _from_resume(TalentPoolResumeField.country))
 
 
-def gender():
-    value = func.coalesce(
+def _gender_from_sheets():
+    return func.coalesce(
         _cell(TalentPoolEntry.raw["Gender"].astext),
         _from_joinee(_cell(SheetJoinee.raw["Gender"].astext)),
     )
+
+
+def gender():
+    value = func.coalesce(_gender_from_sheets(), _from_resume(TalentPoolResumeField.gender))
     lowered = func.lower(value)
     return case(
         (lowered.in_(("m", "male")), "Male"),
         (lowered.in_(("f", "female")), "Female"),
         else_=func.initcap(value),
     )
+
+
+# True when the value above came from the resume, for the "from resumes" count.
+def state_from_resume():
+    return and_(_tidied("State").is_(None), _from_resume(TalentPoolResumeField.state).is_not(None))
+
+
+def country_from_resume():
+    return and_(_tidied("Country").is_(None), _from_resume(TalentPoolResumeField.country).is_not(None))
+
+
+def gender_from_resume():
+    return and_(_gender_from_sheets().is_(None), _from_resume(TalentPoolResumeField.gender).is_not(None))

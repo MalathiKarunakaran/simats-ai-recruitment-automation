@@ -280,3 +280,80 @@ def test_sync_writes_the_audit_row_the_summary_reads(client, db_session, user_fa
     assert summary["sheet_last_update"] == "29-10-2026, 04.31 pm"
     assert summary["last_sync_counts"]["inserted"] == 1
     assert summary["last_sync_at"] is not None
+
+
+# --- Resume fields (2-Nov-2026) -----------------------------------------------
+
+
+def _selected_with_resume(db_session, file_id, status="Selected", **raw):
+    entry = TalentPoolEntry(
+        source_tab=TalentPoolSourceTabEnum.TEACHING_FINAL, full_name="A", sheet_status=status, is_active=True, raw=raw,
+        resume_url=f"https://drive.google.com/open?id={file_id}",
+    )  # fmt: skip
+    db_session.add(entry)
+    db_session.flush()
+    return entry
+
+
+def _post_fields(client, items, secret=SECRET):
+    return client.post("/api/v1/talent-pool/resume-fields", json={"items": items}, headers={"X-Talent-Pool-Sync-Secret": secret})
+
+
+def _breakdown(client, user):
+    r = client.get(
+        "/api/v1/talent-pool/selected-breakdown",
+        params={"source_tab": "TEACHING_FINAL"},
+        headers=auth_headers(client, user),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_resume_fields_need_the_secret(client):
+    assert _post_fields(client, [], secret="wrong").status_code == 401
+
+
+def test_resume_fields_reject_an_unknown_gender(client):
+    assert _post_fields(client, [{"file_id": "F1", "gender": "unknown"}]).status_code == 422
+
+
+def test_resume_fields_fill_the_charts_and_say_so(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    _selected_with_resume(db_session, "F1")
+    _selected_with_resume(db_session, "F2")
+    r = _post_fields(client, [
+        {"file_id": "F1", "gender": "Female", "state": "Kerala", "country": "India"},
+        {"file_id": "F2", "state": "Kerala", "country": "India"},
+        {"file_id": "NOBODY", "state": "Goa"},
+    ])  # fmt: skip
+    assert r.status_code == 200, r.text
+    assert r.json() == {"received": 3, "saved": 2, "no_matching_candidate": 1}
+
+    b = _breakdown(client, admin)
+    assert b["state"] == {"items": [{"label": "Kerala", "count": 2}], "recorded": 2, "from_resume": 2}
+    assert b["gender"] == {"items": [{"label": "Female", "count": 1}], "recorded": 1, "from_resume": 1}
+    assert b["department"]["from_resume"] == 0
+
+
+def test_a_sheet_value_beats_the_resume(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    _selected_with_resume(db_session, "F1", State="Goa", Gender="Male")
+    assert _post_fields(client, [{"file_id": "F1", "gender": "Female", "state": "Kerala"}]).status_code == 200
+
+    b = _breakdown(client, admin)
+    assert b["state"] == {"items": [{"label": "Goa", "count": 1}], "recorded": 1, "from_resume": 0}
+    assert b["gender"] == {"items": [{"label": "Male", "count": 1}], "recorded": 1, "from_resume": 0}
+
+
+def test_resume_fields_ignore_candidates_who_are_not_selected(client, db_session):
+    _selected_with_resume(db_session, "F1", status="Rejected")
+    assert _post_fields(client, [{"file_id": "F1", "state": "Kerala"}]).json()["saved"] == 0
+
+
+def test_sending_again_overwrites(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    _selected_with_resume(db_session, "F1")
+    _post_fields(client, [{"file_id": "F1", "state": "Goa"}])
+    _post_fields(client, [{"file_id": "F1", "state": "Kerala"}])
+    db_session.expire_all()
+    assert _breakdown(client, admin)["state"]["items"] == [{"label": "Kerala", "count": 1}]

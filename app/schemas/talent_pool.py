@@ -128,6 +128,8 @@ class SelectedBreakdownDimension(BaseModel):
     items: list[BreakdownItem]
     # How many of the total have a value here; the rest are simply unrecorded.
     recorded: int
+    # Of those, how many came from the resume because the sheets had none.
+    from_resume: int
 
 
 class TalentPoolSelectedBreakdown(BaseModel):

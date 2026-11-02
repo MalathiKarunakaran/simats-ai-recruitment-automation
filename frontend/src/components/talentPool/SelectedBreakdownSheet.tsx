@@ -180,6 +180,7 @@ export function SelectedBreakdownSheet({ open, tab, deptMode, currentParams, onC
           <h3 className="text-sm font-semibold">{title}</h3>
           <p className="text-[11px] text-muted-foreground">
             Recorded for {dimension.recorded} of {data?.total ?? 0}
+            {dimension.from_resume > 0 ? ` (${dimension.from_resume} from resumes)` : ""}
           </p>
         </div>
         {dimension.items.length === 0 ? (

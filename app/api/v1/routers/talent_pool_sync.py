@@ -16,8 +16,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, require_talent_pool_sync_secret
-from app.schemas.talent_pool_sync import TalentPoolSyncRequest, TalentPoolSyncResult
-from app.services import talent_pool_sync
+from app.schemas.talent_pool_sync import (
+    ResumeFieldsRequest,
+    ResumeFieldsResult,
+    TalentPoolSyncRequest,
+    TalentPoolSyncResult,
+)
+from app.services import talent_pool_resume_fields, talent_pool_sync
 
 router = APIRouter(prefix="/talent-pool", tags=["talent-pool"])
 
@@ -33,5 +38,17 @@ def sync_tab(payload: TalentPoolSyncRequest, db: Session = Depends(get_db)) -> T
         result = talent_pool_sync.apply_snapshot(db, payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    db.commit()
+    return result
+
+
+@router.post(
+    "/resume-fields",
+    response_model=ResumeFieldsResult,
+    dependencies=[Depends(require_talent_pool_sync_secret)],
+)
+def save_resume_fields(payload: ResumeFieldsRequest, db: Session = Depends(get_db)) -> ResumeFieldsResult:
+    """Values read from Selected candidates' resumes by docs/apps-script/resume-fields.gs."""
+    result = talent_pool_resume_fields.save(db, payload)
     db.commit()
     return result
