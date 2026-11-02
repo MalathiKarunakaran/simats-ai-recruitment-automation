@@ -80,16 +80,9 @@ function rfHomeState_(text) {
     if (/current|present|office|official|college|institute|e-?mail|web|communication/i.test(match[2])) continue;
     return { state: rfStateIn_(rfAddressLines_(text.slice(plain.lastIndex))), via: "address" };
   }
-  // The contact block at the top. Not when the resume opens with a covering letter,
-  // whose address block is the employer's (SIMATS, so always Tamil Nadu).
-  var opening = text.slice(0, 300);
-  if (/^\s*to,?\s*$|respected|dear\s|\bsub\s*:|subject\s*:|the\s+(dean|principal|director|registrar|chairman|hr)\b/im.test(opening)) {
-    return { state: null, via: "letter" };
-  }
-  var top = opening.split("\n").filter(function (line) {
-    return !/universit|college|institut|school|department|currently|current location|working|professor/i.test(line);
-  }).join("\n");
-  return { state: rfStateIn_(top), via: "top" };
+  // Unlabelled contact details are left out on purpose: they often say where the
+  // person lives or works now, and this chart is about home (user's choice, 2-Nov-2026).
+  return { state: null, via: "none" };
 }
 
 function extractResumeFields_(text) {
