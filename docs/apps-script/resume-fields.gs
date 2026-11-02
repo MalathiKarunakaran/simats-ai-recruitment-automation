@@ -58,31 +58,50 @@ function rfStateIn_(text) {
   return RF_PIN3[pin[1]] || RF_PIN2[pin[1].slice(0, 2)] || null;
 }
 
+// The few lines after an address label, stopping before the resume moves on, so a
+// college named further down is not taken for the candidate's home.
+function rfAddressLines_(text) {
+  var kept = [];
+  var lines = text.split("\n");
+  for (var i = 0; i < lines.length && kept.length < 5; i++) {
+    if (/education|objective|career|experience|qualification|profile|summary|universit|college|institut/i.test(lines[i])) break;
+    if (lines[i].trim()) kept.push(lines[i]);
+  }
+  return kept.join("\n").slice(0, 200);
+}
+
 function rfHomeState_(text) {
-  var labelled = text.match(/\b(?:permanent|home|native|residential)\s+address\b([\s\S]{0,250})/i);
-  if (labelled) return rfStateIn_(labelled[1]);
+  var labelled = text.match(/\b(?:permanent|home|native|residential)\s+address\b([\s\S]*)/i);
+  if (labelled) return { state: rfStateIn_(rfAddressLines_(labelled[1])), via: "labelled" };
   // A bare "Address", but not a current, present, office or college one.
-  var plain = /(^|[^a-z])(\w*\s*)address\b([\s\S]{0,250})/gi;
+  var plain = /(^|[^a-z])(\w*\s*)address\b/gi;
   var match;
   while ((match = plain.exec(text))) {
-    if (/current|present|office|official|college|institute|e-?mail|communication/i.test(match[2])) continue;
-    return rfStateIn_(match[3]);
+    if (/current|present|office|official|college|institute|e-?mail|web|communication/i.test(match[2])) continue;
+    return { state: rfStateIn_(rfAddressLines_(text.slice(plain.lastIndex))), via: "address" };
   }
-  // The contact block at the top, when no line there is about a place of work or study.
-  var top = text.slice(0, 300).split("\n").filter(function (line) {
+  // The contact block at the top. Not when the resume opens with a covering letter,
+  // whose address block is the employer's (SIMATS, so always Tamil Nadu).
+  var opening = text.slice(0, 300);
+  if (/^\s*to,?\s*$|respected|dear\s|\bsub\s*:|subject\s*:|the\s+(dean|principal|director|registrar|chairman|hr)\b/im.test(opening)) {
+    return { state: null, via: "letter" };
+  }
+  var top = opening.split("\n").filter(function (line) {
     return !/universit|college|institut|school|department|currently|current location|working|professor/i.test(line);
   }).join("\n");
-  return rfStateIn_(top);
+  return { state: rfStateIn_(top), via: "top" };
 }
 
 function extractResumeFields_(text) {
   var gender = text.match(/\b(?:gender|sex)\b(?:\s*&\s*marital status)?[\s:\-–—]*(female|male)\b/i);
-  var state = rfHomeState_(text);
+  var home = rfHomeState_(text);
+  var state = home.state;
   var nationality = /\b(?:nationality|citizenship|citenship)\b[\s:\-–—]*indian?\b/i.test(text);
   return {
     gender: gender ? (gender[1].toLowerCase() === "female" ? "Female" : "Male") : null,
     state: state,
     country: state || nationality ? "India" : null,
+    via: home.via,
   };
 }
 
@@ -117,19 +136,25 @@ function previewResumeFields() {
   var step = Math.max(1, Math.floor(ids.length / RF_PREVIEW_SIZE));
   var counts = { resumes: ids.length, tested: 0, unreadable: 0, gender: 0, state: 0, country: 0 };
   var states = {};
+  var stateVia = {};
   for (var i = 0; i < ids.length && counts.tested < RF_PREVIEW_SIZE; i += step) {
     counts.tested++;
     try {
       var fields = extractResumeFields_(rfReadText_(ids[i]));
       if (fields.gender) counts.gender++;
       if (fields.country) counts.country++;
-      if (fields.state) { counts.state++; states[fields.state] = (states[fields.state] || 0) + 1; }
+      if (fields.state) {
+        counts.state++;
+        states[fields.state] = (states[fields.state] || 0) + 1;
+        stateVia[fields.via] = (stateVia[fields.via] || 0) + 1;
+      }
     } catch (e) {
       counts.unreadable++;
     }
   }
   Logger.log(JSON.stringify(counts));
   Logger.log(JSON.stringify(states));
+  Logger.log(JSON.stringify(stateVia));
 }
 
 function sendResumeFields() {
@@ -147,8 +172,7 @@ function sendResumeFields() {
     try {
       var fields = extractResumeFields_(rfReadText_(ids[next]));
       if (fields.gender || fields.state || fields.country) {
-        fields.file_id = ids[next];
-        items.push(fields);
+        items.push({ file_id: ids[next], gender: fields.gender, state: fields.state, country: fields.country });
       }
     } catch (e) {
       unreadable++;
