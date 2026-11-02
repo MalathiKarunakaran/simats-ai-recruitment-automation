@@ -73,6 +73,18 @@ describe("SelectedBreakdownSheet", () => {
     expect(href.endsWith("#register")).toBe(true);
   });
 
+  it("opens with focus on the panel itself, so nothing scrolls it down", async () => {
+    renderSheet("view=selected");
+    await screen.findByText("Recorded for 432 of 454");
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+  });
+
+  it("colours Male and Female by name, whichever is larger", async () => {
+    renderSheet("view=selected");
+    const legend = await screen.findByRole("link", { name: /Female: 7/ });
+    expect(legend.querySelector("span")!.getAttribute("style")).toContain("--color-chart-2");
+  });
+
   it("a department bar filters on that department", async () => {
     renderSheet("view=selected&department=Nursing");
     const href = (await screen.findByRole("link", { name: /^ECE: 117/ })).getAttribute("href")!;
