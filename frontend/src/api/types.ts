@@ -2933,6 +2933,20 @@ export interface SelectedBreakdownDimension {
   from_resume: number;
 }
 
+// GET /talent-pool/selected/rows
+export interface TalentPoolSelectedRow {
+  id: string;
+  gender: string | null;
+  college: string | null;
+  country: string | null;
+  state: string | null;
+  dept_raw: string | null;
+  dept_group: string | null;
+  gender_from_resume: boolean;
+  country_from_resume: boolean;
+  state_from_resume: boolean;
+}
+
 export interface TalentPoolSelectedBreakdown {
   source_tab: TalentPoolSourceTab;
   total: number;
@@ -2991,17 +3005,17 @@ export interface TalentPoolListParams {
   q?: string;
   sheet_status?: string;
   dept_mode?: "group" | "raw";
-  department?: string;
+  department?: string[];
   eligibility?: string;
   // Breakdown filters (2026-10-31): each takes the label the summary shows.
   source?: string;
   called_by?: string;
   applied_post?: string;
-  // The Selected breakdown's bars.
-  college?: string;
-  state?: string;
-  country?: string;
-  gender?: string;
+  // The Selected panel's filters: several values of one combine with OR.
+  college?: string[];
+  state?: string[];
+  country?: string[];
+  gender?: string[];
   /** `YYYY-MM` against applied_on, or "undated" for no date. */
   month?: string;
   /** Status is not Selected / Waiting List / Rejected. */

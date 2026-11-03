@@ -43,7 +43,7 @@ export const OTHERS_LABEL = "Others";
  * empty table and look like the new one found nothing. */
 export function filterHref(
   tab: TalentPoolSourceTab,
-  filters: Partial<Record<MeaningParam, string>>,
+  filters: Partial<Record<MeaningParam, string | string[]>>,
   currentParams?: URLSearchParams,
 ): string {
   const params = new URLSearchParams(currentParams ?? undefined);
@@ -54,7 +54,8 @@ export function filterHref(
   else params.delete("tab");
   for (const key of MEANING_PARAMS) {
     const value = filters[key];
-    if (value) params.set(key, value);
+    if (Array.isArray(value)) value.forEach((item) => params.append(key, item));
+    else if (value) params.set(key, value);
   }
   const query = params.toString();
   return `/talent-pool${query ? `?${query}` : ""}#register`;
@@ -76,15 +77,15 @@ export function selectedBreakdownHref(tab: TalentPoolSourceTab, currentParams?: 
 export const CLEARED_FILTERS: RegisterFilters = {
   q: "",
   status: "",
-  department: "",
+  department: [],
   eligibility: "",
   source: "",
   calledBy: "",
   appliedPost: "",
-  college: "",
-  state: "",
-  country: "",
-  gender: "",
+  college: [],
+  state: [],
+  country: [],
+  gender: [],
   month: "",
   undecided: false,
   includeInactive: false,
@@ -105,14 +106,14 @@ export function describeFilters(filters: RegisterFilters, teaching: boolean): st
   if (filters.status) parts.push(filters.status);
   if (filters.undecided) parts.push("No decision yet");
   if (filters.eligibility) parts.push(`Eligibility: ${filters.eligibility}`);
-  if (filters.department) parts.push(`Department: ${filters.department}`);
+  if (filters.department.length) parts.push(`Department: ${filters.department.join(", ")}`);
   if (filters.source) parts.push(`${teaching ? "Data source" : "Reference source"}: ${filters.source}`);
   if (filters.calledBy) parts.push(`Called by: ${filters.calledBy}`);
   if (filters.appliedPost) parts.push(`Applied post: ${filters.appliedPost}`);
-  if (filters.college) parts.push(`College: ${filters.college}`);
-  if (filters.state) parts.push(`State: ${filters.state}`);
-  if (filters.country) parts.push(`Country: ${filters.country}`);
-  if (filters.gender) parts.push(`Gender: ${filters.gender}`);
+  if (filters.college.length) parts.push(`College: ${filters.college.join(", ")}`);
+  if (filters.state.length) parts.push(`State: ${filters.state.join(", ")}`);
+  if (filters.country.length) parts.push(`Country: ${filters.country.join(", ")}`);
+  if (filters.gender.length) parts.push(`Gender: ${filters.gender.join(", ")}`);
   if (filters.month) parts.push(monthLabel(filters.month));
   if (filters.q) parts.push(`Search: \u201c${filters.q}\u201d`);
   if (filters.includeInactive) parts.push("Including removed rows");

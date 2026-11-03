@@ -5,6 +5,7 @@ import type {
   TalentPoolEntryRead,
   TalentPoolListParams,
   TalentPoolSelectedBreakdown,
+  TalentPoolSelectedRow,
   TalentPoolSummary,
 } from "@/api/types";
 
@@ -32,6 +33,15 @@ export async function getSelectedBreakdown(
   return apiFetch<TalentPoolSelectedBreakdown>(`/talent-pool/selected-breakdown?${params.toString()}`);
 }
 
+export async function getSelectedRows(
+  sourceTab: TalentPoolListParams["source_tab"],
+  includeInactive = false,
+): Promise<TalentPoolSelectedRow[]> {
+  const params = new URLSearchParams({ source_tab: sourceTab });
+  if (includeInactive) params.set("include_inactive", "true");
+  return apiFetch<TalentPoolSelectedRow[]>(`/talent-pool/selected/rows?${params.toString()}`);
+}
+
 export async function listTalentPool(
   input: TalentPoolListParams,
 ): Promise<PaginatedResponse<TalentPoolEntryRead>> {
@@ -41,15 +51,15 @@ export async function listTalentPool(
   if (input.q) params.set("q", input.q);
   if (input.sheet_status) params.set("sheet_status", input.sheet_status);
   if (input.dept_mode) params.set("dept_mode", input.dept_mode);
-  if (input.department) params.set("department", input.department);
+  input.department?.forEach((value) => params.append("department", value));
   if (input.eligibility) params.set("eligibility", input.eligibility);
   if (input.source) params.set("source", input.source);
   if (input.called_by) params.set("called_by", input.called_by);
   if (input.applied_post) params.set("applied_post", input.applied_post);
-  if (input.college) params.set("college", input.college);
-  if (input.state) params.set("state", input.state);
-  if (input.country) params.set("country", input.country);
-  if (input.gender) params.set("gender", input.gender);
+  input.college?.forEach((value) => params.append("college", value));
+  input.state?.forEach((value) => params.append("state", value));
+  input.country?.forEach((value) => params.append("country", value));
+  input.gender?.forEach((value) => params.append("gender", value));
   if (input.month) params.set("month", input.month);
   if (input.undecided) params.set("undecided", "true");
   if (input.include_inactive) params.set("include_inactive", "true");

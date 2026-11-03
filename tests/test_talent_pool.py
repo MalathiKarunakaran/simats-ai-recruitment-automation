@@ -862,3 +862,103 @@ def test_selected_breakdown_uses_the_talent_pool_gate(client, db_session, user_f
     assert client.get(url, params={"source_tab": TEACHING}).status_code == 401
     assert client.get(url, params={"source_tab": TEACHING}, headers=auth_headers(client, panel)).status_code == 403
     assert client.get(url, params={"source_tab": TEACHING}, headers=auth_headers(client, coordinator)).status_code == 200
+
+
+# --- Selected panel cross-filtering (3-Nov-2026) ------------------------------
+
+
+def _selected_rows(client, user, **params):
+    r = client.get(
+        "/api/v1/talent-pool/selected/rows",
+        params={"source_tab": TEACHING, **params},
+        headers=auth_headers(client, user),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _listed(client, user, **params):
+    r = client.get(
+        "/api/v1/talent-pool",
+        params={"source_tab": TEACHING, "sheet_status": "Selected", **params},
+        headers=auth_headers(client, user),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()["total"]
+
+
+def test_selected_rows_are_the_breakdowns_rows_and_carry_no_contact_details(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    _selected(db_session, dept="ECE", College="sse", State="Tamil Nadu", Country="India", Gender="M")
+    _selected(db_session, dept="Not set", College="SCAD")
+    _entry(db_session, sheet_status="Rejected", raw={"College": "SSE"})
+    _entry(db_session, sheet_status="Selected", is_active=False, raw={"College": "SSE"})
+
+    rows = _selected_rows(client, admin)
+    b = _breakdown(client, admin)
+
+    assert len(rows) == b["total"] == 2
+    for key in ("college", "state", "country", "gender"):
+        counted = sorted(row[key] for row in rows if row[key])
+        assert counted == sorted(item["label"] for item in b[key]["items"])
+    by_college = {row["college"]: row for row in rows}
+    assert by_college["SSE"]["gender"] == "Male"
+    assert by_college["SSE"]["dept_group"] == "ECE"
+    assert by_college["SCAD"]["dept_group"] is None
+    assert set(rows[0]) == {
+        "id", "gender", "college", "country", "state", "dept_raw", "dept_group",
+        "gender_from_resume", "country_from_resume", "state_from_resume",
+    }  # fmt: skip
+
+
+def test_selected_rows_say_what_came_from_the_resume(client, db_session, user_factory):
+    from app.models.talent_pool_resume_field import TalentPoolResumeField
+
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    from_resume = _selected(db_session)
+    from_sheet = _selected(db_session, State="Kerala")
+    for entry in (from_resume, from_sheet):
+        db_session.add(TalentPoolResumeField(talent_pool_entry_id=entry.id, state="Goa"))
+    db_session.flush()
+
+    rows = {row["id"]: row for row in _selected_rows(client, admin)}
+
+    assert rows[str(from_resume.id)]["state"] == "Goa"
+    assert rows[str(from_resume.id)]["state_from_resume"] is True
+    assert rows[str(from_sheet.id)]["state"] == "Kerala"
+    assert rows[str(from_sheet.id)]["state_from_resume"] is False
+
+
+def test_selected_rows_use_the_talent_pool_gate(client, db_session, user_factory):
+    panel = user_factory(UserRoleEnum.INTERVIEW_PANEL_MEMBER)
+    coordinator = user_factory(UserRoleEnum.RECRUITMENT_COORDINATOR)
+    url = "/api/v1/talent-pool/selected/rows"
+    assert client.get(url, params={"source_tab": TEACHING}).status_code == 401
+    assert client.get(url, params={"source_tab": TEACHING}, headers=auth_headers(client, panel)).status_code == 403
+    assert client.get(url, params={"source_tab": TEACHING}, headers=auth_headers(client, coordinator)).status_code == 200
+
+
+def test_list_several_values_or_within_a_filter_and_across_filters(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    _selected(db_session, dept="ECE", College="SSE", Gender="M")
+    _selected(db_session, dept="CSE", College="SSE", Gender="F")
+    _selected(db_session, dept="ECE", College="SCAD", Gender="F")
+    _selected(db_session, dept="Maths", College="SCLAS", Gender="M")
+
+    assert _listed(client, admin, college="SSE") == 2
+    assert _listed(client, admin, college=["SSE", "SCAD"]) == 3
+    assert _listed(client, admin, college=["SSE", "SCAD"], department="ECE") == 2
+    assert _listed(client, admin, department=["ECE", "CSE"]) == 3
+    assert _listed(client, admin, college=["SSE", "SCAD"], department="ECE", gender="Female") == 1
+    assert _listed(client, admin, college="") == 4
+
+
+def test_list_department_matches_trimmed_and_still_finds_blanks(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    _entry(db_session, sheet_status="Selected", dept_raw="ECE ")
+    _entry(db_session, sheet_status="Selected", dept_raw="ECE")
+    _entry(db_session, sheet_status="Selected", dept_raw="  ")
+
+    assert _listed(client, admin, dept_mode="raw", department="ECE") == 2
+    assert _listed(client, admin, dept_mode="raw", department="Not set") == 1
+    assert _listed(client, admin, dept_mode="raw", department=["ECE", "Not set"]) == 3

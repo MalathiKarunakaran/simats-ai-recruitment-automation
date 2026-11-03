@@ -16,6 +16,19 @@ vi.mock("@/auth/AuthContext", () => ({
   useAuth: () => ({ user: { role: "MANAGEMENT" } }),
 }));
 
+const selectedRows = (["ECE", "ECE", null] as const).map((dept, index) => ({
+  id: String(index),
+  gender: null,
+  college: dept ? "SSE" : null,
+  country: null,
+  state: null,
+  dept_raw: dept,
+  dept_group: dept,
+  gender_from_resume: false,
+  country_from_resume: false,
+  state_from_resume: false,
+}));
+
 const mockedGetSummary = vi.mocked(talentPoolApi.getTalentPoolSummary);
 const mockedListPool = vi.mocked(talentPoolApi.listTalentPool);
 const mockedGetEntry = vi.mocked(talentPoolApi.getTalentPoolEntry);
@@ -785,7 +798,7 @@ describe("TalentPoolPage", () => {
           expect.objectContaining({
             source_tab: "TEACHING_FINAL",
             sheet_status: "Rejected",
-            department: "CSE",
+            department: ["CSE"],
             eligibility: "Pursuing Ph.D",
             include_inactive: true,
             limit: 25,
@@ -842,7 +855,7 @@ describe("TalentPoolPage", () => {
 
       await waitFor(() =>
         expect(mockedListPool).toHaveBeenCalledWith(
-          expect.objectContaining({ department: "Nursing", offset: 0 }),
+          expect.objectContaining({ department: ["Nursing"], offset: 0 }),
         ),
       );
     });
@@ -962,29 +975,54 @@ describe("every count opens the list behind it (2026-10-31)", () => {
 
   it("the Selected tile opens the breakdown panel, and closing it stays on the page", async () => {
     mockedGetSummary.mockResolvedValue(summary());
-    vi.mocked(talentPoolApi.getSelectedBreakdown).mockResolvedValue({
-      source_tab: "TEACHING_FINAL",
-      total: 454,
-      department: { items: [{ label: "ECE", count: 117 }], recorded: 432, from_resume: 0 },
-      college: { items: [], recorded: 0, from_resume: 0 },
-      state: { items: [], recorded: 0, from_resume: 0 },
-      country: { items: [], recorded: 0, from_resume: 0 },
-      gender: { items: [], recorded: 0, from_resume: 0 },
-    });
+    vi.mocked(talentPoolApi.getSelectedRows).mockResolvedValue(selectedRows);
     renderPage("/talent-pool?source=Mam+Data");
 
     await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
     const params = new URL(tileLink("Selected")!.getAttribute("href")!, "http://x").searchParams;
     expect(params.get("view")).toBe("selected");
     expect(params.get("source")).toBeNull();
-    expect(screen.queryByText("Recorded for 432 of 454")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Selected candidates: 3" })).not.toBeInTheDocument();
 
     await userEvent.click(tileLink("Selected")!);
-    expect(await screen.findByText("Recorded for 432 of 454")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Selected candidates: 3" })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(screen.queryByText("Recorded for 432 of 454")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Selected candidates: 3" })).not.toBeInTheDocument());
     expect(screen.getByText("in the Final sheet")).toBeInTheDocument();
+  });
+
+  it("switching department view inside the panel keeps it open with its other filters", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    vi.mocked(talentPoolApi.getSelectedRows).mockResolvedValue(selectedRows);
+    renderPage("/talent-pool?view=selected");
+
+    await userEvent.click(await screen.findByRole("button", { name: /^SSE: 2/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^ECE: 2/ }));
+    expect(screen.getByRole("heading", { name: "Selected candidates: 2 of 3" })).toBeInTheDocument();
+
+    const dialog = within(screen.getByRole("dialog"));
+    await userEvent.click(dialog.getByRole("button", { name: "As in sheet" }));
+
+    await waitFor(() => expect(mockedGetSummary).toHaveBeenCalledWith("TEACHING_FINAL", "raw"));
+    expect(screen.getByRole("heading", { name: "Selected candidates: 2 of 3" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /College filter/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Dept filter/ })).not.toBeInTheDocument();
+  });
+
+  it("a list reached with several values asks for them all and says so", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    renderPage("/talent-pool?status=Selected&college=SSE&college=SCAD&department=ECE&department=CSE");
+
+    const line = await screen.findByTestId("talent-pool-active-filters");
+    await waitFor(() =>
+      expect(mockedListPool).toHaveBeenCalledWith(
+        expect.objectContaining({ college: ["SSE", "SCAD"], department: ["ECE", "CSE"] }),
+      ),
+    );
+    expect(line).toHaveTextContent("Department: ECE, CSE");
+    expect(line).toHaveTextContent("College: SSE, SCAD");
+    expect(screen.getByRole("combobox", { name: "Department filter" })).toHaveTextContent("2 departments");
   });
 
   it("the NTS Total tile is a link too, and In follow-up (three statuses) is not", async () => {
@@ -1099,7 +1137,7 @@ describe("every count opens the list behind it (2026-10-31)", () => {
 
     await waitFor(() =>
       expect(mockedListPool).toHaveBeenCalledWith(
-        expect.objectContaining({ sheet_status: undefined, department: undefined, offset: 0 }),
+        expect.objectContaining({ sheet_status: undefined, department: [], offset: 0 }),
       ),
     );
     expect(screen.queryByTestId("talent-pool-active-filters")).not.toBeInTheDocument();

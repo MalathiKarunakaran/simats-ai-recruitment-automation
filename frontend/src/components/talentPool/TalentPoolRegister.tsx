@@ -32,6 +32,7 @@ import { Switch } from "@/components/ui/switch";
 
 const PAGE_SIZE = 25;
 const ALL = "__all__";
+const SEVERAL = "__several__";
 // Mirrors selection_batches.py: every route is require_roles(SUPER_ADMIN,
 // HR_ADMIN, RECRUITMENT_COORDINATOR).
 const BATCH_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"];
@@ -39,7 +40,8 @@ const BATCH_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"];
 export interface RegisterFilters {
   q: string;
   status: string;
-  department: string;
+  /** Several when "See full list" carries the Selected panel's filters. */
+  department: string[];
   eligibility: string;
   /** Breakdown and chart filters (2026-10-31). No dropdown sets these -- a
    * clicked count does -- so the "Showing:" line below is how a reader sees
@@ -47,10 +49,10 @@ export interface RegisterFilters {
   source: string;
   calledBy: string;
   appliedPost: string;
-  college: string;
-  state: string;
-  country: string;
-  gender: string;
+  college: string[];
+  state: string[];
+  country: string[];
+  gender: string[];
   /** `YYYY-MM`, or "undated". */
   month: string;
   undecided: boolean;
@@ -130,15 +132,15 @@ export function TalentPoolRegister({
         q: filters.q || undefined,
         sheet_status: filters.status || undefined,
         dept_mode: deptMode,
-        department: filters.department || undefined,
+        department: filters.department,
         eligibility: filters.eligibility || undefined,
         source: filters.source || undefined,
         called_by: filters.calledBy || undefined,
         applied_post: filters.appliedPost || undefined,
-        college: filters.college || undefined,
-        state: filters.state || undefined,
-        country: filters.country || undefined,
-        gender: filters.gender || undefined,
+        college: filters.college,
+        state: filters.state,
+        country: filters.country,
+        gender: filters.gender,
         month: filters.month || undefined,
         undecided: filters.undecided,
         include_inactive: filters.includeInactive,
@@ -222,14 +224,17 @@ export function TalentPoolRegister({
         </Select>
 
         <Select
-          value={filters.department || ALL}
-          onValueChange={(value) => onFiltersChange({ department: value === ALL ? "" : value, offset: 0 })}
+          value={filters.department.length > 1 ? SEVERAL : (filters.department[0] ?? ALL)}
+          onValueChange={(value) => onFiltersChange({ department: value === ALL ? [] : [value], offset: 0 })}
         >
           <SelectTrigger aria-label="Department filter" className="h-8 w-48 text-xs">
             <SelectValue placeholder="All departments" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All departments</SelectItem>
+            {filters.department.length > 1 ? (
+              <SelectItem value={SEVERAL} disabled>{filters.department.length} departments</SelectItem>
+            ) : null}
             {departmentOptions.map((department) => (
               <SelectItem key={department} value={department}>{department}</SelectItem>
             ))}

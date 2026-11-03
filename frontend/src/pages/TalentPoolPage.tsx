@@ -107,15 +107,15 @@ export function TalentPoolPage() {
     () => ({
       q: searchParams.get("q") ?? "",
       status: searchParams.get("status") ?? "",
-      department: searchParams.get("department") ?? "",
+      department: searchParams.getAll("department"),
       eligibility: searchParams.get("eligibility") ?? "",
       source: searchParams.get("source") ?? "",
       calledBy: searchParams.get("called_by") ?? "",
       appliedPost: searchParams.get("applied_post") ?? "",
-      college: searchParams.get("college") ?? "",
-      state: searchParams.get("state") ?? "",
-      country: searchParams.get("country") ?? "",
-      gender: searchParams.get("gender") ?? "",
+      college: searchParams.getAll("college"),
+      state: searchParams.getAll("state"),
+      country: searchParams.getAll("country"),
+      gender: searchParams.getAll("gender"),
       month: searchParams.get("month") ?? "",
       undecided: searchParams.get("undecided") === "true",
       includeInactive: searchParams.get("include_inactive") === "true",
@@ -130,8 +130,13 @@ export function TalentPoolPage() {
   const changeFilters = useCallback(
     (next: Partial<RegisterFilters>) => {
       const params = new URLSearchParams(searchParams);
-      const write = (key: string, value: string | boolean | number | undefined) => {
+      const write = (key: string, value: string | string[] | boolean | number | undefined) => {
         if (value === undefined) return;
+        if (Array.isArray(value)) {
+          params.delete(key);
+          value.forEach((item) => params.append(key, item));
+          return;
+        }
         // An empty filter is absent from the URL rather than present and
         // blank, so a shared link carries only what was actually chosen.
         if (value === "" || value === false || value === 0) params.delete(key);
@@ -470,16 +475,19 @@ export function TalentPoolPage() {
           />
 
           <TalentPoolEntrySheet entry={openEntry} tab={tab} onClose={() => setOpenEntry(null)} />
-
-          <SelectedBreakdownSheet
-            open={searchParams.get(BREAKDOWN_VIEW_PARAM) === BREAKDOWN_VIEW_SELECTED}
-            tab={tab}
-            deptMode={summary.department_mode === "raw" ? "raw" : "group"}
-            currentParams={searchParams}
-            onClose={closeBreakdown}
-          />
         </>
       ) : null}
+
+      {/* Outside the summary's block: switching department view refetches the
+          summary, and unmounting here would lose the panel's filters. */}
+      <SelectedBreakdownSheet
+        open={searchParams.get(BREAKDOWN_VIEW_PARAM) === BREAKDOWN_VIEW_SELECTED}
+        tab={tab}
+        deptMode={tab === "NTS" ? "group" : deptMode}
+        currentParams={searchParams}
+        onDeptModeChange={selectDeptMode}
+        onClose={closeBreakdown}
+      />
     </div>
   );
 }

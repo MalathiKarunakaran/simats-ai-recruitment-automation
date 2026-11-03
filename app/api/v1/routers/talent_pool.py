@@ -66,6 +66,7 @@ from app.schemas.talent_pool import (
     TalentPoolEntryDetail,
     TalentPoolEntryRead,
     TalentPoolSelectedBreakdown,
+    TalentPoolSelectedRow,
     TalentPoolSummary,
 )
 from app.services import talent_pool_attributes as attributes
@@ -446,21 +447,54 @@ def get_selected_breakdown(
     )
 
 
+@router.get("/selected/rows", response_model=list[TalentPoolSelectedRow])
+def get_selected_rows(
+    source_tab: TalentPoolSourceTabEnum = Query(...),
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: object = Depends(require_roles(*_READERS)),
+) -> list[TalentPoolSelectedRow]:
+    """The Selected candidates row by row, for the panel's cross-filtering: it
+    fetches these once and recounts in the browser on every click. Same rows and
+    same expressions as `selected-breakdown`, so the unfiltered charts agree."""
+
+    def dept(column):
+        return func.nullif(func.nullif(func.btrim(column), ""), TALENT_POOL_NOT_SET_LABEL)
+
+    rows = db.execute(
+        select(
+            TalentPoolEntry.id,
+            attributes.gender().label("gender"),
+            attributes.college().label("college"),
+            attributes.country().label("country"),
+            attributes.state().label("state"),
+            dept(TalentPoolEntry.dept_raw).label("dept_raw"),
+            dept(TalentPoolEntry.dept_group).label("dept_group"),
+            attributes.gender_from_resume().label("gender_from_resume"),
+            attributes.country_from_resume().label("country_from_resume"),
+            attributes.state_from_resume().label("state_from_resume"),
+        )
+        .where(*_where(source_tab, include_inactive), TalentPoolEntry.sheet_status == "Selected")
+        .order_by(TalentPoolEntry.id)
+    ).all()
+    return [TalentPoolSelectedRow.model_validate(row._asdict()) for row in rows]
+
+
 @router.get("", response_model=PaginatedResponse[TalentPoolEntryRead])
 def list_talent_pool(
     source_tab: TalentPoolSourceTabEnum = Query(...),
     q: str | None = Query(None),
     sheet_status: str | None = Query(None),
     dept_mode: str = Query("group", pattern="^(group|raw)$"),
-    department: str | None = Query(None),
+    department: list[str] | None = Query(None),
     eligibility: str | None = Query(None),
     source: str | None = Query(None),
     called_by: str | None = Query(None),
     applied_post: str | None = Query(None),
-    college: str | None = Query(None),
-    state: str | None = Query(None),
-    country: str | None = Query(None),
-    gender: str | None = Query(None),
+    college: list[str] | None = Query(None),
+    state: list[str] | None = Query(None),
+    country: list[str] | None = Query(None),
+    gender: list[str] | None = Query(None),
     month: str | None = Query(None),
     undecided: bool = Query(False),
     include_inactive: bool = Query(False),
@@ -493,14 +527,16 @@ def list_talent_pool(
     if applied_post:
         stmt = stmt.where(_label_match(TalentPoolEntry.applied_post, applied_post))
     # The Selected breakdown's bars: the same expressions that counted them.
-    if college:
-        stmt = stmt.where(attributes.college() == college)
-    if state:
-        stmt = stmt.where(attributes.state() == state)
-    if country:
-        stmt = stmt.where(attributes.country() == country)
-    if gender:
-        stmt = stmt.where(attributes.gender() == gender)
+    # Repeat a parameter to pick several values of it; they combine with OR.
+    for expr, values in (
+        (attributes.college, college),
+        (attributes.state, state),
+        (attributes.country, country),
+        (attributes.gender, gender),
+    ):
+        wanted = [value for value in values or [] if value]
+        if wanted:
+            stmt = stmt.where(expr().in_(wanted))
     if month:
         if month == _UNDATED:
             stmt = stmt.where(TalentPoolEntry.applied_on.is_(None))
@@ -511,20 +547,23 @@ def list_talent_pool(
         # The same definition as the summary's `open` column: anything that
         # is not one of the decided statuses, unexpected spellings included.
         stmt = stmt.where(TalentPoolEntry.sheet_status.not_in(TALENT_POOL_DECIDED_STATUSES))
-    if department:
-        # Matched exactly, against whichever column the caller is viewing,
-        # so a department row click filters to precisely that row's count.
-        # "Not set" is the label the summary gives a blank, so it has to
-        # match blanks here too or clicking that row would return nothing.
+    departments = [value for value in department or [] if value]
+    if departments:
+        # Matched against whichever column the caller is viewing, so a
+        # department row click filters to precisely that row's count. Trimmed
+        # because the Selected panel's labels are. "Not set" is the label the
+        # summary gives a blank, so it has to match blanks here too or clicking
+        # that row would return nothing.
         col = (
             TalentPoolEntry.dept_group
             if (dept_mode == "group" or source_tab == TalentPoolSourceTabEnum.NTS)
             else TalentPoolEntry.dept_raw
         )
-        if department == TALENT_POOL_NOT_SET_LABEL:
-            stmt = stmt.where((col.is_(None)) | (func.btrim(col) == ""))
-        else:
-            stmt = stmt.where(col == department)
+        names = [value.strip() for value in departments if value != TALENT_POOL_NOT_SET_LABEL]
+        matches = func.btrim(col).in_(names)
+        if len(names) < len(departments):
+            matches = matches | col.is_(None) | (func.btrim(col) == "")
+        stmt = stmt.where(matches)
 
     if q:
         term = f"%{_escape_like(q.strip())}%"

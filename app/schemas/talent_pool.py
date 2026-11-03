@@ -142,6 +142,22 @@ class TalentPoolSelectedBreakdown(BaseModel):
     gender: SelectedBreakdownDimension
 
 
+class TalentPoolSelectedRow(BaseModel):
+    """One Selected candidate as the panel's charts see it. Only what they
+    count: no name, email or phone. Null means the value is not recorded."""
+
+    id: uuid.UUID
+    gender: str | None
+    college: str | None
+    country: str | None
+    state: str | None
+    dept_raw: str | None
+    dept_group: str | None
+    gender_from_resume: bool
+    country_from_resume: bool
+    state_from_resume: bool
+
+
 class TalentPoolSummary(BaseModel):
     source_tab: TalentPoolSourceTabEnum
     total: int
