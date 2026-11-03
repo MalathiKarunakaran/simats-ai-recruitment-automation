@@ -56,20 +56,21 @@ def _header_key(header: str | None) -> str:
 
 # Field -> the header spellings it may appear under (compared by _header_key,
 # so case, spaces and punctuation do not matter). The first spelling of each
-# is the one the live sheet used on 2026-10-29.
+# is the one the live sheet used on 2026-10-29; the Final tab's second is its
+# wording since 2026-11-03.
 _FINAL_COLUMNS = {
     "name": ("Name",),
     "email": ("Mail ID",),
-    "phone": ("Phone Number",),
-    "source": ("Data",),
-    "applied": ("Applied Date",),
+    "phone": ("Phone Number", "Phone NO"),
+    "source": ("Data", "Reference"),
+    "applied": ("Applied Date", "Date"),
     "dept": ("Actual Dept",),
-    "resume": ("Google Link",),
-    "eligibility": ("PhD / Eligible Status",),
+    "resume": ("Google Link", "Resume Link"),
+    "eligibility": ("PhD / Eligible Status", "Ph.D Status"),
     "status": ("Status",),
-    "interview": ("Date of Interview",),
-    "remarks": ("General Remark",),
-    "called_by": ("Interview Called by",),
+    "interview": ("Date of Interview", "Interview Attended"),
+    "remarks": ("General Remark", "General Remarks"),
+    "called_by": ("Interview Called by", "Followed byb", "Followed by"),
 }
 _NTS_COLUMNS = {
     "name": ("Name",),
@@ -259,7 +260,11 @@ def apply_snapshot(db: Session, payload: TalentPoolSyncRequest) -> TalentPoolSyn
         if values is None:
             continue
         raw = {label: (cells[i] if i < len(cells) else None) for i, label in enumerate(raw_labels)}
-        digest = hashlib.sha256(json.dumps(raw, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        # The parsed values count too: when the column names the app knows change,
+        # rows whose cells did not change must still be read again.
+        digest = hashlib.sha256(
+            json.dumps({"raw": raw, "values": values}, sort_keys=True, ensure_ascii=False, default=str).encode()
+        ).hexdigest()
         parsed.append(
             _Parsed(
                 row_number=row.row_number,

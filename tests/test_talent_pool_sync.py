@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.models.audit_log import AuditLog
 from app.models.enums import TALENT_POOL_SYNCED_ACTION, TalentPoolSourceTabEnum, UserRoleEnum
 from app.models.talent_pool_entry import TalentPoolEntry
+from app.services import talent_pool_sync as sync
 
 from tests.conftest import auth_headers
 
@@ -145,6 +146,60 @@ def test_columns_are_found_by_name_not_position(client, db_session):
     row["cells"] = list(reversed(row["cells"]))
     assert post(client, final([row], headers=headers)).status_code == 200
     assert entries(db_session)[0].full_name == "Asha R"
+
+
+def _renamed_final_row(n, *, email):
+    """The Final tab under its wording since 2026-11-03, with BioID, College and
+    Mail Status among the columns."""
+    values = {
+        "S.No": str(n), "Reference": "Mam Data", "BioID": "", "Date": "05-03-2025", "Mail ID": email, "Name": "Asha R",
+        "Phone NO": "9876543210", "College": "SSE", "Actual Dept": "CSE", "Resume Link": "https://drive.example/cv",
+        "Ph.D Status": "With Ph.D", "Mail Status": "", "DoB": "", "Age": "", "Location": "", "Status": "Selected",
+        "Interview Attended": "12/13-9-25", "Month/ Year": "", "General Remarks": "Good", "Second Time Status": "",
+        "Followed byb": "Narmada",
+    }  # fmt: skip
+    return list(values), {"row_number": n + 2, "cells": list(values.values())}
+
+
+def test_final_tab_is_read_under_its_current_column_names(client, db_session):
+    headers, row = _renamed_final_row(1, email="asha@example.com")
+    response = post(client, final([row], headers=headers))
+    assert response.status_code == 200
+    assert response.json()["missing_headers"] == []
+    entry = entries(db_session)[0]
+    assert entry.phone == "9876543210"
+    assert entry.source == "Mam Data"
+    assert entry.applied_on == date(2025, 3, 5)
+    assert entry.resume_url == "https://drive.example/cv"
+    assert entry.eligibility_raw == "With Ph.D"
+    assert entry.interview_on_raw == "12/13-9-25"
+    assert entry.remarks == "Good"
+    assert entry.called_by == "Narmada"
+    assert entry.raw["College"] == "SSE"
+
+
+def test_renaming_columns_keeps_a_person_without_email_as_the_same_row(client, db_session):
+    post(client, final([final_row(1, email="")]))
+    before = entries(db_session)[0].id
+    headers, row = _renamed_final_row(1, email="")
+    counts = post(client, final([row], headers=headers)).json()["counts"]
+    assert counts["deactivated"] == 0
+    assert counts["inserted"] == 0
+    assert entries(db_session)[0].id == before
+
+
+def test_learning_a_column_name_reads_unchanged_rows_again(client, db_session, monkeypatch):
+    headers, row = _renamed_final_row(1, email="asha@example.com")
+    without_phone = {**sync._FINAL_COLUMNS, "phone": ("Phone Number",)}
+    monkeypatch.setattr(sync, "_FINAL_COLUMNS", without_phone)
+    post(client, final([row], headers=headers))
+    assert entries(db_session)[0].phone is None
+
+    monkeypatch.undo()
+    monkeypatch.setattr(settings, "TALENT_POOL_SYNC_SECRET", SECRET)
+    counts = post(client, final([row], headers=headers)).json()["counts"]
+    assert counts["updated"] == 1
+    assert entries(db_session)[0].phone == "9876543210"
 
 
 def test_missing_name_header_refuses_the_snapshot(client, db_session):

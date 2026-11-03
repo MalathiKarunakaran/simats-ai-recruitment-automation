@@ -102,8 +102,9 @@ function rfSelectedFileIds_() {
   var values = SpreadsheetApp.openById(RF_SHEET_ID).getSheetByName(RF_TAB).getDataRange().getValues();
   var headers = values[1].map(function (h) { return String(h).trim(); }); // row 2 is the header
   var statusAt = headers.indexOf("Status");
-  var linkAt = headers.indexOf("Google Link");
-  if (statusAt < 0 || linkAt < 0) throw new Error("Status or Google Link column not found");
+  var linkAt = headers.indexOf("Resume Link");
+  if (linkAt < 0) linkAt = headers.indexOf("Google Link");
+  if (statusAt < 0 || linkAt < 0) throw new Error("Status or Resume Link column not found");
   var seen = {};
   for (var i = 2; i < values.length; i++) {
     if (String(values[i][statusAt]).trim() !== "Selected") continue;
