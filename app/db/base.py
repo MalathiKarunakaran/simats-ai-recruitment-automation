@@ -36,6 +36,7 @@ from app.models.job_posting_channel import JobPostingChannel, PostingAttempt  # 
 from app.models.inbound_email import EmailAttachment, InboundEmail  # noqa: F401
 from app.models.talent_pool_entry import TalentPoolEntry  # noqa: F401
 from app.models.talent_pool_resume_field import TalentPoolResumeField  # noqa: F401
+from app.models.talent_pool_source_ref import TalentPoolSourceRef  # noqa: F401
 from app.models.sheet_sync import (  # noqa: F401
     DepartmentFaculty,
     NewDepartment,

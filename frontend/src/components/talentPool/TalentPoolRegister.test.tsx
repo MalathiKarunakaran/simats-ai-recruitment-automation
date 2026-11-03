@@ -38,7 +38,7 @@ const summary = {
 } as unknown as TalentPoolSummary;
 
 const filters = (over: Partial<RegisterFilters> = {}): RegisterFilters => ({
-  q: "", status: "Selected", department: [], eligibility: "", source: "", calledBy: "", appliedPost: "",
+  q: "", status: ["Selected"], department: [], eligibility: "", source: [], dataSource: [], calledBy: "", appliedPost: "",
   college: [], state: [], country: [], gender: [],
   month: "", undecided: false, includeInactive: false, offset: 0, ...over,
 });
@@ -76,7 +76,7 @@ describe("TalentPoolRegister batch selection", () => {
   });
 
   it("shows none when the status filter is not Selected", async () => {
-    renderRegister(filters({ status: "Pending" }));
+    renderRegister(filters({ status: ["Pending"] }));
     await screen.findByText("Asha");
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(batchesApi.getBatchMembership).not.toHaveBeenCalled();

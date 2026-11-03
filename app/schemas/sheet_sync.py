@@ -63,3 +63,8 @@ class SheetSyncStatusItem(BaseModel):
     source: str
     last_run: SheetSyncRunOut | None
     last_dry_run: SheetSyncRunOut | None
+
+
+class SourceRefsResult(BaseModel):
+    counts: dict[str, int]
+    missing_headers: list[str]

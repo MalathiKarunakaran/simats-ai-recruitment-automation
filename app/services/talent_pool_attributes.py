@@ -17,7 +17,10 @@ from sqlalchemy import and_, case, func, select
 
 from app.models.sheet_sync import SheetJoinee
 from app.models.talent_pool_entry import TalentPoolEntry
+from app.models.enums import TalentPoolSourceTabEnum
 from app.models.talent_pool_resume_field import TalentPoolResumeField
+from app.models.talent_pool_source_ref import TalentPoolSourceRef
+from app.services.talent_pool_sources import FACULTY_PLUS
 
 
 def _cell(column):
@@ -47,6 +50,31 @@ def _from_resume(column):
         .where(TalentPoolResumeField.talent_pool_entry_id == TalentPoolEntry.id)
         .correlate(TalentPoolEntry)
         .scalar_subquery()
+    )
+
+
+def _source_for(key):
+    return (
+        select(TalentPoolSourceRef.source)
+        .where(TalentPoolSourceRef.match_key == key)
+        .correlate(TalentPoolEntry)
+        .scalar_subquery()
+    )
+
+
+def data_source():
+    """Final only, where Reference says just Mam Data or Our Data. Mam Data is
+    Faculty Plus; the rest take their source from the TS tab, by email and then
+    phone, and stay null when TS does not list them. NTS's Reference is already
+    the source, so it has no second value here."""
+    digits = func.regexp_replace(TalentPoolEntry.phone, r"\D", "", "g")
+    return case(
+        (TalentPoolEntry.source_tab != TalentPoolSourceTabEnum.TEACHING_FINAL, None),
+        (func.lower(func.btrim(TalentPoolEntry.source)) == "mam data", FACULTY_PLUS),
+        else_=func.coalesce(
+            _source_for("e:" + func.lower(func.btrim(TalentPoolEntry.email))),
+            _source_for("p:" + func.right(digits, 10)),
+        ),
     )
 
 

@@ -13,6 +13,7 @@ export const MEANING_PARAMS = [
   "eligibility",
   "undecided",
   "source",
+  "data_source",
   "called_by",
   "applied_post",
   "college",
@@ -26,6 +27,7 @@ export type MeaningParam = (typeof MEANING_PARAMS)[number];
 
 export const BREAKDOWN_VIEW_PARAM = "view";
 export const BREAKDOWN_VIEW_SELECTED = "selected";
+export const BREAKDOWN_VIEW_ALL = "all";
 
 /** The bucket the API folds everything below its top N into. It is not a
  * value anybody can filter on, so it is never a link. */
@@ -64,22 +66,32 @@ export function filterHref(
 /** Opens the Selected breakdown panel. A link and URL state like every other
  * count on this page, so the panel survives a reload and can be shared. */
 export function selectedBreakdownHref(tab: TalentPoolSourceTab, currentParams?: URLSearchParams): string {
+  return breakdownHref(BREAKDOWN_VIEW_SELECTED, tab, currentParams);
+}
+
+/** The same panel over every candidate on the tab. */
+export function allBreakdownHref(tab: TalentPoolSourceTab, currentParams?: URLSearchParams): string {
+  return breakdownHref(BREAKDOWN_VIEW_ALL, tab, currentParams);
+}
+
+function breakdownHref(view: string, tab: TalentPoolSourceTab, currentParams?: URLSearchParams): string {
   const params = new URLSearchParams(currentParams ?? undefined);
   for (const key of MEANING_PARAMS) params.delete(key);
   params.delete("offset");
   if (tab === "NTS") params.set("tab", "nts");
   else params.delete("tab");
-  params.set(BREAKDOWN_VIEW_PARAM, BREAKDOWN_VIEW_SELECTED);
+  params.set(BREAKDOWN_VIEW_PARAM, view);
   return `/talent-pool?${params.toString()}`;
 }
 
 /** Every filter switched off, for the "Clear filters" button. */
 export const CLEARED_FILTERS: RegisterFilters = {
   q: "",
-  status: "",
+  status: [],
   department: [],
   eligibility: "",
-  source: "",
+  source: [],
+  dataSource: [],
   calledBy: "",
   appliedPost: "",
   college: [],
@@ -103,11 +115,12 @@ function monthLabel(month: string): string {
  * so a list reached by clicking a count always says which count it is. */
 export function describeFilters(filters: RegisterFilters, teaching: boolean): string[] {
   const parts: string[] = [];
-  if (filters.status) parts.push(filters.status);
+  if (filters.status.length) parts.push(filters.status.join(", "));
   if (filters.undecided) parts.push("No decision yet");
   if (filters.eligibility) parts.push(`Eligibility: ${filters.eligibility}`);
   if (filters.department.length) parts.push(`Department: ${filters.department.join(", ")}`);
-  if (filters.source) parts.push(`${teaching ? "Data source" : "Reference source"}: ${filters.source}`);
+  if (filters.source.length) parts.push(`${teaching ? "Data source" : "Reference source"}: ${filters.source.join(", ")}`);
+  if (filters.dataSource.length) parts.push(`Source: ${filters.dataSource.join(", ")}`);
   if (filters.calledBy) parts.push(`Called by: ${filters.calledBy}`);
   if (filters.appliedPost) parts.push(`Applied post: ${filters.appliedPost}`);
   if (filters.college.length) parts.push(`College: ${filters.college.join(", ")}`);

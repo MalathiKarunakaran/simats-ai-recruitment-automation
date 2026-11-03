@@ -34,10 +34,11 @@ into an offset.
 
 import re
 import uuid
+from collections import Counter, defaultdict
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import Select, desc, func, nulls_last, select
+from sqlalchemy import Select, desc, func, nulls_last, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, require_roles
@@ -447,16 +448,10 @@ def get_selected_breakdown(
     )
 
 
-@router.get("/selected/rows", response_model=list[TalentPoolSelectedRow])
-def get_selected_rows(
-    source_tab: TalentPoolSourceTabEnum = Query(...),
-    include_inactive: bool = Query(False),
-    db: Session = Depends(get_db),
-    _: object = Depends(require_roles(*_READERS)),
-) -> list[TalentPoolSelectedRow]:
-    """The Selected candidates row by row, for the panel's cross-filtering: it
-    fetches these once and recounts in the browser on every click. Same rows and
-    same expressions as `selected-breakdown`, so the unfiltered charts agree."""
+def _panel_rows(db: Session, where: list) -> list[TalentPoolSelectedRow]:
+    """Candidates row by row, for the panel's cross-filtering: it fetches these
+    once and recounts in the browser on every click. Same expressions as
+    `selected-breakdown`, so the unfiltered charts agree."""
 
     def dept(column):
         return func.nullif(func.nullif(func.btrim(column), ""), TALENT_POOL_NOT_SET_LABEL)
@@ -464,6 +459,10 @@ def get_selected_rows(
     rows = db.execute(
         select(
             TalentPoolEntry.id,
+            TalentPoolEntry.full_name,
+            TalentPoolEntry.sheet_status.label("status"),
+            func.nullif(func.btrim(TalentPoolEntry.source), "").label("reference"),
+            attributes.data_source().label("source"),
             attributes.gender().label("gender"),
             attributes.college().label("college"),
             attributes.country().label("country"),
@@ -474,21 +473,56 @@ def get_selected_rows(
             attributes.country_from_resume().label("country_from_resume"),
             attributes.state_from_resume().label("state_from_resume"),
         )
-        .where(*_where(source_tab, include_inactive), TalentPoolEntry.sheet_status == "Selected")
+        .where(*where)
         .order_by(TalentPoolEntry.id)
     ).all()
-    return [TalentPoolSelectedRow.model_validate(row._asdict()) for row in rows]
+
+    # Spellings differing only in case are one value, shown as the commonest,
+    # as `_ranked` and `_label_match` already treat them.
+    spellings: dict[str, Counter] = defaultdict(Counter)
+    for row in rows:
+        if row.reference:
+            spellings[row.reference.lower()][row.reference] += 1
+    label = {key: counter.most_common(1)[0][0] for key, counter in spellings.items()}
+    return [
+        TalentPoolSelectedRow.model_validate(
+            {**row._asdict(), "reference": label[row.reference.lower()] if row.reference else None}
+        )
+        for row in rows
+    ]
+
+
+@router.get("/selected/rows", response_model=list[TalentPoolSelectedRow])
+def get_selected_rows(
+    source_tab: TalentPoolSourceTabEnum = Query(...),
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: object = Depends(require_roles(*_READERS)),
+) -> list[TalentPoolSelectedRow]:
+    return _panel_rows(db, [*_where(source_tab, include_inactive), TalentPoolEntry.sheet_status == "Selected"])
+
+
+@router.get("/rows", response_model=list[TalentPoolSelectedRow])
+def get_all_rows(
+    source_tab: TalentPoolSourceTabEnum = Query(...),
+    include_inactive: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: object = Depends(require_roles(*_READERS)),
+) -> list[TalentPoolSelectedRow]:
+    """Every candidate on the tab, for the panel behind the Total tile."""
+    return _panel_rows(db, _where(source_tab, include_inactive))
 
 
 @router.get("", response_model=PaginatedResponse[TalentPoolEntryRead])
 def list_talent_pool(
     source_tab: TalentPoolSourceTabEnum = Query(...),
     q: str | None = Query(None),
-    sheet_status: str | None = Query(None),
+    sheet_status: list[str] | None = Query(None),
     dept_mode: str = Query("group", pattern="^(group|raw)$"),
     department: list[str] | None = Query(None),
     eligibility: str | None = Query(None),
-    source: str | None = Query(None),
+    source: list[str] | None = Query(None),
+    data_source: list[str] | None = Query(None),
     called_by: str | None = Query(None),
     applied_post: str | None = Query(None),
     college: list[str] | None = Query(None),
@@ -505,8 +539,9 @@ def list_talent_pool(
 ) -> PaginatedResponse[TalentPoolEntryRead]:
     stmt = _base(source_tab, include_inactive)
 
-    if sheet_status:
-        stmt = stmt.where(TalentPoolEntry.sheet_status == sheet_status)
+    statuses = [value for value in sheet_status or [] if value]
+    if statuses:
+        stmt = stmt.where(TalentPoolEntry.sheet_status.in_(statuses))
     if eligibility:
         # "Not set" is what the summary calls a blank eligibility, so it
         # matches blanks rather than a literal "Not set" nobody stored.
@@ -520,8 +555,9 @@ def list_talent_pool(
     # summary shows, so clicking a breakdown row lists exactly that row's
     # count. There is deliberately no filter for "Others" -- it is a fold of
     # whatever fell below the top N, not a value anybody can name.
-    if source:
-        stmt = stmt.where(_label_match(TalentPoolEntry.source, source))
+    references = [value for value in source or [] if value]
+    if references:
+        stmt = stmt.where(or_(*[_label_match(TalentPoolEntry.source, value) for value in references]))
     if called_by:
         stmt = stmt.where(_label_match(TalentPoolEntry.called_by, called_by))
     if applied_post:
@@ -533,6 +569,7 @@ def list_talent_pool(
         (attributes.state, state),
         (attributes.country, country),
         (attributes.gender, gender),
+        (attributes.data_source, data_source),
     ):
         wanted = [value for value in values or [] if value]
         if wanted:

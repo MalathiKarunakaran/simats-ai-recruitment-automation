@@ -39,14 +39,15 @@ const BATCH_ROLES = ["SUPER_ADMIN", "HR_ADMIN", "RECRUITMENT_COORDINATOR"];
 
 export interface RegisterFilters {
   q: string;
-  status: string;
+  status: string[];
   /** Several when "See full list" carries the Selected panel's filters. */
   department: string[];
   eligibility: string;
   /** Breakdown and chart filters (2026-10-31). No dropdown sets these -- a
    * clicked count does -- so the "Showing:" line below is how a reader sees
    * and clears them. */
-  source: string;
+  source: string[];
+  dataSource: string[];
   calledBy: string;
   appliedPost: string;
   college: string[];
@@ -86,7 +87,7 @@ export function TalentPoolRegister({
   const queryClient = useQueryClient();
   // Selecting people for the University only makes sense on the Selected
   // list, and only for the roles the batch endpoints admit.
-  const canSelect = filters.status === "Selected" && !!user && BATCH_ROLES.includes(user.role);
+  const canSelect = filters.status.length === 1 && filters.status[0] === "Selected" && !!user && BATCH_ROLES.includes(user.role);
   const [picked, setPicked] = useState<Map<string, TalentPoolEntryRead>>(new Map());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [createdBatch, setCreatedBatch] = useState<SelectionBatchDetail | null>(null);
@@ -115,6 +116,7 @@ export function TalentPoolRegister({
       filters.department,
       filters.eligibility,
       filters.source,
+      filters.dataSource,
       filters.calledBy,
       filters.appliedPost,
       filters.college,
@@ -130,11 +132,12 @@ export function TalentPoolRegister({
       listTalentPool({
         source_tab: tab,
         q: filters.q || undefined,
-        sheet_status: filters.status || undefined,
+        sheet_status: filters.status,
         dept_mode: deptMode,
         department: filters.department,
         eligibility: filters.eligibility || undefined,
-        source: filters.source || undefined,
+        source: filters.source,
+        data_source: filters.dataSource,
         called_by: filters.calledBy || undefined,
         applied_post: filters.appliedPost || undefined,
         college: filters.college,
@@ -209,14 +212,17 @@ export function TalentPoolRegister({
         />
 
         <Select
-          value={filters.status || ALL}
-          onValueChange={(value) => onFiltersChange({ status: value === ALL ? "" : value, offset: 0 })}
+          value={filters.status.length > 1 ? SEVERAL : (filters.status[0] ?? ALL)}
+          onValueChange={(value) => onFiltersChange({ status: value === ALL ? [] : [value], offset: 0 })}
         >
           <SelectTrigger aria-label="Status filter" className="h-8 w-40 text-xs">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All statuses</SelectItem>
+            {filters.status.length > 1 ? (
+              <SelectItem value={SEVERAL} disabled>{filters.status.length} statuses</SelectItem>
+            ) : null}
             {statusOptions.map((status) => (
               <SelectItem key={status} value={status}>{status}</SelectItem>
             ))}

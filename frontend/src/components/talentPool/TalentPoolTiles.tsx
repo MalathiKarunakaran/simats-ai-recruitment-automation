@@ -2,7 +2,7 @@ import { Award, CheckCircle2, Clock, HelpCircle, PhoneOff, Users, XCircle } from
 
 import { StatTile } from "@/components/dashboard/StatTile";
 import type { TalentPoolSourceTab, TalentPoolSummary } from "@/api/types";
-import { filterHref, selectedBreakdownHref } from "@/components/talentPool/filterHref";
+import { allBreakdownHref, filterHref, selectedBreakdownHref } from "@/components/talentPool/filterHref";
 
 /**
  * The tile row (spec 1.2). Seven tiles per tab, different on each.
@@ -60,7 +60,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
           icon={Users}
           iconColor="blue"
           accent="blue"
-          to={filterHref(tab, {}, currentParams)}
+          to={allBreakdownHref(tab, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -142,7 +142,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
         icon={Users}
         iconColor="blue"
         accent="blue"
-        to={filterHref(tab, {}, currentParams)}
+        to={allBreakdownHref(tab, currentParams)}
         isLoading={isLoading}
       />
       <StatTile

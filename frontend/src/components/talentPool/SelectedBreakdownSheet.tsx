@@ -1,14 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
-import { useEffect, useMemo, type MouseEvent } from "react";
+import { BookUser, Building2, ClipboardList, Globe, GraduationCap, MapPin, Share2, UsersRound, X, type LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 
-import { getSelectedRows } from "@/api/talentPool";
-import type { TalentPoolSourceTab } from "@/api/types";
+import { getAllRows, getSelectedRows } from "@/api/talentPool";
+import type { TalentPoolSelectedRow, TalentPoolSourceTab } from "@/api/types";
 import {
   computeFacets,
+  countDistinct,
   countMatching,
   DIMENSION_KEYS,
+  filterRows,
   selectedDimensions,
   type Dimension,
   type Facet,
@@ -21,14 +23,17 @@ import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTit
 import { cn } from "@/lib/utils";
 
 /**
- * Opens from the Selected tile: who the selected candidates are, charted by
- * department, college, state, country and gender. These columns are often
+ * Opens from the Selected tile, or over every candidate from the Total tile:
+ * who they are, charted by reference, source, department, college, state,
+ * country and gender, with the matching candidates listed below. These columns are often
  * unfilled in the sheets, so every chart says how many rows it covers rather
  * than letting a handful of values pass for the whole picture.
  *
  * Clicking a bar filters the other charts (see crossFilter.ts), all in the
- * browser over rows fetched once. "See full list" carries the filters to the
- * register. Each bar is a real button, so a keyboard reaches it directly.
+ * browser over rows fetched once. Every chart then shows only the matching
+ * data: values left at 0 go, and a chart with picks shows just those, with
+ * "Pick more" to bring the others back. "See full list" carries the filters to
+ * the register. Each bar is a real button, so a keyboard reaches it directly.
  *
  * Opening focuses the panel itself, without scrolling. Left to itself the
  * dialog focuses the first focusable thing inside, which can sit below the fold
@@ -43,6 +48,9 @@ const SHARE_COLORS: Record<string, string> = { Male: "var(--color-chart-1)", Fem
 const OTHER_SHARE_COLOR = "var(--color-chart-4)";
 
 const CHIP_NAMES: Record<Dimension, string> = {
+  status: "Status",
+  reference: "Reference",
+  source: "Source",
   gender: "Gender",
   college: "College",
   country: "Country",
@@ -50,8 +58,24 @@ const CHIP_NAMES: Record<Dimension, string> = {
   department: "Dept",
 };
 
+/** Each chart keeps its own colour, in light and dark, so a value's bar and the
+ * tile above it read as one thing. Hues validated against both card surfaces. */
+const LOOKS: Record<Dimension, { icon: LucideIcon; color: string }> = {
+  status: { icon: ClipboardList, color: "[--accent:var(--color-chart-3)]" },
+  reference: { icon: BookUser, color: "[--accent:var(--color-chart-2)]" },
+  source: { icon: Share2, color: "[--accent:var(--color-chart-1)]" },
+  gender: { icon: UsersRound, color: "[--accent:var(--color-chart-1)]" },
+  college: { icon: GraduationCap, color: "[--accent:#7c3aed] dark:[--accent:#a78bfa]" },
+  country: { icon: Globe, color: "[--accent:#65a30d] dark:[--accent:#a3e635]" },
+  state: { icon: MapPin, color: "[--accent:#0284c7] dark:[--accent:#22d3ee]" },
+  department: { icon: Building2, color: "[--accent:#db2777] dark:[--accent:#f472b6]" },
+};
+
+const tint = (percent: number) => `color-mix(in srgb, var(--accent) ${percent}%, transparent)`;
+
 interface SelectedBreakdownSheetProps {
   open: boolean;
+  scope?: "selected" | "all";
   tab: TalentPoolSourceTab;
   deptMode: "group" | "raw";
   currentParams: URLSearchParams;
@@ -63,6 +87,7 @@ interface BarsProps {
   facet: Facet;
   picked: Set<string>;
   onToggle: (label: string, additive: boolean) => void;
+  labelWidth?: number;
 }
 
 function percent(part: number, whole: number): number {
@@ -87,36 +112,37 @@ function clickHandlers(label: string, onToggle: BarsProps["onToggle"]) {
   };
 }
 
-function RankedBars({ facet, picked, onToggle }: BarsProps) {
+function RankedBars({ facet, picked, onToggle, labelWidth = 92 }: BarsProps) {
   const largest = Math.max(1, ...facet.items.map((item) => item.count));
   return (
     <ul>
       {facet.items.map((item) => {
         const dimmed = isDimmed(item.label, item.count, picked);
+        const isPicked = picked.has(item.label);
         return (
           <li key={item.label}>
             <button
               type="button"
-              aria-pressed={picked.has(item.label)}
+              aria-pressed={isPicked}
               aria-label={`${item.label}: ${item.count}`}
               title={`${item.label}: ${item.count} (${percent(item.count, facet.recorded)}% of those recorded)`}
               data-dimmed={dimmed}
               {...clickHandlers(item.label, onToggle)}
-              className="grid w-full cursor-pointer grid-cols-[100px_1fr] items-center gap-1.5 rounded-sm hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring"
-              style={{ height: ROW_HEIGHT }}
+              className="grid w-full cursor-pointer items-center gap-2 rounded-md px-1 transition-colors hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring"
+              style={{
+                height: ROW_HEIGHT,
+                gridTemplateColumns: `${labelWidth}px minmax(0, 1fr) 28px`,
+                background: isPicked ? tint(14) : undefined,
+              }}
             >
-              <span className="truncate text-right text-[11px] text-foreground">{item.label}</span>
-              <span className="flex min-w-0 items-center gap-1">
+              <span className={cn("truncate text-left text-[11px]", isPicked ? "font-semibold text-foreground" : "text-foreground/85")}>{item.label}</span>
+              <span className="block h-2 overflow-hidden rounded-full" style={{ background: tint(12) }}>
                 <span
-                  className="h-2.5 rounded-r"
-                  style={{
-                    width: `calc((100% - 36px) * ${item.count / largest})`,
-                    background: "var(--color-chart-1)",
-                    opacity: dimmed ? DIMMED : 1,
-                  }}
+                  className="block h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none"
+                  style={{ width: `${(item.count / largest) * 100}%`, background: "var(--accent)", opacity: dimmed ? DIMMED : 1 }}
                 />
-                <span className={cn("text-[11px] tabular-nums", dimmed ? "text-muted-foreground" : "text-foreground")}>{item.count}</span>
               </span>
+              <span className={cn("text-right text-[11px] font-medium tabular-nums", dimmed ? "text-muted-foreground" : "text-foreground")}>{item.count}</span>
             </button>
           </li>
         );
@@ -125,31 +151,47 @@ function RankedBars({ facet, picked, onToggle }: BarsProps) {
   );
 }
 
-/** Part of a whole: one bar split by share, each part named with its number.
- * The legend holds the keyboard's buttons; the bar is the same again for a mouse. */
-function ShareBar({ facet, picked, onToggle }: BarsProps) {
+const RING_RADIUS = 38;
+
+/** Part of a whole: a ring split by share, each part named with its number.
+ * The legend holds the keyboard's buttons; the ring is the same again for a mouse. */
+function ShareRing({ facet, picked, onToggle }: BarsProps) {
   const color = (label: string) => SHARE_COLORS[label] ?? OTHER_SHARE_COLOR;
+  let start = 0;
   return (
-    <div className="space-y-1.5">
-      <div className="flex h-3.5 gap-0.5" aria-hidden="true">
-        {facet.items.map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            tabIndex={-1}
-            title={`${item.label}: ${item.count}`}
-            {...clickHandlers(item.label, onToggle)}
-            className="min-w-1 cursor-pointer first:rounded-l last:rounded-r"
-            style={{
-              flexGrow: item.count,
-              flexBasis: 0,
-              background: color(item.label),
-              opacity: isDimmed(item.label, item.count, picked) ? DIMMED : 1,
-            }}
-          />
-        ))}
+    <div className="flex items-center gap-4">
+      <div className="relative h-24 w-24 shrink-0">
+        <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" aria-hidden="true">
+          <circle cx="50" cy="50" r={RING_RADIUS} fill="none" stroke="var(--color-muted)" strokeWidth="13" />
+          {facet.items.map((item) => {
+            const share = facet.recorded > 0 ? (item.count / facet.recorded) * 100 : 0;
+            const offset = start;
+            start += share;
+            if (share === 0) return null;
+            return (
+              <circle
+                key={item.label}
+                cx="50"
+                cy="50"
+                r={RING_RADIUS}
+                fill="none"
+                pathLength={100}
+                stroke={color(item.label)}
+                strokeWidth="13"
+                strokeDasharray={`${Math.max(share - 0.8, 0.5)} 100`}
+                strokeDashoffset={-offset}
+                opacity={isDimmed(item.label, item.count, picked) ? DIMMED : 1}
+                className="cursor-pointer"
+                {...clickHandlers(item.label, onToggle)}
+              >
+                <title>{`${item.label}: ${item.count}`}</title>
+              </circle>
+            );
+          })}
+        </svg>
+        <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums">{facet.recorded}</span>
       </div>
-      <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
+      <ul className="min-w-0 space-y-1 text-xs">
         {facet.items.map((item) => (
           <li key={item.label}>
             <button
@@ -157,10 +199,13 @@ function ShareBar({ facet, picked, onToggle }: BarsProps) {
               aria-pressed={picked.has(item.label)}
               data-dimmed={isDimmed(item.label, item.count, picked)}
               {...clickHandlers(item.label, onToggle)}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+              className={cn(
+                "inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring",
+                picked.has(item.label) && "bg-muted font-semibold",
+              )}
             >
               <span
-                className="h-2 w-2 rounded-sm"
+                className="h-2.5 w-2.5 rounded-full"
                 style={{ background: color(item.label), opacity: isDimmed(item.label, item.count, picked) ? DIMMED : 1 }}
                 aria-hidden="true"
               />
@@ -174,17 +219,115 @@ function ShareBar({ facet, picked, onToggle }: BarsProps) {
   );
 }
 
-export function SelectedBreakdownSheet({ open, tab, deptMode, currentParams, onDeptModeChange, onClose }: SelectedBreakdownSheetProps) {
+/** One headline number, in the colour of the chart it summarises. */
+function Tile({ label, value, look }: { label: string; value: number; look: Dimension }) {
+  const { icon: Icon, color } = LOOKS[look];
+  return (
+    <div data-testid={`tile-${look}`} className={cn("flex items-center gap-2.5 rounded-lg px-3 py-2", color)} style={{ background: tint(11) } as CSSProperties}>
+      <span className="flex h-8 w-8 items-center justify-center rounded-full" style={{ background: "var(--accent)" }} aria-hidden="true">
+        <Icon className="h-4 w-4 text-white dark:text-slate-900" />
+      </span>
+      <span>
+        <span className="block text-lg leading-tight font-semibold tabular-nums">{value}</span>
+        <span className="block text-[11px] text-muted-foreground">{label}</span>
+      </span>
+    </div>
+  );
+}
+
+const PAGE_SIZE = 25;
+
+/** The candidates behind the charts, right here, one page at a time. */
+function CandidateTable({ rows, deptMode, showSource }: { rows: TalentPoolSelectedRow[]; deptMode: "group" | "raw"; showSource: boolean }) {
+  const [page, setPage] = useState(0);
+  const sorted = useMemo(() => [...rows].sort((a, b) => a.full_name.localeCompare(b.full_name)), [rows]);
+  // Fewer matches than the page being looked at: back to the start.
+  const lastPage = Math.max(0, Math.ceil(sorted.length / PAGE_SIZE) - 1);
+  const shownPage = Math.min(page, lastPage);
+  const shown = sorted.slice(shownPage * PAGE_SIZE, (shownPage + 1) * PAGE_SIZE);
+  const cell = "px-2 py-1.5 text-left";
+  return (
+    <Card>
+      <CardContent className="space-y-2 p-3" data-testid="candidate-table">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-[13px] font-semibold">Candidates: {sorted.length}</h3>
+          {sorted.length > PAGE_SIZE ? (
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <span>
+                {shownPage * PAGE_SIZE + 1}&ndash;{Math.min((shownPage + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}
+              </span>
+              <Button variant="outline" size="sm" className="h-7" disabled={shownPage === 0} onClick={() => setPage(shownPage - 1)}>
+                Previous
+              </Button>
+              <Button variant="outline" size="sm" className="h-7" disabled={shownPage === lastPage} onClick={() => setPage(shownPage + 1)}>
+                Next
+              </Button>
+            </div>
+          ) : null}
+        </div>
+        {sorted.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No candidates match this selection.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px]">
+              <thead className="text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className={cn(cell, "font-medium")}>Name</th>
+                  <th className={cn(cell, "font-medium")}>College</th>
+                  <th className={cn(cell, "font-medium")}>Department</th>
+                  <th className={cn(cell, "font-medium")}>Status</th>
+                  <th className={cn(cell, "font-medium")}>Reference</th>
+                  {showSource ? <th className={cn(cell, "font-medium")}>Source</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((row) => (
+                  <tr key={row.id} className="border-b border-border/60 last:border-0">
+                    <td className={cn(cell, "font-medium")}>{row.full_name}</td>
+                    <td className={cell}>{row.college ?? "\u2013"}</td>
+                    <td className={cell}>{(deptMode === "raw" ? row.dept_raw : row.dept_group) ?? "\u2013"}</td>
+                    <td className={cell}>{row.status}</td>
+                    <td className={cell}>{row.reference ?? "\u2013"}</td>
+                    {showSource ? <td className={cell}>{row.source ?? "\u2013"}</td> : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode, currentParams, onDeptModeChange, onClose }: SelectedBreakdownSheetProps) {
   const includeInactive = currentParams.get("include_inactive") === "true";
   const query = useQuery({
-    queryKey: ["talent-pool", "selected-rows", tab, includeInactive],
-    queryFn: () => getSelectedRows(tab, includeInactive),
+    queryKey: ["talent-pool", "panel-rows", scope, tab, includeInactive],
+    queryFn: () => (scope === "all" ? getAllRows(tab, includeInactive) : getSelectedRows(tab, includeInactive)),
     enabled: open,
   });
   const rows = query.data;
   const sheetName = tab === "NTS" ? "NTS sheet" : "Final sheet";
 
   const { filters, active, toggle, clearDimension, clearAll } = useCrossFilter();
+  // Charts showing their other values, so more can be picked.
+  const [pickingMore, setPickingMore] = useState<ReadonlySet<Dimension>>(new Set());
+  const setPickMore = (key: Dimension, on: boolean) => {
+    setPickingMore((current) => {
+      const next = new Set(current);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+  // A chart with nothing picked has nothing to add to.
+  useEffect(() => {
+    setPickingMore((current) => {
+      const next = new Set([...current].filter((key) => filters[key].size > 0));
+      return next.size === current.size ? current : next;
+    });
+  }, [filters]);
 
   // Closing the panel, or the sheet changing under it, starts over.
   useEffect(() => {
@@ -192,7 +335,7 @@ export function SelectedBreakdownSheet({ open, tab, deptMode, currentParams, onD
   }, [open, clearAll]);
   useEffect(() => {
     clearAll();
-  }, [tab, clearAll]);
+  }, [tab, scope, clearAll]);
   // The two department views have different values, so a pick cannot carry over.
   useEffect(() => {
     clearDimension("department");
@@ -204,12 +347,16 @@ export function SelectedBreakdownSheet({ open, tab, deptMode, currentParams, onD
     return {
       facets: computeFacets(rows, filters, dimensions),
       filtered: countMatching(rows, filters, dimensions),
+      matching: filterRows(rows, filters, dimensions),
+      colleges: countDistinct(rows, filters, dimensions, "college"),
+      states: countDistinct(rows, filters, dimensions, "state"),
+      departments: countDistinct(rows, filters, dimensions, "department"),
     };
   }, [rows, filters, deptMode]);
 
   const listHref = useMemo(() => {
-    // No filter: what the Selected tile always did.
-    if (!active) return filterHref(tab, { status: "Selected" }, currentParams);
+    // No filter: what the tile always did.
+    if (!active) return filterHref(tab, scope === "all" ? {} : { status: "Selected" }, currentParams);
     // The panel counts every Selected candidate, so its list must not stay
     // narrowed by a department or search chosen earlier on the page.
     const params = new URLSearchParams(currentParams);
@@ -220,7 +367,9 @@ export function SelectedBreakdownSheet({ open, tab, deptMode, currentParams, onD
     return filterHref(
       tab,
       {
-        status: "Selected",
+        status: scope === "all" ? [...filters.status] : "Selected",
+        source: [...filters.reference],
+        data_source: [...filters.source],
         gender: [...filters.gender],
         college: [...filters.college],
         country: [...filters.country],
@@ -228,53 +377,86 @@ export function SelectedBreakdownSheet({ open, tab, deptMode, currentParams, onD
       },
       params,
     );
-  }, [active, tab, currentParams, deptMode, filters]);
+  }, [active, scope, tab, currentParams, deptMode, filters]);
 
-  const chart = (title: string, column: string, key: Dimension, facet: Facet, share = false) => (
-    <Card>
-      <CardContent className="space-y-1.5 p-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-          <div className="flex flex-wrap items-baseline gap-x-2">
-            <h3 className="text-xs font-semibold">{title}</h3>
-            <p className="text-[11px] text-muted-foreground">
-              Recorded for {facet.recorded} of {facet.base}
-              {facet.fromResume > 0 ? ` (${facet.fromResume} from resumes)` : ""}
-            </p>
-          </div>
-          {key === "department" && tab !== "NTS" ? (
-            <div role="group" aria-label="Department grouping" className="flex rounded-md border border-border p-0.5">
-              {([
-                { mode: "group" as const, label: "Grouped" },
-                { mode: "raw" as const, label: "As in sheet" },
-              ]).map((option) => (
-                <button
-                  key={option.mode}
-                  type="button"
-                  aria-pressed={deptMode === option.mode}
-                  onClick={() => onDeptModeChange(option.mode)}
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                    deptMode === option.mode ? "bg-brand-primary text-white" : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
+  const chart = (title: string, column: string, key: Dimension, all: Facet, share = false, labelWidth?: number) => {
+    const { icon: Icon, color } = LOOKS[key];
+    const picked = filters[key];
+    const more = pickingMore.has(key);
+    const others = all.items.filter((item) => item.count > 0 && !picked.has(item.label)).length;
+    let facet: Facet = { ...all, items: all.items.filter((item) => item.count > 0 || picked.has(item.label)) };
+    if (picked.size > 0 && !more) {
+      const items = all.items.filter((item) => picked.has(item.label));
+      facet = {
+        ...all,
+        items,
+        recorded: items.reduce((sum, item) => sum + item.count, 0),
+        fromResume: items.reduce((sum, item) => sum + (all.fromResumeByLabel[item.label] ?? 0), 0),
+        base: counted?.filtered ?? all.base,
+      };
+    }
+    // While picking more, a plain click adds, so no key needs holding.
+    const onToggle = (label: string, additive: boolean) => toggle(key, label, additive || more);
+    return (      <Card className={cn("overflow-hidden border-t-[3px]", color)} style={{ borderTopColor: "var(--accent)" }}>
+        <CardContent className="space-y-2 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <div>
+              <h3 className="flex items-center gap-1.5 text-[13px] font-semibold">
+                <Icon className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} aria-hidden="true" />
+                {title}
+              </h3>
+              <p className="text-[11px] text-muted-foreground">
+                Recorded for {facet.recorded} of {facet.base}
+                {facet.fromResume > 0 ? ` (${facet.fromResume} from resumes)` : ""}
+              </p>
             </div>
+            {key === "department" && tab !== "NTS" ? (
+              <div role="group" aria-label="Department grouping" className="flex rounded-md border border-border p-0.5">
+                {([
+                  { mode: "group" as const, label: "Grouped" },
+                  { mode: "raw" as const, label: "As in sheet" },
+                ]).map((option) => (
+                  <button
+                    key={option.mode}
+                    type="button"
+                    aria-pressed={deptMode === option.mode}
+                    onClick={() => onDeptModeChange(option.mode)}
+                    className={cn(
+                      "rounded px-2 py-0.5 text-[11px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                      deptMode === option.mode ? "bg-brand-primary text-white" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          {all.items.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Not recorded yet. Fill the {column} column in the {sheetName}.
+            </p>
+          ) : facet.items.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Not recorded for this selection.</p>
+          ) : share ? (
+            <ShareRing facet={facet} picked={picked} onToggle={onToggle} />
+          ) : (
+            <RankedBars facet={facet} picked={picked} labelWidth={labelWidth} onToggle={onToggle} />
+          )}
+          {picked.size > 0 && others > 0 ? (
+            <button
+              type="button"
+              onClick={() => setPickMore(key, !more)}
+              className="cursor-pointer rounded-sm text-[11px] font-medium underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+              style={{ color: "var(--accent)" }}
+            >
+              {more ? "Show only selected" : `Pick more (${others})`}
+            </button>
           ) : null}
-        </div>
-        {facet.items.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Not recorded yet. Fill the {column} column in the {sheetName}.
-          </p>
-        ) : share ? (
-          <ShareBar facet={facet} picked={filters[key]} onToggle={(label, additive) => toggle(key, label, additive)} />
-        ) : (
-          <RankedBars facet={facet} picked={filters[key]} onToggle={(label, additive) => toggle(key, label, additive)} />
-        )}
-      </CardContent>
-    </Card>
-  );
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <Sheet open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
@@ -296,7 +478,7 @@ export function SelectedBreakdownSheet({ open, tab, deptMode, currentParams, onD
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
             <div>
               <SheetTitle>
-                Selected candidates
+                {scope === "all" ? "All candidates" : "Selected candidates"}
                 {rows && counted ? `: ${active ? `${counted.filtered} of ${rows.length}` : rows.length}` : ""}
               </SheetTitle>
               <SheetDescription>From the {sheetName}.</SheetDescription>
@@ -327,6 +509,12 @@ export function SelectedBreakdownSheet({ open, tab, deptMode, currentParams, onD
             </p>
           ) : (
             <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Tile label={scope === "all" ? "Candidates" : "Selected"} value={counted.filtered} look="gender" />
+                <Tile label={counted.colleges === 1 ? "College" : "Colleges"} value={counted.colleges} look="college" />
+                <Tile label={counted.states === 1 ? "State" : "States"} value={counted.states} look="state" />
+                <Tile label={counted.departments === 1 ? "Department" : "Departments"} value={counted.departments} look="department" />
+              </div>
               {/* Always there, so the charts stay put when the first bar is clicked. */}
               <div className="flex min-h-10 flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/30 px-2.5 py-1.5" data-testid="selection-box">
                 {active ? (
@@ -350,19 +538,25 @@ export function SelectedBreakdownSheet({ open, tab, deptMode, currentParams, onD
                   </>
                 ) : (
                   <p className="text-[11px] text-muted-foreground">
-                    Click a bar to filter the other charts. Ctrl or Cmd + click picks several in one chart.
+                    Click a bar to show only that data. Use Pick more, or Ctrl or Cmd + click, to choose several in one chart.
                   </p>
                 )}
               </div>
-              <div className="grid items-start gap-2 lg:grid-cols-3">
+              <div className="grid items-start gap-2 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
                 <div className="grid gap-2">
+                  {scope === "all" ? chart("Status", "Status", "status", counted.facets.status) : null}
                   {chart("Male / Female", "Gender", "gender", counted.facets.gender, true)}
-                  {chart("College", "College", "college", counted.facets.college)}
+                  {chart("Reference", "Reference", "reference", counted.facets.reference)}
+                  {tab !== "NTS" ? chart("Source", "Reference", "source", counted.facets.source) : null}
                   {chart("Country", "Country", "country", counted.facets.country)}
                 </div>
-                {chart("State", "State", "state", counted.facets.state)}
-                {chart("Department", tab === "NTS" ? "Department" : "Actual Dept", "department", counted.facets.department)}
+                <div className="grid gap-2">
+                  {chart("College", "College", "college", counted.facets.college)}
+                  {chart("State", "State", "state", counted.facets.state)}
+                </div>
+                {chart("Department", tab === "NTS" ? "Department" : "Actual Dept", "department", counted.facets.department, false, 136)}
               </div>
+              <CandidateTable rows={counted.matching} deptMode={deptMode} showSource={tab !== "NTS"} />
             </div>
           )}
         </SheetBody>

@@ -6,7 +6,7 @@ import type { TalentPoolSelectedRow } from "@/api/types";
  * never narrowed by its own picks: it keeps showing what else could be picked.
  */
 
-export const DIMENSION_KEYS = ["gender", "college", "country", "state", "department"] as const;
+export const DIMENSION_KEYS = ["status", "reference", "source", "gender", "college", "country", "state", "department"] as const;
 
 export type Dimension = (typeof DIMENSION_KEYS)[number];
 export type CrossFilters = Record<Dimension, Set<string>>;
@@ -25,13 +25,24 @@ export interface Facet {
   /** How many of `base` record this dimension. */
   recorded: number;
   fromResume: number;
+  /** The same count, per value, for a chart narrowed to its picks. */
+  fromResumeByLabel: Record<string, number>;
   /** The rows this chart is counted over: those matching every OTHER chart's
    * filters. The same as the filtered set unless this chart has picks. */
   base: number;
 }
 
 export function emptyFilters(): CrossFilters {
-  return { gender: new Set(), college: new Set(), country: new Set(), state: new Set(), department: new Set() };
+  return {
+    status: new Set(),
+    reference: new Set(),
+    source: new Set(),
+    gender: new Set(),
+    college: new Set(),
+    country: new Set(),
+    state: new Set(),
+    department: new Set(),
+  };
 }
 
 export function hasFilters(filters: CrossFilters): boolean {
@@ -46,8 +57,23 @@ function matches<Row>(row: Row, filters: CrossFilters, dimensions: DimensionSpec
   });
 }
 
+export function filterRows<Row>(rows: Row[], filters: CrossFilters, dimensions: DimensionSpec<Row>[]): Row[] {
+  return rows.filter((row) => matches(row, filters, dimensions));
+}
+
 export function countMatching<Row>(rows: Row[], filters: CrossFilters, dimensions: DimensionSpec<Row>[]): number {
-  return rows.filter((row) => matches(row, filters, dimensions)).length;
+  return filterRows(rows, filters, dimensions).length;
+}
+
+/** How many different values of one dimension the fully filtered rows hold. */
+export function countDistinct<Row>(rows: Row[], filters: CrossFilters, dimensions: DimensionSpec<Row>[], key: Dimension): number {
+  const spec = dimensions.find((dimension) => dimension.key === key);
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const cell = spec?.value(row) ?? null;
+    if (cell !== null && matches(row, filters, dimensions)) seen.add(cell);
+  }
+  return seen.size;
 }
 
 export function computeFacets<Row>(
@@ -61,13 +87,17 @@ export function computeFacets<Row>(
     const here = new Map<string, number>();
     let base = 0;
     let resumed = 0;
+    const resumedByLabel: Record<string, number> = {};
     for (const row of rows) {
       const cell = value(row);
       if (cell !== null) everywhere.set(cell, (everywhere.get(cell) ?? 0) + 1);
       if (!matches(row, filters, dimensions, key)) continue;
       base += 1;
       if (cell !== null) here.set(cell, (here.get(cell) ?? 0) + 1);
-      if (fromResume?.(row)) resumed += 1;
+      if (fromResume?.(row)) {
+        resumed += 1;
+        if (cell !== null) resumedByLabel[cell] = (resumedByLabel[cell] ?? 0) + 1;
+      }
     }
     facets[key] = {
       items: [...everywhere.entries()]
@@ -75,6 +105,7 @@ export function computeFacets<Row>(
         .map(([label]) => ({ label, count: here.get(label) ?? 0 })),
       recorded: [...here.values()].reduce((sum, count) => sum + count, 0),
       fromResume: resumed,
+      fromResumeByLabel: resumedByLabel,
       base,
     };
   }
@@ -96,9 +127,12 @@ export function toggleValue(filters: CrossFilters, key: Dimension, label: string
   return { ...filters, [key]: next };
 }
 
-/** The panel's five charts. Department reads whichever column is being viewed. */
+/** The panel's charts. Department reads whichever column is being viewed. */
 export function selectedDimensions(deptMode: "group" | "raw"): DimensionSpec<TalentPoolSelectedRow>[] {
   return [
+    { key: "status", value: (row) => row.status },
+    { key: "reference", value: (row) => row.reference },
+    { key: "source", value: (row) => row.source },
     { key: "gender", value: (row) => row.gender, fromResume: (row) => row.gender_from_resume },
     { key: "college", value: (row) => row.college },
     { key: "country", value: (row) => row.country, fromResume: (row) => row.country_from_resume },

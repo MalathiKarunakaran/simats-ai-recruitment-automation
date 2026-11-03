@@ -42,6 +42,15 @@ export async function getSelectedRows(
   return apiFetch<TalentPoolSelectedRow[]>(`/talent-pool/selected/rows?${params.toString()}`);
 }
 
+export async function getAllRows(
+  sourceTab: TalentPoolListParams["source_tab"],
+  includeInactive = false,
+): Promise<TalentPoolSelectedRow[]> {
+  const params = new URLSearchParams({ source_tab: sourceTab });
+  if (includeInactive) params.set("include_inactive", "true");
+  return apiFetch<TalentPoolSelectedRow[]>(`/talent-pool/rows?${params.toString()}`);
+}
+
 export async function listTalentPool(
   input: TalentPoolListParams,
 ): Promise<PaginatedResponse<TalentPoolEntryRead>> {
@@ -49,11 +58,12 @@ export async function listTalentPool(
   // The backend takes limit/offset like every other list endpoint in this
   // repo; the page thinks in page numbers and converts before calling here.
   if (input.q) params.set("q", input.q);
-  if (input.sheet_status) params.set("sheet_status", input.sheet_status);
+  input.sheet_status?.forEach((value) => params.append("sheet_status", value));
   if (input.dept_mode) params.set("dept_mode", input.dept_mode);
   input.department?.forEach((value) => params.append("department", value));
   if (input.eligibility) params.set("eligibility", input.eligibility);
-  if (input.source) params.set("source", input.source);
+  input.source?.forEach((value) => params.append("source", value));
+  input.data_source?.forEach((value) => params.append("data_source", value));
   if (input.called_by) params.set("called_by", input.called_by);
   if (input.applied_post) params.set("applied_post", input.applied_post);
   input.college?.forEach((value) => params.append("college", value));

@@ -906,7 +906,7 @@ def test_selected_rows_are_the_breakdowns_rows_and_carry_no_contact_details(clie
     assert by_college["SSE"]["dept_group"] == "ECE"
     assert by_college["SCAD"]["dept_group"] is None
     assert set(rows[0]) == {
-        "id", "gender", "college", "country", "state", "dept_raw", "dept_group",
+        "id", "full_name", "status", "reference", "source", "gender", "college", "country", "state", "dept_raw", "dept_group",
         "gender_from_resume", "country_from_resume", "state_from_resume",
     }  # fmt: skip
 
@@ -962,3 +962,131 @@ def test_list_department_matches_trimmed_and_still_finds_blanks(client, db_sessi
     assert _listed(client, admin, dept_mode="raw", department="ECE") == 2
     assert _listed(client, admin, dept_mode="raw", department="Not set") == 1
     assert _listed(client, admin, dept_mode="raw", department=["ECE", "Not set"]) == 3
+
+
+# --- Reference, Source, the whole pool (3-Nov-2026) ---------------------------
+
+
+@pytest.mark.parametrize(
+    "cell,group",
+    [
+        ("", None),
+        ("Faculty plus", "Faculty Plus"),
+        ("Director Mam", "Faculty Plus"),
+        ("D.Mam", "Faculty Plus"),
+        ("Mam Data", "Faculty Plus"),
+        ("Indeed Login", "Indeed"),
+        ("LinkedIn", "LinkedIn"),
+        ("what's app", "WhatsApp"),
+        ("WhatsApp", "WhatsApp"),
+        ("Recruitment mail", "Recruitment Mail"),
+        ("recuitment mail", "Recruitment Mail"),
+        ("Recrutiment Mail", "Recruitment Mail"),
+        ("Mail", "Mail"),
+        ("Mail call if required", "Mail"),
+        ("Direct Int", "Direct"),
+        ("Dirct Int", "Direct"),
+        ("direct resume", "Direct"),
+        ("Dr.S.Anusuya", "Faculty Reference"),
+        ("adfa", "Other"),
+    ],
+)
+def test_source_group(cell, group):
+    from app.services.talent_pool_sources import source_group
+
+    assert source_group(cell) == group
+
+
+TS_HEADERS = ["Phone Number ", "Mail ID", "Reference"]
+
+
+def _post_sources(client, rows, headers=TS_HEADERS, **extra):
+    from app.core.config import settings
+
+    return client.post(
+        "/api/v1/sheet-sync/TS_SOURCES",
+        json={"headers": headers, "rows": [{"row_number": i + 2, "cells": c} for i, c in enumerate(rows)], **extra},
+        headers={"X-Talent-Pool-Sync-Secret": settings.TALENT_POOL_SYNC_SECRET},
+    )
+
+
+@pytest.fixture()
+def sync_secret(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "TALENT_POOL_SYNC_SECRET", "s" * 64)
+
+
+def test_source_comes_from_mam_data_then_email_then_phone(client, db_session, user_factory, sync_secret):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    mam = _entry(db_session, sheet_status="Selected", source="Mam Data", email="m@x.com")
+    by_mail = _entry(db_session, sheet_status="Selected", source="Our Data", email=" A@X.com ", phone="9000000001")
+    by_phone = _entry(db_session, sheet_status="Selected", source="our data", email="b@x.com", phone="+91 90000 00002")
+    none = _entry(db_session, sheet_status="Selected", source="Our Data", email="c@x.com", phone="9000000003")
+    nts = _entry(db_session, source_tab=TalentPoolSourceTabEnum.NTS, sheet_status="Selected", source="Indeed", email="a@x.com")
+
+    r = _post_sources(
+        client,
+        [
+            ["", "m@x.com", "Indeed"],
+            ["", "a@x.com", "Indeed"],
+            ["", "a@x.com", "indeed login"],
+            ["", "a@x.com", "Mail"],
+            ["9000000002 / 9000000009", "", "Director Mam"],
+            ["", "", "Indeed"],
+            ["9000000003", "c@x.com", ""],
+        ],
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["missing_headers"] == []
+
+    rows = {row["id"]: row for row in _selected_rows(client, admin)}
+    assert rows[str(mam.id)]["source"] == "Faculty Plus"
+    assert rows[str(by_mail.id)]["source"] == "Indeed"
+    assert rows[str(by_phone.id)]["source"] == "Faculty Plus"
+    assert rows[str(by_phone.id)]["reference"] == "Our Data"
+    assert rows[str(none.id)]["source"] is None
+    nts_rows = _selected_rows(client, admin, source_tab=TalentPoolSourceTabEnum.NTS.value)
+    assert [row["source"] for row in nts_rows if row["id"] == str(nts.id)] == [None]
+
+    assert _listed(client, admin, data_source="Faculty Plus") == 2
+    assert _listed(client, admin, data_source=["Faculty Plus", "Indeed"]) == 3
+    assert _listed(client, admin, source=["Mam Data", "Our Data"]) == 4
+    assert _listed(client, admin, source="our data") == 3
+
+
+def test_a_ts_snapshot_missing_a_column_or_empty_keeps_what_is_there(client, db_session, sync_secret):
+    from app.models.talent_pool_source_ref import TalentPoolSourceRef
+
+    assert _post_sources(client, [["", "a@x.com", "Indeed"]]).status_code == 200
+    r = _post_sources(client, [["", "a@x.com"]], headers=["Phone Number", "Mail ID"])
+    assert r.status_code == 422
+    assert "reference" in r.json()["detail"]
+    assert _post_sources(client, []).status_code == 422
+    assert _post_sources(client, [["", "b@x.com", "Mail"]], dry_run=True).status_code == 200
+    assert [row.match_key for row in db_session.query(TalentPoolSourceRef).all()] == ["e:a@x.com"]
+
+
+def test_ts_sources_refuse_without_the_secret(client, sync_secret):
+    r = client.post("/api/v1/sheet-sync/TS_SOURCES", json={"headers": TS_HEADERS, "rows": []})
+    assert r.status_code in (401, 403)
+
+
+def test_all_rows_cover_every_status_and_merge_spellings(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    panel = user_factory(UserRoleEnum.INTERVIEW_PANEL_MEMBER)
+    _entry(db_session, sheet_status="Selected", source="Direct Int")
+    _entry(db_session, sheet_status="Rejected", source="Direct Int")
+    _entry(db_session, sheet_status="Pending", source="direct int")
+    _entry(db_session, sheet_status="Pending", source="  ")
+    _entry(db_session, sheet_status="Pending", is_active=False)
+
+    r = client.get("/api/v1/talent-pool/rows", params={"source_tab": TEACHING}, headers=auth_headers(client, admin))
+    assert r.status_code == 200, r.text
+    rows = r.json()
+    assert sorted(row["status"] for row in rows) == ["Pending", "Pending", "Rejected", "Selected"]
+    assert sorted(str(row["reference"]) for row in rows) == ["Direct Int", "Direct Int", "Direct Int", "None"]
+    assert "email" not in rows[0] and "phone" not in rows[0]
+    assert client.get("/api/v1/talent-pool/rows", params={"source_tab": TEACHING}).status_code == 401
+    assert client.get("/api/v1/talent-pool/rows", params={"source_tab": TEACHING}, headers=auth_headers(client, panel)).status_code == 403
+    assert _listed(client, admin, sheet_status=["Selected", "Rejected"]) == 2

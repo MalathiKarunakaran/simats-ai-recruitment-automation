@@ -211,6 +211,14 @@ var JOINEE_TABS = [
     headerRow: 1,
     columns: ["Date", "Order No", "College", "BioID", "EMPID", "Name", "Dept", "Grade"],
   },
+  // For the Selected panel's Source chart. Nothing else in TS is read.
+  {
+    source: "TS_SOURCES",
+    sheetId: SHEET_ID,
+    tab: "TS",
+    headerRow: 1,
+    columns: ["Phone Number", "Mail ID", "Reference"],
+  },
 ];
 
 // A tab by name, ignoring case and surrounding spaces ("Faculty " = "Faculty").

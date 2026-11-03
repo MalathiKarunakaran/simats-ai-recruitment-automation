@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { computeFacets, countMatching, emptyFilters, toggleValue, type CrossFilters, type DimensionSpec } from "@/components/talentPool/crossFilter";
+import { computeFacets, countDistinct, countMatching, emptyFilters, toggleValue, type CrossFilters, type DimensionSpec } from "@/components/talentPool/crossFilter";
 
 interface Row {
   college: string | null;
@@ -95,6 +95,14 @@ describe("computeFacets", () => {
     ];
     expect(computeFacets(rows, emptyFilters(), withResume).gender.fromResume).toBe(2);
     expect(computeFacets(rows, pick({ college: ["SCLAS"] }), withResume).gender.fromResume).toBe(0);
+  });
+});
+
+describe("countDistinct", () => {
+  it("counts values left after every filter, the chart's own included", () => {
+    expect(countDistinct(rows, emptyFilters(), dimensions, "college")).toBe(3);
+    expect(countDistinct(rows, pick({ college: ["SSE"] }), dimensions, "college")).toBe(1);
+    expect(countDistinct(rows, pick({ college: ["SSE"] }), dimensions, "department")).toBe(2);
   });
 });
 

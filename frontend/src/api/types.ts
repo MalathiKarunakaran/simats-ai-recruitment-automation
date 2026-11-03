@@ -2936,6 +2936,10 @@ export interface SelectedBreakdownDimension {
 // GET /talent-pool/selected/rows
 export interface TalentPoolSelectedRow {
   id: string;
+  full_name: string;
+  status: string;
+  reference: string | null;
+  source: string | null;
   gender: string | null;
   college: string | null;
   country: string | null;
@@ -3003,12 +3007,13 @@ export interface TalentPoolSummary {
 export interface TalentPoolListParams {
   source_tab: TalentPoolSourceTab;
   q?: string;
-  sheet_status?: string;
+  sheet_status?: string[];
   dept_mode?: "group" | "raw";
   department?: string[];
   eligibility?: string;
   // Breakdown filters (2026-10-31): each takes the label the summary shows.
-  source?: string;
+  source?: string[];
+  data_source?: string[];
   called_by?: string;
   applied_post?: string;
   // The Selected panel's filters: several values of one combine with OR.

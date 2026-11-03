@@ -7,7 +7,7 @@ import { getTalentPoolSummary } from "@/api/talentPool";
 import type { TalentPoolEntryRead, TalentPoolSourceTab } from "@/api/types";
 import { BreakdownList } from "@/components/talentPool/BreakdownList";
 import { DepartmentTable } from "@/components/talentPool/DepartmentTable";
-import { BREAKDOWN_VIEW_PARAM, BREAKDOWN_VIEW_SELECTED, filterHref, type MeaningParam } from "@/components/talentPool/filterHref";
+import { BREAKDOWN_VIEW_ALL, BREAKDOWN_VIEW_PARAM, BREAKDOWN_VIEW_SELECTED, filterHref, type MeaningParam } from "@/components/talentPool/filterHref";
 import { MonthlyAddedChart } from "@/components/talentPool/MonthlyAddedChart";
 import { TalentPoolEntrySheet } from "@/components/talentPool/TalentPoolEntrySheet";
 import { TalentPoolRegister, type RegisterFilters } from "@/components/talentPool/TalentPoolRegister";
@@ -106,10 +106,11 @@ export function TalentPoolPage() {
   const filters: RegisterFilters = useMemo(
     () => ({
       q: searchParams.get("q") ?? "",
-      status: searchParams.get("status") ?? "",
+      status: searchParams.getAll("status"),
       department: searchParams.getAll("department"),
       eligibility: searchParams.get("eligibility") ?? "",
-      source: searchParams.get("source") ?? "",
+      source: searchParams.getAll("source"),
+      dataSource: searchParams.getAll("data_source"),
       calledBy: searchParams.get("called_by") ?? "",
       appliedPost: searchParams.get("applied_post") ?? "",
       college: searchParams.getAll("college"),
@@ -147,6 +148,7 @@ export function TalentPoolPage() {
       write("department", next.department);
       write("eligibility", next.eligibility);
       write("source", next.source);
+      write("data_source", next.dataSource);
       write("called_by", next.calledBy);
       write("applied_post", next.appliedPost);
       write("college", next.college);
@@ -227,6 +229,7 @@ export function TalentPoolPage() {
   const registerShown = Boolean(summary && summary.total > 0);
   useScrollToHash("register", registerShown && listLoaded);
 
+  const breakdownView = searchParams.get(BREAKDOWN_VIEW_PARAM);
   const closeBreakdown = useCallback(() => {
     const params = new URLSearchParams(searchParams);
     params.delete(BREAKDOWN_VIEW_PARAM);
@@ -481,7 +484,8 @@ export function TalentPoolPage() {
       {/* Outside the summary's block: switching department view refetches the
           summary, and unmounting here would lose the panel's filters. */}
       <SelectedBreakdownSheet
-        open={searchParams.get(BREAKDOWN_VIEW_PARAM) === BREAKDOWN_VIEW_SELECTED}
+        open={breakdownView === BREAKDOWN_VIEW_SELECTED || breakdownView === BREAKDOWN_VIEW_ALL}
+        scope={breakdownView === BREAKDOWN_VIEW_ALL ? "all" : "selected"}
         tab={tab}
         deptMode={tab === "NTS" ? "group" : deptMode}
         currentParams={searchParams}

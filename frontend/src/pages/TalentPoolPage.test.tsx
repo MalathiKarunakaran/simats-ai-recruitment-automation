@@ -18,6 +18,10 @@ vi.mock("@/auth/AuthContext", () => ({
 
 const selectedRows = (["ECE", "ECE", null] as const).map((dept, index) => ({
   id: String(index),
+  full_name: `Person ${index}`,
+  status: "Selected",
+  reference: null,
+  source: null,
   gender: null,
   college: dept ? "SSE" : null,
   country: null,
@@ -797,7 +801,7 @@ describe("TalentPoolPage", () => {
         expect(mockedListPool).toHaveBeenCalledWith(
           expect.objectContaining({
             source_tab: "TEACHING_FINAL",
-            sheet_status: "Rejected",
+            sheet_status: ["Rejected"],
             department: ["CSE"],
             eligibility: "Pursuing Ph.D",
             include_inactive: true,
@@ -950,12 +954,14 @@ function hrefParams(link: Element | null): URLSearchParams {
 }
 
 describe("every count opens the list behind it (2026-10-31)", () => {
-  it("the Total tile is a link that clears status and eligibility but keeps the department", async () => {
+  it("the Total tile opens the panel over everyone, clearing status and eligibility", async () => {
     mockedGetSummary.mockResolvedValue(summary());
     renderPage("/talent-pool?status=Selected&eligibility=With+Ph.D&undecided=true&department=ECE&offset=50");
 
     await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
-    const params = hrefParams(tileLink("Total candidates"));
+    const href = tileLink("Total candidates")!.getAttribute("href")!;
+    const params = new URL(href, "http://x").searchParams;
+    expect(params.get("view")).toBe("all");
     expect(params.get("status")).toBeNull();
     expect(params.get("eligibility")).toBeNull();
     expect(params.get("undecided")).toBeNull();
@@ -1030,7 +1036,9 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     renderPage("/talent-pool?tab=nts");
 
     await waitFor(() => expect(screen.getByText("in the NTS sheet")).toBeInTheDocument());
-    expect(hrefParams(tileLink("Total candidates")).get("tab")).toBe("nts");
+    const total = new URL(tileLink("Total candidates")!.getAttribute("href")!, "http://x").searchParams;
+    expect(total.get("tab")).toBe("nts");
+    expect(total.get("view")).toBe("all");
     expect(tileLink("In follow-up")).toBeNull();
   });
 
@@ -1111,7 +1119,7 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     await waitFor(() =>
       expect(mockedListPool).toHaveBeenCalledWith(
         expect.objectContaining({
-          source: "Mam Data",
+          source: ["Mam Data"],
           called_by: "Narmada",
           applied_post: "Driver",
           month: "2026-10",
@@ -1137,7 +1145,7 @@ describe("every count opens the list behind it (2026-10-31)", () => {
 
     await waitFor(() =>
       expect(mockedListPool).toHaveBeenCalledWith(
-        expect.objectContaining({ sheet_status: undefined, department: [], offset: 0 }),
+        expect.objectContaining({ sheet_status: [], department: [], offset: 0 }),
       ),
     );
     expect(screen.queryByTestId("talent-pool-active-filters")).not.toBeInTheDocument();

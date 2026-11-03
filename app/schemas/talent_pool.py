@@ -143,10 +143,14 @@ class TalentPoolSelectedBreakdown(BaseModel):
 
 
 class TalentPoolSelectedRow(BaseModel):
-    """One Selected candidate as the panel's charts see it. Only what they
-    count: no name, email or phone. Null means the value is not recorded."""
+    """One candidate as the panel sees it: what its charts count and its table
+    lists, with no email or phone. Null means the value is not recorded."""
 
     id: uuid.UUID
+    full_name: str
+    status: str
+    reference: str | None
+    source: str | None
     gender: str | None
     college: str | None
     country: str | None

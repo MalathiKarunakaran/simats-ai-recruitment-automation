@@ -15,6 +15,10 @@ const mockedGet = vi.mocked(talentPoolApi.getSelectedRows);
 function row(id: number, over: Partial<TalentPoolSelectedRow>): TalentPoolSelectedRow {
   return {
     id: String(id),
+    full_name: `Person ${id}`,
+    status: "Selected",
+    reference: id % 2 ? "Mam Data" : "Our Data",
+    source: id % 2 ? "Faculty Plus" : id === 2 ? "Indeed" : null,
     gender: null,
     college: null,
     country: null,
@@ -42,7 +46,7 @@ const rows: TalentPoolSelectedRow[] = [
   row(10, { gender: "Female" }),
 ];
 
-function Harness({ search, startOpen, onClose }: { search: string; startOpen: boolean; onClose?: () => void }) {
+function Harness({ search, startOpen, onClose, scope }: { search: string; startOpen: boolean; onClose?: () => void; scope?: "selected" | "all" }) {
   const [deptMode, setDeptMode] = useState<"group" | "raw">("group");
   const [open, setOpen] = useState(startOpen);
   return (
@@ -50,6 +54,7 @@ function Harness({ search, startOpen, onClose }: { search: string; startOpen: bo
       <button type="button" onClick={() => setOpen(true)}>reopen</button>
       <SelectedBreakdownSheet
         open={open}
+        scope={scope}
         tab="TEACHING_FINAL"
         deptMode={deptMode}
         currentParams={new URLSearchParams(search)}
@@ -63,12 +68,12 @@ function Harness({ search, startOpen, onClose }: { search: string; startOpen: bo
   );
 }
 
-function renderSheet(search = "view=selected", open = true, onClose?: () => void) {
+function renderSheet(search = "view=selected", open = true, onClose?: () => void, scope?: "selected" | "all") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <Harness search={search} startOpen={open} onClose={onClose} />
+        <Harness search={search} startOpen={open} onClose={onClose} scope={scope} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -76,7 +81,8 @@ function renderSheet(search = "view=selected", open = true, onClose?: () => void
 
 const card = (title: string) => screen.getByRole("heading", { name: title }).parentElement!.parentElement!.parentElement!;
 const bar = (title: string, name: RegExp) => within(card(title)).getByRole("button", { name });
-const heading = () => screen.getByRole("heading", { name: /Selected candidates/ }).textContent;
+const pickMore = (title: string) => userEvent.click(within(card(title)).getByRole("button", { name: /^Pick more/ }));
+const heading = () => screen.getByRole("heading", { name: /(Selected|All) candidates/ }).textContent;
 const fullList = () => decodeURIComponent(screen.getByRole("link", { name: "See full list" }).getAttribute("href")!);
 
 describe("SelectedBreakdownSheet", () => {
@@ -98,19 +104,79 @@ describe("SelectedBreakdownSheet", () => {
     expect(within(card("Department")).getByText("Recorded for 9 of 10")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear selection" })).toBeDisabled();
     expect(screen.queryByRole("list", { name: "Active filters" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("selection-box")).toHaveTextContent("Click a bar to filter");
+    expect(screen.getByTestId("selection-box")).toHaveTextContent("Click a bar to show only that data");
   });
 
   it("the box shows the picked values", async () => {
     renderSheet();
     await screen.findByRole("heading", { name: "College" });
     await userEvent.click(bar("College", /^SSE: /));
-    fireEvent.click(bar("College", /^SCAD: /), { ctrlKey: true });
+    await pickMore("College");
+    await userEvent.click(bar("College", /^SCAD: /));
     await userEvent.click(bar("Department", /^ECE: /));
     const box = screen.getByTestId("selection-box");
     expect(box).toHaveTextContent("Your selection:");
     expect(box).toHaveTextContent("College: SSE, SCAD");
     expect(box).toHaveTextContent("Dept: ECE");
+  });
+
+  it("the headline tiles count what is left after every filter", async () => {
+    renderSheet();
+    await screen.findByRole("heading", { name: "College" });
+    const tile = (look: string) => screen.getByTestId(`tile-${look}`);
+    expect(tile("college")).toHaveTextContent("3Colleges");
+    await userEvent.click(bar("College", /^SSE: /));
+    expect(tile("gender")).toHaveTextContent("5Selected");
+    expect(tile("college")).toHaveTextContent("1College");
+    expect(tile("department")).toHaveTextContent("2Departments");
+    expect(tile("state")).toHaveTextContent("2States");
+  });
+
+  it("Reference and Source filter like the others, and the list carries them", async () => {
+    renderSheet();
+    await screen.findByRole("heading", { name: "College" });
+    await userEvent.click(bar("Reference", /^Our Data: 5/));
+    expect(heading()).toBe("Selected candidates: 5 of 10");
+    expect(within(card("Source")).getByText("Recorded for 1 of 5")).toBeInTheDocument();
+    await userEvent.click(bar("Source", /^Indeed: 1/));
+    expect(heading()).toBe("Selected candidates: 1 of 10");
+    const href = fullList();
+    expect(href).toContain("source=Our Data".replace(" ", "+"));
+    expect(href).toContain("data_source=Indeed");
+  });
+
+  it("lists the matching candidates in the panel and pages them", async () => {
+    mockedGet.mockResolvedValue(Array.from({ length: 30 }, (_, i) => row(i + 100, { college: i < 27 ? "SSE" : "SCAD" })));
+    renderSheet();
+    const table = await screen.findByTestId("candidate-table");
+    expect(table).toHaveTextContent("Candidates: 30");
+    expect(table).toHaveTextContent("Person 100");
+    expect(table).not.toHaveTextContent("Person 129");
+    await userEvent.click(within(table).getByRole("button", { name: "Next" }));
+    expect(table).toHaveTextContent("Person 129");
+
+    await userEvent.click(bar("College", /^SCAD: 3/));
+    expect(table).toHaveTextContent("Candidates: 3");
+    expect(table).toHaveTextContent("Person 127");
+    expect(table).not.toHaveTextContent("Person 100");
+    expect(within(table).queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+  });
+
+  it("over every candidate it adds a Status chart and carries the statuses to the list", async () => {
+    vi.mocked(talentPoolApi.getAllRows).mockResolvedValue([row(1, { status: "Selected" }), row(2, { status: "Rejected" }), row(3, { status: "Pending" })]);
+    renderSheet("view=all", true, undefined, "all");
+    await screen.findByRole("heading", { name: "Status" });
+    expect(mockedGet).not.toHaveBeenCalled();
+    expect(heading()).toBe("All candidates: 3");
+    await userEvent.click(bar("Status", /^Rejected: 1/));
+    expect(heading()).toBe("All candidates: 1 of 3");
+    expect(fullList()).toContain("status=Rejected");
+  });
+
+  it("has no Status chart for Selected only", async () => {
+    renderSheet();
+    await screen.findByRole("heading", { name: "College" });
+    expect(screen.queryByRole("heading", { name: "Status" })).not.toBeInTheDocument();
   });
 
   it("says how many values came from resumes", async () => {
@@ -132,49 +198,75 @@ describe("SelectedBreakdownSheet", () => {
     expect(mockedGet).toHaveBeenCalledTimes(1);
   });
 
-  it("test 1: a college bar filters everything else", async () => {
+  it("test 1: a college bar shows only that data, everywhere", async () => {
     renderSheet();
     await screen.findByRole("heading", { name: "College" });
     await userEvent.click(bar("College", /^SSE: 5/));
 
     expect(heading()).toBe("Selected candidates: 5 of 10");
     expect(bar("College", /^SSE: 5/)).toHaveAttribute("aria-pressed", "true");
+    expect(within(card("College")).getByText("Recorded for 5 of 5")).toBeInTheDocument();
     expect(within(card("Department")).getByText("Recorded for 5 of 5")).toBeInTheDocument();
     expect(within(card("Male / Female")).getByText("Recorded for 4 of 5")).toBeInTheDocument();
     expect(within(card("State")).getByText("Recorded for 4 of 5 (1 from resumes)")).toBeInTheDocument();
     expect(within(card("Country")).getByText("Recorded for 3 of 5")).toBeInTheDocument();
     expect(bar("Department", /^ECE: 3/)).toBeInTheDocument();
     expect(bar("Department", /^CSE: 2/)).toBeInTheDocument();
-    // The clicked chart still shows every college, counted without its own pick.
-    expect(within(card("College")).getByText("Recorded for 8 of 10")).toBeInTheDocument();
-    expect(bar("College", /^SCAD: 2/)).toHaveAttribute("data-dimmed", "true");
-    expect(bar("College", /^SSE: 5/)).toHaveAttribute("data-dimmed", "false");
-    // A bar that drops to 0 stays, shows 0 and is dimmed.
-    expect(bar("Department", /^Maths: 0/)).toHaveAttribute("data-dimmed", "true");
-    // The share bar recalculates its numbers and percentages.
+    // Other colleges and anything left at 0 are gone, not dimmed.
+    expect(within(card("College")).queryByRole("button", { name: /^SCAD/ })).not.toBeInTheDocument();
+    expect(within(card("Department")).queryByRole("button", { name: /^Maths/ })).not.toBeInTheDocument();
     expect(bar("Male / Female", /^Male: 2\s*\(50%\)/)).toBeInTheDocument();
     expect(bar("Male / Female", /^Female: 2\s*\(50%\)/)).toBeInTheDocument();
     expect(within(screen.getByRole("list", { name: "Active filters" })).getByRole("button", { name: /College filter: SSE/ })).toHaveTextContent("College: SSE");
   });
 
-  it("test 2: Ctrl-click adds a second college, Cmd too", async () => {
+  it("from resumes counts only the picked values in a narrowed chart", async () => {
+    renderSheet();
+    await screen.findByRole("heading", { name: "College" });
+    await userEvent.click(bar("State", /^Tamil Nadu: /));
+    expect(within(card("State")).getByText("Recorded for 2 of 2 (1 from resumes)")).toBeInTheDocument();
+    await userEvent.click(bar("State", /^Tamil Nadu: /));
+    await userEvent.click(bar("State", /^Kerala: /));
+    expect(within(card("State")).getByText("Recorded for 2 of 2")).toBeInTheDocument();
+  });
+
+  it("test 2: Pick more brings the others back, and a plain click then adds", async () => {
     renderSheet();
     await screen.findByRole("heading", { name: "College" });
     await userEvent.click(bar("College", /^SSE: /));
-    fireEvent.click(bar("College", /^SCAD: /), { ctrlKey: true });
+    await pickMore("College");
+    expect(bar("College", /^SCAD: 2/)).toHaveAttribute("data-dimmed", "true");
+    expect(within(card("College")).getByText("Recorded for 8 of 10")).toBeInTheDocument();
+
+    await userEvent.click(bar("College", /^SCAD: /));
     expect(heading()).toBe("Selected candidates: 7 of 10");
     expect(bar("Department", /^ECE: 4/)).toBeInTheDocument();
     expect(bar("Department", /^Maths: 1/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /College filter/ })).toHaveTextContent("College: SSE, SCAD");
 
+    await userEvent.click(within(card("College")).getByRole("button", { name: "Show only selected" }));
+    expect(within(card("College")).queryByRole("button", { name: /^SCLAS/ })).not.toBeInTheDocument();
+    expect(within(card("College")).getByText("Recorded for 7 of 7")).toBeInTheDocument();
+  });
+
+  it("Ctrl and Cmd + click still add while the others are showing", async () => {
+    renderSheet();
+    await screen.findByRole("heading", { name: "College" });
+    fireEvent.click(bar("College", /^SSE: /), { ctrlKey: true });
+    fireEvent.click(bar("Department", /^ECE: /), { metaKey: true });
+    expect(heading()).toBe("Selected candidates: 3 of 10");
+    await pickMore("College");
+    fireEvent.click(bar("College", /^SCAD: /), { ctrlKey: true });
     fireEvent.click(bar("College", /^SSE: /), { metaKey: true });
-    expect(heading()).toBe("Selected candidates: 2 of 10");
+    expect(heading()).toBe("Selected candidates: 1 of 10");
   });
 
   it("Ctrl + click on a Mac arrives as a context menu, and still adds", async () => {
     renderSheet();
     await screen.findByRole("heading", { name: "College" });
-    await userEvent.click(bar("College", /^SSE: /));
+    fireEvent.contextMenu(bar("College", /^SSE: /), { ctrlKey: true });
+    expect(heading()).toBe("Selected candidates: 5 of 10");
+    await pickMore("College");
     fireEvent.contextMenu(bar("College", /^SCAD: /), { ctrlKey: true });
     expect(heading()).toBe("Selected candidates: 7 of 10");
     // A plain right-click is left to the browser.
@@ -186,23 +278,30 @@ describe("SelectedBreakdownSheet", () => {
     renderSheet();
     await screen.findByRole("heading", { name: "College" });
     await userEvent.click(bar("College", /^SSE: /));
-    fireEvent.click(bar("College", /^SCAD: /), { ctrlKey: true });
+    await pickMore("College");
+    await userEvent.click(bar("College", /^SCAD: /));
+    await userEvent.click(within(card("College")).getByRole("button", { name: "Show only selected" }));
     await userEvent.click(bar("Department", /^ECE: /));
 
     expect(heading()).toBe("Selected candidates: 4 of 10");
-    // College shows all colleges with ECE counts; SSE and SCAD stay highlighted.
     expect(bar("College", /^SSE: 3/)).toHaveAttribute("aria-pressed", "true");
     expect(bar("College", /^SCAD: 1/)).toHaveAttribute("aria-pressed", "true");
-    expect(bar("College", /^SCLAS: 0/)).toHaveAttribute("data-dimmed", "true");
     expect(within(card("College")).getByText("Recorded for 4 of 4")).toBeInTheDocument();
-    // Department counts SSE and SCAD only, and is not narrowed by its own pick.
-    expect(bar("Department", /^CSE: 2/)).toHaveAttribute("data-dimmed", "true");
+    expect(within(card("Department")).getByText("Recorded for 4 of 4")).toBeInTheDocument();
+    expect(within(card("Department")).queryByRole("button", { name: /^CSE/ })).not.toBeInTheDocument();
     expect(bar("Male / Female", /^Female: 3/)).toBeInTheDocument();
     expect(bar("Male / Female", /^Male: 1/)).toBeInTheDocument();
 
     await userEvent.click(bar("Department", /^ECE: /));
     expect(heading()).toBe("Selected candidates: 7 of 10");
     expect(bar("Department", /^ECE: 4/)).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("says so when a chart has nothing for the selection", async () => {
+    renderSheet();
+    await screen.findByRole("heading", { name: "College" });
+    await userEvent.click(bar("College", /^SCLAS: /));
+    expect(within(card("State")).getByText("Not recorded for this selection.")).toBeInTheDocument();
   });
 
   it("test 5: Clear selection takes everything off", async () => {
@@ -258,7 +357,8 @@ describe("SelectedBreakdownSheet", () => {
     renderSheet();
     await screen.findByRole("heading", { name: "College" });
     await userEvent.click(bar("Department", /^ECE: /));
-    fireEvent.click(bar("Department", /^CSE: /), { ctrlKey: true });
+    await pickMore("Department");
+    await userEvent.click(bar("Department", /^CSE: /));
     await userEvent.click(bar("College", /^SSE: /));
     const chip = screen.getByRole("button", { name: /Dept filter/ });
     expect(chip).toHaveTextContent("Dept: ECE, CSE");
@@ -303,7 +403,8 @@ describe("SelectedBreakdownSheet", () => {
     renderSheet("view=selected&department=Nursing&q=asha");
     await screen.findByRole("heading", { name: "College" });
     await userEvent.click(bar("College", /^SSE: /));
-    fireEvent.click(bar("College", /^SCAD: /), { ctrlKey: true });
+    await pickMore("College");
+    await userEvent.click(bar("College", /^SCAD: /));
     await userEvent.click(bar("Department", /^ECE: /));
 
     const href = fullList();

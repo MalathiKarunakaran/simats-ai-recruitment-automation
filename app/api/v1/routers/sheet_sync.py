@@ -20,13 +20,14 @@ from app.models.audit_log import AuditLog
 from app.models.enums import TALENT_POOL_SYNCED_ACTION, UserRoleEnum
 from app.models.sheet_sync import SheetSyncRun
 from app.schemas.sheet_sync import (
+    SourceRefsResult,
     SheetSyncRequest,
     SheetSyncResult,
     SheetSyncRunOut,
     SheetSyncSource,
     SheetSyncStatusItem,
 )
-from app.services import sheet_sync
+from app.services import sheet_sync, talent_pool_sources
 from app.services.xlsx_safety import harden_workbook
 
 router = APIRouter(prefix="/sheet-sync", tags=["sheet-sync"])
@@ -45,6 +46,21 @@ def _run_out(run: SheetSyncRun | None) -> SheetSyncRunOut | None:
         counts={k: v for k, v in (run.counts or {}).items() if isinstance(v, int)},
         missing_headers=list(run.missing_headers or []),
     )
+
+
+@router.post(
+    "/TS_SOURCES",
+    response_model=SourceRefsResult,
+    dependencies=[Depends(require_talent_pool_sync_secret)],
+)
+def sync_ts_sources(payload: SheetSyncRequest, db: Session = Depends(get_db)) -> SourceRefsResult:
+    """The TS tab's Phone Number, Mail ID and Reference, for the Source chart."""
+    try:
+        counts = talent_pool_sources.apply_snapshot(db, payload.headers, [row.cells for row in payload.rows], payload.dry_run)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    db.commit()
+    return SourceRefsResult(counts=counts, missing_headers=[])
 
 
 @router.post(
