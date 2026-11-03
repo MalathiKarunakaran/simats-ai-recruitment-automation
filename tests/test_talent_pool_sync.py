@@ -188,18 +188,14 @@ def test_renaming_columns_keeps_a_person_without_email_as_the_same_row(client, d
     assert entries(db_session)[0].id == before
 
 
-def test_learning_a_column_name_reads_unchanged_rows_again(client, db_session, monkeypatch):
-    headers, row = _renamed_final_row(1, email="asha@example.com")
-    without_phone = {**sync._FINAL_COLUMNS, "phone": ("Phone Number",)}
-    monkeypatch.setattr(sync, "_FINAL_COLUMNS", without_phone)
-    post(client, final([row], headers=headers))
-    assert entries(db_session)[0].phone is None
+def test_reading_a_row_differently_updates_it_though_its_cells_did_not_change(client, db_session, monkeypatch):
+    post(client, final([final_row(1)]))
+    assert entries(db_session)[0].dept_group == "CSE"
 
-    monkeypatch.undo()
-    monkeypatch.setattr(settings, "TALENT_POOL_SYNC_SECRET", SECRET)
-    counts = post(client, final([row], headers=headers)).json()["counts"]
+    monkeypatch.setattr(sync.normalise, "department_group", lambda raw: ("Computing", False))
+    counts = post(client, final([final_row(1)])).json()["counts"]
     assert counts["updated"] == 1
-    assert entries(db_session)[0].phone == "9876543210"
+    assert entries(db_session)[0].dept_group == "Computing"
 
 
 def test_missing_name_header_refuses_the_snapshot(client, db_session):
@@ -209,10 +205,21 @@ def test_missing_name_header_refuses_the_snapshot(client, db_session):
     assert entries(db_session) == []
 
 
-def test_other_missing_headers_are_reported(client):
+def test_any_missing_known_column_refuses_the_snapshot_and_keeps_the_data(client, db_session):
+    post(client, final([final_row(1)]))
     headers = ["Dept" if h == "Actual Dept" else h for h in FINAL_HEADERS]
-    body = post(client, final([final_row(1)], headers=headers)).json()
-    assert body["missing_headers"] == ["Actual Dept"]
+    response = post(client, final([final_row(1, dept="ECE")], headers=headers))
+    assert response.status_code == 422
+    assert "Actual Dept" in response.json()["detail"]
+    entry = entries(db_session)[0]
+    assert entry.dept_raw == "CSE"
+    assert entry.is_active is True
+
+
+def test_a_refused_snapshot_names_every_spelling_it_looked_for(client):
+    headers = ["Mobile" if h == "Phone Number" else h for h in FINAL_HEADERS]
+    detail = post(client, final([final_row(1)], headers=headers)).json()["detail"]
+    assert "Phone Number / Phone NO" in detail
 
 
 # --- Upsert ---------------------------------------------------------------

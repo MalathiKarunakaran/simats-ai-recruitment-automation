@@ -9,9 +9,10 @@ Three rules here are easy to break by accident.
 **Columns are found by header name, never by letter.** The sheet is edited
 by hand and a column can be inserted at any time; a letter-based mapping
 would silently read the wrong column from then on. A header this module
-expects but does not find is reported in `missing_headers`, and a missing
-Name header refuses the whole snapshot (422), since without it every row
-would be skipped and every existing row deactivated.
+expects but does not find refuses the whole snapshot (422): without Name
+every row would be skipped and every existing row deactivated, and without
+any other that detail would go blank on every row (it happened 2026-11-03,
+when the Final tab's columns were renamed).
 
 **A row's identity is the person, not the row number** (`row_key`): email,
 else name + phone digits, plus which repeat of that person this is in sheet
@@ -244,6 +245,13 @@ def apply_snapshot(db: Session, payload: TalentPoolSyncRequest) -> TalentPoolSyn
     positions, missing = _resolve_columns(payload.headers, wanted)
     if "name" not in positions:
         raise ValueError(f"No 'Name' column among the headers: {[h for h in payload.headers if h]}")
+    if missing:
+        # Read on, every row would lose that detail and a person without an email
+        # would change identity. The script's failed run is what warns the owner.
+        not_found = [" / ".join(spellings) for name, spellings in wanted.items() if name not in positions]
+        raise ValueError(
+            f"Column names changed on {payload.source_tab.value}, nothing was updated. Not found: {', '.join(not_found)}"
+        )
     raw_labels = _raw_headers(payload.headers)
     parse = _parse_final if is_final else _parse_nts
     report = _Report()
