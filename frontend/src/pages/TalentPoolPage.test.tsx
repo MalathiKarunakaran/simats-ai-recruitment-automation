@@ -20,6 +20,7 @@ const selectedRows = (["ECE", "ECE", null] as const).map((dept, index) => ({
   id: String(index),
   full_name: `Person ${index}`,
   status: "Selected",
+  eligibility: null,
   reference: null,
   source: null,
   gender: null,
@@ -969,12 +970,59 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     expect(params.get("department")).toBe("ECE");
   });
 
+  it("a tile opens the panel over its own count, and there is a Joined tile", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    vi.mocked(talentPoolApi.getAllRows).mockResolvedValue([
+      { ...selectedRows[0], id: "a", status: "Joined", college: "SSE" },
+      { ...selectedRows[0], id: "b", status: "Rejected", college: "SCAD" },
+    ]);
+    renderPage("/talent-pool");
+
+    await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
+    await userEvent.click(tileLink("Joined")!);
+    expect(await screen.findByRole("heading", { name: "Joined candidates: 1" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(mockedListPool).toHaveBeenLastCalledWith(expect.objectContaining({ sheet_status: ["Joined"] })));
+  });
+
+  it.each([
+    ["Not eligible", "Not Eligible"],
+    ["No resume link", "No Resume Link"],
+    ["Not valid", "Not Valid"],
+  ])("the %s tile opens the panel over that status", async (label, status) => {
+    mockedGetSummary.mockResolvedValue(summary());
+    vi.mocked(talentPoolApi.getAllRows).mockResolvedValue([
+      { ...selectedRows[0], id: "a", status },
+      { ...selectedRows[0], id: "b", status: "Rejected" },
+    ]);
+    renderPage("/talent-pool");
+
+    await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
+    await userEvent.click(tileLink(label)!);
+    expect(await screen.findByRole("heading", { name: `${status} candidates: 1` })).toBeInTheDocument();
+  });
+
+  it("the PhD row called Not set opens the panel over the blank eligibilities", async () => {
+    mockedGetSummary.mockResolvedValue(summary());
+    vi.mocked(talentPoolApi.getAllRows).mockResolvedValue([
+      { ...selectedRows[0], id: "a", eligibility: null },
+      { ...selectedRows[0], id: "b", eligibility: "With Ph.D" },
+    ]);
+    renderPage("/talent-pool");
+
+    await waitFor(() => expect(screen.getByText("PhD / eligibility")).toBeInTheDocument());
+    await userEvent.click(within(panel("PhD / eligibility")).getByRole("link", { name: /^Not set: 2/ }));
+    expect(await screen.findByRole("heading", { name: "Not set candidates: 1" })).toBeInTheDocument();
+  });
+
   it("a tile replaces a breakdown filter rather than stacking on it", async () => {
     mockedGetSummary.mockResolvedValue(summary());
     renderPage("/talent-pool?source=Mam+Data");
 
     await waitFor(() => expect(screen.getByText("in the Final sheet")).toBeInTheDocument());
-    const params = hrefParams(tileLink("Rejected"));
+    const params = new URL(tileLink("Rejected")!.getAttribute("href")!, "http://x").searchParams;
+    expect(params.get("view")).toBe("filtered");
     expect(params.get("status")).toBe("Rejected");
     expect(params.get("source")).toBeNull();
   });
@@ -1031,7 +1079,7 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     expect(screen.getByRole("combobox", { name: "Department filter" })).toHaveTextContent("2 departments");
   });
 
-  it("the NTS Total tile is a link too, and In follow-up (three statuses) is not", async () => {
+  it("the NTS Total tile is a link too, and In follow-up opens its three statuses", async () => {
     mockedGetSummary.mockResolvedValue(ntsSummary());
     renderPage("/talent-pool?tab=nts");
 
@@ -1039,7 +1087,8 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     const total = new URL(tileLink("Total candidates")!.getAttribute("href")!, "http://x").searchParams;
     expect(total.get("tab")).toBe("nts");
     expect(total.get("view")).toBe("all");
-    expect(tileLink("In follow-up")).toBeNull();
+    const followUp = new URL(tileLink("In follow-up")!.getAttribute("href")!, "http://x").searchParams;
+    expect(followUp.getAll("status")).toEqual(["RNR", "On Hold", "Interview Scheduled"]);
   });
 
   it("each teaching breakdown row links to its own filter, composed with the department", async () => {
@@ -1053,7 +1102,9 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     expect(hrefParams(source).get("department")).toBe("CSE");
 
     const notSet = within(panel("PhD / eligibility")).getByRole("link", { name: /^Not set: 2/ });
-    expect(hrefParams(notSet).get("eligibility")).toBe("Not set");
+    const notSetParams = new URL(notSet.getAttribute("href")!, "http://x").searchParams;
+    expect(notSetParams.get("eligibility")).toBe("Not set");
+    expect(notSetParams.get("view")).toBe("filtered");
 
     const calledBy = within(panel("Interviews called by")).getByRole("link", { name: /^Narmada: 2/ });
     expect(hrefParams(calledBy).get("called_by")).toBe("Narmada");
@@ -1073,8 +1124,10 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     expect(hrefParams(referral).get("source")).toBe("Referral");
 
     const rnr = within(panel("Call outcomes")).getByRole("link", { name: /^RNR: 2/ });
-    expect(hrefParams(rnr).get("status")).toBe("RNR");
-    expect(hrefParams(rnr).get("tab")).toBe("nts");
+    const rnrParams = new URL(rnr.getAttribute("href")!, "http://x").searchParams;
+    expect(rnrParams.get("status")).toBe("RNR");
+    expect(rnrParams.get("view")).toBe("filtered");
+    expect(rnrParams.get("tab")).toBe("nts");
   });
 
   it("never links the Others bucket, which is not a value anyone can filter on", async () => {
@@ -1176,7 +1229,7 @@ describe("every count opens the list behind it (2026-10-31)", () => {
     expect(scroll.mock.contexts.at(-1)).toBe(document.getElementById("register"));
 
     scroll.mockClear();
-    await userEvent.click(tileLink("Rejected")!);
+    await userEvent.click(within(panel("Data source")).getByRole("link", { name: /^Mam Data: 7/ }));
     await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
     scroll.mockRestore();
   });

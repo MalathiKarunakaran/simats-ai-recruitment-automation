@@ -149,6 +149,7 @@ class TalentPoolSelectedRow(BaseModel):
     id: uuid.UUID
     full_name: str
     status: str
+    eligibility: str | None
     reference: str | None
     source: str | None
     gender: str | None

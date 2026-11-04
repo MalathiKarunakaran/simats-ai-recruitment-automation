@@ -23,7 +23,7 @@ import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTit
 import { cn } from "@/lib/utils";
 
 /**
- * Opens from the Selected tile, or over every candidate from the Total tile:
+ * Opens from the Talent Pool tiles, over that tile's candidates:
  * who they are, charted by reference, source, department, college, state,
  * country and gender, with the matching candidates listed below. These columns are often
  * unfilled in the sheets, so every chart says how many rows it covers rather
@@ -75,7 +75,8 @@ const tint = (percent: number) => `color-mix(in srgb, var(--accent) ${percent}%,
 
 interface SelectedBreakdownSheetProps {
   open: boolean;
-  scope?: "selected" | "all";
+  /** Selected candidates, everyone, or the status/eligibility in the URL (a tile's count). */
+  scope?: "selected" | "all" | "filtered";
   tab: TalentPoolSourceTab;
   deptMode: "group" | "raw";
   currentParams: URLSearchParams;
@@ -302,12 +303,33 @@ function CandidateTable({ rows, deptMode, showSource }: { rows: TalentPoolSelect
 
 export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode, currentParams, onDeptModeChange, onClose }: SelectedBreakdownSheetProps) {
   const includeInactive = currentParams.get("include_inactive") === "true";
+  const selectedOnly = scope === "selected";
   const query = useQuery({
-    queryKey: ["talent-pool", "panel-rows", scope, tab, includeInactive],
-    queryFn: () => (scope === "all" ? getAllRows(tab, includeInactive) : getSelectedRows(tab, includeInactive)),
+    // Every other tile narrows the same fetched rows, so only the first waits.
+    queryKey: ["talent-pool", "panel-rows", selectedOnly ? "selected" : "all", tab, includeInactive],
+    queryFn: () => (selectedOnly ? getSelectedRows(tab, includeInactive) : getAllRows(tab, includeInactive)),
     enabled: open,
   });
-  const rows = query.data;
+  const tileStatuses = useMemo(() => (scope === "filtered" ? currentParams.getAll("status") : []), [scope, currentParams]);
+  const tileEligibility = scope === "filtered" ? currentParams.get("eligibility") : null;
+  const tileKey = JSON.stringify([tileStatuses, tileEligibility]);
+  const rows = useMemo(
+    () =>
+      query.data?.filter(
+        (row) =>
+          (tileStatuses.length === 0 || tileStatuses.includes(row.status)) &&
+          // The summary calls a blank eligibility "Not set", and so does its link.
+          (tileEligibility === null || (row.eligibility?.trim() || "Not set") === tileEligibility),
+      ),
+    [query.data, tileStatuses, tileEligibility],
+  );
+  const title = selectedOnly
+    ? "Selected candidates"
+    : scope === "all"
+      ? "All candidates"
+      : `${[tileEligibility, ...tileStatuses].filter(Boolean).join(", ")} candidates`;
+  // One status has nothing to split; everyone, or several, or an eligibility does.
+  const showStatus = !selectedOnly && tileStatuses.length !== 1;
   const sheetName = tab === "NTS" ? "NTS sheet" : "Final sheet";
 
   const { filters, active, toggle, clearDimension, clearAll } = useCrossFilter();
@@ -335,7 +357,7 @@ export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode
   }, [open, clearAll]);
   useEffect(() => {
     clearAll();
-  }, [tab, scope, clearAll]);
+  }, [tab, scope, tileKey, clearAll]);
   // The two department views have different values, so a pick cannot carry over.
   useEffect(() => {
     clearDimension("department");
@@ -356,7 +378,10 @@ export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode
 
   const listHref = useMemo(() => {
     // No filter: what the tile always did.
-    if (!active) return filterHref(tab, scope === "all" ? {} : { status: "Selected" }, currentParams);
+    const fixed = selectedOnly
+      ? { status: "Selected" }
+      : { status: tileStatuses, eligibility: tileEligibility ?? undefined };
+    if (!active) return filterHref(tab, fixed, currentParams);
     // The panel counts every Selected candidate, so its list must not stay
     // narrowed by a department or search chosen earlier on the page.
     const params = new URLSearchParams(currentParams);
@@ -367,7 +392,8 @@ export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode
     return filterHref(
       tab,
       {
-        status: scope === "all" ? [...filters.status] : "Selected",
+        ...fixed,
+        ...(filters.status.size > 0 ? { status: [...filters.status] } : {}),
         source: [...filters.reference],
         data_source: [...filters.source],
         gender: [...filters.gender],
@@ -377,7 +403,7 @@ export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode
       },
       params,
     );
-  }, [active, scope, tab, currentParams, deptMode, filters]);
+  }, [active, selectedOnly, tileStatuses, tileEligibility, tab, currentParams, deptMode, filters]);
 
   const chart = (title: string, column: string, key: Dimension, all: Facet, share = false, labelWidth?: number) => {
     const { icon: Icon, color } = LOOKS[key];
@@ -478,7 +504,7 @@ export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
             <div>
               <SheetTitle>
-                {scope === "all" ? "All candidates" : "Selected candidates"}
+                {title}
                 {rows && counted ? `: ${active ? `${counted.filtered} of ${rows.length}` : rows.length}` : ""}
               </SheetTitle>
               <SheetDescription>From the {sheetName}.</SheetDescription>
@@ -510,7 +536,7 @@ export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode
           ) : (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Tile label={scope === "all" ? "Candidates" : "Selected"} value={counted.filtered} look="gender" />
+                <Tile label={selectedOnly ? "Selected" : "Candidates"} value={counted.filtered} look="gender" />
                 <Tile label={counted.colleges === 1 ? "College" : "Colleges"} value={counted.colleges} look="college" />
                 <Tile label={counted.states === 1 ? "State" : "States"} value={counted.states} look="state" />
                 <Tile label={counted.departments === 1 ? "Department" : "Departments"} value={counted.departments} look="department" />
@@ -544,7 +570,7 @@ export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode
               </div>
               <div className="grid items-start gap-2 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.2fr)]">
                 <div className="grid gap-2">
-                  {scope === "all" ? chart("Status", "Status", "status", counted.facets.status) : null}
+                  {showStatus ? chart("Status", "Status", "status", counted.facets.status) : null}
                   {chart("Male / Female", "Gender", "gender", counted.facets.gender, true)}
                   {chart("Reference", "Reference", "reference", counted.facets.reference)}
                   {tab !== "NTS" ? chart("Source", "Reference", "source", counted.facets.source) : null}

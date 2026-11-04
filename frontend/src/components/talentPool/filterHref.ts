@@ -28,6 +28,7 @@ export type MeaningParam = (typeof MEANING_PARAMS)[number];
 export const BREAKDOWN_VIEW_PARAM = "view";
 export const BREAKDOWN_VIEW_SELECTED = "selected";
 export const BREAKDOWN_VIEW_ALL = "all";
+export const BREAKDOWN_VIEW_FILTERED = "filtered";
 
 /** The bucket the API folds everything below its top N into. It is not a
  * value anybody can filter on, so it is never a link. */
@@ -72,6 +73,19 @@ export function selectedBreakdownHref(tab: TalentPoolSourceTab, currentParams?: 
 /** The same panel over every candidate on the tab. */
 export function allBreakdownHref(tab: TalentPoolSourceTab, currentParams?: URLSearchParams): string {
   return breakdownHref(BREAKDOWN_VIEW_ALL, tab, currentParams);
+}
+
+/** The same panel over one tile's count: what the tile means stays in the URL,
+ * so closing the panel leaves the register showing the same people. */
+export function filteredBreakdownHref(
+  tab: TalentPoolSourceTab,
+  filters: { status?: string[]; eligibility?: string },
+  currentParams?: URLSearchParams,
+): string {
+  const params = new URLSearchParams(breakdownHref(BREAKDOWN_VIEW_FILTERED, tab, currentParams).split("?")[1]);
+  filters.status?.forEach((value) => params.append("status", value));
+  if (filters.eligibility) params.set("eligibility", filters.eligibility);
+  return `/talent-pool?${params.toString()}`;
 }
 
 function breakdownHref(view: string, tab: TalentPoolSourceTab, currentParams?: URLSearchParams): string {

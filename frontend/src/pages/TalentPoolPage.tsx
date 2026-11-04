@@ -7,7 +7,7 @@ import { getTalentPoolSummary } from "@/api/talentPool";
 import type { TalentPoolEntryRead, TalentPoolSourceTab } from "@/api/types";
 import { BreakdownList } from "@/components/talentPool/BreakdownList";
 import { DepartmentTable } from "@/components/talentPool/DepartmentTable";
-import { BREAKDOWN_VIEW_ALL, BREAKDOWN_VIEW_PARAM, BREAKDOWN_VIEW_SELECTED, filterHref, type MeaningParam } from "@/components/talentPool/filterHref";
+import { BREAKDOWN_VIEW_ALL, BREAKDOWN_VIEW_FILTERED, BREAKDOWN_VIEW_PARAM, BREAKDOWN_VIEW_SELECTED, filteredBreakdownHref, filterHref, type MeaningParam } from "@/components/talentPool/filterHref";
 import { MonthlyAddedChart } from "@/components/talentPool/MonthlyAddedChart";
 import { TalentPoolEntrySheet } from "@/components/talentPool/TalentPoolEntrySheet";
 import { TalentPoolRegister, type RegisterFilters } from "@/components/talentPool/TalentPoolRegister";
@@ -414,7 +414,7 @@ export function TalentPoolPage() {
                       title="PhD / eligibility"
                       items={summary.breakdowns.eligibility}
                       subLine={`Eligible = ${summary.eligible_definition.join(" / ")}.`}
-                      hrefFor={linkFor("eligibility")}
+                      hrefFor={(label) => filteredBreakdownHref(tab, { eligibility: label }, searchParams)}
                     />
                   </CardContent>
                 </Card>
@@ -459,7 +459,7 @@ export function TalentPoolPage() {
                     <BreakdownList
                       title="Call outcomes"
                       items={summary.breakdowns.call_outcomes}
-                      hrefFor={linkFor("status")}
+                      hrefFor={(label) => filteredBreakdownHref(tab, { status: [label] }, searchParams)}
                     />
                   </CardContent>
                 </Card>
@@ -484,8 +484,8 @@ export function TalentPoolPage() {
       {/* Outside the summary's block: switching department view refetches the
           summary, and unmounting here would lose the panel's filters. */}
       <SelectedBreakdownSheet
-        open={breakdownView === BREAKDOWN_VIEW_SELECTED || breakdownView === BREAKDOWN_VIEW_ALL}
-        scope={breakdownView === BREAKDOWN_VIEW_ALL ? "all" : "selected"}
+        open={breakdownView === BREAKDOWN_VIEW_SELECTED || breakdownView === BREAKDOWN_VIEW_ALL || breakdownView === BREAKDOWN_VIEW_FILTERED}
+        scope={breakdownView === BREAKDOWN_VIEW_ALL ? "all" : breakdownView === BREAKDOWN_VIEW_FILTERED ? "filtered" : "selected"}
         tab={tab}
         deptMode={tab === "NTS" ? "group" : deptMode}
         currentParams={searchParams}

@@ -1,11 +1,12 @@
-import { Award, CheckCircle2, Clock, HelpCircle, PhoneOff, Users, XCircle } from "lucide-react";
+import { Award, Ban, CheckCircle2, CircleAlert, Clock, FileX, HelpCircle, PhoneOff, UserCheck, Users, XCircle } from "lucide-react";
 
 import { StatTile } from "@/components/dashboard/StatTile";
 import type { TalentPoolSourceTab, TalentPoolSummary } from "@/api/types";
-import { allBreakdownHref, filterHref, selectedBreakdownHref } from "@/components/talentPool/filterHref";
+import { allBreakdownHref, filteredBreakdownHref, selectedBreakdownHref } from "@/components/talentPool/filterHref";
 
 /**
- * The tile row (spec 1.2). Seven tiles per tab, different on each.
+ * The tile row (spec 1.2). Different on each tab, with every status covered. Each opens
+ * the filter panel over its own count (SelectedBreakdownSheet).
  *
  * Tiles that filter are LINKS, not click handlers. The spec asks for
  * "buttons with a visible focus state", but this page already keeps its
@@ -79,7 +80,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
           icon={Clock}
           iconColor="orange"
           accent="orange"
-          to={filterHref(tab, { status: "Waiting List" }, currentParams)}
+          to={filteredBreakdownHref(tab, { status: ["Waiting List"] }, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -88,7 +89,15 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
           icon={XCircle}
           iconColor="red"
           accent="red"
-          to={filterHref(tab, { status: "Rejected" }, currentParams)}
+          to={filteredBreakdownHref(tab, { status: ["Rejected"] }, currentParams)}
+          isLoading={isLoading}
+        />
+        <StatTile
+          label="Joined"
+          value={status("Joined")}
+          icon={UserCheck}
+          iconColor="green"
+          to={filteredBreakdownHref(tab, { status: ["Joined"] }, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -97,7 +106,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
           subLine="no decision recorded"
           icon={HelpCircle}
           iconColor="blue"
-          to={filterHref(tab, { status: "Pending" }, currentParams)}
+          to={filteredBreakdownHref(tab, { status: ["Pending"] }, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -106,7 +115,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
           subLine={thesisStage > 0 ? `+${thesisStage} at thesis / viva stage` : undefined}
           icon={Award}
           iconColor="purple"
-          to={filterHref(tab, { eligibility: summary.eligible_definition[0] }, currentParams)}
+          to={filteredBreakdownHref(tab, { eligibility: summary.eligible_definition[0] }, currentParams)}
           isLoading={isLoading}
         />
         <StatTile
@@ -120,7 +129,31 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
           // `eligible_pending`, which the API counts as status == "Pending".
           // A teaching row with an unexpected status is undecided but not
           // Pending, so undecided=true could list more people than it shows.
-          to={filterHref(tab, { eligibility: summary.eligible_definition[0], status: "Pending" }, currentParams)}
+          to={filteredBreakdownHref(tab, { eligibility: summary.eligible_definition[0], status: ["Pending"] }, currentParams)}
+          isLoading={isLoading}
+        />
+        <StatTile
+          label="Not eligible"
+          value={status("Not Eligible")}
+          icon={Ban}
+          iconColor="red"
+          to={filteredBreakdownHref(tab, { status: ["Not Eligible"] }, currentParams)}
+          isLoading={isLoading}
+        />
+        <StatTile
+          label="No resume link"
+          value={status("No Resume Link")}
+          icon={FileX}
+          iconColor="orange"
+          to={filteredBreakdownHref(tab, { status: ["No Resume Link"] }, currentParams)}
+          isLoading={isLoading}
+        />
+        <StatTile
+          label="Not valid"
+          value={status("Not Valid")}
+          icon={CircleAlert}
+          iconColor="red"
+          to={filteredBreakdownHref(tab, { status: ["Not Valid"] }, currentParams)}
           isLoading={isLoading}
         />
       </div>
@@ -161,7 +194,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
         icon={Clock}
         iconColor="orange"
         accent="orange"
-        to={filterHref(tab, { status: "Waiting List" }, currentParams)}
+        to={filteredBreakdownHref(tab, { status: ["Waiting List"] }, currentParams)}
         isLoading={isLoading}
       />
       <StatTile
@@ -170,17 +203,24 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
         icon={XCircle}
         iconColor="red"
         accent="red"
-        to={filterHref(tab, { status: "Rejected" }, currentParams)}
+        to={filteredBreakdownHref(tab, { status: ["Rejected"] }, currentParams)}
         isLoading={isLoading}
       />
       <StatTile
         label="In follow-up"
         value={followUp}
-        // Not a link: it is three statuses added together, and the register
-        // filters on one status at a time.
         subLine={`RNR ${rnr} \u00b7 On hold ${onHold}`}
         icon={Clock}
         iconColor="orange"
+        to={filteredBreakdownHref(tab, { status: ["RNR", "On Hold", "Interview Scheduled"] }, currentParams)}
+        isLoading={isLoading}
+      />
+      <StatTile
+        label="Joined"
+        value={status("Joined")}
+        icon={UserCheck}
+        iconColor="green"
+        to={filteredBreakdownHref(tab, { status: ["Joined"] }, currentParams)}
         isLoading={isLoading}
       />
       <StatTile
@@ -188,7 +228,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
         value={status("Not Interested")}
         icon={PhoneOff}
         iconColor="red"
-        to={filterHref(tab, { status: "Not Interested" }, currentParams)}
+        to={filteredBreakdownHref(tab, { status: ["Not Interested"] }, currentParams)}
         isLoading={isLoading}
       />
       <StatTile
@@ -197,7 +237,7 @@ export function TalentPoolTiles({ summary, tab, currentParams, isLoading = false
         subLine="date or note only"
         icon={HelpCircle}
         iconColor="blue"
-        to={filterHref(tab, { status: "No outcome" }, currentParams)}
+        to={filteredBreakdownHref(tab, { status: ["No outcome"] }, currentParams)}
         isLoading={isLoading}
       />
     </div>

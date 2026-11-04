@@ -906,7 +906,7 @@ def test_selected_rows_are_the_breakdowns_rows_and_carry_no_contact_details(clie
     assert by_college["SSE"]["dept_group"] == "ECE"
     assert by_college["SCAD"]["dept_group"] is None
     assert set(rows[0]) == {
-        "id", "full_name", "status", "reference", "source", "gender", "college", "country", "state", "dept_raw", "dept_group",
+        "id", "full_name", "status", "eligibility", "reference", "source", "gender", "college", "country", "state", "dept_raw", "dept_group",
         "gender_from_resume", "country_from_resume", "state_from_resume",
     }  # fmt: skip
 

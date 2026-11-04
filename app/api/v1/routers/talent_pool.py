@@ -461,6 +461,7 @@ def _panel_rows(db: Session, where: list) -> list[TalentPoolSelectedRow]:
             TalentPoolEntry.id,
             TalentPoolEntry.full_name,
             TalentPoolEntry.sheet_status.label("status"),
+            TalentPoolEntry.eligibility,
             func.nullif(func.btrim(TalentPoolEntry.source), "").label("reference"),
             attributes.data_source().label("source"),
             attributes.gender().label("gender"),

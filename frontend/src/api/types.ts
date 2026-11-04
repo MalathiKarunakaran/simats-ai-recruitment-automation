@@ -2938,6 +2938,7 @@ export interface TalentPoolSelectedRow {
   id: string;
   full_name: string;
   status: string;
+  eligibility: string | null;
   reference: string | null;
   source: string | null;
   gender: string | null;

@@ -17,6 +17,7 @@ function row(id: number, over: Partial<TalentPoolSelectedRow>): TalentPoolSelect
     id: String(id),
     full_name: `Person ${id}`,
     status: "Selected",
+    eligibility: null,
     reference: id % 2 ? "Mam Data" : "Our Data",
     source: id % 2 ? "Faculty Plus" : id === 2 ? "Indeed" : null,
     gender: null,
@@ -46,7 +47,7 @@ const rows: TalentPoolSelectedRow[] = [
   row(10, { gender: "Female" }),
 ];
 
-function Harness({ search, startOpen, onClose, scope }: { search: string; startOpen: boolean; onClose?: () => void; scope?: "selected" | "all" }) {
+function Harness({ search, startOpen, onClose, scope }: { search: string; startOpen: boolean; onClose?: () => void; scope?: "selected" | "all" | "filtered" }) {
   const [deptMode, setDeptMode] = useState<"group" | "raw">("group");
   const [open, setOpen] = useState(startOpen);
   return (
@@ -68,7 +69,7 @@ function Harness({ search, startOpen, onClose, scope }: { search: string; startO
   );
 }
 
-function renderSheet(search = "view=selected", open = true, onClose?: () => void, scope?: "selected" | "all") {
+function renderSheet(search = "view=selected", open = true, onClose?: () => void, scope?: "selected" | "all" | "filtered") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -82,7 +83,7 @@ function renderSheet(search = "view=selected", open = true, onClose?: () => void
 const card = (title: string) => screen.getByRole("heading", { name: title }).parentElement!.parentElement!.parentElement!;
 const bar = (title: string, name: RegExp) => within(card(title)).getByRole("button", { name });
 const pickMore = (title: string) => userEvent.click(within(card(title)).getByRole("button", { name: /^Pick more/ }));
-const heading = () => screen.getByRole("heading", { name: /(Selected|All) candidates/ }).textContent;
+const heading = () => screen.getByRole("heading", { name: /candidates/ }).textContent;
 const fullList = () => decodeURIComponent(screen.getByRole("link", { name: "See full list" }).getAttribute("href")!);
 
 describe("SelectedBreakdownSheet", () => {
@@ -171,6 +172,46 @@ describe("SelectedBreakdownSheet", () => {
     await userEvent.click(bar("Status", /^Rejected: 1/));
     expect(heading()).toBe("All candidates: 1 of 3");
     expect(fullList()).toContain("status=Rejected");
+  });
+
+  describe("over one tile's count", () => {
+    const everyone = [
+      row(1, { status: "Rejected", college: "SSE" }),
+      row(2, { status: "Rejected", college: "SCAD" }),
+      row(3, { status: "Joined", college: "SSE", eligibility: "With Ph.D" }),
+      row(4, { status: "RNR", college: "SSE", eligibility: "With Ph.D" }),
+      row(5, { status: "On Hold", college: "SSE" }),
+    ];
+    beforeEach(() => vi.mocked(talentPoolApi.getAllRows).mockResolvedValue(everyone));
+
+    it("one status: its people only, no Status chart, and the list keeps it", async () => {
+      renderSheet("view=filtered&status=Rejected", true, undefined, "filtered");
+      await screen.findByRole("heading", { name: "College" });
+      expect(heading()).toBe("Rejected candidates: 2");
+      expect(screen.queryByRole("heading", { name: "Status" })).not.toBeInTheDocument();
+      expect(fullList()).toContain("status=Rejected");
+      await userEvent.click(bar("College", /^SSE: 1/));
+      expect(heading()).toBe("Rejected candidates: 1 of 2");
+      expect(fullList()).toContain("status=Rejected");
+      expect(fullList()).toContain("college=SSE");
+    });
+
+    it("several statuses: a Status chart to split them", async () => {
+      renderSheet("view=filtered&status=RNR&status=On+Hold", true, undefined, "filtered");
+      await screen.findByRole("heading", { name: "Status" });
+      expect(heading()).toBe("RNR, On Hold candidates: 2");
+      await userEvent.click(bar("Status", /^RNR: 1/));
+      expect(heading()).toBe("RNR, On Hold candidates: 1 of 2");
+      expect(fullList()).toContain("status=RNR");
+      expect(fullList()).not.toContain("status=On");
+    });
+
+    it("an eligibility: its people across statuses, and the list keeps it", async () => {
+      renderSheet("view=filtered&eligibility=With+Ph.D", true, undefined, "filtered");
+      await screen.findByRole("heading", { name: "Status" });
+      expect(heading()).toBe("With Ph.D candidates: 2");
+      expect(fullList().replace("+", " ")).toContain("eligibility=With Ph.D");
+    });
   });
 
   it("has no Status chart for Selected only", async () => {
