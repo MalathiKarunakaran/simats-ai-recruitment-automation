@@ -58,7 +58,8 @@ export function JoiningPipelineTiles({ data, isLoading }: { data: DashboardPipel
             value={value(w ? appWaiting(category) + (sheetCount ?? 0) : undefined)}
             isLoading={isLoading}
             accent="orange"
-            tooltip={`${w && sheetCount !== null ? `${appWaiting(category) + sheetCount} = ${sheetCount} from the ${sheetName} sheet + ${appWaiting(category)} from the app. ` : ""}Applications in WAITLISTED for this category${sheet ? ` plus active Talent Pool entries marked "Waiting List" on the ${sheetName} tab. ${SHEET_CAMPUS_NOTE}` : "."}`}
+            subLine={w ? (sheetCount !== null ? `${sheetName} sheet ${sheetCount} · app ${appWaiting(category)}` : `app ${appWaiting(category)}`) : undefined}
+            tooltip={`Applications in WAITLISTED for this category${sheet ? ` plus active Talent Pool entries marked "Waiting List" on the ${sheetName} tab. ${SHEET_CAMPUS_NOTE}` : "."}`}
             to={sheet ? `/talent-pool?status=Waiting%20List${tab}#register` : undefined}
           />
         ))}
@@ -80,7 +81,12 @@ export function JoiningPipelineTiles({ data, isLoading }: { data: DashboardPipel
           value={value(p?.total)}
           isLoading={isLoading}
           accent="green"
-          tooltip={`${p && data ? `${monthLabel(data.month)}: ${sheet ? `${p.order_register} from the order register + ` : ""}${p.appointment_orders} from the app. ` : ""}${sheet ? "Order-register rows plus in-app" : "In-app"} appointment orders (issued) dated in the current calendar month, India time.`}
+          subLine={
+            p && data
+              ? `${monthLabel(data.month)} · ${sheet ? `register ${p.order_register} · ` : ""}app ${p.appointment_orders}`
+              : undefined
+          }
+          tooltip={`${sheet ? "Order-register rows plus in-app" : "In-app"} appointment orders (issued) dated in the current calendar month, India time.`}
           to={sheet ? "/provisional-orders" : undefined}
         />
         <StatTile
@@ -89,7 +95,8 @@ export function JoiningPipelineTiles({ data, isLoading }: { data: DashboardPipel
           value={value(h?.total)}
           isLoading={isLoading}
           accent="orange"
-          tooltip={`${h ? `${sheet ? `${h.sheet_overdue} with probation overdue + ` : ""}${h.applications} from the app. ` : ""}Applications handed over to the HOD${sheet ? `, plus sheet provisional orders whose probation has ended with no outcome (the Provisional Orders page's "overdue" count). ${SHEET_CAMPUS_NOTE}` : "."}`}
+          subLine={h ? (sheet ? `probation overdue ${h.sheet_overdue} · app ${h.applications}` : `app ${h.applications}`) : undefined}
+          tooltip={`Applications handed over to the HOD${sheet ? `, plus sheet provisional orders whose probation has ended with no outcome (the Provisional Orders page's "overdue" count). ${SHEET_CAMPUS_NOTE}` : "."}`}
           to={sheet ? `/provisional-orders?probation=overdue#${LIST_ID}` : undefined}
         />
         <StatTile
@@ -98,6 +105,7 @@ export function JoiningPipelineTiles({ data, isLoading }: { data: DashboardPipel
           value={value(a?.total)}
           isLoading={isLoading}
           accent="blue"
+          subLine={a ? `app ${a.applications}` : undefined}
           tooltip="Applications whose HOD review is complete and which are waiting for the permanent order."
           to="/onboarding?stage=HOD_REVIEW_COMPLETE"
         />

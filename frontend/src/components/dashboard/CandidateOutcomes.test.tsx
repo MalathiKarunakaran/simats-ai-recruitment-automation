@@ -32,13 +32,12 @@ describe("CandidateOutcomes", () => {
 
     const selected = tile("Teaching (Final tab)", "Selected");
     expect(within(selected).getByText("12")).toBeInTheDocument();
-    // The split is the tile's hover text, not a printed line.
-    expect(selected).toHaveAttribute("title", "12 = 10 from the sheet + 2 from the app");
+    expect(within(selected).getByText("sheet 10 · app 2")).toBeInTheDocument();
     expect(within(tile("Teaching (Final tab)", "Waiting list")).getByText("33")).toBeInTheDocument();
 
     const ntsSelected = tile("Non-teaching (NTS tab)", "Selected");
     expect(within(ntsSelected).getByText("8")).toBeInTheDocument();
-    expect(ntsSelected).toHaveAttribute("title", "8 = 1 from the sheet + 7 from the app");
+    expect(within(ntsSelected).getByText("sheet 1 · app 7")).toBeInTheDocument();
   });
 
   it("shows Withdrawn from the app only, with no sheet part", () => {
@@ -55,8 +54,7 @@ describe("CandidateOutcomes", () => {
     const links = screen.getAllByRole("link", { name: /Waiting list/ });
     expect(links).toHaveLength(2);
     links.forEach((link) => expect(link).toHaveAttribute("href", "/rejected-waiting-list"));
-    expect(screen.getAllByText(/Hover a number for the split/)).toHaveLength(1);
-    expect(screen.getAllByTitle(SHEET_FILTER_NOTE)).toHaveLength(1);
+    expect(screen.getAllByText(SHEET_FILTER_NOTE)).toHaveLength(1);
   });
 
   it("shows app numbers only, with no split line and no note, when sheet data is not visible", () => {
