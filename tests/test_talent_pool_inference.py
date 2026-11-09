@@ -12,7 +12,7 @@ from app.services.talent_pool_inference import Clues, gender_from_field, gender_
         ("600077", "Tamil Nadu"), ("600 077", "Tamil Nadu"), ("641001", "Tamil Nadu"),
         ("400001", "Maharashtra"), ("403001", "Goa"), ("403601", "Goa"),
         ("605001", "Puducherry"), ("605014", "Puducherry"), ("605602", "Tamil Nadu"), ("605300", None),
-        ("609602", "Puducherry"), ("609001", "Tamil Nadu"),
+        ("609602", "Puducherry"), ("609001", "Tamil Nadu"), ("607402", "Puducherry"), ("607401", "Tamil Nadu"),
         ("160017", "Chandigarh"), ("160062", "Punjab"), ("160102", "Chandigarh"), ("140301", "Punjab"), ("161001", "Punjab"),
         ("737101", "Sikkim"), ("734301", "West Bengal"), ("700001", "West Bengal"),
         ("682555", "Lakshadweep"), ("682001", "Kerala"), ("673310", "Puducherry"), ("673001", "Kerala"),

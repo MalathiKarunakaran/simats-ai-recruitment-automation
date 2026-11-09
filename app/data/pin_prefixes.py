@@ -85,6 +85,8 @@ PIN_RANGES: list[tuple[int, int, str]] = [
     (605600, 605999, "Tamil Nadu"),
     # Puducherry's other enclaves: Karaikal, Mahe, Yanam.
     (609601, 609609, "Puducherry"),
+    # Bahour commune sits inside Tamil Nadu's 607 (checked 2026-11-09).
+    (607402, 607402, "Puducherry"),
     (673310, 673311, "Puducherry"),
     (533464, 533464, "Puducherry"),
     # Lakshadweep islands sit inside Ernakulam's 682.
