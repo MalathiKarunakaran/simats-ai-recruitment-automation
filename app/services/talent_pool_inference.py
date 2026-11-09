@@ -19,10 +19,12 @@ from dataclasses import dataclass
 
 from app.data.pin_prefixes import AMBIGUOUS_PREFIX3, PIN_PREFIX2, PIN_PREFIX3, PIN_RANGES
 
-# The user's 2-Nov rule: the chart is about HOME, so clues from an unlabelled
-# contact block (often where the person lives or works now) are ignored. Flip
-# only on the user's say-so.
-ACCEPT_CONTACT_BLOCK_STATE = False
+# On since 9-Nov-2026: the spot-check showed most resumes give their place only
+# in the contact lines at the top, so home-address-only left State nearly always
+# unknown (the user's 2-Nov rule; their 9-Nov spec names the contact block). The
+# home block still wins, and a contact value is LOW confidence, since it can be
+# where the person lives or works now.
+ACCEPT_CONTACT_BLOCK_STATE = True
 
 SOURCE_FIELD = "resume_field"  # an explicit Gender/Sex field (not in the user's original list)
 SOURCE_HONORIFIC = "resume_honorific"

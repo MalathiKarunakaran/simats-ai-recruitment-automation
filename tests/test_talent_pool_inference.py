@@ -119,13 +119,14 @@ def test_nationality_alone_gives_country_only():
     assert (result.country, result.state) == ("India", None)
 
 
-def test_contact_block_is_ignored_by_default(monkeypatch):
+def test_contact_block_is_accepted_at_low_confidence(monkeypatch):
     clues = Clues(contact_pin="682001", contact_state_word="Kerala")
-    assert inf.ACCEPT_CONTACT_BLOCK_STATE is False
-    assert infer(clues).state is None
-    monkeypatch.setattr(inf, "ACCEPT_CONTACT_BLOCK_STATE", True)
+    assert inf.ACCEPT_CONTACT_BLOCK_STATE is True
     accepted = infer(clues)
     assert (accepted.state, accepted.state_confidence) == ("Kerala", "low")
+    assert accepted.state_evidence.startswith("Contact block: ")
+    monkeypatch.setattr(inf, "ACCEPT_CONTACT_BLOCK_STATE", False)
+    assert infer(clues).state is None
     # the home block still wins over the contact block
     both = Clues(home_state_word="Goa", contact_pin="682001", contact_state_word="Kerala")
     assert infer(both).state == "Goa"
