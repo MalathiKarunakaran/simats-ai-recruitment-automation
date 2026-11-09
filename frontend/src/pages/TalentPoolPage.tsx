@@ -181,6 +181,18 @@ export function TalentPoolPage() {
     [setSearchParams],
   );
 
+  // Absent means on; only an explicit "false" hides inferred values.
+  const includeInferred = searchParams.get("include_inferred") !== "false";
+  const selectIncludeInferred = useCallback(
+    (on: boolean) => {
+      const params = new URLSearchParams(searchParams);
+      if (on) params.delete("include_inferred");
+      else params.set("include_inferred", "false");
+      setSearchParams(params, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
   const selectDeptMode = useCallback(
     (mode: "group" | "raw") => {
       storeDeptMode(mode);
@@ -472,6 +484,7 @@ export function TalentPoolPage() {
             deptMode={summary.department_mode === "raw" ? "raw" : "group"}
             summary={summary}
             filters={filters}
+            includeInferred={includeInferred}
             onFiltersChange={changeFilters}
             onOpenEntry={setOpenEntry}
             onListLoaded={setListLoaded}
@@ -490,6 +503,7 @@ export function TalentPoolPage() {
         deptMode={tab === "NTS" ? "group" : deptMode}
         currentParams={searchParams}
         onDeptModeChange={selectDeptMode}
+        onIncludeInferredChange={selectIncludeInferred}
         onClose={closeBreakdown}
       />
     </div>

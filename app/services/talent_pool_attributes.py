@@ -11,9 +11,13 @@ College and Gender fall back to the linked New Joinees row when the talent pool
 row has none. Gender, State and Country then fall back to what the resume states
 (TalentPoolResumeField), so a sheet value always wins. Gender is never inferred
 from a name.
+
+The functions that read the resume take `include_inferred`. True (the default)
+is the effective value, including everything inferred from clues; False is the
+sheets plus only what the original reader reported (the `legacy_*` columns).
 """
 
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, null, select
 
 from app.models.sheet_sync import SheetJoinee
 from app.models.talent_pool_entry import TalentPoolEntry
@@ -85,12 +89,24 @@ def college():
     )
 
 
-def state():
-    return func.coalesce(_tidied("State"), _from_resume(TalentPoolResumeField.state))
+def _resume(include_inferred: bool, effective, legacy):
+    """The resume's value for this person. `include_inferred=False` reads the
+    frozen `legacy_*` copy (what the original reader reported), so the
+    sheet-only view cannot move when inference adds or changes values."""
+    return _from_resume(effective if include_inferred else legacy)
 
 
-def country():
-    return func.coalesce(_tidied("Country"), _from_resume(TalentPoolResumeField.country))
+def state(include_inferred: bool = True):
+    return func.coalesce(
+        _tidied("State"), _resume(include_inferred, TalentPoolResumeField.state, TalentPoolResumeField.legacy_state)
+    )
+
+
+def country(include_inferred: bool = True):
+    return func.coalesce(
+        _tidied("Country"),
+        _resume(include_inferred, TalentPoolResumeField.country, TalentPoolResumeField.legacy_country),
+    )
 
 
 def _gender_from_sheets():
@@ -100,8 +116,12 @@ def _gender_from_sheets():
     )
 
 
-def gender():
-    value = func.coalesce(_gender_from_sheets(), _from_resume(TalentPoolResumeField.gender))
+def _gender_from_resume(include_inferred: bool):
+    return _resume(include_inferred, TalentPoolResumeField.gender, TalentPoolResumeField.legacy_gender)
+
+
+def gender(include_inferred: bool = True):
+    value = func.coalesce(_gender_from_sheets(), _gender_from_resume(include_inferred))
     lowered = func.lower(value)
     return case(
         (lowered.in_(("m", "male")), "Male"),
@@ -111,13 +131,55 @@ def gender():
 
 
 # True when the value above came from the resume, for the "from resumes" count.
-def state_from_resume():
-    return and_(_tidied("State").is_(None), _from_resume(TalentPoolResumeField.state).is_not(None))
+def state_from_resume(include_inferred: bool = True):
+    return and_(
+        _tidied("State").is_(None),
+        _resume(include_inferred, TalentPoolResumeField.state, TalentPoolResumeField.legacy_state).is_not(None),
+    )
 
 
-def country_from_resume():
-    return and_(_tidied("Country").is_(None), _from_resume(TalentPoolResumeField.country).is_not(None))
+def country_from_resume(include_inferred: bool = True):
+    return and_(
+        _tidied("Country").is_(None),
+        _resume(include_inferred, TalentPoolResumeField.country, TalentPoolResumeField.legacy_country).is_not(None),
+    )
 
 
-def gender_from_resume():
-    return and_(_gender_from_sheets().is_(None), _from_resume(TalentPoolResumeField.gender).is_not(None))
+def gender_from_resume(include_inferred: bool = True):
+    return and_(_gender_from_sheets().is_(None), _gender_from_resume(include_inferred).is_not(None))
+
+
+# Provenance, for the register's per-row "inferred from ..." note: 'sheet' when a
+# sheet (New Joinees included) has the value, the resume rule that produced it
+# otherwise, 'unknown' when nothing records it. Evidence is null for a sheet value.
+def _source(sheet_present, from_resume, include_inferred: bool, column, fallback: str):
+    from_rule = func.coalesce(_from_resume(column), fallback) if include_inferred else fallback
+    return case((sheet_present, "sheet"), (from_resume, from_rule), else_="unknown")
+
+
+def _evidence(from_resume, include_inferred: bool, column):
+    if not include_inferred:
+        return null()
+    return case((from_resume, _from_resume(column)), else_=None)
+
+
+def gender_source(include_inferred: bool = True):
+    return _source(
+        _gender_from_sheets().is_not(None), gender_from_resume(include_inferred), include_inferred,
+        TalentPoolResumeField.gender_source, "resume_field",
+    )  # fmt: skip
+
+
+def state_source(include_inferred: bool = True):
+    return _source(
+        _tidied("State").is_not(None), state_from_resume(include_inferred), include_inferred,
+        TalentPoolResumeField.state_source, "resume_address",
+    )  # fmt: skip
+
+
+def gender_evidence(include_inferred: bool = True):
+    return _evidence(gender_from_resume(include_inferred), include_inferred, TalentPoolResumeField.gender_evidence)
+
+
+def state_evidence(include_inferred: bool = True):
+    return _evidence(state_from_resume(include_inferred), include_inferred, TalentPoolResumeField.state_evidence)

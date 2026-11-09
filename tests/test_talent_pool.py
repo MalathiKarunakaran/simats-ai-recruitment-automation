@@ -800,11 +800,11 @@ def test_selected_breakdown_counts_only_selected_and_says_what_is_recorded(clien
     b = _breakdown(client, admin)
 
     assert b["total"] == 4
-    assert b["department"] == {"items": [{"label": "ECE", "count": 2}, {"label": "CSE", "count": 1}], "recorded": 3, "from_resume": 0}
-    assert b["college"] == {"items": [{"label": "SSE", "count": 2}, {"label": "SCAD", "count": 1}], "recorded": 3, "from_resume": 0}
-    assert b["state"] == {"items": [{"label": "Tamil Nadu", "count": 2}], "recorded": 2, "from_resume": 0}
-    assert b["country"] == {"items": [{"label": "India", "count": 2}], "recorded": 2, "from_resume": 0}
-    assert b["gender"] == {"items": [{"label": "Female", "count": 2}, {"label": "Male", "count": 1}], "recorded": 3, "from_resume": 0}
+    assert b["department"] == {"items": [{"label": "ECE", "count": 2}, {"label": "CSE", "count": 1}], "recorded": 3, "from_resume": 0, "from_sheet": 3, "inferred": 0}
+    assert b["college"] == {"items": [{"label": "SSE", "count": 2}, {"label": "SCAD", "count": 1}], "recorded": 3, "from_resume": 0, "from_sheet": 3, "inferred": 0}
+    assert b["state"] == {"items": [{"label": "Tamil Nadu", "count": 2}], "recorded": 2, "from_resume": 0, "from_sheet": 2, "inferred": 0}
+    assert b["country"] == {"items": [{"label": "India", "count": 2}], "recorded": 2, "from_resume": 0, "from_sheet": 2, "inferred": 0}
+    assert b["gender"] == {"items": [{"label": "Female", "count": 2}, {"label": "Male", "count": 1}], "recorded": 3, "from_resume": 0, "from_sheet": 3, "inferred": 0}
 
 
 def test_selected_breakdown_falls_back_to_the_linked_joinee(client, db_session, user_factory):
@@ -829,7 +829,7 @@ def test_selected_breakdown_person_counted_once_with_two_joinee_rows(client, db_
 
     b = _breakdown(client, admin)
 
-    assert b["college"] == {"items": [{"label": "SSE", "count": 1}], "recorded": 1, "from_resume": 0}
+    assert b["college"] == {"items": [{"label": "SSE", "count": 1}], "recorded": 1, "from_resume": 0, "from_sheet": 1, "inferred": 0}
 
 
 @pytest.mark.parametrize(
@@ -908,6 +908,7 @@ def test_selected_rows_are_the_breakdowns_rows_and_carry_no_contact_details(clie
     assert set(rows[0]) == {
         "id", "full_name", "status", "eligibility", "reference", "source", "gender", "college", "country", "state", "dept_raw", "dept_group",
         "gender_from_resume", "country_from_resume", "state_from_resume",
+        "gender_source", "state_source", "gender_evidence", "state_evidence",
     }  # fmt: skip
 
 

@@ -130,6 +130,10 @@ class SelectedBreakdownDimension(BaseModel):
     recorded: int
     # Of those, how many came from the resume because the sheets had none.
     from_resume: int
+    # recorded = from_sheet + inferred. `inferred` is every value that came from a
+    # resume (explicit field or inference alike); New Joinees counts as sheet.
+    from_sheet: int = 0
+    inferred: int = 0
 
 
 class TalentPoolSelectedBreakdown(BaseModel):
@@ -161,6 +165,12 @@ class TalentPoolSelectedRow(BaseModel):
     gender_from_resume: bool
     country_from_resume: bool
     state_from_resume: bool
+    # 'sheet' | 'resume_field' | 'resume_honorific' | 'resume_pincode' |
+    # 'resume_address' | 'unknown'. Evidence is a short note, null for a sheet value.
+    gender_source: str | None = None
+    state_source: str | None = None
+    gender_evidence: str | None = None
+    state_evidence: str | None = None
 
 
 class TalentPoolSummary(BaseModel):

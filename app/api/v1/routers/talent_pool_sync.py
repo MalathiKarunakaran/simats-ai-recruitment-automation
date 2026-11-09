@@ -52,3 +52,14 @@ def save_resume_fields(payload: ResumeFieldsRequest, db: Session = Depends(get_d
     result = talent_pool_resume_fields.save(db, payload)
     db.commit()
     return result
+
+
+@router.get(
+    "/resume-fields/hashes",
+    response_model=dict[str, str],
+    dependencies=[Depends(require_talent_pool_sync_secret)],
+)
+def resume_field_hashes(db: Session = Depends(get_db)) -> dict[str, str]:
+    """{file_id: resume_hash} of the resumes already read, so the script can skip
+    unchanged files before opening them. Same shared-secret gate as the POST."""
+    return talent_pool_resume_fields.stored_hashes(db)

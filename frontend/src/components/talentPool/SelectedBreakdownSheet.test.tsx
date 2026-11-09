@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -47,9 +47,10 @@ const rows: TalentPoolSelectedRow[] = [
   row(10, { gender: "Female" }),
 ];
 
-function Harness({ search, startOpen, onClose, scope }: { search: string; startOpen: boolean; onClose?: () => void; scope?: "selected" | "all" | "filtered" }) {
+function Harness({ search: initialSearch, startOpen, onClose, scope }: { search: string; startOpen: boolean; onClose?: () => void; scope?: "selected" | "all" | "filtered" }) {
   const [deptMode, setDeptMode] = useState<"group" | "raw">("group");
   const [open, setOpen] = useState(startOpen);
+  const [search, setSearch] = useState(initialSearch);
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}>reopen</button>
@@ -60,6 +61,12 @@ function Harness({ search, startOpen, onClose, scope }: { search: string; startO
         deptMode={deptMode}
         currentParams={new URLSearchParams(search)}
         onDeptModeChange={setDeptMode}
+        onIncludeInferredChange={(on) => {
+          const next = new URLSearchParams(search);
+          if (on) next.delete("include_inferred");
+          else next.set("include_inferred", "false");
+          setSearch(next.toString());
+        }}
         onClose={() => {
           setOpen(false);
           onClose?.();
@@ -222,7 +229,7 @@ describe("SelectedBreakdownSheet", () => {
 
   it("says how many values came from resumes", async () => {
     renderSheet();
-    expect(await screen.findByText("Recorded for 4 of 10 (1 from resumes)")).toBeInTheDocument();
+    expect(await screen.findByText("Recorded for 4 of 10 (3 from sheet \u00b7 1 inferred)")).toBeInTheDocument();
   });
 
   it("names the sheet column to fill when a card has no data", async () => {
@@ -249,7 +256,7 @@ describe("SelectedBreakdownSheet", () => {
     expect(within(card("College")).getByText("Recorded for 5 of 5")).toBeInTheDocument();
     expect(within(card("Department")).getByText("Recorded for 5 of 5")).toBeInTheDocument();
     expect(within(card("Male / Female")).getByText("Recorded for 4 of 5")).toBeInTheDocument();
-    expect(within(card("State")).getByText("Recorded for 4 of 5 (1 from resumes)")).toBeInTheDocument();
+    expect(within(card("State")).getByText("Recorded for 4 of 5 (3 from sheet \u00b7 1 inferred)")).toBeInTheDocument();
     expect(within(card("Country")).getByText("Recorded for 3 of 5")).toBeInTheDocument();
     expect(bar("Department", /^ECE: 3/)).toBeInTheDocument();
     expect(bar("Department", /^CSE: 2/)).toBeInTheDocument();
@@ -265,7 +272,7 @@ describe("SelectedBreakdownSheet", () => {
     renderSheet();
     await screen.findByRole("heading", { name: "College" });
     await userEvent.click(bar("State", /^Tamil Nadu: /));
-    expect(within(card("State")).getByText("Recorded for 2 of 2 (1 from resumes)")).toBeInTheDocument();
+    expect(within(card("State")).getByText("Recorded for 2 of 2 (1 from sheet \u00b7 1 inferred)")).toBeInTheDocument();
     await userEvent.click(bar("State", /^Tamil Nadu: /));
     await userEvent.click(bar("State", /^Kerala: /));
     expect(within(card("State")).getByText("Recorded for 2 of 2")).toBeInTheDocument();
@@ -467,5 +474,61 @@ describe("SelectedBreakdownSheet", () => {
     expect(href).toContain("status=Selected");
     expect(href).toContain("department=Nursing");
     expect(href).not.toContain("view=");
+  });
+
+  describe("inferred values", () => {
+    const inferredRows: TalentPoolSelectedRow[] = [
+      row(1, { gender: "Male", state: "Tamil Nadu", gender_source: "sheet", state_source: "sheet" }),
+      row(2, {
+        gender: "Female",
+        state: "Tamil Nadu",
+        gender_from_resume: true,
+        state_from_resume: true,
+        gender_source: "resume_honorific",
+        gender_evidence: "From honorific 'Ms.' in the resume",
+        state_source: "resume_pincode",
+        state_evidence: "From PIN code 600077",
+      }),
+    ];
+
+    it("defaults ON, then sends include_inferred=false when switched off", async () => {
+      mockedGet.mockResolvedValue(inferredRows);
+      renderSheet();
+      await screen.findByTestId("candidate-table");
+      expect(mockedGet).toHaveBeenLastCalledWith("TEACHING_FINAL", false, true);
+      const toggle = screen.getByRole("switch", { name: "Include inferred values" });
+      expect(toggle).toBeChecked();
+      await userEvent.click(toggle);
+      await waitFor(() => expect(mockedGet).toHaveBeenLastCalledWith("TEACHING_FINAL", false, false));
+      expect(screen.getByRole("switch", { name: "Include inferred values" })).not.toBeChecked();
+    });
+
+    it("starts OFF when the URL says include_inferred=false", async () => {
+      mockedGet.mockResolvedValue(inferredRows);
+      renderSheet("view=selected&include_inferred=false");
+      await screen.findByTestId("candidate-table");
+      expect(mockedGet).toHaveBeenLastCalledWith("TEACHING_FINAL", false, false);
+      expect(screen.getByRole("switch", { name: "Include inferred values" })).not.toBeChecked();
+    });
+
+    it("splits the recorded line into sheet and inferred", async () => {
+      mockedGet.mockResolvedValue(inferredRows);
+      renderSheet();
+      await screen.findByTestId("candidate-table");
+      expect(screen.getAllByText(/Recorded for 2 of 2 \(1 from sheet \u00b7 1 inferred\)/).length).toBeGreaterThan(0);
+    });
+
+    it("italicises an inferred value with a tooltip and leaves a sheet value plain", async () => {
+      mockedGet.mockResolvedValue(inferredRows);
+      renderSheet();
+      const table = within(await screen.findByTestId("candidate-table"));
+      const inferredState = table.getByTitle("From PIN code 600077");
+      expect(inferredState.tagName).toBe("I");
+      expect(inferredState).toHaveTextContent("Tamil Nadu");
+      expect(table.getByTitle("From honorific 'Ms.' in the resume")).toHaveTextContent("Female");
+      const sheetRow = table.getByText("Person 1").closest("tr") as HTMLElement;
+      expect(within(sheetRow).getByText("Male").tagName).toBe("TD");
+      expect(sheetRow.querySelector("i")).toBeNull();
+    });
   });
 });

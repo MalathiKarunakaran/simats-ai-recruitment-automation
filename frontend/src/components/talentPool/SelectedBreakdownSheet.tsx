@@ -19,6 +19,7 @@ import { filterHref } from "@/components/talentPool/filterHref";
 import { useCrossFilter } from "@/components/talentPool/useCrossFilter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
@@ -81,6 +82,8 @@ interface SelectedBreakdownSheetProps {
   deptMode: "group" | "raw";
   currentParams: URLSearchParams;
   onDeptModeChange: (mode: "group" | "raw") => void;
+  /** Writes include_inferred into the URL; the panel reads it back from currentParams. */
+  onIncludeInferredChange?: (on: boolean) => void;
   onClose: () => void;
 }
 
@@ -238,6 +241,35 @@ function Tile({ label, value, look }: { label: string; value: number; look: Dime
 
 const PAGE_SIZE = 25;
 
+const SOURCE_WORDS: Record<string, string> = {
+  resume_pincode: "From a PIN code in the resume",
+  resume_address: "From the home address in the resume",
+  resume_honorific: "From the honorific in the resume",
+};
+
+/** A value read from a resume rather than typed in the sheet; null otherwise. */
+function inferredNote(value: string | null, source: string | null | undefined, evidence: string | null | undefined, label: string): string | null {
+  if (!value || !source || source === "sheet" || source === "unknown") return null;
+  const words = source === "resume_field" ? `From the ${label} field in the resume` : (SOURCE_WORDS[source] ?? "Read from the resume");
+  return evidence || words;
+}
+
+/** Plain for a sheet value; italic with a tooltip when it came from a resume. */
+function ValueCell({ value, source, evidence, label, className }: { value: string | null; source?: string | null; evidence?: string | null; label: string; className: string }) {
+  const note = inferredNote(value, source, evidence, label);
+  return (
+    <td className={className}>
+      {note ? (
+        <i title={note} data-inferred="true">
+          {value}
+        </i>
+      ) : (
+        (value ?? "\u2013")
+      )}
+    </td>
+  );
+}
+
 /** The candidates behind the charts, right here, one page at a time. */
 function CandidateTable({ rows, deptMode, showSource }: { rows: TalentPoolSelectedRow[]; deptMode: "group" | "raw"; showSource: boolean }) {
   const [page, setPage] = useState(0);
@@ -276,6 +308,8 @@ function CandidateTable({ rows, deptMode, showSource }: { rows: TalentPoolSelect
                   <th className={cn(cell, "font-medium")}>Name</th>
                   <th className={cn(cell, "font-medium")}>College</th>
                   <th className={cn(cell, "font-medium")}>Department</th>
+                  <th className={cn(cell, "font-medium")}>Gender</th>
+                  <th className={cn(cell, "font-medium")}>State</th>
                   <th className={cn(cell, "font-medium")}>Status</th>
                   <th className={cn(cell, "font-medium")}>Reference</th>
                   {showSource ? <th className={cn(cell, "font-medium")}>Source</th> : null}
@@ -287,6 +321,8 @@ function CandidateTable({ rows, deptMode, showSource }: { rows: TalentPoolSelect
                     <td className={cn(cell, "font-medium")}>{row.full_name}</td>
                     <td className={cell}>{row.college ?? "\u2013"}</td>
                     <td className={cell}>{(deptMode === "raw" ? row.dept_raw : row.dept_group) ?? "\u2013"}</td>
+                    <ValueCell value={row.gender} source={row.gender_source} evidence={row.gender_evidence} label="Gender" className={cell} />
+                    <ValueCell value={row.state} source={row.state_source} evidence={row.state_evidence} label="State" className={cell} />
                     <td className={cell}>{row.status}</td>
                     <td className={cell}>{row.reference ?? "\u2013"}</td>
                     {showSource ? <td className={cell}>{row.source ?? "\u2013"}</td> : null}
@@ -301,13 +337,15 @@ function CandidateTable({ rows, deptMode, showSource }: { rows: TalentPoolSelect
   );
 }
 
-export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode, currentParams, onDeptModeChange, onClose }: SelectedBreakdownSheetProps) {
+export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode, currentParams, onDeptModeChange, onIncludeInferredChange, onClose }: SelectedBreakdownSheetProps) {
   const includeInactive = currentParams.get("include_inactive") === "true";
   const selectedOnly = scope === "selected";
+  // On unless the URL says otherwise; the same rule the page uses.
+  const includeInferred = currentParams.get("include_inferred") !== "false";
   const query = useQuery({
     // Every other tile narrows the same fetched rows, so only the first waits.
-    queryKey: ["talent-pool", "panel-rows", selectedOnly ? "selected" : "all", tab, includeInactive],
-    queryFn: () => (selectedOnly ? getSelectedRows(tab, includeInactive) : getAllRows(tab, includeInactive)),
+    queryKey: ["talent-pool", "panel-rows", selectedOnly ? "selected" : "all", tab, includeInactive, includeInferred],
+    queryFn: () => (selectedOnly ? getSelectedRows(tab, includeInactive, includeInferred) : getAllRows(tab, includeInactive, includeInferred)),
     enabled: open,
   });
   const tileStatuses = useMemo(() => (scope === "filtered" ? currentParams.getAll("status") : []), [scope, currentParams]);
@@ -433,7 +471,7 @@ export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode
               </h3>
               <p className="text-[11px] text-muted-foreground">
                 Recorded for {facet.recorded} of {facet.base}
-                {facet.fromResume > 0 ? ` (${facet.fromResume} from resumes)` : ""}
+                {facet.fromResume > 0 ? ` (${facet.recorded - facet.fromResume} from sheet \u00b7 ${facet.fromResume} inferred)` : ""}
               </p>
             </div>
             {key === "department" && tab !== "NTS" ? (
@@ -513,6 +551,14 @@ export function SelectedBreakdownSheet({ open, scope = "selected", tab, deptMode
               <Button asChild variant="outline" size="sm">
                 <Link to={listHref}>See full list</Link>
               </Button>
+              <label className="flex items-center gap-2 text-xs">
+                <Switch
+                  checked={includeInferred}
+                  onCheckedChange={(checked) => onIncludeInferredChange?.(checked)}
+                  aria-label="Include inferred values"
+                />
+                Include inferred values
+              </label>
               <Button variant="outline" size="sm" disabled={!active} onClick={clearAll}>
                 Clear selection
               </Button>

@@ -98,6 +98,93 @@ function extractResumeFields_(text) {
   };
 }
 
+// --- Clues (2026-11-09) ----------------------------------------------------
+// The app now decides gender and state itself, from short clues: a PIN code, the
+// state word as written, a title such as "Ms.", a Gender field. Never a line of
+// the address, never the name. The address block is the same one rfHomeState_ uses.
+
+var RF_PIN = /(?:^|[^\d+])([1-8]\d{2}\s?\d{3})(?!\d)/;
+var RF_TITLE = /^\s*((?:dr|prof)\.?\s*\(?\s*)?(mrs|ms|miss|mr|smt|shri|shree|selvi|thiru|tmt|kumari|thirumathi)\b\.?\)?/i;
+
+function rfStateWordIn_(text) {
+  var earliest = null;
+  RF_STATES.forEach(function (entry) {
+    var match = text.match(entry[0]);
+    if (match && (earliest === null || match.index < earliest.at)) earliest = { at: match.index, word: match[0] };
+  });
+  return earliest ? earliest.word : null;
+}
+
+function rfPinIn_(text) {
+  var pin = text.match(RF_PIN);
+  return pin ? pin[1].replace(/\s/g, "") : null;
+}
+
+function rfHomeBlock_(text) {
+  var labelled = text.match(/\b(?:permanent|home|native|residential)\s+address\b([\s\S]*)/i);
+  if (labelled) return rfAddressLines_(labelled[1]);
+  var plain = /(^|[^a-z])(\w*\s*)address\b/gi;
+  var match;
+  while ((match = plain.exec(text))) {
+    if (/current|present|office|official|college|institute|e-?mail|web|communication/i.test(match[2])) continue;
+    return rfAddressLines_(text.slice(plain.lastIndex));
+  }
+  return null;
+}
+
+// The title the resume opens with, from its first few lines only ("Ms. Priya K" -> "Ms.").
+function rfTitleIn_(text) {
+  var lines = text.split("\n").filter(function (l) { return l.trim(); }).slice(0, 4);
+  for (var i = 0; i < lines.length; i++) {
+    var match = lines[i].match(RF_TITLE);
+    if (match) return match[0].trim();
+  }
+  return null;
+}
+
+function extractClues_(text) {
+  var gender = text.match(/\b(?:gender|sex)\b(?:\s*&\s*marital status)?[\s:\-–—]*(female|male|f|m)\b/i);
+  var home = rfHomeBlock_(text);
+  var contact = text.split("\n").filter(function (l) { return l.trim(); }).slice(0, 8).join("\n");
+  return {
+    gender_field: gender ? gender[1] : null,
+    honorific: rfTitleIn_(text),
+    home_pin: home ? rfPinIn_(home) : null,
+    home_state_word: home ? rfStateWordIn_(home) : null,
+    contact_pin: rfPinIn_(contact),
+    contact_state_word: rfStateWordIn_(contact),
+    nationality_indian: /\b(?:nationality|citizenship|citenship)\b[\s:\-–—]*indian?\b/i.test(text),
+  };
+}
+
+// Changes whenever the file does, so an unchanged resume is never read twice.
+function rfFileHash_(fileId) {
+  var meta = Drive.Files.get(fileId, { fields: "md5Checksum,modifiedTime" });
+  return meta.md5Checksum || meta.modifiedTime;
+}
+
+function rfKnownHashes_(secret) {
+  var response = UrlFetchApp.fetch(RF_URL + "/hashes", {
+    headers: { "X-Talent-Pool-Sync-Secret": secret },
+    muteHttpExceptions: true,
+  });
+  if (response.getResponseCode() !== 200) throw new Error("Could not read known resumes: HTTP " + response.getResponseCode());
+  return JSON.parse(response.getContentText());
+}
+
+// For checking by eye: 10 random resumes, their clues printed here only. Sends nothing.
+function spotCheckClues() {
+  var ids = rfSelectedFileIds_();
+  for (var n = 0; n < 10 && ids.length; n++) {
+    var id = ids.splice(Math.floor(Math.random() * ids.length), 1)[0];
+    try {
+      Logger.log(id + " " + JSON.stringify(extractClues_(rfReadText_(id))));
+    } catch (e) {
+      Logger.log(id + " unreadable");
+    }
+  }
+}
+
 function rfSelectedFileIds_() {
   var values = SpreadsheetApp.openById(RF_SHEET_ID).getSheetByName(RF_TAB).getDataRange().getValues();
   var headers = values[1].map(function (h) { return String(h).trim(); }); // row 2 is the header
@@ -159,14 +246,19 @@ function sendResumeFields() {
 
   var started = Date.now();
   var ids = rfSelectedFileIds_();
+  var known = rfKnownHashes_(secret);
   var next = Number(props.getProperty("RF_NEXT") || 0);
   var items = [];
   var unreadable = 0;
+  var unchanged = 0;
   while (next < ids.length && Date.now() - started < RF_RUN_LIMIT_MS) {
     try {
-      var fields = extractResumeFields_(rfReadText_(ids[next]));
-      if (fields.gender || fields.state || fields.country) {
-        items.push({ file_id: ids[next], gender: fields.gender, state: fields.state, country: fields.country });
+      var hash = rfFileHash_(ids[next]);
+      if (known[ids[next]] === hash) {
+        unchanged++;
+      } else {
+        // Sent even when nothing is found, so the app remembers this version was read.
+        items.push({ file_id: ids[next], resume_hash: hash, clues: extractClues_(rfReadText_(ids[next])) });
       }
     } catch (e) {
       unreadable++;
@@ -185,12 +277,26 @@ function sendResumeFields() {
   if (response.getResponseCode() !== 200) throw new Error("The app refused this batch; it will be read again.");
 
   props.setProperty("RF_NEXT", String(next));
-  Logger.log("Read " + next + " of " + ids.length + ", unreadable this batch " + unreadable);
+  Logger.log("Read " + next + " of " + ids.length + ", unchanged " + unchanged + ", unreadable this batch " + unreadable);
   if (next >= ids.length) {
     props.deleteProperty("RF_NEXT");
     rfSetTrigger_(false);
     Logger.log("Finished.");
   }
+}
+
+// Run once by hand: from then on a fresh pass starts every morning, reading only
+// new or changed resumes, and stops by itself as before.
+function installDailyResumeRead() {
+  ScriptApp.getProjectTriggers()
+    .filter(function (t) { return t.getHandlerFunction() === "startResumePass"; })
+    .forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger("startResumePass").timeBased().everyDays(1).atHour(6).create();
+}
+
+function startResumePass() {
+  PropertiesService.getScriptProperties().deleteProperty("RF_NEXT");
+  sendResumeFields();
 }
 
 function rfSetTrigger_(on) {

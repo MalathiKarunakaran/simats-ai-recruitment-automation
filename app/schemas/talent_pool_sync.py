@@ -34,11 +34,33 @@ class TalentPoolSyncRequest(BaseModel):
     rows: list[TalentPoolSyncRow] = Field(max_length=MAX_SYNC_ROWS)
 
 
+class ResumeClues(BaseModel):
+    """What the script found in the resume, as clues rather than conclusions.
+    Never the address or the text: a PIN, one state word, a title. The server
+    decides what they mean (services/talent_pool_inference.py). The `contact_*`
+    pair comes from an unlabelled contact block and is ignored unless
+    ACCEPT_CONTACT_BLOCK_STATE is switched on."""
+
+    gender_field: str | None = Field(None, max_length=20)
+    honorific: str | None = Field(None, max_length=40)
+    home_pin: str | None = Field(None, max_length=12)
+    home_state_word: str | None = Field(None, max_length=60)
+    contact_pin: str | None = Field(None, max_length=12)
+    contact_state_word: str | None = Field(None, max_length=60)
+    nationality_indian: bool = False
+
+
 class ResumeFieldsItem(BaseModel):
+    """Two shapes. The original (gender/state/country, already decided by the
+    script) is still accepted unchanged. With `clues` the server infers the
+    values itself and `gender`/`state`/`country` are ignored."""
+
     file_id: str = Field(min_length=1, max_length=200)
     gender: Literal["Male", "Female"] | None = None
     state: str | None = Field(None, max_length=100)
     country: str | None = Field(None, max_length=100)
+    resume_hash: str | None = Field(None, min_length=1, max_length=64)
+    clues: ResumeClues | None = None
 
 
 class ResumeFieldsRequest(BaseModel):
@@ -49,6 +71,11 @@ class ResumeFieldsResult(BaseModel):
     received: int
     saved: int
     no_matching_candidate: int
+    processed: int = 0
+    state_filled: int = 0
+    gender_filled: int = 0
+    skipped: int = 0
+    errors: int = 0
 
 
 class SyncRowNote(BaseModel):

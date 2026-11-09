@@ -2931,7 +2931,19 @@ export interface SelectedBreakdownDimension {
   items: TalentPoolBreakdownItem[];
   recorded: number;
   from_resume: number;
+  // recorded = from_sheet + inferred.
+  from_sheet: number;
+  inferred: number;
 }
+
+// Where a Gender/State value came from. Anything but sheet/unknown is inferred.
+export type TalentPoolValueSource =
+  | "sheet"
+  | "resume_field"
+  | "resume_pincode"
+  | "resume_address"
+  | "resume_honorific"
+  | "unknown";
 
 // GET /talent-pool/selected/rows
 export interface TalentPoolSelectedRow {
@@ -2950,6 +2962,10 @@ export interface TalentPoolSelectedRow {
   gender_from_resume: boolean;
   country_from_resume: boolean;
   state_from_resume: boolean;
+  gender_source?: TalentPoolValueSource | null;
+  state_source?: TalentPoolValueSource | null;
+  gender_evidence?: string | null;
+  state_evidence?: string | null;
 }
 
 export interface TalentPoolSelectedBreakdown {
@@ -3007,6 +3023,8 @@ export interface TalentPoolSummary {
 
 export interface TalentPoolListParams {
   source_tab: TalentPoolSourceTab;
+  // false leaves out values read from resumes (default true).
+  include_inferred?: boolean;
   q?: string;
   sheet_status?: string[];
   dept_mode?: "group" | "raw";

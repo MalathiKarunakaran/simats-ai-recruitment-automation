@@ -27,27 +27,33 @@ export async function getSelectedBreakdown(
   sourceTab: TalentPoolListParams["source_tab"],
   deptMode: "group" | "raw" = "group",
   includeInactive = false,
+  includeInferred = true,
 ): Promise<TalentPoolSelectedBreakdown> {
   const params = new URLSearchParams({ source_tab: sourceTab, dept_mode: deptMode });
   if (includeInactive) params.set("include_inactive", "true");
+  if (!includeInferred) params.set("include_inferred", "false");
   return apiFetch<TalentPoolSelectedBreakdown>(`/talent-pool/selected-breakdown?${params.toString()}`);
 }
 
 export async function getSelectedRows(
   sourceTab: TalentPoolListParams["source_tab"],
   includeInactive = false,
+  includeInferred = true,
 ): Promise<TalentPoolSelectedRow[]> {
   const params = new URLSearchParams({ source_tab: sourceTab });
   if (includeInactive) params.set("include_inactive", "true");
+  if (!includeInferred) params.set("include_inferred", "false");
   return apiFetch<TalentPoolSelectedRow[]>(`/talent-pool/selected/rows?${params.toString()}`);
 }
 
 export async function getAllRows(
   sourceTab: TalentPoolListParams["source_tab"],
   includeInactive = false,
+  includeInferred = true,
 ): Promise<TalentPoolSelectedRow[]> {
   const params = new URLSearchParams({ source_tab: sourceTab });
   if (includeInactive) params.set("include_inactive", "true");
+  if (!includeInferred) params.set("include_inferred", "false");
   return apiFetch<TalentPoolSelectedRow[]>(`/talent-pool/rows?${params.toString()}`);
 }
 
@@ -73,6 +79,7 @@ export async function listTalentPool(
   if (input.month) params.set("month", input.month);
   if (input.undecided) params.set("undecided", "true");
   if (input.include_inactive) params.set("include_inactive", "true");
+  if (input.include_inferred === false) params.set("include_inferred", "false");
   params.set("limit", String(input.limit ?? 25));
   params.set("offset", String(input.offset ?? 0));
   return apiFetch<PaginatedResponse<TalentPoolEntryRead>>(`/talent-pool?${params.toString()}`);

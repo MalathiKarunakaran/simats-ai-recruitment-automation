@@ -389,11 +389,14 @@ def test_resume_fields_fill_the_charts_and_say_so(client, db_session, user_facto
         {"file_id": "NOBODY", "state": "Goa"},
     ])  # fmt: skip
     assert r.status_code == 200, r.text
-    assert r.json() == {"received": 3, "saved": 2, "no_matching_candidate": 1}
+    assert r.json() == {
+        "received": 3, "saved": 2, "no_matching_candidate": 1,
+        "processed": 2, "state_filled": 2, "gender_filled": 1, "skipped": 0, "errors": 0,
+    }
 
     b = _breakdown(client, admin)
-    assert b["state"] == {"items": [{"label": "Kerala", "count": 2}], "recorded": 2, "from_resume": 2}
-    assert b["gender"] == {"items": [{"label": "Female", "count": 1}], "recorded": 1, "from_resume": 1}
+    assert b["state"] == {"items": [{"label": "Kerala", "count": 2}], "recorded": 2, "from_resume": 2, "from_sheet": 0, "inferred": 2}
+    assert b["gender"] == {"items": [{"label": "Female", "count": 1}], "recorded": 1, "from_resume": 1, "from_sheet": 0, "inferred": 1}
     assert b["department"]["from_resume"] == 0
 
 
@@ -403,8 +406,8 @@ def test_a_sheet_value_beats_the_resume(client, db_session, user_factory):
     assert _post_fields(client, [{"file_id": "F1", "gender": "Female", "state": "Kerala"}]).status_code == 200
 
     b = _breakdown(client, admin)
-    assert b["state"] == {"items": [{"label": "Goa", "count": 1}], "recorded": 1, "from_resume": 0}
-    assert b["gender"] == {"items": [{"label": "Male", "count": 1}], "recorded": 1, "from_resume": 0}
+    assert b["state"] == {"items": [{"label": "Goa", "count": 1}], "recorded": 1, "from_resume": 0, "from_sheet": 1, "inferred": 0}
+    assert b["gender"] == {"items": [{"label": "Male", "count": 1}], "recorded": 1, "from_resume": 0, "from_sheet": 1, "inferred": 0}
 
 
 def test_resume_fields_ignore_candidates_who_are_not_selected(client, db_session):
@@ -419,3 +422,202 @@ def test_sending_again_overwrites(client, db_session, user_factory):
     _post_fields(client, [{"file_id": "F1", "state": "Kerala"}])
     db_session.expire_all()
     assert _breakdown(client, admin)["state"]["items"] == [{"label": "Kerala", "count": 1}]
+
+
+# --- Clue-based inference, hashes, sheet-only view (9-Nov-2026) ---------------
+
+HEADERS = {"X-Talent-Pool-Sync-Secret": SECRET}
+
+
+def _rows(client, user, path="/selected/rows", **params):
+    r = client.get(
+        f"/api/v1/talent-pool{path}",
+        params={"source_tab": "TEACHING_FINAL", **params},
+        headers=auth_headers(client, user),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _row(client, user, entry, **params):
+    return {row["id"]: row for row in _rows(client, user, **params)}[str(entry.id)]
+
+
+def _stored(db_session, entry):
+    from app.models.talent_pool_resume_field import TalentPoolResumeField
+
+    db_session.expire_all()
+    return db_session.get(TalentPoolResumeField, entry.id)
+
+
+def test_old_payload_shape_still_works_and_is_recorded_as_the_original_reader(client, db_session):
+    entry = _selected_with_resume(db_session, "F1")
+    r = _post_fields(client, [{"file_id": "F1", "gender": "Female", "state": "Kerala", "country": "India"}])
+    assert r.status_code == 200, r.text
+    row = _stored(db_session, entry)
+    assert (row.gender, row.state, row.country) == ("Female", "Kerala", "India")
+    assert (row.legacy_gender, row.legacy_state, row.legacy_country) == ("Female", "Kerala", "India")
+    assert (row.gender_source, row.gender_confidence, row.state_source) == ("resume_field", "high", "resume_address")
+    assert row.gender_evidence is None and row.state_evidence is None and row.resume_hash is None
+
+
+def test_clue_payload_stores_value_source_confidence_and_evidence(client, db_session):
+    entry = _selected_with_resume(db_session, "F1")
+    r = _post_fields(client, [{
+        "file_id": "F1", "resume_hash": "h1",
+        "clues": {"honorific": "Ms.", "home_pin": "600077", "home_state_word": "Kerala"},
+    }])  # fmt: skip
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "received": 1, "saved": 1, "no_matching_candidate": 0,
+        "processed": 1, "state_filled": 1, "gender_filled": 1, "skipped": 0, "errors": 0,
+    }  # fmt: skip
+    row = _stored(db_session, entry)
+    assert (row.gender, row.gender_source, row.gender_confidence, row.gender_evidence) == ("Female", "resume_honorific", "medium", "Honorific 'Ms.'")
+    assert (row.state, row.state_source, row.state_confidence, row.state_evidence) == ("Tamil Nadu", "resume_pincode", "high", "PIN code 600077")
+    assert row.country == "India" and row.resume_hash == "h1" and row.inferred_at is not None
+    # inference never touches the frozen original-reader copy
+    assert (row.legacy_gender, row.legacy_state) == (None, None)
+
+
+def test_clues_that_say_nothing_are_stored_so_the_file_is_not_read_again(client, db_session):
+    entry = _selected_with_resume(db_session, "F1")
+    r = _post_fields(client, [{"file_id": "F1", "resume_hash": "h1", "clues": {}}])
+    assert r.json()["processed"] == 1 and r.json()["state_filled"] == 0
+    row = _stored(db_session, entry)
+    assert (row.gender, row.state, row.country, row.resume_hash) == (None, None, None, "h1")
+
+
+def test_an_unchanged_hash_is_skipped_and_a_changed_one_is_reprocessed(client, db_session):
+    entry = _selected_with_resume(db_session, "F1")
+    clues = {"home_state_word": "Goa"}
+    _post_fields(client, [{"file_id": "F1", "resume_hash": "h1", "clues": clues}])
+    again = _post_fields(client, [{"file_id": "F1", "resume_hash": "h1", "clues": {"home_state_word": "Kerala"}}]).json()
+    assert (again["skipped"], again["processed"], again["saved"]) == (1, 0, 0)
+    assert _stored(db_session, entry).state == "Goa"
+
+    changed = _post_fields(client, [{"file_id": "F1", "resume_hash": "h2", "clues": {"home_state_word": "Kerala"}}]).json()
+    assert (changed["skipped"], changed["processed"]) == (0, 1)
+    assert _stored(db_session, entry).state == "Kerala"
+
+
+def test_a_reading_that_finds_nothing_keeps_what_the_original_reader_found(client, db_session):
+    entry = _selected_with_resume(db_session, "F1")
+    _post_fields(client, [{"file_id": "F1", "gender": "Female", "state": "Kerala", "country": "India"}])
+    _post_fields(client, [{"file_id": "F1", "resume_hash": "h1", "clues": {}}])
+    row = _stored(db_session, entry)
+    assert (row.gender, row.state, row.state_source, row.resume_hash) == ("Female", "Kerala", "resume_address", "h1")
+
+
+def test_the_hashes_endpoint_needs_the_secret_and_lists_read_files(client, db_session):
+    url = "/api/v1/talent-pool/resume-fields/hashes"
+    assert client.get(url).status_code == 401
+    assert client.get(url, headers={"X-Talent-Pool-Sync-Secret": "wrong"}).status_code == 401
+    _selected_with_resume(db_session, "F1")
+    _selected_with_resume(db_session, "F2")
+    _selected_with_resume(db_session, "F3", status="Rejected")
+    _post_fields(client, [{"file_id": "F1", "resume_hash": "h1", "clues": {}}, {"file_id": "F2", "state": "Goa"}])
+    r = client.get(url, headers=HEADERS)
+    assert r.status_code == 200 and r.json() == {"F1": "h1"}
+
+
+def test_the_hashes_endpoint_is_closed_when_no_secret_is_configured(client, monkeypatch):
+    monkeypatch.setattr(settings, "TALENT_POOL_SYNC_SECRET", "")
+    assert client.get("/api/v1/talent-pool/resume-fields/hashes", headers=HEADERS).status_code == 503
+
+
+def test_a_sheet_value_is_never_overwritten_by_inference(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    entry = _selected_with_resume(db_session, "F1", State="Goa", Gender="Male")
+    _post_fields(client, [{"file_id": "F1", "resume_hash": "h1", "clues": {"gender_field": "Female", "home_pin": "682001"}}])
+    for flag in ("true", "false"):
+        row = _row(client, admin, entry, include_inferred=flag)
+        assert (row["gender"], row["state"]) == ("Male", "Goa")
+        assert (row["gender_source"], row["state_source"]) == ("sheet", "sheet")
+        assert row["gender_evidence"] is None and row["state_evidence"] is None
+    db_session.expire_all()
+    assert entry.raw == {"State": "Goa", "Gender": "Male"}
+
+
+def test_include_inferred_false_reproduces_the_original_numbers(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    # Original reader: A has gender+state, B state only.
+    a = _selected_with_resume(db_session, "A")
+    b = _selected_with_resume(db_session, "B")
+    c = _selected_with_resume(db_session, "C")
+    d = _selected_with_resume(db_session, "D", Gender="Male")
+    _post_fields(client, [
+        {"file_id": "A", "gender": "Female", "state": "Kerala", "country": "India"},
+        {"file_id": "B", "state": "Goa", "country": "India"},
+    ])  # fmt: skip
+
+    def counts(flag):
+        body = _breakdown_params(client, admin, include_inferred=flag)
+        return {k: (body[k]["recorded"], body[k]["from_sheet"], body[k]["inferred"]) for k in ("gender", "state", "country")}
+
+    before_true, before_false = counts("true"), counts("false")
+    assert before_true == before_false == {"gender": (2, 1, 1), "state": (2, 0, 2), "country": (2, 0, 2)}
+
+    # New clue data arrives: inference fills C and D, re-reads A with a different answer.
+    _post_fields(client, [
+        {"file_id": "A", "resume_hash": "h", "clues": {"honorific": "Mr.", "home_pin": "400001"}},
+        {"file_id": "C", "resume_hash": "h", "clues": {"honorific": "Mrs.", "home_pin": "600001"}},
+        {"file_id": "D", "resume_hash": "h", "clues": {"home_pin": "500001"}},
+    ])  # fmt: skip
+    assert counts("false") == before_false
+    after = counts("true")
+    assert after["gender"] == (3, 1, 2) and after["state"] == (4, 0, 4)
+
+    # The sheet-only rows are exactly the original reader's values.
+    rows = {r["id"]: r for r in _rows(client, admin, include_inferred="false")}
+    assert (rows[str(a.id)]["gender"], rows[str(a.id)]["state"]) == ("Female", "Kerala")
+    assert (rows[str(a.id)]["gender_source"], rows[str(a.id)]["state_source"]) == ("resume_field", "resume_address")
+    assert (rows[str(b.id)]["gender"], rows[str(b.id)]["state"]) == (None, "Goa")
+    assert (rows[str(c.id)]["gender"], rows[str(c.id)]["state"]) == (None, None)
+    assert rows[str(c.id)]["gender_source"] == rows[str(c.id)]["state_source"] == "unknown"
+    assert rows[str(d.id)]["gender"] == "Male" and rows[str(d.id)]["state"] is None
+
+    # And the default (no parameter) is the effective view, with provenance on each row.
+    eff = {r["id"]: r for r in _rows(client, admin)}
+    assert (eff[str(a.id)]["gender"], eff[str(a.id)]["state"]) == ("Male", "Maharashtra")
+    assert eff[str(c.id)]["gender_source"] == "resume_honorific" and eff[str(c.id)]["gender_evidence"] == "Honorific 'Mrs.'"
+    assert eff[str(c.id)]["state_source"] == "resume_pincode" and eff[str(c.id)]["state_evidence"] == "PIN code 600001"
+    assert eff[str(d.id)]["gender_source"] == "sheet"
+    assert _rows(client, admin) == _rows(client, admin, include_inferred="true")
+
+
+def _breakdown_params(client, user, **params):
+    r = client.get(
+        "/api/v1/talent-pool/selected-breakdown",
+        params={"source_tab": "TEACHING_FINAL", **params},
+        headers=auth_headers(client, user),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_register_filters_cross_filter_in_both_modes(client, db_session, user_factory):
+    admin = user_factory(UserRoleEnum.SUPER_ADMIN)
+    for file_id in "ABC":
+        _selected_with_resume(db_session, file_id)
+    _post_fields(client, [
+        {"file_id": "A", "gender": "Female", "state": "Kerala", "country": "India"},
+        {"file_id": "B", "state": "Goa", "country": "India"},
+    ])  # fmt: skip
+    _post_fields(client, [{"file_id": "C", "resume_hash": "h", "clues": {"honorific": "Mr.", "home_pin": "600001"}}])
+
+    def listed(**params):
+        r = client.get(
+            "/api/v1/talent-pool",
+            params={"source_tab": "TEACHING_FINAL", "limit": 100, **params},
+            headers=auth_headers(client, admin),
+        )
+        assert r.status_code == 200, r.text
+        return r.json()["total"]
+
+    assert listed(state=["Kerala", "Goa", "Tamil Nadu"]) == 3
+    assert listed(state=["Kerala", "Goa", "Tamil Nadu"], include_inferred="false") == 2
+    assert listed(state=["Tamil Nadu"], include_inferred="false") == 0
+    assert listed(gender=["Female", "Male"]) == 2
+    assert listed(gender=["Female", "Male"], include_inferred="false") == 1
+    assert listed(state=["Kerala", "Goa"], gender="Female", include_inferred="false") == 1

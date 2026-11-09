@@ -403,6 +403,7 @@ def get_selected_breakdown(
     source_tab: TalentPoolSourceTabEnum = Query(...),
     dept_mode: str = Query("group", pattern="^(group|raw)$"),
     include_inactive: bool = Query(False),
+    include_inferred: bool = Query(True),
     db: Session = Depends(get_db),
     _: object = Depends(require_roles(*_READERS)),
 ) -> TalentPoolSelectedBreakdown:
@@ -422,14 +423,18 @@ def get_selected_breakdown(
             .group_by(values.c.value)
             .order_by(func.count().desc(), values.c.value)
         ).all()
+        recorded = sum(count for _, count in rows)
+        resume_count = (
+            db.execute(select(func.count()).select_from(TalentPoolEntry).where(*where, from_resume)).scalar_one()
+            if from_resume is not None
+            else 0
+        )
         return SelectedBreakdownDimension(
             items=[BreakdownItem(label=label, count=count) for label, count in rows],
-            recorded=sum(count for _, count in rows),
-            from_resume=(
-                db.execute(select(func.count()).select_from(TalentPoolEntry).where(*where, from_resume)).scalar_one()
-                if from_resume is not None
-                else 0
-            ),
+            recorded=recorded,
+            from_resume=resume_count,
+            from_sheet=recorded - resume_count,
+            inferred=resume_count,
         )
 
     dept_col = (
@@ -442,13 +447,13 @@ def get_selected_breakdown(
         total=int(total),
         department=dimension(func.nullif(func.nullif(func.btrim(dept_col), ""), TALENT_POOL_NOT_SET_LABEL)),
         college=dimension(attributes.college()),
-        state=dimension(attributes.state(), attributes.state_from_resume()),
-        country=dimension(attributes.country(), attributes.country_from_resume()),
-        gender=dimension(attributes.gender(), attributes.gender_from_resume()),
+        state=dimension(attributes.state(include_inferred), attributes.state_from_resume(include_inferred)),
+        country=dimension(attributes.country(include_inferred), attributes.country_from_resume(include_inferred)),
+        gender=dimension(attributes.gender(include_inferred), attributes.gender_from_resume(include_inferred)),
     )
 
 
-def _panel_rows(db: Session, where: list) -> list[TalentPoolSelectedRow]:
+def _panel_rows(db: Session, where: list, include_inferred: bool = True) -> list[TalentPoolSelectedRow]:
     """Candidates row by row, for the panel's cross-filtering: it fetches these
     once and recounts in the browser on every click. Same expressions as
     `selected-breakdown`, so the unfiltered charts agree."""
@@ -464,15 +469,19 @@ def _panel_rows(db: Session, where: list) -> list[TalentPoolSelectedRow]:
             TalentPoolEntry.eligibility,
             func.nullif(func.btrim(TalentPoolEntry.source), "").label("reference"),
             attributes.data_source().label("source"),
-            attributes.gender().label("gender"),
+            attributes.gender(include_inferred).label("gender"),
             attributes.college().label("college"),
-            attributes.country().label("country"),
-            attributes.state().label("state"),
+            attributes.country(include_inferred).label("country"),
+            attributes.state(include_inferred).label("state"),
             dept(TalentPoolEntry.dept_raw).label("dept_raw"),
             dept(TalentPoolEntry.dept_group).label("dept_group"),
-            attributes.gender_from_resume().label("gender_from_resume"),
-            attributes.country_from_resume().label("country_from_resume"),
-            attributes.state_from_resume().label("state_from_resume"),
+            attributes.gender_from_resume(include_inferred).label("gender_from_resume"),
+            attributes.country_from_resume(include_inferred).label("country_from_resume"),
+            attributes.state_from_resume(include_inferred).label("state_from_resume"),
+            attributes.gender_source(include_inferred).label("gender_source"),
+            attributes.state_source(include_inferred).label("state_source"),
+            attributes.gender_evidence(include_inferred).label("gender_evidence"),
+            attributes.state_evidence(include_inferred).label("state_evidence"),
         )
         .where(*where)
         .order_by(TalentPoolEntry.id)
@@ -497,21 +506,25 @@ def _panel_rows(db: Session, where: list) -> list[TalentPoolSelectedRow]:
 def get_selected_rows(
     source_tab: TalentPoolSourceTabEnum = Query(...),
     include_inactive: bool = Query(False),
+    include_inferred: bool = Query(True),
     db: Session = Depends(get_db),
     _: object = Depends(require_roles(*_READERS)),
 ) -> list[TalentPoolSelectedRow]:
-    return _panel_rows(db, [*_where(source_tab, include_inactive), TalentPoolEntry.sheet_status == "Selected"])
+    return _panel_rows(
+        db, [*_where(source_tab, include_inactive), TalentPoolEntry.sheet_status == "Selected"], include_inferred
+    )
 
 
 @router.get("/rows", response_model=list[TalentPoolSelectedRow])
 def get_all_rows(
     source_tab: TalentPoolSourceTabEnum = Query(...),
     include_inactive: bool = Query(False),
+    include_inferred: bool = Query(True),
     db: Session = Depends(get_db),
     _: object = Depends(require_roles(*_READERS)),
 ) -> list[TalentPoolSelectedRow]:
     """Every candidate on the tab, for the panel behind the Total tile."""
-    return _panel_rows(db, _where(source_tab, include_inactive))
+    return _panel_rows(db, _where(source_tab, include_inactive), include_inferred)
 
 
 @router.get("", response_model=PaginatedResponse[TalentPoolEntryRead])
@@ -533,6 +546,7 @@ def list_talent_pool(
     month: str | None = Query(None),
     undecided: bool = Query(False),
     include_inactive: bool = Query(False),
+    include_inferred: bool = Query(True),
     limit: int = Query(25, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -567,9 +581,9 @@ def list_talent_pool(
     # Repeat a parameter to pick several values of it; they combine with OR.
     for expr, values in (
         (attributes.college, college),
-        (attributes.state, state),
-        (attributes.country, country),
-        (attributes.gender, gender),
+        (lambda: attributes.state(include_inferred), state),
+        (lambda: attributes.country(include_inferred), country),
+        (lambda: attributes.gender(include_inferred), gender),
         (attributes.data_source, data_source),
     ):
         wanted = [value for value in values or [] if value]

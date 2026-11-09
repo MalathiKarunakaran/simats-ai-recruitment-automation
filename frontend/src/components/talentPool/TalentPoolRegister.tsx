@@ -66,6 +66,8 @@ interface TalentPoolRegisterProps {
   deptMode: "group" | "raw";
   summary: TalentPoolSummary;
   filters: RegisterFilters;
+  /** From the URL's include_inferred; false hides values read from resumes. */
+  includeInferred?: boolean;
   onFiltersChange: (next: Partial<RegisterFilters>) => void;
   onOpenEntry: (entry: TalentPoolEntryRead) => void;
   /** Told whether the first page of rows (or an error) has arrived, so the
@@ -78,6 +80,7 @@ export function TalentPoolRegister({
   deptMode,
   summary,
   filters,
+  includeInferred = true,
   onFiltersChange,
   onOpenEntry,
   onListLoaded,
@@ -126,11 +129,13 @@ export function TalentPoolRegister({
       filters.month,
       filters.undecided,
       filters.includeInactive,
+      includeInferred,
       filters.offset,
     ],
     queryFn: () =>
       listTalentPool({
         source_tab: tab,
+        include_inferred: includeInferred,
         q: filters.q || undefined,
         sheet_status: filters.status,
         dept_mode: deptMode,
