@@ -42,7 +42,7 @@ import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/Da
 import { EmptyState } from "@/components/dashboard/EmptyState";
 import { JoiningPipelineTiles } from "@/components/dashboard/JoiningPipelineTiles";
 import { RecentActivityFeed, type VacancyLifecycleActivityRow } from "@/components/dashboard/RecentActivityFeed";
-import { StatTile, type StatAccent, type StatIconColor } from "@/components/dashboard/StatTile";
+import { ACCENT_TEXT, StatTile, type StatAccent, type StatIconColor } from "@/components/dashboard/StatTile";
 import { StrengthTable } from "@/components/dashboard/StrengthTable";
 import { WaitingListPreview } from "@/components/dashboard/WaitingListPreview";
 import { CategoryTabs, type CategoryTabValue } from "@/components/domain/CategoryTabs";
@@ -706,7 +706,7 @@ export function DashboardPage() {
           the last one winning. */}
       <div data-testid="dashboard-filter-bar" className="flex flex-wrap items-end gap-2">
         <div className="flex min-w-[150px] flex-col gap-0.5">
-          <span className="sr-only">Department</span>
+          <span className="text-[11px] font-medium text-muted-foreground">Department</span>
           <Select value={departmentId || ALL_FILTER_VALUE} onValueChange={(v) => setDepartmentId(v === ALL_FILTER_VALUE ? "" : v)}>
             <SelectTrigger aria-label="Department filter">
               <SelectValue placeholder="All departments" />
@@ -723,7 +723,7 @@ export function DashboardPage() {
         </div>
 
         <div className="flex min-w-[150px] flex-col gap-0.5">
-          <span className="sr-only">Designation</span>
+          <span className="text-[11px] font-medium text-muted-foreground">Designation</span>
           <Select value={designationId || ALL_FILTER_VALUE} onValueChange={(v) => setDesignationId(v === ALL_FILTER_VALUE ? "" : v)}>
             <SelectTrigger aria-label="Designation filter">
               <SelectValue placeholder="All designations" />
@@ -740,7 +740,7 @@ export function DashboardPage() {
         </div>
 
         <div className="flex min-w-[160px] flex-col gap-0.5">
-          <span className="sr-only">Location</span>
+          <span className="text-[11px] font-medium text-muted-foreground">Location</span>
           <Select value={locationId || ALL_FILTER_VALUE} onValueChange={(v) => setLocationId(v === ALL_FILTER_VALUE ? "" : v)}>
             <SelectTrigger aria-label="Location filter">
               <SelectValue placeholder="All locations" />
@@ -757,7 +757,7 @@ export function DashboardPage() {
         </div>
 
         <div className="flex min-w-[160px] flex-col gap-0.5">
-          <span className="sr-only">Recruitment Status</span>
+          <span className="text-[11px] font-medium text-muted-foreground">Recruitment Status</span>
           <Select
             value={recruitmentStatus || ALL_FILTER_VALUE}
             onValueChange={(v) => setRecruitmentStatus(v === ALL_FILTER_VALUE ? "" : v)}
@@ -791,7 +791,6 @@ export function DashboardPage() {
           page's own /dashboard/kpis response. */}
       <div data-testid="primary-kpi-grid" className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         <StatTile
-          size="compact"
           label="Total Sanctioned"
           value={isLoading ? undefined : data?.sanctioned_approved_total}
           isLoading={isLoading}
@@ -802,7 +801,6 @@ export function DashboardPage() {
           to="/sanctioned-strength"
         />
         <StatTile
-          size="compact"
           label="Working"
           value={isLoading ? undefined : data?.sanctioned_working_total}
           isLoading={isLoading}
@@ -813,7 +811,6 @@ export function DashboardPage() {
           to="/sanctioned-strength"
         />
         <StatTile
-          size="compact"
           label="Vacancies"
           value={vacancyValue}
           isLoading={isLoading}
@@ -825,7 +822,6 @@ export function DashboardPage() {
           hero
         />
         <StatTile
-          size="compact"
           label="Recruitment Required"
           value={isLoading ? undefined : data?.recruitment_required_count}
           isLoading={isLoading}
@@ -839,7 +835,6 @@ export function DashboardPage() {
           hero
         />
         <StatTile
-          size="compact"
           label="Pending Requests"
           value={isLoading ? undefined : pendingRequestsCount}
           isLoading={isLoading}
@@ -850,7 +845,6 @@ export function DashboardPage() {
           to="/vacancy-requests?status=SUBMITTED"
         />
         <StatTile
-          size="compact"
           label="Pending Approvals"
           value={isLoading ? undefined : pendingApprovalsCount}
           isLoading={isLoading}
@@ -862,35 +856,44 @@ export function DashboardPage() {
         />
       </div>
 
-      {/* Secondary stat strip -- 7 lower-priority metrics, visually
-          demoted below the primary 6 via StatTile's "compact" size, flowing
-          in a wrap rather than a rigid grid. Always visible and directly
-          after the primary grid, never inside "More analytics": these are
-          numbers management reads, and e2e/dashboard.spec.ts checks each
-          one against /dashboard/kpis by that sibling position. */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-9">
-        {SECONDARY_KPI_CARDS.map(({ key, label, accent, icon, iconColor, tooltip, zeroCaption }) => {
+      {/* Secondary stats -- lower-priority metrics as ONE slim line of
+          label + number (2026-11-09: the user found a second row of tiles too
+          crowded). Always visible and directly after the primary grid, never
+          inside "More analytics": these are numbers management reads, and
+          e2e/dashboard.spec.ts checks each one against /dashboard/kpis by that
+          sibling position. Explanations and the sheet split are on hover. */}
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-1 rounded-xl border border-border bg-card px-2 py-1.5 text-sm shadow-[var(--shadow-card)]">
+        {SECONDARY_KPI_CARDS.map(({ key, label, accent, tooltip, zeroCaption }) => {
           const isTotalApplications = key === "total_applications";
           const value = isLoading
             ? undefined
             : isTotalApplications && data
               ? data.total_applications + totalApplicationsSheet
               : (data?.[key] as number | string | null | undefined);
+          const isEmpty = !isLoading && (value === null || value === undefined);
+          const hint = [
+            isTotalApplications ? totalApplicationsSubLine : undefined,
+            tooltip,
+            !isLoading && (value === 0 || value === "0") ? zeroCaption : undefined,
+          ]
+            .filter(Boolean)
+            .join(" -- ");
           return (
-            <div key={key} className={cn("min-w-0", isTotalApplications && "xl:col-span-2")}>
-              <StatTile
-                label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
-                value={value}
-                isLoading={isLoading}
-                accent={accent}
-                icon={icon}
-                iconColor={iconColor}
-                zeroCaption={zeroCaption}
-                subLine={isTotalApplications ? totalApplicationsSubLine : undefined}
-                tooltip={tooltip}
-                size="compact"
-              />
-            </div>
+            <span
+              key={key}
+              title={hint || undefined}
+              className="inline-flex items-baseline gap-1.5 rounded-md px-2 py-0.5 hover:bg-muted"
+            >
+              <span className="text-muted-foreground">
+                {TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
+              </span>
+              {isEmpty ? (
+                // Never a bare dash: it reads as an error, not "nothing to compute yet".
+                <span className="text-xs font-medium text-muted-foreground">Not enough data yet</span>
+              ) : (
+                <span className={cn("font-display font-bold tabular-nums", ACCENT_TEXT[accent])}>{isLoading ? "…" : value}</span>
+              )}
+            </span>
           );
         })}
       </div>

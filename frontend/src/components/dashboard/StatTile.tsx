@@ -40,7 +40,7 @@ export type StatIconColor = "blue" | "green" | "purple" | "orange" | "red";
 // hero gradient ring are no longer drawn; `icon`, `iconColor` and `hero` are
 // still accepted so no call site has to change, and `data-hero` still marks
 // the hero tile for tests.
-const ACCENT_TEXT: Record<StatAccent, string> = {
+export const ACCENT_TEXT: Record<StatAccent, string> = {
   gold: "text-foreground",
   green: "text-brand-success",
   orange: "text-brand-warning",
@@ -187,8 +187,8 @@ export function StatTile({
             {subLine ? (
               <p className="mt-1 text-xs text-muted-foreground">{subLine}</p>
             ) : isZero && zeroCaption ? (
-              // One line on a compact tile, so a caption cannot make its whole row taller.
-              <p className={cn("mt-1 text-xs text-muted-foreground", isCompact && "truncate")} title={isCompact ? zeroCaption : undefined}>
+              // One line on a compact or hero tile, so a caption cannot make its whole row taller.
+              <p className={cn("mt-1 text-xs text-muted-foreground", (isCompact || hero) && "truncate")} title={isCompact || hero ? zeroCaption : undefined}>
                 {zeroCaption}
               </p>
             ) : null}

@@ -53,7 +53,11 @@ export function CandidateOutcomes({ rows, isLoading }: { rows: OutcomeRow[]; isL
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 p-3 pb-1">
         <CardTitle className="font-display text-base">Candidate outcomes</CardTitle>
-        {showsSheet ? <p className="text-xs font-normal text-muted-foreground">{SHEET_FILTER_NOTE}</p> : null}
+        {showsSheet ? (
+          <p className="text-xs font-normal text-muted-foreground" title={SHEET_FILTER_NOTE}>
+            Numbers include the Google Sheet (Talent Pool) and the app. Hover a number for the split.
+          </p>
+        ) : null}
       </CardHeader>
       {/* Compact (2026-11-09): Teaching and Non-teaching sit side by side at
           laptop width so the card stays one row tall. */}
@@ -65,27 +69,27 @@ export function CandidateOutcomes({ rows, isLoading }: { rows: OutcomeRow[]; isL
               {TILES.map(({ key, label, tone, to }) => {
                 const sheetKey = SHEET_KEY[key];
                 const sheetCount = row.sheet && sheetKey ? row.sheet[sheetKey] : null;
+                // The sheet/app split is on hover (2026-11-09): as a printed line
+                // under every number it made the card hard to read.
+                const split =
+                  !isLoading && sheetCount !== null
+                    ? `${(row.app[key] + sheetCount).toLocaleString()} = ${sheetCount.toLocaleString()} from the sheet + ${row.app[key].toLocaleString()} from the app`
+                    : undefined;
                 const body = (
                   <>
                     <span className="text-xs">{label}</span>
-                    <span className="font-display text-xl leading-tight font-extrabold tabular-nums">
+                    <span className="font-display text-2xl leading-tight font-extrabold tabular-nums">
                       {isLoading ? "—" : (row.app[key] + (sheetCount ?? 0)).toLocaleString()}
                     </span>
-                    {!isLoading && sheetCount !== null ? (
-                      // Wraps after the "·" at laptop width, so the app number is never cut off.
-                      <span className="text-[11px] leading-tight opacity-80">
-                        sheet {sheetCount.toLocaleString()} · app {row.app[key].toLocaleString()}
-                      </span>
-                    ) : null}
                   </>
                 );
-                const className = cn("flex min-w-0 flex-col rounded-lg px-2 py-1.5", tone);
+                const className = cn("flex min-w-0 flex-col rounded-lg px-3 py-2", tone);
                 return to ? (
-                  <Link key={key} to={to} className={cn(className, "transition-opacity hover:opacity-90")}>
+                  <Link key={key} to={to} title={split} className={cn(className, "transition-opacity hover:opacity-90")}>
                     {body}
                   </Link>
                 ) : (
-                  <div key={key} className={className}>
+                  <div key={key} title={split} className={className}>
                     {body}
                   </div>
                 );

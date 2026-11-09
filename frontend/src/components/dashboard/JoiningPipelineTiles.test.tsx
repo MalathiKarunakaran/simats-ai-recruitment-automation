@@ -49,10 +49,11 @@ describe("JoiningPipelineTiles", () => {
 
     // Teaching and Non-teaching waiting lists are separate tiles, never summed.
     expect(screen.getByText("181")).toBeInTheDocument();
-    expect(screen.getByText("Final sheet 180 · app 1")).toBeInTheDocument();
+    // The sheet/app split is in the hover text, not printed under the number.
+    expect(screen.getAllByText(/181 = 180 from the Final sheet \+ 1 from the app/).length).toBeGreaterThan(0);
     expect(tileLink("Waitlisted (Teaching)")).toHaveAttribute("href", "/talent-pool?status=Waiting%20List#register");
     expect(screen.getByText("36")).toBeInTheDocument();
-    expect(screen.getByText("NTS sheet 36 · app 0")).toBeInTheDocument();
+    expect(screen.getAllByText(/36 = 36 from the NTS sheet \+ 0 from the app/).length).toBeGreaterThan(0);
     expect(tileLink("Waitlisted (Non-teaching)")).toHaveAttribute("href", "/talent-pool?status=Waiting%20List&tab=nts#register");
     expect(screen.queryByText("217")).not.toBeInTheDocument();
     expect(screen.queryByText("Waitlisted (Housekeeping)")).not.toBeInTheDocument();
@@ -62,15 +63,14 @@ describe("JoiningPipelineTiles", () => {
     expect(tileLink("Sent to University (pending)")).toHaveAttribute("href", "/selection-batches?status=SENT_TO_UNIVERSITY");
 
     expect(screen.getByText("9")).toBeInTheDocument();
-    expect(screen.getByText(/register 8 · app 1$/)).toBeInTheDocument();
+    expect(screen.getAllByText(/8 from the order register \+ 1 from the app/).length).toBeGreaterThan(0);
     expect(tileLink("Provisional orders issued (this month)")).toHaveAttribute("href", "/provisional-orders");
 
     expect(screen.getByText("5")).toBeInTheDocument();
-    expect(screen.getByText("probation overdue 4 · app 1")).toBeInTheDocument();
+    expect(screen.getAllByText(/4 with probation overdue \+ 1 from the app/).length).toBeGreaterThan(0);
     expect(tileLink("Awaiting HOD review")).toHaveAttribute("href", "/provisional-orders?probation=overdue#list");
 
     expect(screen.getByText("3")).toBeInTheDocument();
-    expect(screen.getByText("app 3")).toBeInTheDocument();
     expect(tileLink("Awaiting permanent order")).toHaveAttribute("href", "/onboarding?stage=HOD_REVIEW_COMPLETE");
   });
 
@@ -82,7 +82,7 @@ describe("JoiningPipelineTiles", () => {
   it("for a role without the sheet pages: app counts only, no batch tile, no links to those pages", () => {
     renderTiles(NO_SHEET);
     expect(screen.queryByText("Sent to University (pending)")).not.toBeInTheDocument();
-    expect(screen.getByText("app 2")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
     expect(tileLink("Waitlisted (Teaching)")).toBeNull();
     expect(tileLink("Waitlisted (Non-teaching)")).toBeNull();
     expect(tileLink("Provisional orders issued (this month)")).toBeNull();
@@ -94,7 +94,7 @@ describe("JoiningPipelineTiles", () => {
   it("adds a Housekeeping waitlisted tile only when the app has someone waiting there", () => {
     renderTiles({ ...SHEET, waitlisted: { ...SHEET.waitlisted, applications: 3, applications_by_category: { TEACHING: 1, HOUSEKEEPING: 2 } } });
     expect(screen.getByText("Waitlisted (Housekeeping)")).toBeInTheDocument();
-    expect(screen.getByText("app 2")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
   });
 
   it("shows skeletons while loading", () => {

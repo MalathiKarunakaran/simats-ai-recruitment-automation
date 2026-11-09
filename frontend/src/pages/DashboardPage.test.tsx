@@ -647,7 +647,8 @@ describe("DashboardPage", () => {
     renderWithProviders();
 
     const title = await screen.findByText("Urgent vacancies");
-    const tile = title.closest(".rounded-xl") as HTMLElement;
+    // One label + number item in the slim secondary line (2026-11-09).
+    const tile = title.parentElement as HTMLElement;
     const value = await within(tile).findByText("7");
     // "red" accent colours the number (2026-10-29 redesign; it used to be a
     // border-l-brand-danger stripe on the Card) -- assert the real class.
@@ -659,7 +660,8 @@ describe("DashboardPage", () => {
 
     renderWithProviders();
 
-    expect(await screen.findByText("No urgent vacancies right now")).toBeInTheDocument();
+    // In the slim secondary line the caption is the item's hover text.
+    expect(await screen.findByTitle(/No urgent vacancies right now/)).toBeInTheDocument();
   });
 
   // UI redesign (2026-08-23, dashboard/sidebar redesign): the Recruitment
@@ -984,8 +986,8 @@ describe("DashboardPage", () => {
       renderWithProviders();
 
       const row = await screen.findByTestId("joining-pipeline-tiles");
-      expect(await within(row).findByText("Final sheet 180 · app 0")).toBeInTheDocument();
-      expect(within(row).getByText("NTS sheet 36 · app 0")).toBeInTheDocument();
+      expect((await within(row).findAllByText(/180 = 180 from the Final sheet \+ 0 from the app/)).length).toBeGreaterThan(0);
+      expect(within(row).getAllByText(/36 = 36 from the NTS sheet \+ 0 from the app/).length).toBeGreaterThan(0);
       // e2e/dashboard.spec.ts reads the primary grid's next sibling as the
       // secondary strip -- the new row must not be that sibling.
       const primary = screen.getByTestId("primary-kpi-grid");
@@ -1063,7 +1065,7 @@ describe("DashboardPage", () => {
 
     function totalApplicationsTile(): HTMLElement {
       const strip = screen.getByTestId("primary-kpi-grid").nextElementSibling as HTMLElement;
-      return within(strip).getByText("Total applications").closest(".rounded-xl") as HTMLElement;
+      return within(strip).getByText("Total applications").parentElement as HTMLElement;
     }
 
     it("splits Candidate outcomes into a Teaching (Final) and a Non-teaching (NTS) row, each sheet + app", async () => {
@@ -1072,10 +1074,10 @@ describe("DashboardPage", () => {
       renderWithProviders();
 
       const teaching = await screen.findByRole("region", { name: "Teaching (Final tab)" });
-      expect(within(teaching).getByText(/^sheet 40 · app 4$/)).toBeInTheDocument();
+      expect(within(teaching).getAllByTitle(/= 40 from the sheet \+ 4 from the app$/).length).toBeGreaterThan(0);
       const nts = screen.getByRole("region", { name: "Non-teaching (NTS tab)" });
-      expect(within(nts).getByText(/^sheet 4 · app 4$/)).toBeInTheDocument();
-      expect(screen.getAllByText(/not narrowed by the campus switcher/)).toHaveLength(1);
+      expect(within(nts).getAllByTitle(/= 4 from the sheet \+ 4 from the app$/).length).toBeGreaterThan(0);
+      expect(screen.getAllByTitle(/not narrowed by the campus switcher/)).toHaveLength(1);
       // The sheet waiting groups also appear in the waiting list card.
       expect(screen.getByRole("group", { name: "Teaching (Final tab)" })).toBeInTheDocument();
       // Fixed-category queries carry the page's other filters.
@@ -1104,11 +1106,11 @@ describe("DashboardPage", () => {
       renderWithProviders();
 
       await waitFor(() => expect(within(totalApplicationsTile()).getByText("42")).toBeInTheDocument());
-      expect(within(totalApplicationsTile()).getByText("Teaching sheet 100 · NTS sheet 50")).toBeInTheDocument();
+      expect(totalApplicationsTile().getAttribute("title")).toContain("Teaching sheet 100 · NTS sheet 50");
 
       await user.click(await screen.findByRole("tab", { name: "Teaching (112)" }));
       await waitFor(() => expect(within(totalApplicationsTile()).getByText("112")).toBeInTheDocument());
-      expect(within(totalApplicationsTile()).getByText("sheet 100 · app 12")).toBeInTheDocument();
+      expect(totalApplicationsTile().getAttribute("title")).toContain("sheet 100 · app 12");
     });
 
     it("shows app numbers only, with no split line or note, when the role cannot see sheet data", async () => {
