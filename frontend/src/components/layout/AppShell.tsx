@@ -33,6 +33,8 @@ import { type ReactNode, useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 
 import type { Permission } from "@/api/types";
+import naacBadge from "@/assets/naac-a-grade.png";
+import saveethaLogo from "@/assets/saveetha-logo.png";
 import simatsSeal from "@/assets/simats-seal.png";
 import { useAuth } from "@/auth/AuthContext";
 import { AssistantWidget } from "@/components/assistant/AssistantWidget";
@@ -380,23 +382,27 @@ export function AppShell({ children }: { children?: ReactNode }) {
           collapsed ? "w-[76px]" : "w-64",
         )}
       >
-        <div className={cn("flex items-center gap-2.5 px-4 py-4", collapsed && "justify-center px-0")}>
-          {/* The SIMATS seal, plain (2026-10-29: the signature-gradient ring
-              that used to frame it is gone, per the approved mock-up). The
-              inner span paints the sidebar's own background behind the
-              image; collapsed/expanded behavior is unchanged. */}
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full">
-            <span className="grid h-full w-full place-items-center rounded-full bg-sidebar-background">
-              <img src={simatsSeal} alt="SIMATS" className="h-full w-full object-contain" />
-            </span>
-          </span>
-          {!collapsed ? (
-            <div className="leading-tight">
-              <div className="font-display text-sm font-bold tracking-normal text-sidebar-foreground">SIMATS</div>
-              <div className="text-[11px] text-sidebar-foreground-muted">Recruitment</div>
+        {collapsed ? (
+          <div className="flex justify-center py-4">
+            {/* Collapsed: the SIMATS seal alone, as before. */}
+            <img src={simatsSeal} alt="SIMATS" className="h-9 w-9 object-contain" />
+          </div>
+        ) : (
+          // Expanded (2026-11-09, the user's logos): the full Saveetha Institute
+          // of Medical and Technical Sciences logo with the NAAC A badge beside
+          // it. On a white chip so the blue logo stays legible in the dark theme.
+          <div className="flex flex-col gap-1 px-3 py-3">
+            <div className="flex items-center gap-2 rounded-md dark:bg-white dark:p-1.5">
+              <img
+                src={saveethaLogo}
+                alt="Saveetha Institute of Medical and Technical Sciences"
+                className="min-w-0 flex-1 object-contain"
+              />
+              <img src={naacBadge} alt="Accredited by NAAC with A Grade" className="h-10 w-auto shrink-0" />
             </div>
-          ) : null}
-        </div>
+            <div className="px-0.5 text-xs font-medium text-sidebar-foreground-muted">Recruitment System</div>
+          </div>
+        )}
 
         <nav className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3">
           {visibleGroups.map((group) => (
