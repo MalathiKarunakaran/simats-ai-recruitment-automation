@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from app.core.deps import CampusScope
 from app.models.appointment_order import APPOINTMENT_ORDER_CANCELLED, APPOINTMENT_ORDER_ISSUED, AppointmentOrder
-from app.models.enums import ApplicationStatusEnum, TalentPoolSourceTabEnum, UserRoleEnum
+from app.models.enums import ApplicationStatusEnum, StaffRoleCategoryEnum, TalentPoolSourceTabEnum, UserRoleEnum
 from app.models.provisional_order_mark import ProvisionalOrderMark
 from app.models.selection_batch import (
     BATCH_SENT_TO_UNIVERSITY,
@@ -129,9 +129,28 @@ def test_waitlisted_is_applications_plus_both_pool_tabs(client, db_session, publ
     db_session.commit()
 
     body = _get(client, vacancy.hr_admin)
-    assert body["waitlisted"] == {"total": 4, "applications": 1, "talent_pool_final": 2, "talent_pool_nts": 1}
+    assert body["waitlisted"] == {
+        "total": 4,
+        "applications": 1,
+        "applications_by_category": {"TEACHING": 1},
+        "talent_pool_final": 2,
+        "talent_pool_nts": 1,
+    }
     assert body["sheet_visible"] is True
     assert body["sheet_ignores_campus"] is True
+
+
+def test_waitlisted_applications_are_split_by_category(client, db_session, published_vacancy_factory, application_factory):
+    teaching = published_vacancy_factory(campus_code="SSE", slot_count=2)
+    nts = published_vacancy_factory(campus_code="SSE", slot_count=2, role_category=StaffRoleCategoryEnum.NON_TEACHING)
+    _app(application_factory, teaching, ApplicationStatusEnum.WAITLISTED)
+    _app(application_factory, nts, ApplicationStatusEnum.WAITLISTED)
+    _app(application_factory, nts, ApplicationStatusEnum.WAITLISTED)
+    db_session.commit()
+
+    body = _get(client, teaching.hr_admin)
+    assert body["waitlisted"]["applications"] == 3
+    assert body["waitlisted"]["applications_by_category"] == {"TEACHING": 1, "NON_TEACHING": 2}
 
 
 # --- Sent to University -------------------------------------------------------
@@ -279,7 +298,13 @@ def test_campus_filter_narrows_applications_but_not_sheet_sources(
     assert everywhere["awaiting_hod_review"]["applications"] == 1
 
     narrowed = _get(client, sse.hr_admin, campus_code="SSE")
-    assert narrowed["waitlisted"] == {"total": 2, "applications": 1, "talent_pool_final": 0, "talent_pool_nts": 1}
+    assert narrowed["waitlisted"] == {
+        "total": 2,
+        "applications": 1,
+        "applications_by_category": {"TEACHING": 1},
+        "talent_pool_final": 0,
+        "talent_pool_nts": 1,
+    }
     assert narrowed["awaiting_hod_review"] == {"total": 1, "applications": 0, "sheet_overdue": 1}
 
 
@@ -297,7 +322,13 @@ def test_non_sheet_reader_gets_app_counts_only(client, db_session, published_vac
     # and is single-campus: SSE only.
     body = _get(client, vacancy.hod)
     assert body["sheet_visible"] is False
-    assert body["waitlisted"] == {"total": 1, "applications": 1, "talent_pool_final": None, "talent_pool_nts": None}
+    assert body["waitlisted"] == {
+        "total": 1,
+        "applications": 1,
+        "applications_by_category": {"TEACHING": 1},
+        "talent_pool_final": None,
+        "talent_pool_nts": None,
+    }
     assert body["sent_to_university"] == {"total": 0, "batches": None, "members": None}
     assert body["provisional_orders_this_month"]["order_register"] is None
     assert body["awaiting_hod_review"]["sheet_overdue"] is None
@@ -316,3 +347,81 @@ def test_coordinator_can_read_sheet_parts(client, db_session, user_factory, camp
     body = _get(client, coordinator)
     assert body["sheet_visible"] is True
     assert body["waitlisted"]["talent_pool_final"] == 1
+
+
+# --- Talent Pool outcomes + waiting preview ---------------------------------------
+
+
+def test_talent_pool_outcomes_per_tab_not_summed(client, db_session, user_factory, campus_factory):
+    campus_factory("SSE")
+    admin = user_factory(UserRoleEnum.HR_ADMIN, campus_code="SSE")
+    T, N = TalentPoolSourceTabEnum.TEACHING_FINAL, TalentPoolSourceTabEnum.NTS
+    for _ in range(3):
+        _pool(db_session, T, "Selected")
+    _pool(db_session, T, "Selected", active=False)
+    _pool(db_session, T, "Joined")
+    _pool(db_session, T, "Waiting List")
+    _pool(db_session, T, "Rejected")
+    _pool(db_session, T, "Something else")
+    _pool(db_session, N, "Selected")
+    _pool(db_session, N, "Waiting List")
+    _pool(db_session, N, "Waiting List")
+    _pool(db_session, N, "Rejected", active=False)
+    db_session.commit()
+
+    body = _get(client, admin)
+    assert body["talent_pool_outcomes"] == {
+        "teaching": {"selected": 3, "joined": 1, "waiting_list": 1, "rejected": 1, "total": 7},
+        "non_teaching": {"selected": 1, "joined": 0, "waiting_list": 2, "rejected": 0, "total": 3},
+    }
+
+
+def test_talent_pool_extras_none_for_non_sheet_reader(client, db_session, published_vacancy_factory):
+    vacancy = published_vacancy_factory(campus_code="SSE", slot_count=1)
+    _pool(db_session, TalentPoolSourceTabEnum.NTS, "Waiting List")
+    db_session.commit()
+    body = _get(client, vacancy.hod)
+    assert body["sheet_visible"] is False
+    assert body["talent_pool_outcomes"] is None
+    assert body["talent_pool_waiting_preview"] is None
+
+
+def test_waiting_preview_orders_by_row_number_and_caps_at_three(client, db_session, user_factory, campus_factory):
+    campus_factory("SSE")
+    admin = user_factory(UserRoleEnum.HR_ADMIN, campus_code="SSE")
+    T, N = TalentPoolSourceTabEnum.TEACHING_FINAL, TalentPoolSourceTabEnum.NTS
+    for number in (9, 4, None, 7, 2):
+        entry = _pool(db_session, T, "Waiting List")
+        entry.sheet_row_number = number
+        entry.full_name = f"T{number}"
+        entry.dept_raw = "CSE"
+    skipped = _pool(db_session, T, "Waiting List", active=False)
+    skipped.sheet_row_number = 1
+    other_status = _pool(db_session, T, "Selected")
+    other_status.sheet_row_number = 1
+    nts = _pool(db_session, N, "Waiting List")
+    nts.sheet_row_number = 5
+    nts.full_name = "N5"
+    nts.applied_post = "Clerk"
+    db_session.commit()
+
+    preview = _get(client, admin)["talent_pool_waiting_preview"]
+    assert [r["full_name"] for r in preview["teaching"]] == ["T2", "T4", "T7"]
+    assert preview["teaching"][0]["dept_raw"] == "CSE"
+    assert preview["teaching"][0]["applied_post"] is None
+    assert [r["full_name"] for r in preview["non_teaching"]] == ["N5"]
+    assert preview["non_teaching"][0]["applied_post"] == "Clerk"
+    assert set(preview["teaching"][0]) == {"id", "full_name", "dept_raw", "applied_post"}
+
+
+def test_campus_code_does_not_change_talent_pool_extras(client, db_session, user_factory, campus_factory):
+    campus_factory("SSE")
+    admin = user_factory(UserRoleEnum.HR_ADMIN, campus_code="SSE")
+    _pool(db_session, TalentPoolSourceTabEnum.TEACHING_FINAL, "Waiting List")
+    _pool(db_session, TalentPoolSourceTabEnum.NTS, "Joined")
+    db_session.commit()
+    everywhere = _get(client, admin)
+    narrowed = _get(client, admin, campus_code="SSE")
+    assert narrowed["talent_pool_outcomes"] == everywhere["talent_pool_outcomes"]
+    assert narrowed["talent_pool_outcomes"]["teaching"]["waiting_list"] == 1
+    assert narrowed["talent_pool_waiting_preview"] == everywhere["talent_pool_waiting_preview"]

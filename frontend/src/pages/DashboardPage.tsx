@@ -17,7 +17,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { getDashboardKpis, getDashboardPipelineExtras, getDashboardStrengthTable } from "@/api/dashboard";
-import { listDepartments } from "@/api/departments";
+import { listDepartmentsWithCounts } from "@/api/departments";
 import { listDesignations } from "@/api/designations";
 import { listLocations } from "@/api/locations";
 import { downloadAdBriefingExport } from "@/api/reports";
@@ -35,7 +35,7 @@ import { listVacancyRequests } from "@/api/vacancyRequests";
 import { useAuth } from "@/auth/AuthContext";
 import { useCampus } from "@/campus/CampusContext";
 import { CampusHiringChart } from "@/components/dashboard/CampusHiringChart";
-import { CandidateOutcomes } from "@/components/dashboard/CandidateOutcomes";
+import { CandidateOutcomes, type CandidateOutcomeCounts, type OutcomeRow } from "@/components/dashboard/CandidateOutcomes";
 import { CategoryBarChart } from "@/components/dashboard/CategoryBarChart";
 import { CategorySummaryCard } from "@/components/dashboard/CategorySummaryCard";
 import { DateRangeControl, type DateRangeValue } from "@/components/dashboard/DateRangeControl";
@@ -336,13 +336,27 @@ export function DashboardPage() {
   // to Housekeeping; locations are relabelled and ordered by the shared
   // helper (see lib/locationDisplay) rather than printing `.name`, which
   // repeats across floors.
-  const { data: departmentOptions } = useQuery({ queryKey: ["departments"], queryFn: listDepartments });
+  // Narrowed by the category tab like designations: the backend matches on
+  // Department.supported_categories, so a department supporting both
+  // categories appears under both tabs.
+  const { data: departmentOptions } = useQuery({
+    queryKey: ["departments", roleCategoryParam ?? "ALL"],
+    queryFn: async () =>
+      (await listDepartmentsWithCounts({ category: roleCategoryParam ?? null, limit: 200 })).items,
+  });
   const { data: designationOptions } = useQuery({
     queryKey: ["designations", roleCategoryParam ?? "ALL"],
     queryFn: () => listDesignations(roleCategoryParam ? { category: roleCategoryParam } : {}),
   });
   const { data: locationOptions } = useQuery({ queryKey: ["locations"], queryFn: listLocations });
   const sortedLocationOptions = [...(locationOptions ?? [])].sort(compareLocationsForDisplay);
+
+  // A department picked under one tab may not exist under the next; a stale
+  // id would silently filter every tile to nothing.
+  function handleCategoryTabChange(tab: CategoryTabValue) {
+    setCategoryTab(tab);
+    setDepartmentId("");
+  }
 
   const hasActiveDrilldown = Boolean(departmentId || designationId || locationId || recruitmentStatus);
   function clearDrilldownFilters() {
@@ -399,11 +413,45 @@ export function DashboardPage() {
     enabled: canViewDashboard,
   });
 
+  // Candidate outcomes rows (2026-11-09): one fixed-category /kpis query per
+  // row, carrying every filter the main query carries (category aside) so the
+  // rows narrow with the page. Same key shape as the main query, so the one
+  // matching the active tab shares its cache entry.
+  const outcomeKpis = (category: StaffRoleCategory) => ({
+    queryKey: [
+      "dashboard-kpis",
+      selectedCampusCode,
+      dateRange.startDate,
+      dateRange.endDate,
+      category,
+      departmentId,
+      designationId,
+      locationId,
+    ],
+    queryFn: () => getDashboardKpis(selectedCampusCode, dateRange, category, drilldownFilters),
+    enabled: canViewDashboard,
+  });
+  const teachingOutcomes = useQuery(outcomeKpis("TEACHING"));
+  const nonTeachingOutcomes = useQuery(outcomeKpis("NON_TEACHING"));
+  const housekeepingOutcomes = useQuery(outcomeKpis("HOUSEKEEPING"));
+
+  // Sheet (Talent Pool) outcomes: Final = Teaching, NTS = Non-teaching, kept
+  // apart everywhere and never summed. Null when this role cannot see sheet
+  // data, or while the query is still loading -- app numbers only then.
+  const sheetOutcomes = pipelineExtras.data?.talent_pool_outcomes ?? null;
+
   const categoryBreakdown = data?.category_wise_breakdown ?? EMPTY_CATEGORY_BREAKDOWN;
+  // Teaching/Non-teaching tabs count app + that category's own sheet tab;
+  // "All" stays the app number only (adding the two sheets to it would put
+  // Final and NTS into one figure) and Housekeeping has no sheet.
   const categoryTabCounts = {
     all: categoryBreakdown.reduce((sum, row) => sum + row.applications, 0),
-    teaching: categoryBreakdown.find((row) => row.role_category === "TEACHING")?.applications ?? 0,
-    nonTeaching: categoryBreakdown.find((row) => row.role_category === "NON_TEACHING")?.applications ?? 0,
+    teaching:
+      (categoryBreakdown.find((row) => row.role_category === "TEACHING")?.applications ?? 0) +
+      (sheetOutcomes?.teaching.total ?? 0),
+    nonTeaching:
+      (categoryBreakdown.find((row) => row.role_category === "NON_TEACHING")?.applications ?? 0) +
+      (sheetOutcomes?.non_teaching.total ?? 0),
     housekeeping: categoryBreakdown.find((row) => row.role_category === "HOUSEKEEPING")?.applications ?? 0,
   };
   const categoryBreakdownIsEmpty = categoryBreakdown.every(
@@ -525,6 +573,48 @@ export function DashboardPage() {
   ).length;
   const funnel = data?.application_pipeline_funnel ?? [];
   const funnelStageCount = (stageName: string) => funnel.find((row) => row.stage === stageName)?.count ?? 0;
+  const outcomeCounts = (kpis: DashboardKpis | undefined): CandidateOutcomeCounts => ({
+    selected: kpis?.application_pipeline_funnel.find((row) => row.stage === "Selected")?.count ?? 0,
+    joined: kpis?.application_pipeline_funnel.find((row) => row.stage === "Joined")?.count ?? 0,
+    waitlisted: kpis?.waitlisted_count ?? 0,
+    rejected: kpis?.rejected_count ?? 0,
+    withdrawn: kpis?.withdrawn_count ?? 0,
+  });
+  const housekeepingCounts = outcomeCounts(housekeepingOutcomes.data);
+  const outcomeRows: OutcomeRow[] = [
+    {
+      key: "teaching",
+      label: sheetOutcomes ? "Teaching (Final tab)" : "Teaching",
+      app: outcomeCounts(teachingOutcomes.data),
+      sheet: sheetOutcomes?.teaching ?? null,
+    },
+    {
+      key: "non_teaching",
+      label: sheetOutcomes ? "Non-teaching (NTS tab)" : "Non-teaching",
+      app: outcomeCounts(nonTeachingOutcomes.data),
+      sheet: sheetOutcomes?.non_teaching ?? null,
+    },
+    // The sheets have no housekeeping, so this row exists only for app numbers.
+    ...(Object.values(housekeepingCounts).some((n) => n > 0)
+      ? [{ key: "housekeeping", label: "Housekeeping", app: housekeepingCounts, sheet: null }]
+      : []),
+  ];
+  // Total applications tile: on Teaching / Non-teaching it is app + that
+  // category's sheet tab; on All it stays the app number with the two sheets
+  // shown beside it, separate.
+  const totalApplicationsSubLine = (() => {
+    if (!sheetOutcomes || !data) return undefined;
+    if (categoryTab === "TEACHING") return `sheet ${sheetOutcomes.teaching.total} · app ${data.total_applications}`;
+    if (categoryTab === "NON_TEACHING") return `sheet ${sheetOutcomes.non_teaching.total} · app ${data.total_applications}`;
+    if (categoryTab === "ALL") return `Teaching sheet ${sheetOutcomes.teaching.total} · NTS sheet ${sheetOutcomes.non_teaching.total}`;
+    return undefined;
+  })();
+  const totalApplicationsSheet =
+    categoryTab === "TEACHING"
+      ? (sheetOutcomes?.teaching.total ?? 0)
+      : categoryTab === "NON_TEACHING"
+        ? (sheetOutcomes?.non_teaching.total ?? 0)
+        : 0;
   const recruitmentPipelineData = [
     { label: "Requested", value: requestedCount },
     { label: "Approved", value: approvedCumulativeCount },
@@ -585,25 +675,29 @@ export function DashboardPage() {
       {/* Header (2026-10-29, approved mock-up): title left, category tabs
           right; the date range, export and drill-down filters share one
           toolbar row beneath it. */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-[28px] leading-tight font-extrabold tracking-tight">Executive Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Recruitment and workforce overview</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{isLoading ? "Loading…" : data?.scope_note}</p>
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 xl:flex-nowrap">
+        <div className="min-w-0">
+          {/* `!`: index.css's global h1 rule is unlayered, so it beats a plain utility. */}
+          <h1 className="font-display text-xl! leading-tight font-extrabold tracking-tight">Executive Dashboard</h1>
+          <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+            <p>Recruitment and workforce overview</p>
+            <p>{isLoading ? "Loading…" : data?.scope_note}</p>
+            <p>The tabs scope the tiles below; the category-wise split always shows all 3 categories.</p>
+          </div>
         </div>
-        <CategoryTabs value={categoryTab} onValueChange={setCategoryTab} counts={categoryTabCounts} variant="segmented" />
+        <div className="shrink-0">
+          <CategoryTabs value={categoryTab} onValueChange={handleCategoryTabChange} counts={categoryTabCounts} variant="segmented" />
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <DateRangeControl value={dateRange} onChange={setDateRange} />
-        <Button variant="outline" size="sm" disabled={isExporting} onClick={() => void handleExport()}>
-          {isExporting ? "Exporting…" : "Export briefing"}
-        </Button>
-        <p className="text-xs text-muted-foreground">
-          The tabs scope the tiles below; the category-wise split always shows all 3 categories.
-        </p>
-      </div>
-      {exportError ? <p className="text-sm text-destructive">{exportError}</p> : null}
-
+      {/* Date range, export and the drill-down filters share ONE line at
+          laptop width (2026-11-09). */}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex items-center gap-2">
+          <DateRangeControl value={dateRange} onChange={setDateRange} />
+          <Button variant="outline" size="sm" disabled={isExporting} onClick={() => void handleExport()}>
+            {isExporting ? "Exporting…" : "Export briefing"}
+          </Button>
+        </div>
       {/* Drill-down filter bar (2026-08-30). Campus comes from the app-wide
           campus switcher and Category from the tabs above, so only the three
           that have no home elsewhere live here. All of them compose: each is
@@ -611,8 +705,8 @@ export function DashboardPage() {
           and Department=CSE narrows every tile and chart together rather than
           the last one winning. */}
       <div data-testid="dashboard-filter-bar" className="flex flex-wrap items-end gap-2">
-        <div className="flex min-w-[180px] flex-col gap-1">
-          <span className="text-[11px] font-medium text-muted-foreground">Department</span>
+        <div className="flex min-w-[150px] flex-col gap-0.5">
+          <span className="sr-only">Department</span>
           <Select value={departmentId || ALL_FILTER_VALUE} onValueChange={(v) => setDepartmentId(v === ALL_FILTER_VALUE ? "" : v)}>
             <SelectTrigger aria-label="Department filter">
               <SelectValue placeholder="All departments" />
@@ -628,8 +722,8 @@ export function DashboardPage() {
           </Select>
         </div>
 
-        <div className="flex min-w-[180px] flex-col gap-1">
-          <span className="text-[11px] font-medium text-muted-foreground">Designation</span>
+        <div className="flex min-w-[150px] flex-col gap-0.5">
+          <span className="sr-only">Designation</span>
           <Select value={designationId || ALL_FILTER_VALUE} onValueChange={(v) => setDesignationId(v === ALL_FILTER_VALUE ? "" : v)}>
             <SelectTrigger aria-label="Designation filter">
               <SelectValue placeholder="All designations" />
@@ -645,8 +739,8 @@ export function DashboardPage() {
           </Select>
         </div>
 
-        <div className="flex min-w-[200px] flex-col gap-1">
-          <span className="text-[11px] font-medium text-muted-foreground">Location</span>
+        <div className="flex min-w-[160px] flex-col gap-0.5">
+          <span className="sr-only">Location</span>
           <Select value={locationId || ALL_FILTER_VALUE} onValueChange={(v) => setLocationId(v === ALL_FILTER_VALUE ? "" : v)}>
             <SelectTrigger aria-label="Location filter">
               <SelectValue placeholder="All locations" />
@@ -662,8 +756,8 @@ export function DashboardPage() {
           </Select>
         </div>
 
-        <div className="flex min-w-[200px] flex-col gap-1">
-          <span className="text-[11px] font-medium text-muted-foreground">Recruitment Status</span>
+        <div className="flex min-w-[160px] flex-col gap-0.5">
+          <span className="sr-only">Recruitment Status</span>
           <Select
             value={recruitmentStatus || ALL_FILTER_VALUE}
             onValueChange={(v) => setRecruitmentStatus(v === ALL_FILTER_VALUE ? "" : v)}
@@ -688,13 +782,16 @@ export function DashboardPage() {
           </Button>
         ) : null}
       </div>
+      </div>
+      {exportError ? <p className="text-sm text-destructive">{exportError}</p> : null}
 
       {/* Primary KPI row -- exactly 6 tiles, "Vacancies" is this page's one
           hero tile (see StatTile's `hero` prop). Pending requests/approvals
           are composed from the /vacancy-requests list (see above), not this
           page's own /dashboard/kpis response. */}
-      <div data-testid="primary-kpi-grid" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      <div data-testid="primary-kpi-grid" className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         <StatTile
+          size="compact"
           label="Total Sanctioned"
           value={isLoading ? undefined : data?.sanctioned_approved_total}
           isLoading={isLoading}
@@ -705,6 +802,7 @@ export function DashboardPage() {
           to="/sanctioned-strength"
         />
         <StatTile
+          size="compact"
           label="Working"
           value={isLoading ? undefined : data?.sanctioned_working_total}
           isLoading={isLoading}
@@ -715,6 +813,7 @@ export function DashboardPage() {
           to="/sanctioned-strength"
         />
         <StatTile
+          size="compact"
           label="Vacancies"
           value={vacancyValue}
           isLoading={isLoading}
@@ -726,6 +825,7 @@ export function DashboardPage() {
           hero
         />
         <StatTile
+          size="compact"
           label="Recruitment Required"
           value={isLoading ? undefined : data?.recruitment_required_count}
           isLoading={isLoading}
@@ -739,6 +839,7 @@ export function DashboardPage() {
           hero
         />
         <StatTile
+          size="compact"
           label="Pending Requests"
           value={isLoading ? undefined : pendingRequestsCount}
           isLoading={isLoading}
@@ -749,6 +850,7 @@ export function DashboardPage() {
           to="/vacancy-requests?status=SUBMITTED"
         />
         <StatTile
+          size="compact"
           label="Pending Approvals"
           value={isLoading ? undefined : pendingApprovalsCount}
           isLoading={isLoading}
@@ -766,11 +868,16 @@ export function DashboardPage() {
           after the primary grid, never inside "More analytics": these are
           numbers management reads, and e2e/dashboard.spec.ts checks each
           one against /dashboard/kpis by that sibling position. */}
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-9">
         {SECONDARY_KPI_CARDS.map(({ key, label, accent, icon, iconColor, tooltip, zeroCaption }) => {
-          const value = isLoading ? undefined : (data?.[key] as number | string | null | undefined);
+          const isTotalApplications = key === "total_applications";
+          const value = isLoading
+            ? undefined
+            : isTotalApplications && data
+              ? data.total_applications + totalApplicationsSheet
+              : (data?.[key] as number | string | null | undefined);
           return (
-            <div key={key} className="w-[calc(50%-0.25rem)] sm:w-[152px]">
+            <div key={key} className={cn("min-w-0", isTotalApplications && "xl:col-span-2")}>
               <StatTile
                 label={TODAY_SCOPED_KEYS.includes(key) ? todayScopedLabel(label, dateRange) : label}
                 value={value}
@@ -779,6 +886,7 @@ export function DashboardPage() {
                 icon={icon}
                 iconColor={iconColor}
                 zeroCaption={zeroCaption}
+                subLine={isTotalApplications ? totalApplicationsSubLine : undefined}
                 tooltip={tooltip}
                 size="compact"
               />
@@ -790,18 +898,17 @@ export function DashboardPage() {
       {/* Key-screens redesign (2026-10-29, approved mock-up): the candidate
           sections sit directly under the headline numbers; every older card
           follows unchanged under "More analytics". Nothing was removed. */}
-      <CandidateOutcomes
-        isLoading={isLoading}
-        counts={{
-          selected: funnelStageCount("Selected"),
-          joined: funnelStageCount("Joined"),
-          waitlisted: data?.waitlisted_count ?? 0,
-          rejected: data?.rejected_count ?? 0,
-          withdrawn: data?.withdrawn_count ?? 0,
-        }}
-      />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <WaitingListPreview canPromote={canPromote} />
+      <CandidateOutcomes isLoading={isLoading} rows={outcomeRows} />
+      {/* Above the fold at 1440x790 (2026-11-09, measured): the joining
+          pipeline as one full-width row; the waiting list, Rejected by reason
+          and Recent activity follow just below, then More analytics. */}
+      <JoiningPipelineTiles data={pipelineExtras.data} isLoading={pipelineExtras.isLoading} />
+      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
+        <WaitingListPreview
+          canPromote={canPromote}
+          sheetPreview={pipelineExtras.data?.talent_pool_waiting_preview}
+          sheetOutcomes={sheetOutcomes}
+        />
         <Card>
           <CardHeader className="p-5 pb-2">
             <CardTitle className="font-display text-base">Rejected by reason</CardTitle>
@@ -816,33 +923,32 @@ export function DashboardPage() {
             )}
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 p-5 pb-2">
+            <CardTitle className="font-display text-base">Recent activity</CardTitle>
+            {/* Anchors to the full "Recent joins"/"Recent resignations" tables
+                inside More analytics below, opening it first -- 2 of this
+                feed's 4 event types (vacancy requested/approved have no
+                full-detail table here; see RecentActivityFeed's doc comment). */}
+            <Button variant="outline" size="sm" asChild>
+              <a href="#recent-joins" onClick={() => setShowMoreAnalytics(true)}>
+                View All
+              </a>
+            </Button>
+          </CardHeader>
+          <CardContent className="p-5 pt-1">
+            <RecentActivityFeed
+              joins={recentJoins}
+              resignations={recentResignations}
+              vacancyRequested={vacancyRequestedActivity}
+              vacancyApproved={vacancyApprovedActivity}
+              isLoading={isLoading || isVacancyRequestsLoading}
+            />
+          </CardContent>
+        </Card>
+
       </div>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 p-5 pb-2">
-          <CardTitle className="font-display text-base">Recent activity</CardTitle>
-          {/* Anchors to the full "Recent joins"/"Recent resignations" tables
-              inside More analytics below, opening it first -- 2 of this
-              feed's 4 event types (vacancy requested/approved have no
-              full-detail table here; see RecentActivityFeed's doc comment). */}
-          <Button variant="outline" size="sm" asChild>
-            <a href="#recent-joins" onClick={() => setShowMoreAnalytics(true)}>
-              View All
-            </a>
-          </Button>
-        </CardHeader>
-        <CardContent className="p-5 pt-1">
-          <RecentActivityFeed
-            joins={recentJoins}
-            resignations={recentResignations}
-            vacancyRequested={vacancyRequestedActivity}
-            vacancyApproved={vacancyApprovedActivity}
-            isLoading={isLoading || isVacancyRequestsLoading}
-          />
-        </CardContent>
-      </Card>
-
-      <JoiningPipelineTiles data={pipelineExtras.data} isLoading={pipelineExtras.isLoading} />
 
       <details
         open={showMoreAnalytics}

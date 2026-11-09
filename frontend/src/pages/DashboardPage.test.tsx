@@ -45,7 +45,7 @@ vi.mock("@/api/locations");
 
 const mockedGetDashboardKpis = vi.mocked(dashboardApi.getDashboardKpis);
 const mockedGetStrengthTable = vi.mocked(dashboardApi.getDashboardStrengthTable);
-const mockedListDepartments = vi.mocked(departmentsApi.listDepartments);
+const mockedListDepartments = vi.mocked(departmentsApi.listDepartmentsWithCounts);
 const mockedListDesignations = vi.mocked(designationsApi.listDesignations);
 const mockedListLocations = vi.mocked(locationsApi.listLocations);
 const mockedListVacancyRequests = vi.mocked(vacancyRequestsApi.listVacancyRequests);
@@ -248,7 +248,7 @@ beforeEach(() => {
   // Filter-bar option lists -- cast loosely because these tests only need the
   // handful of fields the pickers render, not the full master-data shapes.
   mockedGetStrengthTable.mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
-  mockedListDepartments.mockResolvedValue([FILTER_DEPARTMENT] as never);
+  mockedListDepartments.mockResolvedValue({ items: [FILTER_DEPARTMENT] } as never);
   mockedListDesignations.mockResolvedValue([FILTER_DESIGNATION] as never);
   mockedListLocations.mockResolvedValue([FILTER_LOCATION] as never);
   // Default for every test that doesn't explicitly mock the Pending
@@ -397,7 +397,10 @@ describe("DashboardPage", () => {
     // A rejection with no reason from the list is "Not recorded", not dropped.
     expect(within(byReasonChart).getByText("Not eligible")).toBeInTheDocument();
     expect(within(byReasonChart).getByText("Not recorded")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Waiting list/ })).toHaveAttribute("href", "/rejected-waiting-list");
+    // One Waiting list tile per Candidate outcomes row, each with the link.
+    const waitingLinks = screen.getAllByRole("link", { name: /Waiting list/ });
+    expect(waitingLinks.length).toBeGreaterThanOrEqual(2);
+    waitingLinks.forEach((link) => expect(link).toHaveAttribute("href", "/rejected-waiting-list"));
   });
 
   it("shows live application counts on the category tab labels, sourced from category_wise_breakdown", async () => {
@@ -971,6 +974,8 @@ describe("DashboardPage", () => {
         { stage: "HOD review complete", count: 3 },
         { stage: "Permanent order issued", count: 2 },
       ],
+      talent_pool_outcomes: null,
+      talent_pool_waiting_preview: null,
     };
 
     it("renders the row after the secondary strip, leaving the primary grid's sibling unchanged", async () => {
@@ -979,8 +984,8 @@ describe("DashboardPage", () => {
       renderWithProviders();
 
       const row = await screen.findByTestId("joining-pipeline-tiles");
-      expect(await within(row).findByText("216")).toBeInTheDocument();
-      expect(within(row).getByText("Final 180 · NTS 36 · app 0")).toBeInTheDocument();
+      expect(await within(row).findByText("Final sheet 180 · app 0")).toBeInTheDocument();
+      expect(within(row).getByText("NTS sheet 36 · app 0")).toBeInTheDocument();
       // e2e/dashboard.spec.ts reads the primary grid's next sibling as the
       // secondary strip -- the new row must not be that sibling.
       const primary = screen.getByTestId("primary-kpi-grid");
@@ -1019,6 +1024,108 @@ describe("DashboardPage", () => {
       ]);
       // The existing Joined bar keeps its own count.
       expect(within(chart).getByText("17")).toBeInTheDocument();
+    });
+  });
+
+  it("requests only the selected category's departments for the Department filter", async () => {
+    const user = userEvent.setup();
+    mockKpis();
+    mockedListDepartments.mockResolvedValue({ items: [FILTER_DEPARTMENT] } as never);
+    renderWithProviders();
+
+    await waitFor(() => expect(mockedListDepartments).toHaveBeenCalledWith({ category: null, limit: 200 }));
+    await user.click(await screen.findByRole("tab", { name: "Teaching (12)" }));
+    await waitFor(() => expect(mockedListDepartments).toHaveBeenCalledWith({ category: "TEACHING", limit: 200 }));
+  });
+
+  describe("Talent Pool sheet numbers in Candidate outcomes and the totals", () => {
+    const SHEET_EXTRAS: DashboardPipelineExtras = {
+      scope_note: "",
+      sheet_visible: true,
+      sheet_ignores_campus: true,
+      month: "2026-10",
+      today: "2026-10-31",
+      waitlisted: { total: 216, applications: 0, talent_pool_final: 180, talent_pool_nts: 36 },
+      sent_to_university: { total: 0, batches: 0, members: 0 },
+      provisional_orders_this_month: { total: 0, order_register: 0, appointment_orders: 0 },
+      awaiting_hod_review: { total: 0, applications: 0, sheet_overdue: 0 },
+      awaiting_permanent_order: { total: 0, applications: 0 },
+      pipeline_extension: [],
+      talent_pool_outcomes: {
+        teaching: { selected: 10, joined: 20, waiting_list: 180, rejected: 40, total: 100 },
+        non_teaching: { selected: 1, joined: 2, waiting_list: 36, rejected: 4, total: 50 },
+      },
+      talent_pool_waiting_preview: {
+        teaching: [{ id: "t1", full_name: "Tara Teaching", dept_raw: "ECE", applied_post: "Professor" }],
+        non_teaching: [{ id: "n1", full_name: "Nila Nts", dept_raw: null, applied_post: "Lab Assistant" }],
+      },
+    };
+
+    function totalApplicationsTile(): HTMLElement {
+      const strip = screen.getByTestId("primary-kpi-grid").nextElementSibling as HTMLElement;
+      return within(strip).getByText("Total applications").closest(".rounded-xl") as HTMLElement;
+    }
+
+    it("splits Candidate outcomes into a Teaching (Final) and a Non-teaching (NTS) row, each sheet + app", async () => {
+      mockKpis();
+      vi.mocked(dashboardApi.getDashboardPipelineExtras).mockResolvedValue(SHEET_EXTRAS);
+      renderWithProviders();
+
+      const teaching = await screen.findByRole("region", { name: "Teaching (Final tab)" });
+      expect(within(teaching).getByText(/^sheet 40 · app 4$/)).toBeInTheDocument();
+      const nts = screen.getByRole("region", { name: "Non-teaching (NTS tab)" });
+      expect(within(nts).getByText(/^sheet 4 · app 4$/)).toBeInTheDocument();
+      expect(screen.getAllByText(/not narrowed by the campus switcher/)).toHaveLength(1);
+      // The sheet waiting groups also appear in the waiting list card.
+      expect(screen.getByRole("group", { name: "Teaching (Final tab)" })).toBeInTheDocument();
+      // Fixed-category queries carry the page's other filters.
+      expect(mockedGetDashboardKpis).toHaveBeenCalledWith(null, expect.anything(), "TEACHING", {
+        departmentId: null,
+        designationId: null,
+        locationId: null,
+      });
+    });
+
+    it("adds each sheet tab to its own category tab, leaves All and Housekeeping as app numbers", async () => {
+      mockKpis();
+      vi.mocked(dashboardApi.getDashboardPipelineExtras).mockResolvedValue(SHEET_EXTRAS);
+      renderWithProviders();
+
+      expect(await screen.findByRole("tab", { name: "Teaching (112)" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Non-Teaching (70)" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Housekeeping (5)" })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "All (37)" })).toBeInTheDocument();
+    });
+
+    it("keeps Total applications as the app number on All, with the two sheets beside it, then sums on a category tab", async () => {
+      const user = userEvent.setup();
+      mockKpis();
+      vi.mocked(dashboardApi.getDashboardPipelineExtras).mockResolvedValue(SHEET_EXTRAS);
+      renderWithProviders();
+
+      await waitFor(() => expect(within(totalApplicationsTile()).getByText("42")).toBeInTheDocument());
+      expect(within(totalApplicationsTile()).getByText("Teaching sheet 100 · NTS sheet 50")).toBeInTheDocument();
+
+      await user.click(await screen.findByRole("tab", { name: "Teaching (112)" }));
+      await waitFor(() => expect(within(totalApplicationsTile()).getByText("112")).toBeInTheDocument());
+      expect(within(totalApplicationsTile()).getByText("sheet 100 · app 12")).toBeInTheDocument();
+    });
+
+    it("shows app numbers only, with no split line or note, when the role cannot see sheet data", async () => {
+      mockKpis();
+      vi.mocked(dashboardApi.getDashboardPipelineExtras).mockResolvedValue({
+        ...SHEET_EXTRAS,
+        sheet_visible: false,
+        talent_pool_outcomes: null,
+        talent_pool_waiting_preview: null,
+      });
+      renderWithProviders();
+
+      expect(await screen.findByRole("tab", { name: "Teaching (12)" })).toBeInTheDocument();
+      expect(screen.getByRole("region", { name: "Teaching" })).toBeInTheDocument();
+      expect(screen.queryByText(/not narrowed by the campus switcher/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/sheet \d/)).not.toBeInTheDocument();
+      expect(within(totalApplicationsTile()).queryByText(/sheet/)).not.toBeInTheDocument();
     });
   });
 });

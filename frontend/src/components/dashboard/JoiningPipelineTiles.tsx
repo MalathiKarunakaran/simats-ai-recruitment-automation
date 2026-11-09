@@ -12,7 +12,12 @@ import { StatTile } from "@/components/dashboard/StatTile";
  * count only, the Sent to University tile is not drawn, and tiles do not
  * link to pages that role cannot open. */
 
-const SHEET_CAMPUS_NOTE = "Talent Pool and sheet provisional orders have no campus, so the campus switcher does not narrow them.";
+export const SHEET_CAMPUS_NOTE = "Talent Pool and sheet provisional orders have no campus, so the campus switcher does not narrow them.";
+/** Under the Candidate outcomes card: the sheet part of a number ignores more
+ * than the campus switcher, because sheet rows also carry no date, department,
+ * designation or location. */
+export const SHEET_FILTER_NOTE =
+  "Sheet numbers are not narrowed by the campus switcher, the date range, or the department, designation and location filters.";
 
 function monthLabel(month: string): string {
   const [year, m] = month.split("-").map(Number);
@@ -28,24 +33,39 @@ export function JoiningPipelineTiles({ data, isLoading }: { data: DashboardPipel
   const p = data?.provisional_orders_this_month;
   const h = data?.awaiting_hod_review;
   const a = data?.awaiting_permanent_order;
+  // Teaching (Final tab) and Non-teaching (NTS tab) are never added together.
+  const appWaiting = (category: string) => w?.applications_by_category?.[category] ?? 0;
+  const waitlistedTiles = [
+    { label: "Waitlisted (Teaching)", tab: "", category: "TEACHING", sheetCount: sheet ? (w?.talent_pool_final ?? null) : null, sheetName: "Final" },
+    { label: "Waitlisted (Non-teaching)", tab: "&tab=nts", category: "NON_TEACHING", sheetCount: sheet ? (w?.talent_pool_nts ?? null) : null, sheetName: "NTS" },
+    // The sheets have no Housekeeping tab: shown only when the app has someone waiting.
+    ...(appWaiting("HOUSEKEEPING") > 0
+      ? [{ label: "Waitlisted (Housekeeping)", tab: "", category: "HOUSEKEEPING", sheetCount: null, sheetName: "" }]
+      : []),
+  ];
 
   return (
     <section aria-labelledby="joining-pipeline-heading" data-testid="joining-pipeline-tiles">
-      <h2 id="joining-pipeline-heading" className="mb-2 font-display text-sm font-semibold text-foreground">
+      <h2 id="joining-pipeline-heading" className="mb-1.5 font-display text-sm font-semibold text-foreground">
         Joining pipeline
       </h2>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-        <StatTile
-          label="Waitlisted"
-          value={value(w?.total)}
-          isLoading={isLoading}
-          accent="orange"
-          subLine={w ? (sheet ? `Final ${w.talent_pool_final} · NTS ${w.talent_pool_nts} · app ${w.applications}` : `app ${w.applications}`) : undefined}
-          tooltip={`Applications in WAITLISTED${sheet ? ` plus active Talent Pool entries marked "Waiting List" on both tabs. ${SHEET_CAMPUS_NOTE}` : "."}`}
-          to={sheet ? "/talent-pool?status=Waiting%20List#register" : undefined}
-        />
+      <div className="grid grid-cols-2 gap-2 xl:grid-cols-6">
+        {waitlistedTiles.map(({ label, tab, category, sheetCount, sheetName }) => (
+          <StatTile
+            key={category}
+            size="compact"
+            label={label}
+            value={value(w ? appWaiting(category) + (sheetCount ?? 0) : undefined)}
+            isLoading={isLoading}
+            accent="orange"
+            subLine={w ? (sheetCount !== null ? `${sheetName} sheet ${sheetCount} · app ${appWaiting(category)}` : `app ${appWaiting(category)}`) : undefined}
+            tooltip={`Applications in WAITLISTED for this category${sheet ? ` plus active Talent Pool entries marked "Waiting List" on the ${sheetName} tab. ${SHEET_CAMPUS_NOTE}` : "."}`}
+            to={sheet ? `/talent-pool?status=Waiting%20List${tab}#register` : undefined}
+          />
+        ))}
         {sheet || isLoading ? (
           <StatTile
+            size="compact"
             label="Sent to University (pending)"
             value={value(s?.total)}
             isLoading={isLoading}
@@ -56,6 +76,7 @@ export function JoiningPipelineTiles({ data, isLoading }: { data: DashboardPipel
           />
         ) : null}
         <StatTile
+          size="compact"
           label="Provisional orders issued (this month)"
           value={value(p?.total)}
           isLoading={isLoading}
@@ -69,6 +90,7 @@ export function JoiningPipelineTiles({ data, isLoading }: { data: DashboardPipel
           to={sheet ? "/provisional-orders" : undefined}
         />
         <StatTile
+          size="compact"
           label="Awaiting HOD review"
           value={value(h?.total)}
           isLoading={isLoading}
@@ -78,6 +100,7 @@ export function JoiningPipelineTiles({ data, isLoading }: { data: DashboardPipel
           to={sheet ? `/provisional-orders?probation=overdue#${LIST_ID}` : undefined}
         />
         <StatTile
+          size="compact"
           label="Awaiting permanent order"
           value={value(a?.total)}
           isLoading={isLoading}

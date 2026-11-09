@@ -62,6 +62,21 @@ export async function getDashboardStrengthTable(
  * "Joining pipeline" tiles and the pipeline chart's trailing bars. A part is
  * null when the caller's role cannot read that sheet source (Talent Pool,
  * sheet orders/register, selection batches); totals then leave it out. */
+export interface TalentPoolOutcomeCounts {
+  selected: number;
+  joined: number;
+  waiting_list: number;
+  rejected: number;
+  total: number;
+}
+
+export interface TalentPoolWaitingPreviewRow {
+  id: string;
+  full_name: string;
+  dept_raw: string | null;
+  applied_post: string | null;
+}
+
 export interface DashboardPipelineExtras {
   scope_note: string;
   sheet_visible: boolean;
@@ -74,6 +89,8 @@ export interface DashboardPipelineExtras {
   waitlisted: {
     total: number;
     applications: number;
+    /** TEACHING / NON_TEACHING / HOUSEKEEPING -> count; absent means none. */
+    applications_by_category?: Record<string, number>;
     talent_pool_final: number | null;
     talent_pool_nts: number | null;
   };
@@ -82,6 +99,14 @@ export interface DashboardPipelineExtras {
   awaiting_hod_review: { total: number; applications: number; sheet_overdue: number | null };
   awaiting_permanent_order: { total: number; applications: number };
   pipeline_extension: PipelineFunnelStage[];
+  /** Sheet outcomes per tab (Final = Teaching, NTS = Non-teaching), never
+   * added together. Sheet rows have no campus, department or date. Null when
+   * the caller may not see sheet data. */
+  talent_pool_outcomes: { teaching: TalentPoolOutcomeCounts; non_teaching: TalentPoolOutcomeCounts } | null;
+  talent_pool_waiting_preview: {
+    teaching: TalentPoolWaitingPreviewRow[];
+    non_teaching: TalentPoolWaitingPreviewRow[];
+  } | null;
 }
 
 export async function getDashboardPipelineExtras(campusCode?: string | null): Promise<DashboardPipelineExtras> {

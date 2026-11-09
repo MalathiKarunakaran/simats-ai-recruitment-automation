@@ -1,3 +1,4 @@
+import uuid
 from datetime import date, datetime
 from typing import Any
 
@@ -110,6 +111,8 @@ class DashboardKPIResponse(BaseModel):
 class WaitlistedTile(BaseModel):
     total: int
     applications: int
+    # TEACHING / NON_TEACHING / HOUSEKEEPING -> count; a category with none is absent.
+    applications_by_category: dict[str, int] = {}
     # None when the caller cannot read the Talent Pool (see pipeline_extras).
     talent_pool_final: int | None
     talent_pool_nts: int | None
@@ -138,6 +141,34 @@ class AwaitingPermanentOrderTile(BaseModel):
     applications: int
 
 
+class TalentPoolTabOutcomes(BaseModel):
+    """One sheet tab's active rows by exact sheet status. `total` is every
+    active row of the tab, whatever its status. Never summed across tabs."""
+
+    selected: int
+    joined: int
+    waiting_list: int
+    rejected: int
+    total: int
+
+
+class TalentPoolOutcomes(BaseModel):
+    teaching: TalentPoolTabOutcomes
+    non_teaching: TalentPoolTabOutcomes
+
+
+class WaitingPreviewRow(BaseModel):
+    id: uuid.UUID
+    full_name: str
+    dept_raw: str | None
+    applied_post: str | None
+
+
+class TalentPoolWaitingPreview(BaseModel):
+    teaching: list[WaitingPreviewRow]
+    non_teaching: list[WaitingPreviewRow]
+
+
 class DashboardPipelineExtrasResponse(BaseModel):
     """GET /dashboard/pipeline-extras -- see app/services/pipeline_extras.py.
     A separate response so DashboardKPIResponse is untouched."""
@@ -153,6 +184,9 @@ class DashboardPipelineExtrasResponse(BaseModel):
     awaiting_hod_review: AwaitingHodReviewTile
     awaiting_permanent_order: AwaitingPermanentOrderTile
     pipeline_extension: list[PipelineFunnelStage]
+    # Additive; None when the caller cannot read the Talent Pool.
+    talent_pool_outcomes: TalentPoolOutcomes | None = None
+    talent_pool_waiting_preview: TalentPoolWaitingPreview | None = None
 
 
 class DashboardStrengthTableRow(BaseModel):

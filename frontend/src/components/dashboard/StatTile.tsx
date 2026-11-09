@@ -187,7 +187,10 @@ export function StatTile({
             {subLine ? (
               <p className="mt-1 text-xs text-muted-foreground">{subLine}</p>
             ) : isZero && zeroCaption ? (
-              <p className="mt-1 text-xs text-muted-foreground">{zeroCaption}</p>
+              // One line on a compact tile, so a caption cannot make its whole row taller.
+              <p className={cn("mt-1 text-xs text-muted-foreground", isCompact && "truncate")} title={isCompact ? zeroCaption : undefined}>
+                {zeroCaption}
+              </p>
             ) : null}
           </>
         )}

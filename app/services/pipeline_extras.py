@@ -21,6 +21,12 @@ parts so the page can show the breakdown:
   `date.today()`, so the two numbers cannot disagree.
 - awaiting_permanent_order: Applications HOD_REVIEW_COMPLETE.
 
+Also (additive, sheet readers only; None otherwise): `talent_pool_outcomes`,
+active Talent Pool rows per tab by exact sheet status (Selected / Joined /
+Waiting List / Rejected) plus the tab total, and `talent_pool_waiting_preview`,
+the first three Waiting List rows per tab. Teaching (Final tab) and NTS are
+always separate and never added together.
+
 Campus: the dashboard's campus filter narrows every source that has a campus
 (applications, appointment orders, selection batches, the register's
 campus_code). Talent Pool entries and sheet provisional orders carry no
@@ -53,6 +59,9 @@ from app.services.scoping import resolve_campus_filter
 SHEET_READER_ROLES = (UserRoleEnum.SUPER_ADMIN, UserRoleEnum.HR_ADMIN, UserRoleEnum.RECRUITMENT_COORDINATOR)
 IST = timezone(timedelta(hours=5, minutes=30))
 WAITING_LIST_STATUS = "Waiting List"
+OUTCOME_STATUSES = {"Selected": "selected", "Joined": "joined", WAITING_LIST_STATUS: "waiting_list", "Rejected": "rejected"}
+WAITING_PREVIEW_LIMIT = 3
+_OUTCOME_TABS = (("teaching", TalentPoolSourceTabEnum.TEACHING_FINAL), ("non_teaching", TalentPoolSourceTabEnum.NTS))
 
 
 def india_today() -> date:
@@ -95,6 +104,15 @@ def get_pipeline_extras(
 
     # --- Waitlisted -------------------------------------------------------
     waitlisted_apps = app_count(ApplicationStatusEnum.WAITLISTED)
+    # Per category too, so the dashboard can keep Teaching and NTS apart.
+    waitlisted_stmt = (
+        select(Application.role_category, func.count())
+        .where(Application.status == ApplicationStatusEnum.WAITLISTED)
+        .group_by(Application.role_category)
+    )
+    if campus_id_filter is not None:
+        waitlisted_stmt = waitlisted_stmt.where(Application.campus_id == campus_id_filter)
+    waitlisted_by_category = {category.value: int(n) for category, n in db.execute(waitlisted_stmt).all() if category}
     pool_final = pool_nts = None
     if sheet_visible:
         rows = dict(
@@ -176,6 +194,37 @@ def get_pipeline_extras(
         {"stage": "Permanent order issued", "count": app_count(ApplicationStatusEnum.PERMANENT_ORDER_ISSUED)},
     ]
 
+    # --- Talent Pool outcomes + waiting preview (sheet readers only) ---------
+    outcomes = waiting_preview = None
+    if sheet_visible:
+        counts: dict = {}
+        for tab, status, n in db.execute(
+            select(TalentPoolEntry.source_tab, TalentPoolEntry.sheet_status, func.count())
+            .where(TalentPoolEntry.is_active.is_(True))
+            .group_by(TalentPoolEntry.source_tab, TalentPoolEntry.sheet_status)
+        ).all():
+            counts[(tab, status)] = int(n)
+        outcomes = {}
+        waiting_preview = {}
+        for key, tab in _OUTCOME_TABS:
+            row = {field: counts.get((tab, status), 0) for status, field in OUTCOME_STATUSES.items()}
+            row["total"] = sum(n for (t, _s), n in counts.items() if t == tab)
+            outcomes[key] = row
+            entries = db.execute(
+                select(TalentPoolEntry)
+                .where(
+                    TalentPoolEntry.is_active.is_(True),
+                    TalentPoolEntry.source_tab == tab,
+                    TalentPoolEntry.sheet_status == WAITING_LIST_STATUS,
+                )
+                .order_by(TalentPoolEntry.sheet_row_number.asc().nulls_last(), TalentPoolEntry.id)
+                .limit(WAITING_PREVIEW_LIMIT)
+            ).scalars().all()
+            waiting_preview[key] = [
+                {"id": e.id, "full_name": e.full_name, "dept_raw": e.dept_raw, "applied_post": e.applied_post}
+                for e in entries
+            ]
+
     return {
         "scope_note": scope_note,
         "sheet_visible": sheet_visible,
@@ -185,6 +234,7 @@ def get_pipeline_extras(
         "waitlisted": {
             "total": _total(waitlisted_apps, pool_final, pool_nts),
             "applications": waitlisted_apps,
+            "applications_by_category": waitlisted_by_category,
             "talent_pool_final": pool_final,
             "talent_pool_nts": pool_nts,
         },
@@ -201,4 +251,6 @@ def get_pipeline_extras(
         },
         "awaiting_permanent_order": {"total": hod_complete_apps, "applications": hod_complete_apps},
         "pipeline_extension": pipeline_extension,
+        "talent_pool_outcomes": outcomes,
+        "talent_pool_waiting_preview": waiting_preview,
     }
